@@ -2,6 +2,7 @@
 # Version 1.0: Uses _PoShBackup_PSScriptRoot from GlobalConfig for theme pathing.
 #              Adds conditional flashing cursor to H1 for "RetroTerminal" theme.
 #              Log message text colour driven by CSS classes.
+# Version 1.1: Added client-side JavaScript for log filtering and searching.
 
 #region --- HTML Encode Helper Function Definition ---
 Function ConvertTo-PoshBackupSafeHtmlInternal {
@@ -106,44 +107,39 @@ function Invoke-HtmlReport {
     Write-LogMessage "`n[INFO] Generating HTML report: $reportFullPath (Theme: $reportThemeName)"
 
     # --- Load CSS Content ---
-    $mainScriptRoot = $GlobalConfig['_PoShBackup_PSScriptRoot'] # Get from GlobalConfig (set by PoSh-Backup.ps1)
+    $mainScriptRoot = $GlobalConfig['_PoShBackup_PSScriptRoot'] 
     
     $baseCssContent = ""; $themeCssContent = ""; $overrideCssVariablesStyleBlock = ""; $customUserCssContentFromFile = ""
-    $htmlMetaTags = "<meta charset=`"UTF-8`"><meta name=`"viewport`" content=`"width=device-width, initial-scale=1.0`">" # Standard meta tags
+    $htmlMetaTags = "<meta charset=`"UTF-8`"><meta name=`"viewport`" content=`"width=device-width, initial-scale=1.0`">" 
 
     if ([string]::IsNullOrWhiteSpace($mainScriptRoot) -or -not (Test-Path $mainScriptRoot -PathType Container)) {
         Write-LogMessage "[ERROR] Main script root path ('_PoShBackup_PSScriptRoot') not found or invalid in GlobalConfig. Cannot load theme CSS files from 'Config\Themes'. Report styling will be minimal." -Level ERROR -ForegroundColour $Global:ColourError
         $finalCssToInject = "<style>body{font-family:sans-serif;margin:1em;} table{border-collapse:collapse;margin-top:1em;} th,td{border:1px solid #ccc;padding:0.25em 0.5em;text-align:left;} h1,h2{color:#003366;}</style>"
     } else {
-        $configThemesDir = Join-Path -Path $mainScriptRoot -ChildPath "Config\Themes" # CSS themes are in PoSh-Backup\Config\Themes
-        
-        # 1. Load Base.css
+        $configThemesDir = Join-Path -Path $mainScriptRoot -ChildPath "Config\Themes" 
         $baseCssFilePath = Join-Path -Path $configThemesDir -ChildPath "Base.css"
         if (Test-Path -LiteralPath $baseCssFilePath -PathType Leaf) {
             try { $baseCssContent = Get-Content -LiteralPath $baseCssFilePath -Raw -ErrorAction Stop }
             catch { Write-LogMessage "[WARNING] Could not load Base.css from '$baseCssFilePath': $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning }
         } else { Write-LogMessage "[WARNING] Base.css not found at '$baseCssFilePath'. Report styling will heavily rely on theme or be minimal." -Level WARNING -ForegroundColour $Global:ColourWarning }
 
-        # 2. Load Selected Theme CSS (e.g., Light.css, Dark.css)
         if (-not [string]::IsNullOrWhiteSpace($reportThemeName)) {
             $reportThemeNameString = [string]$reportThemeName 
             $safeThemeFileNameForFile = ($reportThemeNameString -replace '[^a-zA-Z0-9]', '') + ".css" 
-            
             $themeCssFilePath = Join-Path -Path $configThemesDir -ChildPath $safeThemeFileNameForFile
             if (Test-Path -LiteralPath $themeCssFilePath -PathType Leaf) {
                 try { $themeCssContent = Get-Content -LiteralPath $themeCssFilePath -Raw -ErrorAction Stop }
                 catch { Write-LogMessage "[WARNING] Could not load theme CSS '$safeThemeFileNameForFile' from '$themeCssFilePath': $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning }
             } else { 
-                Write-LogMessage "[WARNING] Theme CSS file '$safeThemeFileNameForFile' for theme '$reportThemeName' not found at '$themeCssFilePath'. Report will use Base.css defaults unless overridden by config variables or custom CSS." -Level WARNING -ForegroundColour $Global:ColourWarning
+                Write-LogMessage "[WARNING] Theme CSS file '$safeThemeFileNameForFile' for theme '$reportThemeName' not found at '$themeCssFilePath'." -Level WARNING -ForegroundColour $Global:ColourWarning
             }
         }
         
-        # 3. Prepare CSS Variable Overrides from Configuration
         if ($cssVariableOverrides.Count -gt 0) {
             $overrideCssVariablesStyleBlock = "<style>:root {" 
             $cssVariableOverrides.GetEnumerator() | ForEach-Object {
                 $varName = ($_.Name -replace '[^a-zA-Z0-9_-]', '') 
-                $varValue = $_.Value # Assume value is safe as it comes from PSD1; could add ConvertTo-SafeHtml if concerned about injection here
+                $varValue = $_.Value 
                 if (-not $varName.StartsWith("--")) { $varName = "--" + $varName } 
                 $overrideCssVariablesStyleBlock += "$varName : $varValue ;"
             }
@@ -151,20 +147,84 @@ function Invoke-HtmlReport {
             Write-LogMessage "  - Applied $($cssVariableOverrides.Count) CSS variable overrides from configuration." -Level DEBUG
         }
         
-        # 4. Load User's Custom CSS File
         if (-not [string]::IsNullOrWhiteSpace($reportCustomCssPathUser) -and (Test-Path -LiteralPath $reportCustomCssPathUser -PathType Leaf)) {
             try {
                 $customUserCssContentFromFile = Get-Content -LiteralPath $reportCustomCssPathUser -Raw -ErrorAction Stop
                 Write-LogMessage "  - Loaded user custom CSS from '$reportCustomCssPathUser'." -Level "DEBUG"
             } catch { Write-LogMessage "[WARNING] Could not load user custom CSS from '$reportCustomCssPathUser'. Error: $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning }
         }
-        # Combine all CSS content in order
         $finalCssToInject = "<style>" + $baseCssContent + $themeCssContent + "</style>" + $overrideCssVariablesStyleBlock + "<style>" + $customUserCssContentFromFile + "</style>"
     }
     
-    $htmlHead = $htmlMetaTags + $finalCssToInject
+    # --- NEW: JavaScript for Log Filtering ---
+    $logFilterJavaScript = @"
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const keywordSearchInput = document.getElementById('logKeywordSearch');
+    const levelFilterCheckboxes = document.querySelectorAll('.log-level-filter');
+    const logEntriesContainer = document.getElementById('detailedLogEntries');
+    
+    if (!logEntriesContainer) return; // No log entries on this page
+    const logEntries = Array.from(logEntriesContainer.getElementsByClassName('log-entry'));
+
+    function filterLogs() {
+        const keyword = keywordSearchInput ? keywordSearchInput.value.toLowerCase() : '';
+        const activeLevelFilters = new Set();
+        let allLevelsUnchecked = true;
+        if (levelFilterCheckboxes.length > 0) {
+            levelFilterCheckboxes.forEach(checkbox => {
+                if (checkbox.checked) {
+                    activeLevelFilters.add(checkbox.value.toUpperCase());
+                    allLevelsUnchecked = false;
+                }
+            });
+        } else { // If no checkboxes, assume all levels are fine (or handle as needed)
+            allLevelsUnchecked = false; 
+        }
+
+
+        logEntries.forEach(entry => {
+            const entryText = entry.textContent.toLowerCase();
+            const entryLevelElement = entry.querySelector('strong'); // Timestamp [LEVEL]
+            let entryLevel = '';
+            if (entryLevelElement) {
+                const match = entryLevelElement.textContent.match(/\[(.*?)\]/);
+                if (match && match[1]) {
+                    entryLevel = match[1].toUpperCase();
+                }
+            }
+
+            const keywordMatch = keyword === '' || entryText.includes(keyword);
+            const levelMatch = allLevelsUnchecked || activeLevelFilters.size === 0 || activeLevelFilters.has(entryLevel);
+
+            if (keywordMatch && levelMatch) {
+                entry.style.display = 'flex'; // Or 'block' depending on Base.css default
+            } else {
+                entry.style.display = 'none';
+            }
+        });
+    }
+
+    if (keywordSearchInput) {
+        keywordSearchInput.addEventListener('keyup', filterLogs);
+    }
+    if (levelFilterCheckboxes.length > 0) {
+        levelFilterCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', filterLogs);
+        });
+    }
+    
+    // Initial filter call in case of pre-filled values (e.g., browser refresh)
+    // filterLogs(); // Uncomment if you want initial filter on load for persisted checkbox states
+});
+</script>
+"@
+    # --- END NEW JavaScript ---
+
+    $htmlHead = $htmlMetaTags + $finalCssToInject # JavaScript will be added at the end of body
 
     # --- Logo Processing ---
+    # ... (Logo processing remains the same) ...
     $embeddedLogoHtml = ""
     if (-not [string]::IsNullOrWhiteSpace($reportLogoPath) -and (Test-Path -LiteralPath $reportLogoPath -PathType Leaf)) {
         try {
@@ -175,12 +235,10 @@ function Invoke-HtmlReport {
             $embeddedLogoHtml = "<img src='data:$($logoMimeType);base64,$($logoBase64)' alt='Logo' class='report-logo'>"
         } catch { Write-LogMessage "[WARNING] Could not embed logo from '$reportLogoPath': $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning}
     }
-    
+
     # --- HTML Body Construction ---
     $safeJobName = ConvertTo-SafeHtml $ReportData.JobName 
     $htmlBody = "<div class='container'>"
-
-    # Add blinking cursor span if theme is RetroTerminal
     $headerTitle = "$($reportTitlePrefix) - $safeJobName"
     if ($reportThemeName.ToLowerInvariant() -eq "retroterminal") {
         $headerTitle += "<span class='blinking-cursor'></span>"
@@ -207,7 +265,6 @@ function Invoke-HtmlReport {
     # Configuration Section
     if ($reportShowConfiguration -and ($ReportData.Keys -contains 'JobConfiguration') -and ($null -ne $ReportData.JobConfiguration)) {
         $htmlBody += "<div class='details-section config-section'><h2>Configuration Used for Job '$safeJobName'</h2><table>"
-        # Add table headers for configuration section
         $htmlBody += "<thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>"
         foreach ($key in $ReportData.JobConfiguration.Keys | Sort-Object) { 
             $value = $ReportData.JobConfiguration[$key]
@@ -232,11 +289,33 @@ function Invoke-HtmlReport {
     # Detailed Log Section
     if ($reportShowLogEntries -and ($ReportData.Keys -contains 'LogEntries') -and ($null -ne $ReportData.LogEntries) -and $ReportData.LogEntries.Count -gt 0) { 
         $htmlBody += "<div class='details-section log-section'><h2>Detailed Log</h2>"
+        
+        # --- NEW: Filter Controls HTML ---
+        $htmlBody += "<div class='log-filters' style='margin-bottom: 1em; padding: 0.5em; border: 1px solid var(--border-color-light); border-radius: var(--border-radius-sm); background-color: var(--table-row-even-bg); display: flex; flex-wrap: wrap; gap: 1em; align-items: center;'>"
+        $htmlBody += "<div style='flex-grow: 1;'><label for='logKeywordSearch' style='margin-right: 0.5em; font-weight: bold;'>Search Logs:</label><input type='text' id='logKeywordSearch' placeholder='Enter keyword...' style='padding: 0.3em; border: 1px solid var(--border-color-medium); border-radius: var(--border-radius-sm); width: 90%; min-width: 200px;'></div>"
+        
+        $logLevelsInReport = ($ReportData.LogEntries.Level | Select-Object -Unique | Sort-Object)
+        if ($logLevelsInReport.Count -gt 0) {
+            $htmlBody += "<div class='log-level-filters-container' style='display: flex; flex-wrap: wrap; gap: 0.5em 1em; align-items: center;'><strong style='margin-right:0.5em;'>Filter by Level:</strong>"
+            foreach ($level in $logLevelsInReport) {
+                if ([string]::IsNullOrWhiteSpace($level)) { continue } # Skip if a level is empty for some reason
+                $safeLevel = ConvertTo-SafeHtml $level
+                $htmlBody += "<label style='white-space: nowrap;'><input type='checkbox' class='log-level-filter' value='$safeLevel' checked> $safeLevel</label>"
+            }
+            $htmlBody += "</div>" # Close log-level-filters-container
+        }
+        $htmlBody += "</div>" # Close log-filters
+        # --- END NEW Filter Controls HTML ---
+
+        $htmlBody += "<div id='detailedLogEntries'>" # Wrapper for log entries for easier JS targeting
         $ReportData.LogEntries | ForEach-Object {
             $entryClass = "log-$(ConvertTo-SafeHtml $_.Level)" 
-            $htmlBody += "<div class='log-entry $entryClass'><strong>$(ConvertTo-SafeHtml $_.Timestamp) [$(ConvertTo-SafeHtml $_.Level)]</strong> <span>$(ConvertTo-SafeHtml $_.Message)</span></div>"
+            # Add data-level attribute for easier JS filtering if needed, though class matching also works
+            $htmlBody += "<div class='log-entry $entryClass' data-level='$(ConvertTo-SafeHtml $_.Level)'><strong>$(ConvertTo-SafeHtml $_.Timestamp) [$(ConvertTo-SafeHtml $_.Level)]</strong> <span>$(ConvertTo-SafeHtml $_.Message)</span></div>"
         }
-        $htmlBody += "</div>"
+        $htmlBody += "</div>" # Close detailedLogEntries
+        $htmlBody += "</div>" # Close log-section
+
     } elseif ($reportShowLogEntries) { 
          $htmlBody += "<div class='details-section log-section'><h2>Detailed Log</h2><p>No log entries were recorded or available for this HTML report.</p></div>"
     }
@@ -247,6 +326,11 @@ function Invoke-HtmlReport {
         $htmlBody += "$($reportCompanyName) - " 
     }
     $htmlBody += "PoSh Backup Script - Generated on $(ConvertTo-SafeHtml ([string](Get-Date)))</footer>"
+    
+    # --- NEW: Add JavaScript at the end of the body ---
+    $htmlBody += $logFilterJavaScript
+    # --- END NEW ---
+    
     $htmlBody += "</div>" # Close .container
 
     # Generate the HTML file
