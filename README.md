@@ -1,8 +1,9 @@
 # PoSh-Backup
 A powerful PowerShell script for backing up your files that uses the free [7-Zip](https://www.7-zip.org/) compression software.
 
-Key features include:
+> **Notice:** You use this at your own risk! It hasn't undergone as much testing as I'd like, as it's still deep within development! **Another bonus:** I'm testing some AI features, and so this has been written via that AI under guidance.
 
+## Features include:
 *   **Enterprise-Grade PowerShell Solution:** Robust, modular design built with dedicated PowerShell modules for reliability, maintainability, and clarity.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, and backup sets via a human-readable `.psd1` configuration file.
 *   **Granular Backup Job Control:** Precisely define sources, destinations, archive names, retention policies, 7-Zip parameters, and more for each individual backup job.
@@ -21,3 +22,6 @@ Key features include:
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created archives to ensure backup reliability.
 *   **Exit Pause:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
+
+## How to Use
+This information is coming soon to the wiki, but for now, run the `PoSh-Backup.ps1` script via PowerShell; it'll ask you whether you want to create the default `User.psd1` config file - you do, so hit Y and enter. Next, open up the `Config\User.psd1` file in a text editor [Visual Studio Code](https://code.visualstudio.com/) is good for this due to its syntax highlighting) and take a look; its comments function as live documentation.
