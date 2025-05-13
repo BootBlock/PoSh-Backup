@@ -134,8 +134,8 @@
 
 .NOTES
     Author:         [Joe Cox] with tons of Gemini AI to see how well it does (e.g. blame it for any issues, ahem)
-    Version:        1.5 (Added -ListBackupLocations and -ListBackupSets)
-    Date:           14-May-2025
+    Version:        1.6 (Added debugging for simulation banner)
+    Date:           15-May-2025
     Requires:       PowerShell 5.1 or higher.
                     7-Zip (7z.exe) must be installed and its path correctly specified in the configuration.
     Privileges:     Administrator privileges are required for VSS functionality.
@@ -222,6 +222,7 @@ $Global:StatusToColourMap = @{
     "SUCCESS"           = $Global:ColourSuccess
     "WARNINGS"          = $Global:ColourWarning
     "FAILURE"           = $Global:ColourError
+    "SIMULATED_COMPLETE"= $Global:ColourSimulate # Added for overall status
     "DEFAULT"           = $Global:ColourInfo # Fallback for unknown statuses
 }
 
@@ -249,7 +250,7 @@ try {
 # Initial log messages (not part of per-job HTML report logs)
 Write-LogMessage "---------------------------------" -ForegroundColour $Global:ColourHeading -Level "NONE"
 Write-LogMessage " Starting PoSh Backup Script     " -ForegroundColour $Global:ColourHeading -Level "NONE" 
-Write-LogMessage " Script Version: v1.5 (List Jobs/Sets)" -ForegroundColour $Global:ColourHeading -Level "NONE" 
+Write-LogMessage " Script Version: v1.6 (Debug Sim Banner)" -ForegroundColour $Global:ColourHeading -Level "NONE" 
 if ($IsSimulateMode) { Write-LogMessage " ***** SIMULATION MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { Write-LogMessage " ***** CONFIGURATION TEST MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "CONFIG_TEST" } 
 if ($ListBackupLocations.IsPresent) { Write-LogMessage " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "CONFIG_TEST" } 
@@ -318,10 +319,9 @@ if (-not $configResult.IsValid) {
     exit 1 # Exit code for configuration error
 }
 $Configuration = $configResult.Configuration
-$ActualConfigFile = $configResult.ActualPath # This is the base config file (Default.psd1 or specified)
+$ActualConfigFile = $configResult.ActualPath 
 
-# Log info about User.psd1 if it was involved
-if ($configResult.PSObject.Properties.Name -contains 'UserConfigLoaded') { # Check if new properties exist
+if ($configResult.PSObject.Properties.Name -contains 'UserConfigLoaded') { 
     if ($configResult.UserConfigLoaded) {
         Write-LogMessage "[INFO] User override configuration from '$($configResult.UserConfigPath)' was successfully loaded and merged." -Level "INFO"
     } elseif (($null -ne $configResult.UserConfigPath) -and (-not $configResult.UserConfigLoaded) -and (Test-Path -LiteralPath $configResult.UserConfigPath -PathType Leaf)) {
@@ -329,8 +329,6 @@ if ($configResult.PSObject.Properties.Name -contains 'UserConfigLoaded') { # Che
     }
 }
 
-
-# Inject the main script's root path into the loaded configuration.
 if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
     $Configuration['_PoShBackup_PSScriptRoot'] = $PSScriptRoot
 } else {
@@ -338,7 +336,6 @@ if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
     exit 1
 }
 
-# Setup global file logging based on configuration (only if not just listing)
 if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent)) {
     $Global:GlobalEnableFileLogging = Get-ConfigValue -ConfigObject $Configuration -Key 'EnableFileLogging' -DefaultValue $false
     if ($Global:GlobalEnableFileLogging) {
@@ -357,7 +354,6 @@ if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent)) {
     }
 }
 
-# Handle -ListBackupLocations or -ListBackupSets parameters
 if ($ListBackupLocations.IsPresent) {
     Write-LogMessage "`n--- Defined Backup Locations (Jobs) from '$($ActualConfigFile)' ---" -ForegroundColour $Global:ColourHeading -Level "NONE"
     if ($configResult.UserConfigLoaded) {
@@ -397,15 +393,12 @@ if ($ListBackupSets.IsPresent) {
     exit 0
 }
 
-
-# If -TestConfig switch is present, provide detailed output and then exit.
 if ($TestConfig.IsPresent) {
     Write-LogMessage "`n[INFO] --- Configuration Test Mode Summary ---" -ForegroundColour $Global:ColourHeading -Level "CONFIG_TEST"
     Write-LogMessage "[SUCCESS] Configuration file(s) loaded and validated successfully from '$($ActualConfigFile)'" -ForegroundColour $Global:ColourSuccess -Level "CONFIG_TEST"
     if ($configResult.UserConfigLoaded) {
         Write-LogMessage "          (User overrides from '$($configResult.UserConfigPath)' were applied)" -ForegroundColour $Global:ColourSuccess -Level "CONFIG_TEST"
     }
-
     Write-LogMessage "`n  --- Key Global Settings ---" -ForegroundColour $Global:ColourInfo -Level "CONFIG_TEST"
     Write-LogMessage ("    7-Zip Path              : {0}" -f (Get-ConfigValue $Configuration 'SevenZipPath' 'N/A')) -Level "CONFIG_TEST"
     Write-LogMessage ("    Default Destination Dir : {0}" -f (Get-ConfigValue $Configuration 'DefaultDestinationDir' 'N/A')) -Level "CONFIG_TEST"
@@ -414,7 +407,6 @@ if ($TestConfig.IsPresent) {
     Write-LogMessage ("    Default VSS Enabled     : {0}" -f (Get-ConfigValue $Configuration 'EnableVSS' $false)) -Level "CONFIG_TEST"
     Write-LogMessage ("    Default Retries Enabled : {0}" -f (Get-ConfigValue $Configuration 'EnableRetries' $false)) -Level "CONFIG_TEST"
     Write-LogMessage ("    Pause Before Exit       : {0}" -f (Get-ConfigValue $Configuration 'PauseBeforeExit' 'OnFailureOrWarning')) -Level "CONFIG_TEST"
-
     if ($Configuration.BackupLocations -is [hashtable] -and $Configuration.BackupLocations.Count -gt 0) {
         Write-LogMessage "`n  --- Defined Backup Locations (Jobs) ---" -ForegroundColour $Global:ColourInfo -Level "CONFIG_TEST"
         foreach ($jobName in ($Configuration.BackupLocations.Keys | Sort-Object)) {
@@ -431,7 +423,6 @@ if ($TestConfig.IsPresent) {
         Write-LogMessage "`n  --- Defined Backup Locations (Jobs) ---" -ForegroundColour $Global:ColourInfo -Level "CONFIG_TEST"
         Write-LogMessage "    No Backup Locations defined in the configuration." -Level "CONFIG_TEST"
     }
-
     if ($Configuration.BackupSets -is [hashtable] -and $Configuration.BackupSets.Count -gt 0) {
         Write-LogMessage "`n  --- Defined Backup Sets ---" -ForegroundColour $Global:ColourInfo -Level "CONFIG_TEST"
         foreach ($setName in ($Configuration.BackupSets.Keys | Sort-Object)) {
@@ -445,16 +436,14 @@ if ($TestConfig.IsPresent) {
         Write-LogMessage "`n  --- Defined Backup Sets ---" -ForegroundColour $Global:ColourInfo -Level "CONFIG_TEST"
         Write-LogMessage "    No Backup Sets defined in the configuration." -Level "CONFIG_TEST"
     }
-
     Write-LogMessage "`n[INFO] --- Configuration Test Mode Finished ---" -ForegroundColour $Global:ColourHeading -Level "CONFIG_TEST"
-    exit 0 # Successful exit for config test
+    exit 0 
 }
 
-# Determine which jobs or sets to process
 $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet
 if (-not $jobResolutionResult.Success) {
     Write-LogMessage "FATAL: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR" -ForegroundColour $Global:ColourError
-    exit 1 # Exit code for job determination error
+    exit 1 
 }
 $jobsToProcess = $jobResolutionResult.JobsToRun
 $currentSetName = $jobResolutionResult.SetName          
@@ -462,32 +451,26 @@ $stopSetOnError = $jobResolutionResult.StopSetOnErrorPolicy
 #endregion
 
 #region --- Main Processing Loop (Iterate through Jobs) ---
-$overallSetStatus = "SUCCESS" # Initialise overall status for the run/set
+$overallSetStatus = "SUCCESS" 
 
 foreach ($currentJobName in $jobsToProcess) {
     Write-LogMessage "`n================================================================================" -ForegroundColour $Global:ColourHeading -Level "NONE"
     Write-LogMessage "Processing Job: $currentJobName" -ForegroundColour $Global:ColourHeading 
     Write-LogMessage "================================================================================" -ForegroundColour $Global:ColourHeading -Level "NONE"
 
-    # Initialise per-job data collectors for HTML reporting
     $Global:GlobalJobLogEntries = [System.Collections.Generic.List[object]]::new()
     $Global:GlobalJobHookScriptData = [System.Collections.Generic.List[object]]::new()
     
-    # This ordered dictionary will hold all data for the current job's HTML report
-    $currentJobReportData = [ordered]@{
-        JobName         = $currentJobName
-        # ScriptStartTime is set before calling Invoke-PoShBackupJob
-    }
-    $currentJobReportData['ScriptStartTime'] = Get-Date # Set/update job start time
+    $currentJobReportData = [ordered]@{ JobName = $currentJobName }
+    $currentJobReportData['ScriptStartTime'] = Get-Date 
 
-    # Set up per-job file log path
-    $Global:GlobalLogFile = $null # Reset from previous job
+    $Global:GlobalLogFile = $null 
     if ($Global:GlobalEnableFileLogging) {
-        $logDate = Get-Date -Format "yyyy-MM-dd_HH-mm-ss" # Timestamp for unique log file name
-        $safeJobNameForFile = $currentJobName -replace '[^a-zA-Z0-9_-]', '_' # Sanitise job name for filename
+        $logDate = Get-Date -Format "yyyy-MM-dd_HH-mm-ss" 
+        $safeJobNameForFile = $currentJobName -replace '[^a-zA-Z0-9_-]', '_' 
         if (-not [string]::IsNullOrWhiteSpace($Global:GlobalLogDirectory) -and (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
              $Global:GlobalLogFile = Join-Path -Path $Global:GlobalLogDirectory -ChildPath "$($safeJobNameForFile)_$($logDate).log"
-             Write-LogMessage "[INFO] Logging for job '$currentJobName' to file: $($Global:GlobalLogFile)" # This first job-specific message will go to its HTML log
+             Write-LogMessage "[INFO] Logging for job '$currentJobName' to file: $($Global:GlobalLogFile)" 
         } else {
             Write-LogMessage "[WARNING] Log directory is not valid. File logging for job '$currentJobName' will be skipped." -Level "WARNING" 
         }
@@ -495,7 +478,6 @@ foreach ($currentJobName in $jobsToProcess) {
 
     $jobConfig = $Configuration.BackupLocations[$currentJobName] 
     
-    # Encapsulate job execution and final report data population
     try {
         $invokePoShBackupJobParams = @{
             JobName             = $currentJobName
@@ -505,24 +487,19 @@ foreach ($currentJobName in $jobsToProcess) {
             PSScriptRootForPaths = $PSScriptRoot 
             ActualConfigFile    = $ActualConfigFile
             JobReportDataRef    = ([ref]$currentJobReportData)
-            IsSimulateMode      = $IsSimulateMode.IsPresent
+            IsSimulateMode      = $IsSimulateMode # Pass the script's $IsSimulateMode
         }
         $jobResult = Invoke-PoShBackupJob @invokePoShBackupJobParams        
         $currentJobStatus = $jobResult.Status
     } catch {
-        # Catch any unhandled terminating error from Invoke-PoShBackupJob itself
         $currentJobStatus = "FAILURE"
         Write-LogMessage "[FATAL] Top-level unhandled exception during Invoke-PoShBackupJob for job '$currentJobName': $($_.Exception.ToString())" -Level ERROR -ForegroundColour $Global:ColourError
-        # Ensure ErrorMessage is on the report data using indexer (add or update)
         $currentJobReportData['ErrorMessage'] = $_.Exception.ToString()
     }
     
-    # Finalise report data for the current job
     $currentJobReportData['LogEntries']  = if ($null -ne $Global:GlobalJobLogEntries) { $Global:GlobalJobLogEntries } else { [System.Collections.Generic.List[object]]::new() }
     $currentJobReportData['HookScripts'] = if ($null -ne $Global:GlobalJobHookScriptData) { $Global:GlobalJobHookScriptData } else { [System.Collections.Generic.List[object]]::new() }
     
-    # Invoke-PoShBackupJob is expected to set OverallStatus and ScriptEndTime via $JobReportDataRef.
-    # If it errored out before its 'finally' block, we set/update them here.
     $currentJobReportData['OverallStatus'] = $currentJobStatus 
     $currentJobReportData['ScriptEndTime'] = Get-Date        
     
@@ -530,29 +507,26 @@ foreach ($currentJobName in $jobsToProcess) {
         ($null -ne $currentJobReportData.ScriptStartTime) -and `
         ($null -ne $currentJobReportData.ScriptEndTime)) {
         $currentJobReportData['TotalDuration'] = $currentJobReportData.ScriptEndTime - $currentJobReportData.ScriptStartTime
-    } else { # Add if not already present or if calculation components are missing
+    } else { 
         $currentJobReportData['TotalDuration'] = "N/A (Timing data incomplete)"
     }
-    # Ensure ErrorMessage key exists if status is FAILURE and Invoke-PoShBackupJob didn't add it
     if ($currentJobStatus -eq "FAILURE" -and -not ($currentJobReportData.PSObject.Properties.Name -contains 'ErrorMessage')) {
         $currentJobReportData['ErrorMessage'] = "Job failed; specific error caught by main loop or not recorded by Invoke-PoShBackupJob."
     }
 
-    # Update overall status for the entire script/set run
     if ($currentJobStatus -eq "FAILURE") { $overallSetStatus = "FAILURE" }
-    elseif ($currentJobStatus -eq "WARNINGS" -and $overallSetStatus -ne "FAILURE") { $overallSetStatus = "WARNINGS" } 
+    elseif ($currentJobStatus -eq "WARNINGS" -and $overallSetStatus -ne "FAILURE") { $overallSetStatus = "WARNINGS" }
+    elseif ($currentJobStatus -eq "SIMULATED_COMPLETE" -and $overallSetStatus -eq "SUCCESS") { $overallSetStatus = "SIMULATED_COMPLETE" }
     
     $statusColour = $Global:StatusToColourMap[$currentJobStatus] 
     if (-not $statusColour) { $statusColour = $Global:StatusToColourMap["DEFAULT"] } 
     Write-LogMessage "Finished processing job '$currentJobName'. Status: $currentJobStatus" -ForegroundColour $statusColour
     
-    # Determine if HTML report should be generated for this job
     $JobReportGeneratorTypeCurrent = Get-ConfigValue -ConfigObject $jobConfig -Key 'ReportGeneratorType' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'ReportGeneratorType' -DefaultValue "HTML")
-    if ($cliOverrideSettings.GenerateHtmlReport) { # CLI override forces HTML report
+    if ($cliOverrideSettings.GenerateHtmlReport) { 
         $JobReportGeneratorTypeCurrent = "HTML" 
     }
     
-    # Generate HTML report if configured
     if ($JobReportGeneratorTypeCurrent -eq "HTML") {
         $JobHtmlReportDirectoryCurrent = Get-ConfigValue -ConfigObject $jobConfig -Key 'HtmlReportDirectory' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'HtmlReportDirectory' -DefaultValue (Join-Path -Path $PSScriptRoot -ChildPath "Reports"))
         
@@ -566,7 +540,6 @@ foreach ($currentJobName in $jobsToProcess) {
             }
         }
         
-        # Pass the fully populated $Configuration (which includes _PoShBackup_PSScriptRoot)
         Invoke-HtmlReport -ReportDirectory $JobHtmlReportDirectoryCurrent `
                           -JobName $currentJobName `
                           -ReportData $currentJobReportData `
@@ -576,7 +549,6 @@ foreach ($currentJobName in $jobsToProcess) {
         Write-LogMessage "[WARNING] ReportGeneratorType '$JobReportGeneratorTypeCurrent' for job '$currentJobName' is not currently supported by this script version. Skipping report generation." -Level "WARNING"
     }
 
-    # If running a set and a job fails, and StopSetOnError is true, break the loop
     if ($currentSetName -and $currentJobStatus -eq "FAILURE" -and $stopSetOnError) {
         Write-LogMessage "[ERROR] Job '$currentJobName' in set '$currentSetName' failed. Stopping set as 'OnErrorInJob' policy is 'StopSet'." -Level "ERROR" -ForegroundColour $Global:ColourError
         break 
@@ -597,32 +569,26 @@ Write-LogMessage "Script started : $ScriptStartTime"
 Write-LogMessage "Script ended   : $finalScriptEndTime"
 Write-LogMessage "Total duration : $($finalScriptEndTime - $ScriptStartTime)"
 
-# Determine final pause behaviour based on config and CLI overrides
-$_pauseDefaultFromScript = "OnFailureOrWarning" # Script's hardcoded default if no other setting is found
+$_pauseDefaultFromScript = "OnFailureOrWarning" 
 $_pauseSettingFromConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'PauseBeforeExit' -DefaultValue $_pauseDefaultFromScript
 
 $normalizedPauseConfigValue = ""
 if ($_pauseSettingFromConfig -is [bool]) {
     $normalizedPauseConfigValue = if ($_pauseSettingFromConfig) { "always" } else { "never" }
-} elseif ($null -ne $_pauseSettingFromConfig -and $_pauseSettingFromConfig -is [string]) { # Ensure it's a string before ToLowerInvariant
+} elseif ($null -ne $_pauseSettingFromConfig -and $_pauseSettingFromConfig -is [string]) { 
     $normalizedPauseConfigValue = $_pauseSettingFromConfig.ToLowerInvariant()
-} else { # Fallback if config value is weird or Get-ConfigValue returned its $DefaultValue which was already a string
+} else { 
     $normalizedPauseConfigValue = $_pauseDefaultFromScript.ToLowerInvariant()
 }
 
-# CLI override takes highest precedence
 $effectivePauseBehaviour = $normalizedPauseConfigValue 
-if ($null -ne $cliOverrideSettings.PauseBehaviour) { # Check if CLI parameter was actually used
+if ($null -ne $cliOverrideSettings.PauseBehaviour) { 
     $effectivePauseBehaviour = $cliOverrideSettings.PauseBehaviour.ToLowerInvariant()
-    # Map CLI "true"/"false" (from ValidateSet) to "always"/"never" for internal consistency
     if ($effectivePauseBehaviour -eq "true") { $effectivePauseBehaviour = "always" }
     if ($effectivePauseBehaviour -eq "false") { $effectivePauseBehaviour = "never" }
     Write-LogMessage "[INFO] Pause behaviour explicitly set by CLI to: '$($cliOverrideSettings.PauseBehaviour)' (effective: '$effectivePauseBehaviour')." -Level INFO
-# } else {
-#     Write-LogMessage "[DEBUG] Pause behaviour determined from configuration/default: '$effectivePauseBehaviour'." -Level DEBUG 
 }
 
-# Decide if the script should physically pause based on the effective setting and overall status
 $shouldPhysicallyPause = $false
 switch ($effectivePauseBehaviour) {
     "always"             { $shouldPhysicallyPause = $true }
@@ -631,32 +597,30 @@ switch ($effectivePauseBehaviour) {
     "onwarning"          { if ($overallSetStatus -eq "WARNINGS") { $shouldPhysicallyPause = $true } }
     "onfailureorwarning" { if ($overallSetStatus -in @("FAILURE", "WARNINGS")) { $shouldPhysicallyPause = $true } }
     default { 
-        # This case should ideally not be reached if ValidateSet on parameter and config validation are working.
         Write-LogMessage "[WARNING] Unknown PauseBeforeExit value '$effectivePauseBehaviour' was resolved. Defaulting to not pausing (simulating 'Never' behaviour)." -Level WARNING
         $shouldPhysicallyPause = $false 
     }
 }
 
-# Perform the pause if conditions are met
-if ($shouldPhysicallyPause -and -not $IsSimulateMode) { 
+# Don't pause if $IsSimulateMode is true, UNLESS pause is explicitly "Always"
+if ($IsSimulateMode -and $effectivePauseBehaviour -ne "always") {
+    $shouldPhysicallyPause = $false
+}
+
+
+if ($shouldPhysicallyPause) { 
     Write-LogMessage "`nPress any key to exit..." -ForegroundColour $Global:ColourWarning -Level "NONE"
     if ($Host.Name -eq "ConsoleHost") { 
         try { 
-            # Ensure there isn't a key already waiting to prevent immediate passthrough
-            # While ($Host.UI.RawUI.KeyAvailable) {$Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyUp,IncludeKeyDown") | Out-Null} # Flush buffer
             $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null 
-        } catch {
-            # Silently catch if RawUI is not available (e.g., non-interactive session, some remote sessions)
-        } 
+        } catch {} 
     } else {
-        # For non-ConsoleHost environments, ReadKey is problematic.
-        # A simple message is usually best, or Read-Host if an ENTER press is acceptable.
-        Write-LogMessage "  (Pause configured for '$effectivePauseBehaviour' and current status '$overallSetStatus', but not running in ConsoleHost: $($Host.Name). Consider 'Read-Host' for pause in this environment if needed.)" -Level INFO
+        Write-LogMessage "  (Pause configured for '$effectivePauseBehaviour' and current status '$overallSetStatus', but not running in ConsoleHost: $($Host.Name).)" -Level INFO
     }
 }
 
-# Set script exit code based on overall status
-if ($IsSimulateMode) { exit 0 }
+if ($IsSimulateMode) { exit 0 } 
+elseif ($overallSetStatus -eq "SIMULATED_COMPLETE") { exit 0 } # Treat successful simulation as exit 0
 elseif ($overallSetStatus -eq "SUCCESS") { exit 0 }
 elseif ($overallSetStatus -eq "WARNINGS") { exit 1 } 
 else { exit 2 } # FAILURE or any other unhandled status

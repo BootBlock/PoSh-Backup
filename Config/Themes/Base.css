@@ -115,6 +115,24 @@ body {
     border: 1px solid var(--border-color-light);
 }
 
+/* ====== SIMULATION BANNER STYLING (NEW) ====== */
+.simulation-banner {
+    background-color: var(--status-simulated-text-color, #6f42c1); 
+    color: var(--container-bg-color, #ffffff); 
+    padding: var(--spacing-md) var(--spacing-lg);
+    text-align: center;
+    font-weight: bold;
+    border-radius: var(--border-radius-sm);
+    margin-bottom: var(--spacing-lg); /* Ensure it's above the header if .container has padding */
+    border: 2px dashed var(--container-bg-color, #ffffff); 
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+.simulation-banner strong { 
+    display: block;
+    font-size: 1.2em;
+    margin-bottom: var(--spacing-xs);
+}
+
 /* ====== HEADER & FOOTER ====== */
 .report-header { 
     display: flex; 
@@ -201,7 +219,7 @@ tr:hover td {
     font-size: 0.9em; 
     border-left-width: 5px; 
     border-left-style: solid; 
-    display: flex; /* Default display for visible entries */
+    display: flex; 
     align-items: flex-start; 
 }
 .log-entry strong { 
@@ -323,6 +341,20 @@ a:hover, a:focus {
         min-width: unset; 
         margin-bottom: var(--spacing-xs); 
     }
+    /* Adjust log filter layout for smaller screens */
+    .log-filters {
+        flex-direction: column;
+        align-items: stretch; /* Make search input full width */
+    }
+    .log-filters > div { /* Target direct children of .log-filters */
+        width: 100% !important; /* Ensure search input container takes full width */
+    }
+    .log-filters input[type="text"] {
+        width: 100% !important; /* Ensure search input field takes full width of its container */
+    }
+    .log-level-filters-container {
+        justify-content: flex-start; /* Align checkboxes to the start */
+    }
 }
 
 /* ====== LOG FILTER CONTROLS STYLING (NEW) ====== */
@@ -342,11 +374,17 @@ a:hover, a:focus {
     margin-right: 0.5em;
     font-weight: normal; 
 }
+/* Give search input container ability to grow */
+.log-filters > div:first-child { 
+    flex-grow: 1;
+}
+
 .log-filters input[type="text"] {
     padding: 0.5em;
     border: 1px solid var(--border-color-medium);
     border-radius: var(--border-radius-sm);
-    min-width: 200px;
+    width: 100%; /* Make input take full width of its container */
+    min-width: 180px; /* Prevent it from becoming too small */
     box-sizing: border-box; 
 }
 .log-filters .log-level-filters-container {

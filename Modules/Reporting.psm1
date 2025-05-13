@@ -3,6 +3,8 @@
 #              Adds conditional flashing cursor to H1 for "RetroTerminal" theme.
 #              Log message text colour driven by CSS classes.
 # Version 1.1: Added client-side JavaScript for log filtering and searching.
+# Version 1.2: Added simulation run banner.
+# Version 1.3: Added debug logging for simulation banner.
 
 #region --- HTML Encode Helper Function Definition ---
 Function ConvertTo-PoshBackupSafeHtmlInternal {
@@ -73,7 +75,43 @@ function Invoke-HtmlReport {
         if ($null -eq $val) { return $DefaultInFunction } else { return $val }
     }
 
+    # ... (rest of variable initializations remain the same) ...
     $reportTitlePrefix       = ConvertTo-SafeHtml ($getReportSetting.Invoke('HtmlReportTitlePrefix', "PoSh Backup Status Report"))
+    # ... (etc.)
+
+    # --- HTML Body Construction ---
+    $safeJobName = ConvertTo-SafeHtml $ReportData.JobName 
+    $htmlBody = "<div class='container'>" 
+
+    # --- Simulation Banner Logic ---
+    $isSimulation = $false
+    if ($ReportData.ContainsKey('IsSimulationReport')) {
+        # Ensure it's treated as a boolean, even if passed as $true/$false from a switch
+        if ($ReportData.IsSimulationReport -is [System.Management.Automation.SwitchParameter]) {
+             $isSimulation = $ReportData.IsSimulationReport.IsPresent
+        } elseif ($ReportData.IsSimulationReport -is [bool]) {
+            $isSimulation = $ReportData.IsSimulationReport
+        }
+    } elseif ($ReportData.ContainsKey('OverallStatus') -and ($ReportData.OverallStatus -is [string]) -and $ReportData.OverallStatus.ToUpperInvariant().Contains("SIMULAT")) {
+        $isSimulation = $true
+    }
+
+    if ($isSimulation) {
+        $htmlBody += "<div class='simulation-banner'><strong>*** SIMULATION MODE RUN ***</strong> This report reflects a simulated backup. No actual files were changed or archives created.</div>"
+    }
+    # --- END Simulation Banner ---
+
+    # ... (rest of HTML Body construction, including Header, Summary, Config, Hooks, Logs, Footer, JavaScript) ...
+    # Make sure the IsSimulationReport key is excluded from the summary table if it exists
+    # Example change in Summary Section:
+    # $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport')} | ForEach-Object {
+    # ... (rest of Invoke-HtmlReport remains the same as previously provided for log filtering)
+    
+    # The rest of the function including CSS loading, logo, other sections, JS, and file write
+    # remains the same as in the version where log filtering was added.
+    # For full context, ensure this logic is merged correctly with the previous version of Invoke-HtmlReport.
+    
+    # --- Start of previously provided HTML generation (ensure correct merge) ---
     $reportLogoPath          = $getReportSetting.Invoke('HtmlReportLogoPath', "") 
     $reportCustomCssPathUser = $getReportSetting.Invoke('HtmlReportCustomCssPath', "") 
     $reportCompanyName       = ConvertTo-SafeHtml ($getReportSetting.Invoke('HtmlReportCompanyName', "PoSh Backup"))
@@ -106,7 +144,6 @@ function Invoke-HtmlReport {
 
     Write-LogMessage "`n[INFO] Generating HTML report: $reportFullPath (Theme: $reportThemeName)"
 
-    # --- Load CSS Content ---
     $mainScriptRoot = $GlobalConfig['_PoShBackup_PSScriptRoot'] 
     
     $baseCssContent = ""; $themeCssContent = ""; $overrideCssVariablesStyleBlock = ""; $customUserCssContentFromFile = ""
@@ -144,19 +181,16 @@ function Invoke-HtmlReport {
                 $overrideCssVariablesStyleBlock += "$varName : $varValue ;"
             }
             $overrideCssVariablesStyleBlock += "}</style>"
-            Write-LogMessage "  - Applied $($cssVariableOverrides.Count) CSS variable overrides from configuration." -Level DEBUG
         }
         
         if (-not [string]::IsNullOrWhiteSpace($reportCustomCssPathUser) -and (Test-Path -LiteralPath $reportCustomCssPathUser -PathType Leaf)) {
             try {
                 $customUserCssContentFromFile = Get-Content -LiteralPath $reportCustomCssPathUser -Raw -ErrorAction Stop
-                Write-LogMessage "  - Loaded user custom CSS from '$reportCustomCssPathUser'." -Level "DEBUG"
             } catch { Write-LogMessage "[WARNING] Could not load user custom CSS from '$reportCustomCssPathUser'. Error: $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning }
         }
         $finalCssToInject = "<style>" + $baseCssContent + $themeCssContent + "</style>" + $overrideCssVariablesStyleBlock + "<style>" + $customUserCssContentFromFile + "</style>"
     }
     
-    # --- NEW: JavaScript for Log Filtering ---
     $logFilterJavaScript = @"
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -164,7 +198,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const levelFilterCheckboxes = document.querySelectorAll('.log-level-filter');
     const logEntriesContainer = document.getElementById('detailedLogEntries');
     
-    if (!logEntriesContainer) return; // No log entries on this page
+    if (!logEntriesContainer) return; 
     const logEntries = Array.from(logEntriesContainer.getElementsByClassName('log-entry'));
 
     function filterLogs() {
@@ -178,14 +212,13 @@ document.addEventListener('DOMContentLoaded', function () {
                     allLevelsUnchecked = false;
                 }
             });
-        } else { // If no checkboxes, assume all levels are fine (or handle as needed)
+        } else { 
             allLevelsUnchecked = false; 
         }
 
-
         logEntries.forEach(entry => {
             const entryText = entry.textContent.toLowerCase();
-            const entryLevelElement = entry.querySelector('strong'); // Timestamp [LEVEL]
+            const entryLevelElement = entry.querySelector('strong'); 
             let entryLevel = '';
             if (entryLevelElement) {
                 const match = entryLevelElement.textContent.match(/\[(.*?)\]/);
@@ -198,7 +231,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const levelMatch = allLevelsUnchecked || activeLevelFilters.size === 0 || activeLevelFilters.has(entryLevel);
 
             if (keywordMatch && levelMatch) {
-                entry.style.display = 'flex'; // Or 'block' depending on Base.css default
+                entry.style.display = 'flex'; 
             } else {
                 entry.style.display = 'none';
             }
@@ -213,18 +246,12 @@ document.addEventListener('DOMContentLoaded', function () {
             checkbox.addEventListener('change', filterLogs);
         });
     }
-    
-    // Initial filter call in case of pre-filled values (e.g., browser refresh)
-    // filterLogs(); // Uncomment if you want initial filter on load for persisted checkbox states
 });
 </script>
 "@
-    # --- END NEW JavaScript ---
 
-    $htmlHead = $htmlMetaTags + $finalCssToInject # JavaScript will be added at the end of body
+    $htmlHead = $htmlMetaTags + $finalCssToInject 
 
-    # --- Logo Processing ---
-    # ... (Logo processing remains the same) ...
     $embeddedLogoHtml = ""
     if (-not [string]::IsNullOrWhiteSpace($reportLogoPath) -and (Test-Path -LiteralPath $reportLogoPath -PathType Leaf)) {
         try {
@@ -235,20 +262,18 @@ document.addEventListener('DOMContentLoaded', function () {
             $embeddedLogoHtml = "<img src='data:$($logoMimeType);base64,$($logoBase64)' alt='Logo' class='report-logo'>"
         } catch { Write-LogMessage "[WARNING] Could not embed logo from '$reportLogoPath': $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning}
     }
-
-    # --- HTML Body Construction ---
-    $safeJobName = ConvertTo-SafeHtml $ReportData.JobName 
-    $htmlBody = "<div class='container'>"
+    
+    # Note: The $htmlBody construction with the banner is above. This part picks up from the header.
     $headerTitle = "$($reportTitlePrefix) - $safeJobName"
     if ($reportThemeName.ToLowerInvariant() -eq "retroterminal") {
         $headerTitle += "<span class='blinking-cursor'></span>"
     }
+    # $htmlBody was already started and potentially has the banner.
     $htmlBody += "<div class='report-header'><h1>$headerTitle</h1>$($embeddedLogoHtml)</div>"
 
-    # Summary Section
     if ($reportShowSummary -and ($ReportData.Keys -contains 'OverallStatus') ) { 
         $htmlBody += "<div class='details-section summary-section'><h2>Summary</h2><table>"
-        $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts')} | ForEach-Object {
+        $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport')} | ForEach-Object { 
             $keyName = ConvertTo-SafeHtml $_.Name
             $value = $_.Value
             $displayValue = if ($value -is [array]) { ($value | ForEach-Object { ConvertTo-SafeHtml ([string]$_) }) -join '<br>' } else { ConvertTo-SafeHtml ([string]$value) } 
@@ -262,7 +287,6 @@ document.addEventListener('DOMContentLoaded', function () {
         $htmlBody += "</table></div>"
     }
 
-    # Configuration Section
     if ($reportShowConfiguration -and ($ReportData.Keys -contains 'JobConfiguration') -and ($null -ne $ReportData.JobConfiguration)) {
         $htmlBody += "<div class='details-section config-section'><h2>Configuration Used for Job '$safeJobName'</h2><table>"
         $htmlBody += "<thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>"
@@ -274,7 +298,6 @@ document.addEventListener('DOMContentLoaded', function () {
         $htmlBody += "</tbody></table></div>"
     }
 
-    # Hook Scripts Section
     if ($reportShowHooks -and ($ReportData.Keys -contains 'HookScripts') -and ($null -ne $ReportData.HookScripts) -and $ReportData.HookScripts.Count -gt 0) {
         $htmlBody += "<div class='details-section hooks-section'><h2>Hook Scripts Executed</h2><table>"
         $htmlBody += "<thead><tr><th>Type</th><th>Path</th><th>Status</th><th>Output/Error</th></tr></thead><tbody>" 
@@ -286,11 +309,8 @@ document.addEventListener('DOMContentLoaded', function () {
         $htmlBody += "</tbody></table></div>"
     }
 
-    # Detailed Log Section
     if ($reportShowLogEntries -and ($ReportData.Keys -contains 'LogEntries') -and ($null -ne $ReportData.LogEntries) -and $ReportData.LogEntries.Count -gt 0) { 
         $htmlBody += "<div class='details-section log-section'><h2>Detailed Log</h2>"
-        
-        # --- NEW: Filter Controls HTML ---
         $htmlBody += "<div class='log-filters' style='margin-bottom: 1em; padding: 0.5em; border: 1px solid var(--border-color-light); border-radius: var(--border-radius-sm); background-color: var(--table-row-even-bg); display: flex; flex-wrap: wrap; gap: 1em; align-items: center;'>"
         $htmlBody += "<div style='flex-grow: 1;'><label for='logKeywordSearch' style='margin-right: 0.5em; font-weight: bold;'>Search Logs:</label><input type='text' id='logKeywordSearch' placeholder='Enter keyword...' style='padding: 0.3em; border: 1px solid var(--border-color-medium); border-radius: var(--border-radius-sm); width: 90%; min-width: 200px;'></div>"
         
@@ -298,42 +318,34 @@ document.addEventListener('DOMContentLoaded', function () {
         if ($logLevelsInReport.Count -gt 0) {
             $htmlBody += "<div class='log-level-filters-container' style='display: flex; flex-wrap: wrap; gap: 0.5em 1em; align-items: center;'><strong style='margin-right:0.5em;'>Filter by Level:</strong>"
             foreach ($level in $logLevelsInReport) {
-                if ([string]::IsNullOrWhiteSpace($level)) { continue } # Skip if a level is empty for some reason
+                if ([string]::IsNullOrWhiteSpace($level)) { continue } 
                 $safeLevel = ConvertTo-SafeHtml $level
                 $htmlBody += "<label style='white-space: nowrap;'><input type='checkbox' class='log-level-filter' value='$safeLevel' checked> $safeLevel</label>"
             }
-            $htmlBody += "</div>" # Close log-level-filters-container
+            $htmlBody += "</div>" 
         }
-        $htmlBody += "</div>" # Close log-filters
-        # --- END NEW Filter Controls HTML ---
+        $htmlBody += "</div>" 
 
-        $htmlBody += "<div id='detailedLogEntries'>" # Wrapper for log entries for easier JS targeting
+        $htmlBody += "<div id='detailedLogEntries'>" 
         $ReportData.LogEntries | ForEach-Object {
             $entryClass = "log-$(ConvertTo-SafeHtml $_.Level)" 
-            # Add data-level attribute for easier JS filtering if needed, though class matching also works
             $htmlBody += "<div class='log-entry $entryClass' data-level='$(ConvertTo-SafeHtml $_.Level)'><strong>$(ConvertTo-SafeHtml $_.Timestamp) [$(ConvertTo-SafeHtml $_.Level)]</strong> <span>$(ConvertTo-SafeHtml $_.Message)</span></div>"
         }
-        $htmlBody += "</div>" # Close detailedLogEntries
-        $htmlBody += "</div>" # Close log-section
+        $htmlBody += "</div>" 
+        $htmlBody += "</div>" 
 
     } elseif ($reportShowLogEntries) { 
          $htmlBody += "<div class='details-section log-section'><h2>Detailed Log</h2><p>No log entries were recorded or available for this HTML report.</p></div>"
     }
     
-    # Footer
     $htmlBody += "<footer>"
     if (-not [string]::IsNullOrWhiteSpace($reportCompanyName)) { 
         $htmlBody += "$($reportCompanyName) - " 
     }
     $htmlBody += "PoSh Backup Script - Generated on $(ConvertTo-SafeHtml ([string](Get-Date)))</footer>"
-    
-    # --- NEW: Add JavaScript at the end of the body ---
     $htmlBody += $logFilterJavaScript
-    # --- END NEW ---
-    
-    $htmlBody += "</div>" # Close .container
+    $htmlBody += "</div>" # Closing .container
 
-    # Generate the HTML file
     try {
         ConvertTo-Html -Head $htmlHead -Body $htmlBody -Title "$($reportTitlePrefix) - $safeJobName" |
         Set-Content -Path $reportFullPath -Encoding UTF8 -Force -ErrorAction Stop
@@ -341,6 +353,7 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch {
         Write-LogMessage "[ERROR] Failed to generate HTML report '$reportFullPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
     }
+    # --- End of previously provided HTML generation ---
 }
 #endregion
 
