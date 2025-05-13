@@ -1,5 +1,32 @@
 # PowerShell Module: Utils.psm1
 # Version 1.0: Updated PauseBeforeExit validation to include new string options (Always, Never, OnFailure, etc.).
+# Version 1.1: Added User Configuration Override (User.psd1) and deep merge functionality.
+
+#region --- Private Helper Functions ---
+function Merge-DeepHashtables {
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Base,
+        [Parameter(Mandatory)]
+        [hashtable]$Override
+    )
+
+    $merged = $Base.Clone() # Start with a copy of the base to avoid modifying the original $Base in place
+
+    foreach ($key in $Override.Keys) {
+        if ($merged.ContainsKey($key) -and $merged[$key] -is [hashtable] -and $Override[$key] -is [hashtable]) {
+            # Key exists in both and both values are hashtables, so recurse
+            $merged[$key] = Merge-DeepHashtables -Base $merged[$key] -Override $Override[$key]
+        }
+        else {
+            # Override value takes precedence, or a new key is added
+            # This also handles cases where the type might change (e.g., base has a string, override has a bool)
+            $merged[$key] = $Override[$key]
+        }
+    }
+    return $merged
+}
+#endregion --- Private Helper Functions ---
 
 #region --- Logging Function ---
 function Write-LogMessage {
@@ -207,41 +234,87 @@ function Import-AppConfiguration {
         [string]$MainScriptPSScriptRoot
     )
 
+    $finalConfiguration = $null
+    $baseConfigPath = $null
+    $userConfigPath = $null
+    $userConfigLoadedSuccessfully = $false
+    $primaryConfigPathForReturn = $null # This will be Default.psd1 or UserSpecifiedPath
+
+    # Define paths for default configuration files
     $defaultConfigDir = Join-Path -Path $MainScriptPSScriptRoot -ChildPath "Config"
-    $defaultConfigFileName = "Default.psd1"
-    $defaultConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultConfigFileName
+    $defaultBaseConfigFileName = "Default.psd1"
+    $defaultUserConfigFileName = "User.psd1" # New user override file
 
-    $resolvedConfigPath = $null
+    $defaultBaseConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultBaseConfigFileName
+    $defaultUserConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultUserConfigFileName
+
     if (-not [string]::IsNullOrWhiteSpace($UserSpecifiedPath)) {
-        $resolvedConfigPath = $UserSpecifiedPath
-        Write-LogMessage "`n[INFO] Using specified configuration file: $($resolvedConfigPath)"
+        # Scenario 1: A specific configuration file is provided via -ConfigFile / $UserSpecifiedPath
+        Write-LogMessage "`n[INFO] Using specified configuration file: $($UserSpecifiedPath)"
+        $primaryConfigPathForReturn = $UserSpecifiedPath
+
+        if (-not (Test-Path -LiteralPath $UserSpecifiedPath -PathType Leaf)) {
+            Write-LogMessage "FATAL: Specified configuration file '$UserSpecifiedPath' not found." -Level "ERROR" -ForegroundColour $Global:ColourError
+            return @{ IsValid = $false; ErrorMessage = "Configuration file not found at '$UserSpecifiedPath'." }
+        }
+        try {
+            $finalConfiguration = Import-PowerShellDataFile -LiteralPath $UserSpecifiedPath -ErrorAction Stop
+            Write-LogMessage "  - Configuration loaded successfully from '$UserSpecifiedPath'." -ForegroundColour $Global:ColourSuccess
+        } catch {
+            Write-LogMessage "FATAL: Could not load or parse specified configuration file '$UserSpecifiedPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
+            return @{ IsValid = $false; ErrorMessage = "Failed to parse configuration file '$UserSpecifiedPath': $($_.Exception.Message)" }
+        }
     } else {
-        $resolvedConfigPath = $defaultConfigPath
-        Write-LogMessage "`n[INFO] No -ConfigFile specified. Attempting to use default: $($resolvedConfigPath)"
+        # Scenario 2: No -ConfigFile specified, use default layering (Default.psd1 + User.psd1)
+        $baseConfigPath = $defaultBaseConfigPath
+        $userConfigPath = $defaultUserConfigPath
+        $primaryConfigPathForReturn = $baseConfigPath
+
+        Write-LogMessage "`n[INFO] No -ConfigFile specified. Loading base configuration from: $($baseConfigPath)"
+        if (-not (Test-Path -LiteralPath $baseConfigPath -PathType Leaf)) {
+            Write-LogMessage "FATAL: Base configuration file '$baseConfigPath' not found. This file is required." -Level "ERROR" -ForegroundColour $Global:ColourError
+            return @{ IsValid = $false; ErrorMessage = "Base configuration file '$baseConfigPath' not found." }
+        }
+        try {
+            $loadedBaseConfiguration = Import-PowerShellDataFile -LiteralPath $baseConfigPath -ErrorAction Stop
+            Write-LogMessage "  - Base configuration loaded successfully from '$baseConfigPath'." -ForegroundColour $Global:ColourSuccess
+            $finalConfiguration = $loadedBaseConfiguration
+        } catch {
+            Write-LogMessage "FATAL: Could not load or parse base configuration file '$baseConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
+            return @{ IsValid = $false; ErrorMessage = "Failed to parse base configuration file '$baseConfigPath': $($_.Exception.Message)" }
+        }
+
+        # Now, check for and load User.psd1 to override Default.psd1
+        Write-LogMessage "[INFO] Checking for user override configuration at: $($userConfigPath)"
+        if (Test-Path -LiteralPath $userConfigPath -PathType Leaf) {
+            try {
+                $loadedUserConfiguration = Import-PowerShellDataFile -LiteralPath $userConfigPath -ErrorAction Stop
+                if ($null -ne $loadedUserConfiguration -and $loadedUserConfiguration -is [hashtable]) {
+                    Write-LogMessage "  - User override configuration '$userConfigPath' found and loaded successfully." -ForegroundColour $Global:ColourSuccess
+                    Write-LogMessage "  - Merging user configuration over base configuration..." -Level "DEBUG"
+                    $finalConfiguration = Merge-DeepHashtables -Base $finalConfiguration -Override $loadedUserConfiguration
+                    $userConfigLoadedSuccessfully = $true
+                    Write-LogMessage "  - User configuration merged successfully." -ForegroundColour $Global:ColourSuccess
+                } else {
+                    Write-LogMessage "[WARNING] User override configuration file '$userConfigPath' did not load as a valid hashtable. Skipping user overrides." -Level "WARNING" -ForegroundColour $Global:ColourWarning
+                }
+            } catch {
+                Write-LogMessage "[WARNING] Could not load or parse user override configuration file '$userConfigPath'. Error: $($_.Exception.Message). Using base configuration only." -Level "WARNING" -ForegroundColour $Global:ColourWarning
+            }
+        } else {
+            Write-LogMessage "  - User override configuration file '$userConfigPath' not found. Using base configuration only."
+        }
     }
 
-    if (-not (Test-Path -LiteralPath $resolvedConfigPath -PathType Leaf)) {
-        Write-LogMessage "FATAL: Configuration file '$resolvedConfigPath' not found." -Level "ERROR" -ForegroundColour $Global:ColourError
-        return @{ IsValid = $false; ErrorMessage = "Configuration file not found at '$resolvedConfigPath'." }
-    }
-
-    $loadedConfiguration = $null
-    try {
-        $loadedConfiguration = Import-PowerShellDataFile -LiteralPath $resolvedConfigPath -ErrorAction Stop
-        Write-LogMessage "  - Configuration loaded successfully from '$resolvedConfigPath'." -ForegroundColour $Global:ColourSuccess
-    } catch {
-        Write-LogMessage "FATAL: Could not load or parse configuration file '$resolvedConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
-        return @{ IsValid = $false; ErrorMessage = "Failed to parse configuration file: $($_.Exception.Message)" }
-    }
-
-    if ($null -eq $loadedConfiguration -or -not ($loadedConfiguration -is [hashtable])) {
-        Write-LogMessage "FATAL: Configuration file '$resolvedConfigPath' did not load as a valid hashtable." -Level "ERROR" -ForegroundColour $Global:ColourError
-        return @{ IsValid = $false; ErrorMessage = "Configuration file did not load as a valid hashtable." }
+    # Perform validation on the $finalConfiguration
+    if ($null -eq $finalConfiguration -or -not ($finalConfiguration -is [hashtable])) {
+        Write-LogMessage "FATAL: Final configuration is not a valid hashtable after loading/merging." -Level "ERROR" -ForegroundColour $Global:ColourError
+        return @{ IsValid = $false; ErrorMessage = "Final configuration is not a valid hashtable." }
     }
 
     $validationMessages = [System.Collections.Generic.List[string]]::new()
 
-    $vssCachePath = Get-ConfigValue -ConfigObject $loadedConfiguration -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab" 
+    $vssCachePath = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab" 
     try {
         $expandedVssCachePath = [System.Environment]::ExpandEnvironmentVariables($vssCachePath) 
         $null = [System.IO.Path]::GetFullPath($expandedVssCachePath) 
@@ -255,14 +328,14 @@ function Import-AppConfiguration {
         $validationMessages.Add("Global 'VSSMetadataCachePath' ('$vssCachePath') is not a valid path format after expansion.")
     }
 
-    $sevenZipPath = Get-ConfigValue -ConfigObject $loadedConfiguration -Key 'SevenZipPath' -DefaultValue $null
+    $sevenZipPath = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'SevenZipPath' -DefaultValue $null
     if ([string]::IsNullOrWhiteSpace($sevenZipPath)) {
         $validationMessages.Add("Global 'SevenZipPath' is missing or empty in the configuration.")
     } elseif (-not (Test-Path -LiteralPath $sevenZipPath -PathType Leaf)) {
         $validationMessages.Add("Global 'SevenZipPath' ('$sevenZipPath') does not point to a valid file.")
     }
 
-    $defaultDateFormat = Get-ConfigValue -ConfigObject $loadedConfiguration -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd"
+    $defaultDateFormat = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd"
     if (-not ([string]$defaultDateFormat).Trim()) {
         $validationMessages.Add("Global 'DefaultArchiveDateFormat' cannot be empty if defined.")
     } else {
@@ -270,12 +343,11 @@ function Import-AppConfiguration {
         catch { $validationMessages.Add("Global 'DefaultArchiveDateFormat' ('$defaultDateFormat') is not a valid date format string.") }
     }
  
-    # UPDATED: Validate PauseBeforeExit with new string options
-    $pauseSetting = Get-ConfigValue -ConfigObject $loadedConfiguration -Key 'PauseBeforeExit' -DefaultValue "OnFailureOrWarning" 
+    $pauseSetting = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'PauseBeforeExit' -DefaultValue "OnFailureOrWarning" 
     $validPauseOptions = @('true', 'false', 'always', 'never', 'onfailure', 'onwarning', 'onfailureorwarning')
     if ($null -ne $pauseSetting) {
         if ($pauseSetting -is [bool]) {
-            # Boolean true/false is acceptable and will be handled by the main script
+            # Boolean true/false is acceptable
         } elseif ($pauseSetting -is [string] -and $pauseSetting.ToString().ToLowerInvariant() -in $validPauseOptions) {
             # String is one of the valid options
         } else {
@@ -283,15 +355,14 @@ function Import-AppConfiguration {
         }
     }
 
-
-    if (-not ($loadedConfiguration.BackupLocations -is [hashtable])) {
+    if (-not ($finalConfiguration.BackupLocations -is [hashtable])) {
         $validationMessages.Add("Global 'BackupLocations' is missing or is not a valid Hashtable.")
-    } elseif ($loadedConfiguration.BackupLocations.Count -eq 0 -and -not $IsTestConfigMode.IsPresent) {
+    } elseif ($finalConfiguration.BackupLocations.Count -eq 0 -and -not $IsTestConfigMode.IsPresent) {
          Write-LogMessage "[WARNING] 'BackupLocations' is empty. No jobs to run unless specified by -BackupLocationName (which also requires definition)." -Level "WARNING"
     } else {
-        if ($null -ne $loadedConfiguration.BackupLocations) {
-            foreach ($jobKey in $loadedConfiguration.BackupLocations.Keys) {
-                $jobConfig = $loadedConfiguration.BackupLocations[$jobKey]
+        if ($null -ne $finalConfiguration.BackupLocations) {
+            foreach ($jobKey in $finalConfiguration.BackupLocations.Keys) {
+                $jobConfig = $finalConfiguration.BackupLocations[$jobKey]
                 if (-not ($jobConfig -is [hashtable])) {
                     $validationMessages.Add("BackupLocation '$jobKey' is not a valid Hashtable.")
                     continue
@@ -322,14 +393,14 @@ function Import-AppConfiguration {
         }
     }
 
-    $defaultArchiveExtGlobal = Get-ConfigValue -ConfigObject $loadedConfiguration -Key 'DefaultArchiveExtension' -DefaultValue ".7z"
+    $defaultArchiveExtGlobal = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'DefaultArchiveExtension' -DefaultValue ".7z"
     if (-not ($defaultArchiveExtGlobal -match "^\.[a-zA-Z0-9]+([a-zA-Z0-9\.]*[a-zA-Z0-9]+)?$")) {
         $validationMessages.Add("Global 'DefaultArchiveExtension' ('$defaultArchiveExtGlobal') is invalid. Must start with '.' and contain valid extension characters.")
     }
 
-    if ($loadedConfiguration.ContainsKey('BackupSets') -and $loadedConfiguration['BackupSets'] -is [hashtable]) {
-        foreach ($setKey in $loadedConfiguration['BackupSets'].Keys) {
-            $setConfig = $loadedConfiguration['BackupSets'][$setKey]
+    if ($finalConfiguration.ContainsKey('BackupSets') -and $finalConfiguration['BackupSets'] -is [hashtable]) {
+        foreach ($setKey in $finalConfiguration['BackupSets'].Keys) {
+            $setConfig = $finalConfiguration['BackupSets'][$setKey]
             if (-not ($setConfig -is [hashtable])) {
                 $validationMessages.Add("BackupSet '$setKey' is not a valid Hashtable.")
                 continue
@@ -341,9 +412,9 @@ function Import-AppConfiguration {
                 foreach ($jobNameInSetCandidate in $jobNames) {
                     if ([string]::IsNullOrWhiteSpace($jobNameInSetCandidate)) { continue }
                     $jobNameInSet = $jobNameInSetCandidate.Trim()
-                    if ($loadedConfiguration.ContainsKey('BackupLocations') -and $loadedConfiguration['BackupLocations'] -is [hashtable] -and -not $loadedConfiguration['BackupLocations'].ContainsKey($jobNameInSet)) {
+                    if ($finalConfiguration.ContainsKey('BackupLocations') -and $finalConfiguration['BackupLocations'] -is [hashtable] -and -not $finalConfiguration['BackupLocations'].ContainsKey($jobNameInSet)) {
                         $validationMessages.Add("BackupSet '$setKey': Job '$jobNameInSet' is not defined in 'BackupLocations'.")
-                    } elseif (-not ($loadedConfiguration.ContainsKey('BackupLocations') -and $loadedConfiguration['BackupLocations'] -is [hashtable])) {
+                    } elseif (-not ($finalConfiguration.ContainsKey('BackupLocations') -and $finalConfiguration['BackupLocations'] -is [hashtable])) {
                         $validationMessages.Add("BackupSet '$setKey': Cannot validate Job '$jobNameInSet' because 'BackupLocations' is not a valid Hashtable or is missing.")
                     }
                 }
@@ -353,17 +424,23 @@ function Import-AppConfiguration {
                 $validationMessages.Add("BackupSet '$setKey': 'OnErrorInJob' has an invalid value ('$onError'). Must be 'StopSet' or 'ContinueSet'.")
             }
         }
-    } elseif ($loadedConfiguration.ContainsKey('BackupSets') -and -not ($loadedConfiguration['BackupSets'] -is [hashtable])) {
+    } elseif ($finalConfiguration.ContainsKey('BackupSets') -and -not ($finalConfiguration['BackupSets'] -is [hashtable])) {
         $validationMessages.Add("Global 'BackupSets' exists but is not a valid Hashtable.")
     }
-
+    
     if ($validationMessages.Count -gt 0) {
         Write-LogMessage "Configuration validation failed with the following errors:" -Level "ERROR" -ForegroundColour $Global:ColourError
         $validationMessages | ForEach-Object { Write-LogMessage "  - $_" -Level "ERROR" -ForegroundColour $Global:ColourError }
         return @{ IsValid = $false; ErrorMessage = "Configuration validation failed." }
     }
 
-    return @{ IsValid = $true; Configuration = $loadedConfiguration; ActualPath = $resolvedConfigPath }
+    return @{ 
+        IsValid = $true; 
+        Configuration = $finalConfiguration; 
+        ActualPath = $primaryConfigPathForReturn; # Path of the base config (Default.psd1 or specified)
+        UserConfigLoaded = $userConfigLoadedSuccessfully;
+        UserConfigPath = if($userConfigLoadedSuccessfully -or (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf)) {$defaultUserConfigPath} else {$null}
+    }
 }
 #endregion
 
