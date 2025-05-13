@@ -1,9 +1,10 @@
 # PowerShell Data File for PoSh Backup Script Configuration (Default).
 # --> THIS WILL GET OVERWRITTEN ON UPGRADE if you don't use a User.psd1 for your changes! <--
-# Version 1.0: Enhanced HTML Theming options, including CSS variable overrides.
+# Version 1.1: SevenZipPath set to empty to trigger auto-detection by default.
 @{
     #region --- General Global Settings ---
-    SevenZipPath                    = "C:\Program Files\7-Zip\7z.exe" # Full path to 7z.exe. Essential for script operation.
+    SevenZipPath                    = ""                              # Full path to 7z.exe. Leave empty to attempt auto-detection.
+                                                                      # If auto-detection fails, script will error.
     DefaultDestinationDir           = "D:\Backups"                    # Default backup destination if not specified per job.
                                                                       # Ensure this path exists or can be created by the script.
     HideSevenZipOutput              = $true                           # $true to hide 7-Zip's console window during compression/testing.
@@ -136,7 +137,7 @@
 
     BackupLocations                 = @{
         "Projects"  = @{
-            Path                    = "P:\Images\*"                   # Path to recursively back-up.
+            Path                    = "P:\*"                          # Path to recursively back-up.
             Name                    = "Projects"                      # Base name for the archive file (before date/extension).
             DestinationDir          = "D:\Backups"                    # Override global DefaultDestinationDir if needed.
             RetentionCount          = 3                               # Number of archive versions to keep.

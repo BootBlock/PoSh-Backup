@@ -1,6 +1,7 @@
 # PowerShell Module: Utils.psm1
 # Version 1.0: Updated PauseBeforeExit validation to include new string options (Always, Never, OnFailure, etc.).
 # Version 1.1: Added User Configuration Override (User.psd1) and deep merge functionality.
+# Version 1.2: Added auto-detection for 7-Zip executable.
 
 #region --- Private Helper Functions ---
 function Merge-DeepHashtables {
@@ -25,6 +26,39 @@ function Merge-DeepHashtables {
         }
     }
     return $merged
+}
+
+function Find-SevenZipExecutable {
+    [CmdletBinding()]
+    param()
+
+    Write-LogMessage "  - Attempting to auto-detect 7z.exe..." -Level "DEBUG"
+    $commonPaths = @(
+        (Join-Path -Path $env:ProgramFiles -ChildPath "7-Zip\7z.exe"),
+        (Join-Path -Path ${env:ProgramFiles(x86)} -ChildPath "7-Zip\7z.exe") # Check x86 path if it exists
+    )
+
+    foreach ($pathAttempt in $commonPaths) {
+        if (Test-Path -LiteralPath $pathAttempt -PathType Leaf) {
+            Write-LogMessage "    - Auto-detected 7z.exe at '$pathAttempt' (common location)." -Level "INFO"
+            return $pathAttempt
+        }
+    }
+
+    try {
+        $pathFromCommand = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+        if (-not [string]::IsNullOrWhiteSpace($pathFromCommand) -and (Test-Path -LiteralPath $pathFromCommand -PathType Leaf)) {
+            Write-LogMessage "    - Auto-detected 7z.exe at '$pathFromCommand' (from system PATH)." -Level "INFO"
+            return $pathFromCommand
+        }
+    }
+    catch {
+        # Get-Command might throw if not found, even with SilentlyContinue for some errors.
+        Write-LogMessage "    - 7z.exe not found in system PATH (Get-Command)." -Level "DEBUG"
+    }
+    
+    Write-LogMessage "    - Auto-detection failed to find 7z.exe in common locations or system PATH." -Level "DEBUG"
+    return $null
 }
 #endregion --- Private Helper Functions ---
 
@@ -238,18 +272,16 @@ function Import-AppConfiguration {
     $baseConfigPath = $null
     $userConfigPath = $null
     $userConfigLoadedSuccessfully = $false
-    $primaryConfigPathForReturn = $null # This will be Default.psd1 or UserSpecifiedPath
+    $primaryConfigPathForReturn = $null 
 
-    # Define paths for default configuration files
     $defaultConfigDir = Join-Path -Path $MainScriptPSScriptRoot -ChildPath "Config"
     $defaultBaseConfigFileName = "Default.psd1"
-    $defaultUserConfigFileName = "User.psd1" # New user override file
+    $defaultUserConfigFileName = "User.psd1" 
 
     $defaultBaseConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultBaseConfigFileName
     $defaultUserConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultUserConfigFileName
 
     if (-not [string]::IsNullOrWhiteSpace($UserSpecifiedPath)) {
-        # Scenario 1: A specific configuration file is provided via -ConfigFile / $UserSpecifiedPath
         Write-LogMessage "`n[INFO] Using specified configuration file: $($UserSpecifiedPath)"
         $primaryConfigPathForReturn = $UserSpecifiedPath
 
@@ -265,7 +297,6 @@ function Import-AppConfiguration {
             return @{ IsValid = $false; ErrorMessage = "Failed to parse configuration file '$UserSpecifiedPath': $($_.Exception.Message)" }
         }
     } else {
-        # Scenario 2: No -ConfigFile specified, use default layering (Default.psd1 + User.psd1)
         $baseConfigPath = $defaultBaseConfigPath
         $userConfigPath = $defaultUserConfigPath
         $primaryConfigPathForReturn = $baseConfigPath
@@ -284,7 +315,6 @@ function Import-AppConfiguration {
             return @{ IsValid = $false; ErrorMessage = "Failed to parse base configuration file '$baseConfigPath': $($_.Exception.Message)" }
         }
 
-        # Now, check for and load User.psd1 to override Default.psd1
         Write-LogMessage "[INFO] Checking for user override configuration at: $($userConfigPath)"
         if (Test-Path -LiteralPath $userConfigPath -PathType Leaf) {
             try {
@@ -306,7 +336,6 @@ function Import-AppConfiguration {
         }
     }
 
-    # Perform validation on the $finalConfiguration
     if ($null -eq $finalConfiguration -or -not ($finalConfiguration -is [hashtable])) {
         Write-LogMessage "FATAL: Final configuration is not a valid hashtable after loading/merging." -Level "ERROR" -ForegroundColour $Global:ColourError
         return @{ IsValid = $false; ErrorMessage = "Final configuration is not a valid hashtable." }
@@ -328,12 +357,41 @@ function Import-AppConfiguration {
         $validationMessages.Add("Global 'VSSMetadataCachePath' ('$vssCachePath') is not a valid path format after expansion.")
     }
 
-    $sevenZipPath = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'SevenZipPath' -DefaultValue $null
-    if ([string]::IsNullOrWhiteSpace($sevenZipPath)) {
-        $validationMessages.Add("Global 'SevenZipPath' is missing or empty in the configuration.")
-    } elseif (-not (Test-Path -LiteralPath $sevenZipPath -PathType Leaf)) {
-        $validationMessages.Add("Global 'SevenZipPath' ('$sevenZipPath') does not point to a valid file.")
+    # --- MODIFIED SECTION for SevenZipPath ---
+    $sevenZipPathFromConfig = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'SevenZipPath' -DefaultValue $null
+    $effectiveSevenZipPath = $null
+    $sevenZipPathSource = "configuration" # To log how the path was determined
+
+    if (-not [string]::IsNullOrWhiteSpace($sevenZipPathFromConfig)) {
+        if (Test-Path -LiteralPath $sevenZipPathFromConfig -PathType Leaf) {
+            $effectiveSevenZipPath = $sevenZipPathFromConfig
+            Write-LogMessage "  - Using 7-Zip path from configuration: '$effectiveSevenZipPath'" -Level "DEBUG"
+        } else {
+            Write-LogMessage "[WARNING] Configured 'SevenZipPath' ('$sevenZipPathFromConfig') is invalid or not found. Attempting auto-detection..." -Level "WARNING"
+            $effectiveSevenZipPath = Find-SevenZipExecutable
+            if ($null -ne $effectiveSevenZipPath) {
+                $sevenZipPathSource = "auto-detected (config invalid)"
+            }
+        }
+    } else {
+        Write-LogMessage "[INFO] 'SevenZipPath' is not configured or is empty. Attempting auto-detection..." -Level "INFO"
+        $effectiveSevenZipPath = Find-SevenZipExecutable
+        if ($null -ne $effectiveSevenZipPath) {
+            $sevenZipPathSource = "auto-detected (config empty)"
+        }
     }
+
+    if ([string]::IsNullOrWhiteSpace($effectiveSevenZipPath)) {
+        # If SevenZipPath is critical and must stop the script, add to validation messages
+        $validationMessages.Add("CRITICAL: 'SevenZipPath' could not be resolved. It's not valid in config and auto-detection failed. PoSh-Backup cannot function without 7z.exe.")
+    } else {
+        # Update the configuration object with the effective path so the rest of the script uses it.
+        $finalConfiguration.SevenZipPath = $effectiveSevenZipPath 
+        if ($IsTestConfigMode) { # Only log this info message if in TestConfig mode to avoid clutter during normal runs, previous logs handle other cases
+            Write-LogMessage "  - Effective 7-Zip Path set to: '$effectiveSevenZipPath' (Source: $sevenZipPathSource)" -Level "CONFIG_TEST"
+        }
+    }
+    # --- END OF MODIFIED SECTION for SevenZipPath ---
 
     $defaultDateFormat = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd"
     if (-not ([string]$defaultDateFormat).Trim()) {
@@ -437,7 +495,7 @@ function Import-AppConfiguration {
     return @{ 
         IsValid = $true; 
         Configuration = $finalConfiguration; 
-        ActualPath = $primaryConfigPathForReturn; # Path of the base config (Default.psd1 or specified)
+        ActualPath = $primaryConfigPathForReturn; 
         UserConfigLoaded = $userConfigLoadedSuccessfully;
         UserConfigPath = if($userConfigLoadedSuccessfully -or (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf)) {$defaultUserConfigPath} else {$null}
     }
