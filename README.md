@@ -20,4 +20,4 @@ Key features include:
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`) before execution.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created archives to ensure backup reliability.
-*   **User-Friendly Exit Pause:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
+*   **Exit Pause:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
