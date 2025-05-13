@@ -43,6 +43,7 @@
       Optionally logs to per-job text files.
     - Simulation Mode (-Simulate): Runs through the backup logic without making actual changes.
     - Configuration Test Mode (-TestConfig): Validates the configuration file, provides a summary of loaded settings, and exits.
+    - List Configured Items: Use -ListBackupLocations or -ListBackupSets to display defined jobs/sets and exit.
     - Free Space Check: Optionally checks for minimum required free space.
     - Archive Integrity Test: Optionally tests newly created archives.
     - Configurable Exit Pause: Script can pause before exiting based on settings: Always, Never, OnFailure,
@@ -98,6 +99,14 @@
     print any validation errors and a summary of loaded settings, and then exit without performing any backup operations.
     Useful for checking configuration syntax and integrity before deployment.
 
+.PARAMETER ListBackupLocations
+    Optional. A switch parameter. If present, the script loads the configuration, lists all defined
+    Backup Locations (jobs) and their source paths, and then exits. Takes precedence over normal backup operations.
+
+.PARAMETER ListBackupSets
+    Optional. A switch parameter. If present, the script loads the configuration, lists all defined
+    Backup Sets and the jobs they contain, and then exits. Takes precedence over normal backup operations.
+
 .PARAMETER PauseBehaviourCLI
     Optional. Controls script pause behaviour before exiting. Overrides the 'PauseBeforeExit' from config.
     Valid values (case-insensitive): "True" (same as "Always"), "False" (same as "Never"),
@@ -115,10 +124,18 @@
     .\PoSh-Backup.ps1 -TestConfig -ConfigFile "C:\PoShBackup\CustomConfig.psd1"
     Loads and validates "C:\PoShBackup\CustomConfig.psd1", prints a summary, and then exits. (User.psd1 is not loaded/created in this specific case).
 
+.EXAMPLE
+    .\PoSh-Backup.ps1 -ListBackupLocations
+    Lists all defined backup jobs from the configuration and exits.
+
+.EXAMPLE
+    .\PoSh-Backup.ps1 -ListBackupSets -ConfigFile ".\Config\BranchOffice.psd1"
+    Lists all defined backup sets from ".\Config\BranchOffice.psd1" and exits.
+
 .NOTES
     Author:         [Joe Cox] with tons of Gemini AI to see how well it does (e.g. blame it for any issues, ahem)
-    Version:        1.4 (Enhanced -TestConfig output)
-    Date:           13-May-2025
+    Version:        1.5 (Added -ListBackupLocations and -ListBackupSets)
+    Date:           14-May-2025
     Requires:       PowerShell 5.1 or higher.
                     7-Zip (7z.exe) must be installed and its path correctly specified in the configuration.
     Privileges:     Administrator privileges are required for VSS functionality.
@@ -163,6 +180,12 @@ param (
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Load and validate the entire configuration file, prints summary, then exit.")]
     [switch]$TestConfig,
+
+    [Parameter(Mandatory=$false, HelpMessage="Switch. List defined Backup Locations (jobs) and exit.")]
+    [switch]$ListBackupLocations,
+
+    [Parameter(Mandatory=$false, HelpMessage="Switch. List defined Backup Sets and exit.")]
+    [switch]$ListBackupSets,
 
     [Parameter(Mandatory=$false, HelpMessage="Control script pause behaviour before exiting. Valid values: 'True', 'False', 'Always', 'Never', 'OnFailure', 'OnWarning', 'OnFailureOrWarning'. Overrides config.")]
     [ValidateSet("True", "False", "Always", "Never", "OnFailure", "OnWarning", "OnFailureOrWarning", IgnoreCase=$true)]
@@ -226,9 +249,11 @@ try {
 # Initial log messages (not part of per-job HTML report logs)
 Write-LogMessage "---------------------------------" -ForegroundColour $Global:ColourHeading -Level "NONE"
 Write-LogMessage " Starting PoSh Backup Script     " -ForegroundColour $Global:ColourHeading -Level "NONE" 
-Write-LogMessage " Script Version: v1.4 (Enhanced TestConfig)" -ForegroundColour $Global:ColourHeading -Level "NONE" 
+Write-LogMessage " Script Version: v1.5 (List Jobs/Sets)" -ForegroundColour $Global:ColourHeading -Level "NONE" 
 if ($IsSimulateMode) { Write-LogMessage " ***** SIMULATION MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { Write-LogMessage " ***** CONFIGURATION TEST MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "CONFIG_TEST" } 
+if ($ListBackupLocations.IsPresent) { Write-LogMessage " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "CONFIG_TEST" } 
+if ($ListBackupSets.IsPresent) { Write-LogMessage " ***** LIST BACKUP SETS MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "CONFIG_TEST" } 
 Write-LogMessage "---------------------------------" -ForegroundColour $Global:ColourHeading -Level "NONE"
 #endregion
 
@@ -248,7 +273,8 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) { # Only if using default
         if (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf) {
             Write-LogMessage "[INFO] User configuration file ('$defaultUserConfigPath') not found." -Level "INFO"
             # Only prompt in interactive console sessions
-            if ($Host.Name -eq "ConsoleHost" -and -not $TestConfig.IsPresent -and -not $IsSimulateMode) {
+            if ($Host.Name -eq "ConsoleHost" -and -not $TestConfig.IsPresent -and -not $IsSimulateMode `
+                -and -not $ListBackupLocations.IsPresent -and -not $ListBackupSets.IsPresent) { # Also don't prompt if just listing
                 $choiceTitle = "Create User Configuration?"
                 $choiceMessage = "The user-specific configuration file '$($defaultUserConfigFileName)' was not found in '$($defaultConfigDir)'.`nIt is recommended to create this file as it allows you to customize settings without modifying`nthe default file, ensuring your settings are not overwritten by script upgrades.`n`nWould you like to create '$($defaultUserConfigFileName)' now by copying the contents of '$($defaultBaseConfigFileName)'?"
                 $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Create '$($defaultUserConfigFileName)' from '$($defaultBaseConfigFileName)'."
@@ -276,7 +302,7 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) { # Only if using default
                     Write-LogMessage "[INFO] User chose not to create '$defaultUserConfigFileName'. '$defaultBaseConfigFileName' will be used for this run." -Level "INFO"
                 }
             } else {
-                 Write-LogMessage "[INFO] Not prompting to create '$defaultUserConfigFileName' (Non-interactive, TestConfig, or Simulate mode)." -Level "INFO"
+                 Write-LogMessage "[INFO] Not prompting to create '$defaultUserConfigFileName' (Non-interactive, TestConfig, Simulate, or List mode)." -Level "INFO"
                  Write-LogMessage "       If you wish to have user-specific overrides, please manually copy '$defaultBaseConfigPath' to '$defaultUserConfigPath' and edit it." -Level "INFO"
             }
         } else {
@@ -286,7 +312,7 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) { # Only if using default
 }
 
 # Load application configuration using helper from Utils.psm1
-$configResult = Import-AppConfiguration -UserSpecifiedPath $ConfigFile -IsTestConfigMode:$($TestConfig.IsPresent) -MainScriptPSScriptRoot $PSScriptRoot
+$configResult = Import-AppConfiguration -UserSpecifiedPath $ConfigFile -IsTestConfigMode:(($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) -MainScriptPSScriptRoot $PSScriptRoot
 if (-not $configResult.IsValid) {
     Write-LogMessage "FATAL: Configuration loading or validation failed. Exiting." -Level "ERROR" -ForegroundColour $Global:ColourError
     exit 1 # Exit code for configuration error
@@ -299,40 +325,78 @@ if ($configResult.PSObject.Properties.Name -contains 'UserConfigLoaded') { # Che
     if ($configResult.UserConfigLoaded) {
         Write-LogMessage "[INFO] User override configuration from '$($configResult.UserConfigPath)' was successfully loaded and merged." -Level "INFO"
     } elseif (($null -ne $configResult.UserConfigPath) -and (-not $configResult.UserConfigLoaded) -and (Test-Path -LiteralPath $configResult.UserConfigPath -PathType Leaf)) {
-        # This condition means User.psd1 exists but wasn't successfully loaded/merged (e.g. parse error reported by Import-AppConfiguration)
         Write-LogMessage "[WARNING] User override configuration '$($configResult.UserConfigPath)' was found but an issue occurred during its loading/merging (check previous messages). Effective configuration may not include user overrides." -Level "WARNING"
     }
-    # If UserConfigPath is null or UserConfigLoaded is false and the file doesn't exist, Import-AppConfiguration already logged that it wasn't found.
 }
 
 
 # Inject the main script's root path into the loaded configuration.
-# This allows modules to reliably find paths relative to PoSh-Backup.ps1 (e.g., for Config\Themes).
-# A key with underscores is used to minimise potential clashes with user-defined config keys.
 if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
     $Configuration['_PoShBackup_PSScriptRoot'] = $PSScriptRoot
 } else {
-    # This case should ideally be caught by Import-AppConfiguration if $Configuration is null/not hashtable
     Write-LogMessage "FATAL: Configuration object is not a valid hashtable after loading. Cannot inject PSScriptRoot." -Level "ERROR" -ForegroundColour $Global:ColourError
     exit 1
 }
 
-# Setup global file logging based on configuration
-$Global:GlobalEnableFileLogging = Get-ConfigValue -ConfigObject $Configuration -Key 'EnableFileLogging' -DefaultValue $false
-if ($Global:GlobalEnableFileLogging) {
-    $logDirConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'LogDirectory' -DefaultValue "Logs" 
-    $Global:GlobalLogDirectory = if ([System.IO.Path]::IsPathRooted($logDirConfig)) { $logDirConfig } else { Join-Path -Path $PSScriptRoot -ChildPath $logDirConfig }
-    
-    if (-not (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
-        try {
-            New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
-            Write-LogMessage "[INFO] Log directory '$Global:GlobalLogDirectory' created." # This logs to console and potentially file if already set up
-        } catch {
-            Write-LogMessage "[WARNING] Failed to create log directory '$Global:GlobalLogDirectory'. File logging may be impacted. Error: $($_.Exception.Message)" -Level "WARNING"
-            $Global:GlobalEnableFileLogging = $false # Disable file logging if directory creation fails
+# Setup global file logging based on configuration (only if not just listing)
+if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent)) {
+    $Global:GlobalEnableFileLogging = Get-ConfigValue -ConfigObject $Configuration -Key 'EnableFileLogging' -DefaultValue $false
+    if ($Global:GlobalEnableFileLogging) {
+        $logDirConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'LogDirectory' -DefaultValue "Logs" 
+        $Global:GlobalLogDirectory = if ([System.IO.Path]::IsPathRooted($logDirConfig)) { $logDirConfig } else { Join-Path -Path $PSScriptRoot -ChildPath $logDirConfig }
+        
+        if (-not (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
+            try {
+                New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
+                Write-LogMessage "[INFO] Log directory '$Global:GlobalLogDirectory' created."
+            } catch {
+                Write-LogMessage "[WARNING] Failed to create log directory '$Global:GlobalLogDirectory'. File logging may be impacted. Error: $($_.Exception.Message)" -Level "WARNING"
+                $Global:GlobalEnableFileLogging = $false 
+            }
         }
     }
 }
+
+# Handle -ListBackupLocations or -ListBackupSets parameters
+if ($ListBackupLocations.IsPresent) {
+    Write-LogMessage "`n--- Defined Backup Locations (Jobs) from '$($ActualConfigFile)' ---" -ForegroundColour $Global:ColourHeading -Level "NONE"
+    if ($configResult.UserConfigLoaded) {
+        Write-LogMessage "    (Includes overrides from '$($configResult.UserConfigPath)')" -ForegroundColour $Global:ColourInfo -Level "NONE"
+    }
+    if ($Configuration.BackupLocations -is [hashtable] -and $Configuration.BackupLocations.Count -gt 0) {
+        $Configuration.BackupLocations.GetEnumerator() | Sort-Object Name | ForEach-Object {
+            Write-Host ("`n  Job Name      : " + $_.Name) -ForegroundColor $Global:ColourValue
+            $sourcePaths = if ($_.Value.Path -is [array]) { ($_.Value.Path | ForEach-Object { "                  `"$_`"" }) -join [Environment]::NewLine } else { "                  `"$($_.Value.Path)`"" }
+            Write-Host ("  Source Path(s):`n" + $sourcePaths)
+            Write-Host ("  Archive Name  : " + (Get-ConfigValue $_.Value 'Name' 'N/A'))
+            Write-Host ("  Destination   : " + (Get-ConfigValue $_.Value 'DestinationDir' (Get-ConfigValue $Configuration 'DefaultDestinationDir' 'N/A')))
+        }
+    } else {
+        Write-LogMessage "No Backup Locations are defined in the configuration." -ForegroundColour $Global:ColourWarning -Level "NONE"
+    }
+    Write-LogMessage "`n--- Listing Complete ---" -ForegroundColour $Global:ColourHeading -Level "NONE"
+    exit 0
+}
+
+if ($ListBackupSets.IsPresent) {
+    Write-LogMessage "`n--- Defined Backup Sets from '$($ActualConfigFile)' ---" -ForegroundColour $Global:ColourHeading -Level "NONE"
+    if ($configResult.UserConfigLoaded) {
+        Write-LogMessage "    (Includes overrides from '$($configResult.UserConfigPath)')" -ForegroundColour $Global:ColourInfo -Level "NONE"
+    }
+    if ($Configuration.BackupSets -is [hashtable] -and $Configuration.BackupSets.Count -gt 0) {
+        $Configuration.BackupSets.GetEnumerator() | Sort-Object Name | ForEach-Object {
+            Write-Host ("`n  Set Name     : " + $_.Name) -ForegroundColor $Global:ColourValue
+            $jobsInSet = if ($_.Value.JobNames -is [array]) { ($_.Value.JobNames | ForEach-Object { "                 $_" }) -join [Environment]::NewLine } else { "                 None listed" }
+            Write-Host ("  Jobs in Set  :`n" + $jobsInSet)
+            Write-Host ("  On Error     : " + (Get-ConfigValue $_.Value 'OnErrorInJob' 'StopSet'))
+        }
+    } else {
+        Write-LogMessage "No Backup Sets are defined in the configuration." -ForegroundColour $Global:ColourWarning -Level "NONE"
+    }
+    Write-LogMessage "`n--- Listing Complete ---" -ForegroundColour $Global:ColourHeading -Level "NONE"
+    exit 0
+}
+
 
 # If -TestConfig switch is present, provide detailed output and then exit.
 if ($TestConfig.IsPresent) {
