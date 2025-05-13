@@ -140,7 +140,7 @@
 
     BackupLocations                 = @{
         "Projects"  = @{
-            Path                    = "P:\*"                          # Path to recursively back-up.
+            Path                    = "P:\Images\*"                          # Path to recursively back-up.
             Name                    = "Projects"                      # Base name for the archive file (before date/extension).
             DestinationDir          = "D:\Backups"                    # Override global DefaultDestinationDir if needed.
             RetentionCount          = 3                               # Number of archive versions to keep.

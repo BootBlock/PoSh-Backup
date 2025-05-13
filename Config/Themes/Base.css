@@ -201,7 +201,7 @@ tr:hover td {
     font-size: 0.9em; 
     border-left-width: 5px; 
     border-left-style: solid; 
-    display: flex; 
+    display: flex; /* Default display for visible entries */
     align-items: flex-start; 
 }
 .log-entry strong { 
@@ -323,4 +323,43 @@ a:hover, a:focus {
         min-width: unset; 
         margin-bottom: var(--spacing-xs); 
     }
+}
+
+/* ====== LOG FILTER CONTROLS STYLING (NEW) ====== */
+.log-filters {
+    margin-bottom: 1em;
+    padding: 0.75em;
+    border: 1px solid var(--border-color-light);
+    border-radius: var(--border-radius-sm);
+    background-color: var(--table-row-even-bg);
+    display: flex;
+    flex-wrap: wrap; 
+    gap: 1em; 
+    align-items: center;
+}
+
+.log-filters label, .log-filters strong {
+    margin-right: 0.5em;
+    font-weight: normal; 
+}
+.log-filters input[type="text"] {
+    padding: 0.5em;
+    border: 1px solid var(--border-color-medium);
+    border-radius: var(--border-radius-sm);
+    min-width: 200px;
+    box-sizing: border-box; 
+}
+.log-filters .log-level-filters-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em 1em; 
+    align-items: center;
+}
+.log-filters .log-level-filters-container label {
+    white-space: nowrap;
+    cursor: pointer;
+}
+.log-filters .log-level-filters-container input[type="checkbox"] {
+    margin-right: 0.3em;
+    vertical-align: middle;
 }
