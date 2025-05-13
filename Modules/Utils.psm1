@@ -2,6 +2,7 @@
 # Version 1.0: Updated PauseBeforeExit validation to include new string options (Always, Never, OnFailure, etc.).
 # Version 1.1: Added User Configuration Override (User.psd1) and deep merge functionality.
 # Version 1.2: Added auto-detection for 7-Zip executable.
+# Version 1.4: Moved schema validation to PoShBackupValidator.psm1 (optional) and refined 7zip path detection.
 
 #region --- Private Helper Functions ---
 function Merge-DeepHashtables {
@@ -39,7 +40,7 @@ function Find-SevenZipExecutable {
     )
 
     foreach ($pathAttempt in $commonPaths) {
-        if (Test-Path -LiteralPath $pathAttempt -PathType Leaf) {
+        if ($null -ne $pathAttempt -and (Test-Path -LiteralPath $pathAttempt -PathType Leaf)) {
             Write-LogMessage "    - Auto-detected 7z.exe at '$pathAttempt' (common location)." -Level "INFO"
             return $pathAttempt
         }
@@ -284,7 +285,6 @@ function Import-AppConfiguration {
     if (-not [string]::IsNullOrWhiteSpace($UserSpecifiedPath)) {
         Write-LogMessage "`n[INFO] Using specified configuration file: $($UserSpecifiedPath)"
         $primaryConfigPathForReturn = $UserSpecifiedPath
-
         if (-not (Test-Path -LiteralPath $UserSpecifiedPath -PathType Leaf)) {
             Write-LogMessage "FATAL: Specified configuration file '$UserSpecifiedPath' not found." -Level "ERROR" -ForegroundColour $Global:ColourError
             return @{ IsValid = $false; ErrorMessage = "Configuration file not found at '$UserSpecifiedPath'." }
@@ -300,7 +300,6 @@ function Import-AppConfiguration {
         $baseConfigPath = $defaultBaseConfigPath
         $userConfigPath = $defaultUserConfigPath
         $primaryConfigPathForReturn = $baseConfigPath
-
         Write-LogMessage "`n[INFO] No -ConfigFile specified. Loading base configuration from: $($baseConfigPath)"
         if (-not (Test-Path -LiteralPath $baseConfigPath -PathType Leaf)) {
             Write-LogMessage "FATAL: Base configuration file '$baseConfigPath' not found. This file is required." -Level "ERROR" -ForegroundColour $Global:ColourError
@@ -314,7 +313,6 @@ function Import-AppConfiguration {
             Write-LogMessage "FATAL: Could not load or parse base configuration file '$baseConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
             return @{ IsValid = $false; ErrorMessage = "Failed to parse base configuration file '$baseConfigPath': $($_.Exception.Message)" }
         }
-
         Write-LogMessage "[INFO] Checking for user override configuration at: $($userConfigPath)"
         if (Test-Path -LiteralPath $userConfigPath -PathType Leaf) {
             try {
@@ -340,9 +338,32 @@ function Import-AppConfiguration {
         Write-LogMessage "FATAL: Final configuration is not a valid hashtable after loading/merging." -Level "ERROR" -ForegroundColour $Global:ColourError
         return @{ IsValid = $false; ErrorMessage = "Final configuration is not a valid hashtable." }
     }
-
+    
     $validationMessages = [System.Collections.Generic.List[string]]::new()
 
+    # --- Optional Advanced Schema Validation ---
+    $enableAdvancedValidation = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'EnableAdvancedSchemaValidation' -DefaultValue $false
+    if ($enableAdvancedValidation -eq $true) {
+        Write-LogMessage "[INFO] Advanced Schema Validation is enabled. Attempting to load PoShBackupValidator module..." -Level "INFO"
+        try {
+            Import-Module -Name (Join-Path -Path $MainScriptPSScriptRoot -ChildPath "Modules\PoShBackupValidator.psm1") -Force -ErrorAction Stop
+            Write-LogMessage "  - PoShBackupValidator module loaded. Performing schema validation..." -Level "DEBUG"
+            # Invoke the validation function from the external module
+            Invoke-PoShBackupConfigValidation -ConfigurationToValidate $finalConfiguration -ValidationMessagesListRef ([ref]$validationMessages)
+            if ($IsTestConfigMode.IsPresent -and $validationMessages.Count -eq 0) { # Only log success if in test mode and no existing messages
+                 Write-LogMessage "[SUCCESS] Advanced schema validation completed successfully (no new errors found by schema)." -Level "CONFIG_TEST" -ForegroundColour $Global:ColourSuccess
+            }
+        } catch {
+            Write-LogMessage "[WARNING] Could not load or execute PoShBackupValidator module. Advanced schema validation will be skipped. Error: $($_.Exception.Message)" -Level "WARNING"
+        }
+    } else {
+        if ($IsTestConfigMode.IsPresent) { 
+            Write-LogMessage "[INFO] Advanced Schema Validation is disabled in the configuration ('EnableAdvancedSchemaValidation' is `$false or missing)." -Level "CONFIG_TEST"
+        }
+    }
+    # --- End Optional Advanced Schema Validation ---
+
+    # --- Specific Value Validations (these remain important) ---
     $vssCachePath = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab" 
     try {
         $expandedVssCachePath = [System.Environment]::ExpandEnvironmentVariables($vssCachePath) 
@@ -357,81 +378,82 @@ function Import-AppConfiguration {
         $validationMessages.Add("Global 'VSSMetadataCachePath' ('$vssCachePath') is not a valid path format after expansion.")
     }
 
-    # --- MODIFIED SECTION for SevenZipPath ---
-    $sevenZipPathFromConfig = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'SevenZipPath' -DefaultValue $null
-    $effectiveSevenZipPath = $null
-    $sevenZipPathSource = "configuration" # To log how the path was determined
+    # Handle SevenZipPath: Use configured, or auto-detect, then validate final path.
+    $sevenZipPathFromConfigOriginal = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'SevenZipPath' -DefaultValue $null
+    $sevenZipPathSource = "configuration"
 
-    if (-not [string]::IsNullOrWhiteSpace($sevenZipPathFromConfig)) {
-        if (Test-Path -LiteralPath $sevenZipPathFromConfig -PathType Leaf) {
-            $effectiveSevenZipPath = $sevenZipPathFromConfig
-            Write-LogMessage "  - Using 7-Zip path from configuration: '$effectiveSevenZipPath'" -Level "DEBUG"
-        } else {
-            Write-LogMessage "[WARNING] Configured 'SevenZipPath' ('$sevenZipPathFromConfig') is invalid or not found. Attempting auto-detection..." -Level "WARNING"
-            $effectiveSevenZipPath = Find-SevenZipExecutable
-            if ($null -ne $effectiveSevenZipPath) {
-                $sevenZipPathSource = "auto-detected (config invalid)"
+    if (-not ([string]::IsNullOrWhiteSpace($finalConfiguration.SevenZipPath)) -and (Test-Path -LiteralPath $finalConfiguration.SevenZipPath -PathType Leaf)) {
+        # Path is already good in $finalConfiguration (either from config or previous auto-detection)
+        if ($IsTestConfigMode.IsPresent) {
+             # Determine source for logging if it wasn't explicitly set by auto-detection below
+            if ($sevenZipPathFromConfigOriginal -ne $finalConfiguration.SevenZipPath -and (-not [string]::IsNullOrWhiteSpace($finalConfiguration.SevenZipPath))) {
+                $sevenZipPathSource = "auto-detected" # Generic if source unclear
             }
+            Write-LogMessage "  - Effective 7-Zip Path: '$($finalConfiguration.SevenZipPath)' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
         }
-    } else {
-        Write-LogMessage "[INFO] 'SevenZipPath' is not configured or is empty. Attempting auto-detection..." -Level "INFO"
-        $effectiveSevenZipPath = Find-SevenZipExecutable
-        if ($null -ne $effectiveSevenZipPath) {
-            $sevenZipPathSource = "auto-detected (config empty)"
+    } else { # Path in $finalConfiguration is bad or empty, try to resolve
+        $initialPathIsEmpty = [string]::IsNullOrWhiteSpace($sevenZipPathFromConfigOriginal)
+        if (-not $initialPathIsEmpty) {
+            Write-LogMessage "[WARNING] Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') is invalid or not found. Attempting auto-detection..." -Level "WARNING"
+        } else {
+            Write-LogMessage "[INFO] 'SevenZipPath' is empty in configuration. Attempting auto-detection..." -Level "INFO"
+        }
+        
+        $foundPath = Find-SevenZipExecutable
+        if ($null -ne $foundPath) {
+            $finalConfiguration.SevenZipPath = $foundPath # Update the configuration
+            $sevenZipPathSource = if ($initialPathIsEmpty) { "auto-detected (config empty)" } else { "auto-detected (config invalid)" }
+            Write-LogMessage "[INFO] Using auto-detected 7-Zip Path: '$foundPath'." -Level "INFO"
+            if ($IsTestConfigMode.IsPresent) {
+                Write-LogMessage "  - Effective 7-Zip Path set to: '$foundPath' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
+            }
+        } else {
+            $errorMsg = if ($initialPathIsEmpty) {
+                "CRITICAL: 'SevenZipPath' is empty in config and auto-detection failed. PoSh-Backup cannot function."
+            } else {
+                "CRITICAL: Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') is invalid, and auto-detection failed. PoSh-Backup cannot function."
+            }
+            if (-not $validationMessages.Contains($errorMsg)) { $validationMessages.Add($errorMsg) }
+        }
+    }
+    # Final check, ensuring no silent failure if $finalConfiguration.SevenZipPath remains bad after all attempts
+    if ([string]::IsNullOrWhiteSpace($finalConfiguration.SevenZipPath) -or (-not (Test-Path -LiteralPath $finalConfiguration.SevenZipPath -PathType Leaf))) {
+        $criticalErrorMsg = "CRITICAL: Effective 'SevenZipPath' ('$($finalConfiguration.SevenZipPath)') is invalid or not found after all checks."
+        if (-not $validationMessages.Contains($criticalErrorMsg) -and `
+            -not $validationMessages.Contains("CRITICAL: 'SevenZipPath' is empty in config and auto-detection failed. PoSh-Backup cannot function.") -and `
+            -not $validationMessages.Contains("CRITICAL: Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') is invalid, and auto-detection failed. PoSh-Backup cannot function.") ) {
+             $validationMessages.Add($criticalErrorMsg)
         }
     }
 
-    if ([string]::IsNullOrWhiteSpace($effectiveSevenZipPath)) {
-        # If SevenZipPath is critical and must stop the script, add to validation messages
-        $validationMessages.Add("CRITICAL: 'SevenZipPath' could not be resolved. It's not valid in config and auto-detection failed. PoSh-Backup cannot function without 7z.exe.")
-    } else {
-        # Update the configuration object with the effective path so the rest of the script uses it.
-        $finalConfiguration.SevenZipPath = $effectiveSevenZipPath 
-        if ($IsTestConfigMode) { # Only log this info message if in TestConfig mode to avoid clutter during normal runs, previous logs handle other cases
-            Write-LogMessage "  - Effective 7-Zip Path set to: '$effectiveSevenZipPath' (Source: $sevenZipPathSource)" -Level "CONFIG_TEST"
-        }
-    }
-    # --- END OF MODIFIED SECTION for SevenZipPath ---
 
     $defaultDateFormat = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd"
-    if (-not ([string]$defaultDateFormat).Trim()) {
-        $validationMessages.Add("Global 'DefaultArchiveDateFormat' cannot be empty if defined.")
-    } else {
-        try { Get-Date -Format $defaultDateFormat -ErrorAction Stop | Out-Null }
-        catch { $validationMessages.Add("Global 'DefaultArchiveDateFormat' ('$defaultDateFormat') is not a valid date format string.") }
+    if ($finalConfiguration.ContainsKey('DefaultArchiveDateFormat')) { 
+        if (-not ([string]$defaultDateFormat).Trim()) {
+            $validationMessages.Add("Global 'DefaultArchiveDateFormat' cannot be empty if defined.")
+        } else {
+            try { Get-Date -Format $defaultDateFormat -ErrorAction Stop | Out-Null }
+            catch { $validationMessages.Add("Global 'DefaultArchiveDateFormat' ('$defaultDateFormat') is not a valid date format string.") }
+        }
     }
  
     $pauseSetting = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'PauseBeforeExit' -DefaultValue "OnFailureOrWarning" 
-    $validPauseOptions = @('true', 'false', 'always', 'never', 'onfailure', 'onwarning', 'onfailureorwarning')
-    if ($null -ne $pauseSetting) {
-        if ($pauseSetting -is [bool]) {
-            # Boolean true/false is acceptable
-        } elseif ($pauseSetting -is [string] -and $pauseSetting.ToString().ToLowerInvariant() -in $validPauseOptions) {
-            # String is one of the valid options
-        } else {
-            $validationMessages.Add("Global 'PauseBeforeExit' has an invalid value ('$pauseSetting'). Must be boolean (`$true`/`$false`) or one of the strings (case-insensitive): $($validPauseOptions -join ', ').")
+    if ($finalConfiguration.ContainsKey('PauseBeforeExit')) {
+        $validPauseOptions = @('true', 'false', 'always', 'never', 'onfailure', 'onwarning', 'onfailureorwarning')
+        if (!($pauseSetting -is [bool] -or ($pauseSetting -is [string] -and $pauseSetting.ToString().ToLowerInvariant() -in $validPauseOptions))) {
+            $validationMessages.Add("Global 'PauseBeforeExit' ('$pauseSetting') has an invalid value or type. Check schema definition or documentation.")
         }
     }
 
-    if (-not ($finalConfiguration.BackupLocations -is [hashtable])) {
-        $validationMessages.Add("Global 'BackupLocations' is missing or is not a valid Hashtable.")
-    } elseif ($finalConfiguration.BackupLocations.Count -eq 0 -and -not $IsTestConfigMode.IsPresent) {
+    if (($null -eq $finalConfiguration.BackupLocations -or $finalConfiguration.BackupLocations.Count -eq 0) -and -not $IsTestConfigMode.IsPresent `
+        -and -not ($PSBoundParameters.ContainsKey('ListBackupLocations') -and $ListBackupLocations.IsPresent) `
+        -and -not ($PSBoundParameters.ContainsKey('ListBackupSets') -and $ListBackupSets.IsPresent) ) {
          Write-LogMessage "[WARNING] 'BackupLocations' is empty. No jobs to run unless specified by -BackupLocationName (which also requires definition)." -Level "WARNING"
     } else {
-        if ($null -ne $finalConfiguration.BackupLocations) {
+        if ($null -ne $finalConfiguration.BackupLocations -and $finalConfiguration.BackupLocations -is [hashtable]) {
             foreach ($jobKey in $finalConfiguration.BackupLocations.Keys) {
                 $jobConfig = $finalConfiguration.BackupLocations[$jobKey]
-                if (-not ($jobConfig -is [hashtable])) {
-                    $validationMessages.Add("BackupLocation '$jobKey' is not a valid Hashtable.")
-                    continue
-                }
-                if ([string]::IsNullOrWhiteSpace((Get-ConfigValue -ConfigObject $jobConfig -Key 'Path' -DefaultValue $null))) {
-                    $validationMessages.Add("BackupLocation '$jobKey': 'Path' is missing or empty.")
-                }
-                if ([string]::IsNullOrWhiteSpace((Get-ConfigValue -ConfigObject $jobConfig -Key 'Name' -DefaultValue $null))) {
-                    $validationMessages.Add("BackupLocation '$jobKey': 'Name' (base archive name) is missing or empty.")
-                }
-                
+                # Specific format checks that complement schema validation
                 if ($null -ne $jobConfig -and $jobConfig.ContainsKey('ArchiveExtension')) { 
                     $userArchiveExt = $jobConfig['ArchiveExtension']
                      if (-not ($userArchiveExt -match "^\.[a-zA-Z0-9]+([a-zA-Z0-9\.]*[a-zA-Z0-9]+)?$")) { 
@@ -451,44 +473,37 @@ function Import-AppConfiguration {
         }
     }
 
-    $defaultArchiveExtGlobal = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'DefaultArchiveExtension' -DefaultValue ".7z"
-    if (-not ($defaultArchiveExtGlobal -match "^\.[a-zA-Z0-9]+([a-zA-Z0-9\.]*[a-zA-Z0-9]+)?$")) {
-        $validationMessages.Add("Global 'DefaultArchiveExtension' ('$defaultArchiveExtGlobal') is invalid. Must start with '.' and contain valid extension characters.")
+    if ($finalConfiguration.ContainsKey('DefaultArchiveExtension')) {
+        $defaultArchiveExtGlobal = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'DefaultArchiveExtension' -DefaultValue ".7z"
+        if (-not ($defaultArchiveExtGlobal -match "^\.[a-zA-Z0-9]+([a-zA-Z0-9\.]*[a-zA-Z0-9]+)?$")) {
+            $validationMessages.Add("Global 'DefaultArchiveExtension' ('$defaultArchiveExtGlobal') is invalid. Must start with '.' and contain valid extension characters.")
+        }
     }
 
-    if ($finalConfiguration.ContainsKey('BackupSets') -and $finalConfiguration['BackupSets'] -is [hashtable]) {
-        foreach ($setKey in $finalConfiguration['BackupSets'].Keys) {
-            $setConfig = $finalConfiguration['BackupSets'][$setKey]
-            if (-not ($setConfig -is [hashtable])) {
-                $validationMessages.Add("BackupSet '$setKey' is not a valid Hashtable.")
-                continue
-            }
-            $jobNames = @(Get-ConfigValue -ConfigObject $setConfig -Key 'JobNames' -DefaultValue @())
-            if (-not ($jobNames -is [array]) -or $jobNames.Count -eq 0) {
-                $validationMessages.Add("BackupSet '$setKey': 'JobNames' is missing, not an array, or is empty.")
-            } else {
-                foreach ($jobNameInSetCandidate in $jobNames) {
-                    if ([string]::IsNullOrWhiteSpace($jobNameInSetCandidate)) { continue }
-                    $jobNameInSet = $jobNameInSetCandidate.Trim()
-                    if ($finalConfiguration.ContainsKey('BackupLocations') -and $finalConfiguration['BackupLocations'] -is [hashtable] -and -not $finalConfiguration['BackupLocations'].ContainsKey($jobNameInSet)) {
-                        $validationMessages.Add("BackupSet '$setKey': Job '$jobNameInSet' is not defined in 'BackupLocations'.")
-                    } elseif (-not ($finalConfiguration.ContainsKey('BackupLocations') -and $finalConfiguration['BackupLocations'] -is [hashtable])) {
-                        $validationMessages.Add("BackupSet '$setKey': Cannot validate Job '$jobNameInSet' because 'BackupLocations' is not a valid Hashtable or is missing.")
+    if ($finalConfiguration.ContainsKey('BackupSets') -and $finalConfiguration.BackupSets -is [hashtable]) {
+        foreach ($setKey in $finalConfiguration.BackupSets.Keys) {
+            $setConfig = $finalConfiguration.BackupSets[$setKey]
+            if ($setConfig -is [hashtable]) { # Schema would catch if $setConfig is not a hashtable
+                $jobNames = @(Get-ConfigValue -ConfigObject $setConfig -Key 'JobNames' -DefaultValue @())
+                if ($jobNames.Count -gt 0) { # Schema ensures JobNames is an array and required
+                    foreach ($jobNameInSetCandidate in $jobNames) {
+                        if ([string]::IsNullOrWhiteSpace($jobNameInSetCandidate)) { continue } # Schema doesn't check content of array items
+                        $jobNameInSet = $jobNameInSetCandidate.Trim()
+                        if ($finalConfiguration.ContainsKey('BackupLocations') -and $finalConfiguration.BackupLocations -is [hashtable] -and -not $finalConfiguration.BackupLocations.ContainsKey($jobNameInSet)) {
+                            $validationMessages.Add("BackupSet '$setKey': Job '$jobNameInSet' is not defined in 'BackupLocations'.")
+                        } elseif (-not ($finalConfiguration.ContainsKey('BackupLocations') -and $finalConfiguration.BackupLocations -is [hashtable])) {
+                            $validationMessages.Add("BackupSet '$setKey': Cannot validate Job '$jobNameInSet' because 'BackupLocations' is not a valid Hashtable or is missing.")
+                        }
                     }
                 }
             }
-            $onError = Get-ConfigValue -ConfigObject $setConfig -Key 'OnErrorInJob' -DefaultValue "StopSet"
-            if ($onError -notin @("StopSet", "ContinueSet")) {
-                $validationMessages.Add("BackupSet '$setKey': 'OnErrorInJob' has an invalid value ('$onError'). Must be 'StopSet' or 'ContinueSet'.")
-            }
         }
-    } elseif ($finalConfiguration.ContainsKey('BackupSets') -and -not ($finalConfiguration['BackupSets'] -is [hashtable])) {
-        $validationMessages.Add("Global 'BackupSets' exists but is not a valid Hashtable.")
     }
     
     if ($validationMessages.Count -gt 0) {
         Write-LogMessage "Configuration validation failed with the following errors:" -Level "ERROR" -ForegroundColour $Global:ColourError
-        $validationMessages | ForEach-Object { Write-LogMessage "  - $_" -Level "ERROR" -ForegroundColour $Global:ColourError }
+        # Deduplicate messages before printing
+        ($validationMessages | Select-Object -Unique) | ForEach-Object { Write-LogMessage "  - $_" -Level "ERROR" -ForegroundColour $Global:ColourError }
         return @{ IsValid = $false; ErrorMessage = "Configuration validation failed." }
     }
 

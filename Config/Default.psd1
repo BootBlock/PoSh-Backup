@@ -1,6 +1,6 @@
 # PowerShell Data File for PoSh Backup Script Configuration (Default).
 # --> THIS WILL GET OVERWRITTEN ON UPGRADE if you don't use a User.psd1 for your changes! <--
-# Version 1.1: SevenZipPath set to empty to trigger auto-detection by default.
+# Version 1.2: Added EnableAdvancedSchemaValidation. SevenZipPath empty for auto-detection. Comments reformatted.
 @{
     #region --- General Global Settings ---
     SevenZipPath                    = ""                              # Full path to 7z.exe. Leave empty to attempt auto-detection.
@@ -17,6 +17,9 @@
                                                                       #   "OnFailure": Pause only if the overall script status is FAILURE.
                                                                       #   "OnWarning": Pause only if the overall script status is WARNINGS.
                                                                       #   "OnFailureOrWarning": Pause if status is FAILURE OR WARNINGS (default).
+    EnableAdvancedSchemaValidation  = $false                          # $true to enable detailed schema validation via PoShBackupValidator.psm1.
+                                                                      # If $true, PoShBackupValidator.psm1 must be present in Modules folder.
+                                                                      # Recommended for advanced users or during config troubleshooting.
     #endregion
 
     #region --- Logging Settings ---
