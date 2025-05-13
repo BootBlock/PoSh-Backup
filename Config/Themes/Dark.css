@@ -1,0 +1,70 @@
+/* PoSh-Backup - Dark Theme - Dark.css */
+/* This file overrides CSS variables defined in Base.css for a dark appearance. */
+
+:root {
+    /* ====== DARK THEME COLOUR PALETTE OVERRIDES ====== */
+
+    /* --- Core Palette --- */
+    --body-bg-color: #1a202c;                   /* Very dark (almost black) blue-grey */
+    --container-bg-color: #2d3748;             /* Dark blue-grey for main content */
+    --primary-text-color: #e2e8f0;             /* Light grey/off-white for main text */
+    --secondary-text-color: #a0aec0;           /* Medium light grey for secondary text */
+    --border-color-light: #4a5568;             /* Darker grey for borders */
+    --border-color-medium: #718096;            /* Slightly lighter dark grey border */
+    --accent-color-primary: #63b3ed;           /* Light blue for accents on dark bg */
+    --accent-color-primary-text: #1a202c;      /* Dark text on light blue accent bg */
+    --accent-color-secondary: #4a5568;         /* Muted accent */
+    --accent-color-secondary-text: #e2e8f0;    /* Light text on muted accent */
+
+    /* --- Component-Specific Colours --- */
+    /* Header & Footer */
+    --header-border-color: var(--accent-color-primary); /* Light blue header border */
+    --footer-text-color: var(--secondary-text-color);
+    --footer-border-color: var(--border-color-light);
+
+    /* Tables */
+    --table-header-bg: #374151;                /* Darker grey for table headers in dark mode */
+    --table-header-text-color: #f3f4f6;        /* Light grey text for headers */
+    --table-row-even-bg: #374355;              /* Slightly different dark for even rows */
+    --table-row-hover-bg: #425166;             /* Hover color for rows */
+    --table-border-color: var(--border-color-light);
+
+    /* Code Blocks & Preformatted Text */
+    --code-bg-color: #1e293b;                  /* Even darker than container for code */
+    --code-text-color: #cbd5e0;                /* Light grey for code text */
+    --code-border-color: var(--border-color-light);
+
+    /* Status Message Text Colours */
+    --status-success-text-color: #68d391;      /* Brighter Green */
+    --status-warning-text-color: #f6ad55;      /* Amber */
+    --status-failure-text-color: #fc8181;      /* Brighter Red */
+    --status-simulated-text-color: #b794f4;    /* Lavender/Purple */
+    --status-notfound-text-color: var(--secondary-text-color);
+    --status-info-text-color: var(--accent-color-primary); /* Light Blue */
+    --status-default-text-color: var(--primary-text-color);
+
+    /* Log Entry Backgrounds & Borders */
+    --log-info-bg: #2c5282;     --log-info-border: #63b3ed; /* Dark blue bg, light blue border */
+    --log-warning-bg: #5f4d11;  --log-warning-border: #ecc94b; /* Dark yellow bg, yellow border */
+    --log-error-bg: #742a2a;    --log-error-border: #f56565; /* Dark red bg, light red border */
+    --log-simulate-bg: #553c7b; --log-simulate-border: #b794f4; /* Dark purple bg, light purple border */
+    --log-configtest-bg: var(--log-simulate-bg); --log-configtest-border: var(--log-simulate-border);
+    --log-debug-bg: #4a5568;    --log-debug-border: #718096; /* Dark grey bg, medium grey border */
+    --log-vss-bg: #7b341e;      --log-vss-border: #f6ad55;     /* Dark orange bg, amber border */
+    --log-hook-bg: #2c523b;     --log-hook-border: #68d391;    /* Dark green bg, light green border */
+    --log-success-bg: #2f5552;  --log-success-border: #68d391; /* Dark teal/green bg, light green border */
+    --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
+
+
+    /* Log Entry Text Colours (for the message part of the log entry) */
+    --log-info-text-color: #bee3f8;            /* Light Blue text */
+    --log-warning-text-color: #fefcbf;         /* Light Yellow text */
+    --log-error-text-color: #fed7d7;           /* Light Red text */
+    --log-debug-text-color: #e2e8f0;           /* Light Gray text (same as primary text) */
+    --log-success-text-color: #c6f6d5;         /* Light Green text */
+    --log-vss-text-color: #fbd38d;             /* Light Orange text */
+    --log-hook-text-color: #b2f5ea;            /* Light Teal text */
+    --log-simulate-text-color: #e9d8fd;        /* Light Purple text */
+    --log-configtest-text-color: var(--log-simulate-text-color);
+    --log-none-text-color: var(--primary-text-color);  
+}

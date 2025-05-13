@@ -1,0 +1,132 @@
+/* PoSh-Backup - Playful Theme - Playful.css */
+/* A fun, colourful, and modern theme. */
+
+:root {
+    /* ====== PLAYFUL THEME COLOUR PALETTE OVERRIDES ====== */
+
+    /* --- Core Palette --- */
+    --body-bg-color: #f0f7fa;                   /* Light sky blue background */
+    --container-bg-color: #ffffff;             /* Clean white cards */
+    --primary-text-color: #333333;             /* Dark grey for readability */
+    --secondary-text-color: #5c677d;           /* Softer grey for secondary text */
+    --border-color-light: #e0e9f0;             /* Light, soft border */
+    --border-color-medium: #c0d0e0;            
+    --accent-color-primary: #ff6b6b;           /* Playful Coral/Red */
+    --accent-color-primary-text: #ffffff;      
+    --accent-color-secondary: #48dbfb;         /* Bright Cyan/Aqua */
+    --accent-color-secondary-text: #13214d;    /* Dark blue for contrast on cyan */
+
+    /* --- Component-Specific Colours --- */
+    --header-border-color: var(--accent-color-primary);
+    --footer-text-color: var(--secondary-text-color);
+    --footer-border-color: var(--border-color-light);
+
+    /* Tables */
+    --table-header-bg: #ffc93c;                /* Sunny Yellow */
+    --table-header-text-color: #533B00;        /* Dark brown for contrast on yellow */
+    --table-row-even-bg: #fdf9f3;              /* Very light cream */
+    --table-row-hover-bg: #ffeaa7;             /* Light orange/yellow hover */
+    --table-border-color: var(--border-color-light);
+
+    /* Code Blocks & Preformatted Text */
+    --code-bg-color: #e6f9ff;                  /* Very light cyan */
+    --code-text-color: #07475C;                /* Dark teal */
+    --code-border-color: #b3e0f2;
+
+    /* Status Message Text Colours */
+    --status-success-text-color: #1dd1a1;      /* Mint Green */
+    --status-warning-text-color: #ff9f43;      /* Orange */
+    --status-failure-text-color: #ff4d4d;      /* Softer Red */
+    --status-simulated-text-color: #a073d6;    /* Playful Purple */
+    --status-notfound-text-color: var(--secondary-text-color);
+    --status-info-text-color: var(--accent-color-secondary); /* Aqua */
+    --status-default-text-color: var(--primary-text-color);
+
+    /* Log Entry Backgrounds & Borders - Using pastel/brights */
+    --log-info-bg: #e0f2fe;     --log-info-border: var(--accent-color-secondary); /* Light Aqua bg, Aqua border */
+    --log-warning-bg: #fff9db;  --log-warning-border: #ffda77; /* Light Yellow bg, Yellow border */
+    --log-error-bg: #ffe8e8;    --log-error-border: #ffb3b3; /* Light Pink/Red bg, Pink/Red border */
+    --log-simulate-bg: #f3e8ff; --log-simulate-border: #d8b4fe; /* Light Purple */
+    --log-configtest-bg: var(--log-simulate-bg); --log-configtest-border: var(--log-simulate-border);
+    --log-debug-bg: #f0f0f0;    --log-debug-border: #cccccc;
+    --log-vss-bg: #ffeedb;      --log-vss-border: #ffc999;     /* Light Peach */
+    --log-hook-bg: #e6fff0;     --log-hook-border: #99f0c1;    /* Light Mint */
+    --log-success-bg: var(--log-hook-bg);  --log-success-border: var(--log-hook-border);
+    --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
+
+    /* Log Entry Text Colours */
+    --log-info-text-color: #0c5464;            
+    --log-warning-text-color: #806000;         
+    --log-error-text-color: #7f2222;           
+    --log-debug-text-color: #495057;           
+    --log-success-text-color: #107050;         
+    --log-vss-text-color: #804800;             
+    --log-hook-text-color: #0d5c3f;            
+    --log-simulate-text-color: #65468c;        
+    --log-configtest-text-color: var(--log-simulate-text-color);
+    --log-none-text-color: var(--primary-text-color);  
+
+    /* Font (Optional - use web safe or common system fonts) */
+    /* --font-family-sans-serif: "Comic Sans MS", "Chalkboard SE", " cursive", var(--font-family-sans-serif); */
+    /* Using a slightly more rounded, modern sans-serif for a playful feel: */
+    --font-family-sans-serif: "Nunito", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Additional Playful Theme Styles (beyond variable overrides) */
+/* body { */
+    /* Could add a very subtle repeating pattern or gradient if desired */
+/* } */
+
+.container {
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08), 0 3px 8px rgba(0,0,0,0.05); /* Softer, more diffused shadow */
+    border-radius: var(--border-radius-lg); /* Already quite rounded */
+}
+
+h1, h2 {
+    /* Example: Slightly different font weight or a fun text-shadow */
+    text-shadow: 1px 1px 0px rgba(0,0,0,0.1);
+}
+
+/* Make tables a bit more bubbly */
+table, th, td {
+    border-radius: 0; /* Override individual cell radius if Base.css adds it */
+}
+table {
+    border-spacing: 0;
+    border-collapse: separate; /* Needed for border-radius on table itself */
+    border-radius: var(--border-radius);
+    overflow: hidden; /* To make border-radius clip inner elements */
+}
+th:first-child {
+    border-top-left-radius: var(--border-radius-sm);
+}
+th:last-child {
+    border-top-right-radius: var(--border-radius-sm);
+}
+/* If you want rounded corners on the last row as well, it's trickier without JS or complex selectors */
+
+
+/* Log entry specific playful touch */
+.log-entry {
+    border-left-width: 6px;
+    border-radius: var(--border-radius); /* More rounded log entries */
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
+}
+
+/* Playful element with ::before or ::after for specific log levels */
+.log-SUCCESS::before {
+    content: "🎉";
+    margin-right: var(--spacing-sm);
+    font-size: 1.2em;
+}
+.log-ERROR::before {
+    content: "💥";
+    margin-right: var(--spacing-sm);
+    font-size: 1.2em;
+}
+
+/* Links could have a more bubbly hover effect */
+a:hover, a:focus {
+    transform: scale(1.05); /* Subtle zoom - use with care for performance */
+    transition: transform 0.2s ease-out;
+}

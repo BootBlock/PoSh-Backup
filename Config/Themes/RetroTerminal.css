@@ -1,0 +1,280 @@
+/* PoSh-Backup - Retro Terminal Theme - RetroTerminal.css */
+/* A theme that mimics old-school computer terminals with CRT effects. */
+/* Defaulting to Amber phosphor with active flicker and scanline animations. */
+
+:root {
+    /* ====== RETRO TERMINAL THEME COLOUR PALETTE OVERRIDES ====== */
+
+    /* --- Phosphor Colour Definitions --- */
+    --crt-phosphor-green: #33ff33;
+    --crt-phosphor-green-dim: #22cc22;
+    --crt-phosphor-amber: #ffb000; /* Amber */
+    --crt-phosphor-amber-dim: #cc8800;
+    --crt-phosphor-mono-bright: #ffffff; /* Monochrome (White/Grey) */
+    --crt-phosphor-mono-dim: #bbbbbb;
+    --crt-phosphor-mono-darker: #888888;
+
+
+    /* --- ACTIVE PHOSPHOR CHOICE (AMBER BY DEFAULT) --- */
+    --body-bg-color: #100c00; /* Dark brown/black for amber theme */
+    --container-bg-color: #000000; /* True Black for the "screen" */
+    --primary-text-color: var(--crt-phosphor-amber);
+    --secondary-text-color: var(--crt-phosphor-amber-dim);
+    --border-color-light: #443300;
+    --border-color-medium: #665500;
+    --accent-color-primary: var(--crt-phosphor-amber-dim);
+    --accent-color-primary-text: #000000;
+    --accent-color-secondary: #aa7700;
+    --accent-color-secondary-text: #ffffff;
+    --scanline-intensity: rgba(0,0,0,0.25); 
+    --text-glow-color: var(--crt-phosphor-amber);
+    --text-glow-intensity: rgba(255, 176, 0, 0.3); /* Amber glow */
+
+
+    /* --- GREEN PHOSPHOR (Commented Out - Uncomment to use) --- */
+    /*
+    --body-bg-color: #050805;                   
+    --container-bg-color: #000000;             
+    --primary-text-color: var(--crt-phosphor-green);
+    --secondary-text-color: var(--crt-phosphor-green-dim);
+    --border-color-light: #004400;             
+    --border-color-medium: #006600;            
+    --accent-color-primary: var(--crt-phosphor-green-dim);
+    --accent-color-primary-text: #000000;      
+    --accent-color-secondary: #00aa00;         
+    --accent-color-secondary-text: #ffffff;
+    --scanline-intensity: rgba(0,0,0,0.25); 
+    --text-glow-color: var(--crt-phosphor-green);
+    --text-glow-intensity: rgba(50, 255, 50, 0.3); 
+    */
+
+    /* --- MONOCHROME (GREYSCALE) PHOSPHOR (Commented Out - Uncomment to use) --- */
+    /*
+    --body-bg-color: #080808;                   
+    --container-bg-color: #000000;             
+    --primary-text-color: var(--crt-phosphor-mono-bright);
+    --secondary-text-color: var(--crt-phosphor-mono-dim);
+    --border-color-light: #333333;             
+    --border-color-medium: #555555;            
+    --accent-color-primary: var(--crt-phosphor-mono-dim);
+    --accent-color-primary-text: #000000;      
+    --accent-color-secondary: var(--crt-phosphor-mono-darker);         
+    --accent-color-secondary-text: #ffffff;
+    --scanline-intensity: rgba(0,0,0,0.2); 
+    --text-glow-color: var(--crt-phosphor-mono-bright);
+    --text-glow-intensity: rgba(200, 200, 200, 0.2); 
+    */
+
+
+    /* --- Scanline Effect Variables --- */
+    --scanline-height: 1px;                     
+    --scanline-gap: 2px;                        
+
+    /* --- Component-Specific Colours (Should adapt to chosen phosphor) --- */
+    --header-border-color: var(--primary-text-color); 
+    --footer-text-color: var(--secondary-text-color);
+    --footer-border-color: var(--border-color-light);
+
+    /* Tables */
+    --table-header-bg: #110d00; /* Darker shade of body for amber */
+    /* For Green: --table-header-bg: #001a00; */
+    /* For Mono: --table-header-bg: #101010; */
+    --table-header-text-color: var(--primary-text-color);
+    --table-row-even-bg: #0a0700; /* Even darker for amber */
+    /* For Green: --table-row-even-bg: #000a00; */
+    /* For Mono: --table-row-even-bg: #050505; */
+    --table-row-hover-bg: #221a00; /* Hover for amber */
+    /* For Green: --table-row-hover-bg: #002a00; */
+    /* For Mono: --table-row-hover-bg: #1f1f1f; */
+    --table-border-color: var(--border-color-light);
+
+    /* Code Blocks & Preformatted Text */
+    --code-bg-color: #030200; /* Very dark amber/black */
+    /* For Green: --code-bg-color: #030300; */
+    /* For Mono: --code-bg-color: #030303; */
+    --code-text-color: var(--primary-text-color);                
+    --code-border-color: var(--border-color-light);
+
+    /* Status Message Text Colours */
+    --status-success-text-color: var(--primary-text-color); /* Main phosphor for success */
+    --status-warning-text-color: #ffee00;                   /* Bright Yellow (contrasts well with amber/green) */
+    --status-failure-text-color: #ff6666;                   /* Bright Reddish */
+    --status-simulated-text-color: #00eeee;                 /* Bright Cyan */
+    --status-notfound-text-color: var(--secondary-text-color);
+    --status-info-text-color: var(--primary-text-color);
+    --status-default-text-color: var(--primary-text-color);
+
+    /* Log Entry Backgrounds & Borders */
+    --log-info-bg: var(--container-bg-color);     --log-info-border: var(--primary-text-color);
+    --log-warning-bg: var(--container-bg-color);  --log-warning-border: var(--status-warning-text-color);
+    --log-error-bg: var(--container-bg-color);    --log-error-border: var(--status-failure-text-color);
+    --log-simulate-bg: var(--container-bg-color); --log-simulate-border: var(--status-simulated-text-color); 
+    --log-configtest-bg: var(--log-simulate-bg); --log-configtest-border: var(--log-simulate-border);
+    --log-debug-bg: var(--container-bg-color);    --log-debug-border: var(--secondary-text-color); 
+    --log-vss-bg: var(--container-bg-color);      --log-vss-border: #ff8800;  /* A different shade of orange for VSS */
+    --log-hook-bg: var(--container-bg-color);     --log-hook-border: var(--secondary-text-color);    
+    --log-success-bg: var(--container-bg-color);  --log-success-border: var(--primary-text-color);
+    --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
+
+    /* Log Entry Text Colours */
+    --log-info-text-color: var(--primary-text-color);            
+    --log-warning-text-color: var(--status-warning-text-color);        
+    --log-error-text-color: var(--status-failure-text-color);          
+    --log-debug-text-color: var(--secondary-text-color);           
+    --log-success-text-color: var(--primary-text-color);         
+    --log-vss-text-color: #ff8800;            
+    --log-hook-text-color: var(--primary-text-color);            
+    --log-simulate-text-color: var(--status-simulated-text-color);      
+    --log-configtest-text-color: var(--log-simulate-text-color);
+    --log-none-text-color: var(--primary-text-color);  
+
+    /* Font */
+    --font-family-sans-serif: var(--font-family-monospace); 
+    --font-family-monospace: "Consolas", "Lucida Console", "Courier New", monospace;
+    --base-font-size: 15px; 
+
+    /* Override radii for blocky feel */
+    --border-radius-sm: 0; 
+    --border-radius: 0; 
+    --border-radius-lg: 0;
+}
+
+/* Additional Retro Theme Styles */
+body {
+    font-size: var(--base-font-size);
+    text-shadow: 0 0 3px var(--text-glow-color), 0 0 5px var(--text-glow-intensity); 
+    position: relative; 
+    overflow-x: hidden; 
+    animation: crt-flicker 0.1s infinite alternate; /* Enabled flicker, slightly stronger */
+}
+
+/* Scanline Effect using a pseudo-element */
+body::after {
+    content: " ";
+    display: block;
+    position: fixed; 
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    background-image: linear-gradient(
+        to bottom,
+        transparent 50%,
+        var(--scanline-intensity) 50%,
+        var(--scanline-intensity) calc(50% + var(--scanline-height)), 
+        transparent calc(50% + var(--scanline-height))
+    );
+    background-size: 100% calc(var(--scanline-height) + var(--scanline-gap)); 
+    z-index: 9999; 
+    pointer-events: none; 
+    opacity: 0.35; /* Slightly more visible scanlines */
+    animation: scanline-scroll 30s linear infinite; /* Enabled scanline scrolling */
+}
+
+@keyframes scanline-scroll {
+    0% { background-position-y: 0; }
+    100% { background-position-y: calc(var(--scanline-height) + var(--scanline-gap)); }
+}
+
+@keyframes crt-flicker {
+    0%   { opacity: 0.95; }
+    20%  { opacity: 0.98; }
+    40%  { opacity: 0.94; }
+    60%  { opacity: 1; }
+    80%  { opacity: 0.96; }
+    100% { opacity: 0.99; }
+}
+
+
+h1, h2 {
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-bottom-style: solid; 
+    border-bottom-color: var(--border-color-medium);
+    text-shadow: 0 0 6px var(--text-glow-color), 0 0 10px var(--text-glow-intensity); 
+    padding-bottom: var(--spacing-xs); 
+}
+
+h1 .blinking-cursor::after { 
+    content: '_';
+    opacity: 1; /* Start visible */
+    animation: blink-animation 1.06s step-end infinite; /* Classic ~530ms on, 530ms off */
+    margin-left: 3px; 
+    font-weight: normal; 
+    position: relative; /* To allow fine-tuning position if needed */
+    /* top: 0.05em; */ /* Example to adjust vertical alignment */
+}
+
+@keyframes blink-animation {
+    0%, 100% { opacity: 1; } /* Visible */
+    50% { opacity: 0; }      /* Invisible */
+}
+
+
+table, th, td, .details-section, pre {
+    border-style: solid; 
+    border-width: 1px;
+    box-shadow: none; 
+}
+.details-section {
+    border-color: var(--border-color-light);
+}
+
+th {
+    text-transform: uppercase;
+    background-color: var(--table-header-bg); 
+}
+tr:hover td { 
+    background-color: var(--table-row-hover-bg); 
+    color: var(--accent-color-primary); 
+}
+
+
+a, a:visited {
+    color: var(--primary-text-color) !important; 
+    text-decoration: none !important;
+    border-bottom: 1px solid var(--primary-text-color); 
+    padding-bottom: 1px; 
+    font-weight: bold; 
+}
+a:hover, a:focus {
+    background-color: var(--primary-text-color) !important; 
+    color: var(--body-bg-color) !important; 
+    border-bottom: 1px solid var(--body-bg-color);
+}
+
+.log-entry strong {
+    color: var(--secondary-text-color) !important; 
+}
+
+/* Adjust padding for a more compact terminal look */
+.container {
+    padding: var(--spacing-md) var(--spacing-lg);
+}
+.log-entry {
+    padding: var(--spacing-xs) var(--spacing-sm);
+}
+th, td {
+    padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+/* Optional: CRT Screen curvature effect - This is complex and might look odd without more work. */
+
+.container {
+    border: 30px solid var(--body-bg-color); 
+    border-image: radial-gradient(ellipse at center, transparent 0%, var(--body-bg-color) 70%) 30; 
+    box-shadow: 0 0 100px var(--text-glow-intensity) inset, 0 0 30px var(--text-glow-color);
+    position: relative; 
+}
+.container::before { 
+    content: "";
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 0;
+    border-radius: 50% / 10%; 
+    box-shadow: 0 0 80px var(--text-glow-intensity) inset; 
+    filter: blur(2px);
+    pointer-events: none; 
+}
+

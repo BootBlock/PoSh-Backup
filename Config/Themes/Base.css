@@ -1,0 +1,326 @@
+/* PoSh-Backup - Base Report CSS - Base.css */
+/* This file defines the core HTML structure's CSS rules and default theme variable values. */
+/* These defaults effectively create a "Light" theme if no other theme CSS is loaded. */
+/* Specific theme files (Dark.css, LightModern.css, HighContrast.css, Playful.css, RetroTerminal.css) will override these CSS variables. */
+
+:root {
+    /* ====== FONT STACKS ====== */
+    --font-family-sans-serif: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    --font-family-monospace: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+    /* ====== SIZING & SPACING ====== */
+    --spacing-unit: 0.25rem; 
+    --spacing-xs: var(--spacing-unit);        
+    --spacing-sm: calc(var(--spacing-unit) * 2); 
+    --spacing-md: calc(var(--spacing-unit) * 4); 
+    --spacing-lg: calc(var(--spacing-unit) * 6); 
+    --spacing-xl: calc(var(--spacing-unit) * 8); 
+
+    --border-radius-sm: 0.2rem;
+    --border-radius: 0.3rem;
+    --border-radius-lg: 0.5rem;
+
+    --container-max-width: 1200px;
+    --header-logo-max-height: 60px;
+    --header-logo-max-width: 200px;
+
+    /* ====== DEFAULT (LIGHT THEME) COLOUR PALETTE ====== */
+    /* These are the default values. Specific theme files will override these. */
+
+    /* --- Core Palette --- */
+    --body-bg-color: #f8f9fa;                   /* Page background */
+    --container-bg-color: #ffffff;             /* Main content area background */
+    --primary-text-color: #212529;             /* Main text colour */
+    --secondary-text-color: #6c757d;           /* Subdued text colour */
+    --border-color-light: #dee2e6;             /* Standard light border */
+    --border-color-medium: #ced4da;            /* Slightly darker border */
+    --accent-color-primary: #007bff;           /* Primary accent (e.g., links) */
+    --accent-color-primary-text: #ffffff;      /* Text on primary accent backgrounds */
+    --accent-color-secondary: #6c757d;         /* Secondary accent */
+    --accent-color-secondary-text: #ffffff;    /* Text on secondary accent backgrounds */
+
+    /* --- Component-Specific Colours --- */
+    /* Header & Footer */
+    --header-border-color: var(--accent-color-primary);
+    --footer-text-color: var(--secondary-text-color);
+    --footer-border-color: var(--border-color-light);
+
+    /* Tables */
+    --table-header-bg: #e9ecef;
+    --table-header-text-color: var(--primary-text-color);
+    --table-row-even-bg: #f8f9fa;
+    --table-row-hover-bg: #ddeafd;
+    --table-border-color: var(--border-color-light);
+
+    /* Code Blocks & Preformatted Text */
+    --code-bg-color: #e9ecef;
+    --code-text-color: #212529;
+    --code-border-color: var(--border-color-medium);
+
+    /* Status Message Text Colours (used in summary table, hook status, etc.) */
+    --status-success-text-color: #198754;      /* Dark, accessible green */
+    --status-warning-text-color: #ffc107;      /* Amber/Yellow (ensure contrast with its bg if any) */
+    --status-failure-text-color: #dc3545;      /* Red */
+    --status-simulated-text-color: #6f42c1;    /* Purple */
+    --status-notfound-text-color: var(--secondary-text-color);
+    --status-info-text-color: var(--accent-color-primary); 
+    --status-default-text-color: var(--primary-text-color);
+
+    /* Log Entry Backgrounds & Borders */
+    --log-info-bg: #cfe2ff;     --log-info-border: #9ec5fe;
+    --log-warning-bg: #fff3cd;  --log-warning-border: #ffe69c;
+    --log-error-bg: #f8d7da;    --log-error-border: #f1aeb5;
+    --log-simulate-bg: #e9d8fd; --log-simulate-border: #d3bcf0;
+    --log-configtest-bg: var(--log-simulate-bg); --log-configtest-border: var(--log-simulate-border);
+    --log-debug-bg: #e9ecef;    --log-debug-border: #ced4da;
+    --log-vss-bg: #ffe8cc;      --log-vss-border: #ffd8a8;
+    --log-hook-bg: #d1e7dd;     --log-hook-border: #a3cfbb;
+    --log-success-bg: #d1e7dd;  --log-success-border: #a3cfbb;
+    --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
+
+    /* Log Entry Text Colours (for the message part of the log entry) */
+    --log-info-text-color: #004085;            /* Dark Blue for text on light blue bg */
+    --log-warning-text-color: #856404;         /* Dark Yellow/Brown for text on light yellow bg */
+    --log-error-text-color: #721c24;           /* Dark Red for text on light red bg */
+    --log-debug-text-color: #383d41;           /* Darker Gray for text on light gray bg */
+    --log-success-text-color: #155724;         /* Dark Green for text on light green bg */
+    --log-vss-text-color: #854C00;             /* Dark Orange for text on light orange bg */
+    --log-hook-text-color: #0c5460;            /* Dark Teal for text on light teal bg */
+    --log-simulate-text-color: #581c87;        /* Dark Purple for text on light purple bg */
+    --log-configtest-text-color: var(--log-simulate-text-color);
+    --log-none-text-color: var(--primary-text-color);  /* Default if level has no specific text color */
+}
+
+/* ====== GENERAL PAGE STYLES ====== */
+body { 
+    font-family: var(--font-family-sans-serif); 
+    margin: 0; 
+    padding: 0; 
+    line-height: 1.6;
+    font-size: 16px;
+    color: var(--primary-text-color);
+    background-color: var(--body-bg-color);
+    -webkit-font-smoothing: antialiased; 
+    -moz-osx-font-smoothing: grayscale; 
+}
+
+.container { 
+    width: 95%; 
+    max-width: var(--container-max-width); 
+    margin: var(--spacing-lg) auto; 
+    padding: var(--spacing-lg) var(--spacing-xl); 
+    border-radius: var(--border-radius-lg); 
+    background-color: var(--container-bg-color);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.1); 
+    border: 1px solid var(--border-color-light);
+}
+
+/* ====== HEADER & FOOTER ====== */
+.report-header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    border-bottom: 2px solid var(--header-border-color); 
+    padding-bottom: var(--spacing-md); 
+    margin-bottom: var(--spacing-lg); 
+}
+.report-logo { 
+    max-height: var(--header-logo-max-height); 
+    max-width: var(--header-logo-max-width); 
+    object-fit: contain; 
+}
+h1 { 
+    padding-bottom: 0; 
+    margin-top: 0; 
+    margin-bottom:0; 
+    font-size: 2em; 
+    font-weight: 600;
+    color: var(--primary-text-color); 
+}
+h2 { 
+    margin-top: var(--spacing-xl); 
+    padding-bottom: var(--spacing-sm); 
+    font-size: 1.6em; 
+    font-weight: 500; 
+    border-bottom: 1px solid var(--border-color-medium); 
+    color: var(--primary-text-color); 
+}
+footer { 
+    text-align: center; 
+    margin-top: var(--spacing-xl); 
+    padding-top: var(--spacing-md); 
+    border-top: 1px solid var(--footer-border-color); 
+    font-size: 0.9em; 
+    color: var(--footer-text-color);
+}
+
+/* ====== TABLES ====== */
+table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    margin-top: var(--spacing-md); 
+}
+th, td { 
+    padding: var(--spacing-sm) var(--spacing-md); 
+    text-align: left; 
+    vertical-align: top; 
+    border: 1px solid var(--table-border-color); 
+    word-break: break-word; 
+}
+th { 
+    font-weight: 600; 
+    text-transform: uppercase; 
+    font-size: 0.85em; 
+    letter-spacing: 0.05em; 
+    background-color: var(--table-header-bg);
+    color: var(--table-header-text-color);
+}
+tr:nth-child(even) td { 
+    background-color: var(--table-row-even-bg); 
+}
+tr:hover td { 
+    background-color: var(--table-row-hover-bg); 
+}
+
+/* ====== SECTIONS & DETAILS ====== */
+.details-section { 
+    margin-bottom: var(--spacing-lg); 
+    padding: var(--spacing-md); 
+    border-radius: var(--border-radius); 
+    border: 1px solid var(--border-color-light); 
+    background-color: var(--container-bg-color);
+}
+
+/* ====== LOG ENTRIES ====== */
+.log-entry { 
+    margin-bottom: var(--spacing-xs); 
+    padding: var(--spacing-sm); 
+    border-radius: var(--border-radius-sm); 
+    white-space: pre-wrap; 
+    word-wrap: break-word; 
+    font-size: 0.9em; 
+    border-left-width: 5px; 
+    border-left-style: solid; 
+    display: flex; 
+    align-items: flex-start; 
+}
+.log-entry strong { 
+    min-width: 180px; 
+    display: inline-block; 
+    margin-right: var(--spacing-md); 
+    font-weight: 500; 
+    color: var(--secondary-text-color); 
+} 
+.log-entry span { 
+    flex-grow: 1; 
+}
+
+/* Log Level Specific Backgrounds & Borders */
+.log-INFO { background-color: var(--log-info-bg); border-left-color: var(--log-info-border); } 
+.log-WARNING { background-color: var(--log-warning-bg); border-left-color: var(--log-warning-border); } 
+.log-ERROR { background-color: var(--log-error-bg); border-left-color: var(--log-error-border); } 
+.log-SIMULATE { background-color: var(--log-simulate-bg); border-left-color: var(--log-simulate-border); } 
+.log-CONFIG_TEST { background-color: var(--log-configtest-bg); border-left-color: var(--log-configtest-border); }
+.log-DEBUG { background-color: var(--log-debug-bg); border-left-color: var(--log-debug-border); } 
+.log-VSS { background-color: var(--log-vss-bg); border-left-color: var(--log-vss-border); } 
+.log-HOOK { background-color: var(--log-hook-bg); border-left-color: var(--log-hook-border); }
+.log-SUCCESS { background-color: var(--log-success-bg); border-left-color: var(--log-success-border); }
+.log-NONE { background-color: var(--log-none-bg); border-left-color: var(--log-none-border); }
+
+
+/* Log Level Specific Text Colours for the message span */
+.log-INFO span { color: var(--log-info-text-color); }
+.log-WARNING span { color: var(--log-warning-text-color); }
+.log-ERROR span { color: var(--log-error-text-color); }
+.log-DEBUG span { color: var(--log-debug-text-color); }
+.log-SUCCESS span { color: var(--log-success-text-color); }
+.log-VSS span { color: var(--log-vss-text-color); }
+.log-HOOK span { color: var(--log-hook-text-color); }
+.log-SIMULATE span, .log-CONFIG_TEST span { color: var(--log-simulate-text-color); }
+.log-NONE span { color: var(--log-none-text-color); }
+
+
+/* ====== STATUS TEXT STYLES ====== */
+.status-SUCCESS, .status-PASSED { font-weight: bold; color: var(--status-success-text-color) !important; } 
+.status-WARNINGS { font-weight: bold; color: var(--status-warning-text-color) !important; } 
+.status-FAILURE, .status-CRITICAL_FAILURE, .status-FAILURE_NO_ADMIN_FOR_VSS, .status-Exception, .status-FAILED { font-weight: bold; color: var(--status-failure-text-color) !important; } 
+.status-SIMULATED_COMPLETE, .status-Simulated { font-weight: bold; color: var(--status-simulated-text-color) !important; } 
+.status-Not_Found { font-weight: normal; color: var(--status-notfound-text-color); }
+.status-INFO { font-weight: normal; color: var(--status-info-text-color); } 
+.status-DEFAULT { font-weight: normal; color: var(--status-default-text-color); } 
+
+
+/* ====== CODE & PREFORMATTED TEXT ====== */
+.code { 
+    font-family: var(--font-family-monospace); 
+    padding: 0.2em 0.4em; 
+    margin: 0; 
+    font-size: 85%; 
+    border-radius: var(--border-radius-sm); 
+    background-color: var(--code-bg-color);
+    color: var(--code-text-color);
+}
+pre { 
+    padding: var(--spacing-md); 
+    border-radius: var(--border-radius-sm); 
+    white-space: pre-wrap; 
+    word-wrap: break-word; 
+    font-size: 0.9em; 
+    max-height: 400px; 
+    overflow-y: auto; 
+    background-color: var(--code-bg-color);
+    color: var(--code-text-color);
+    border: 1px solid var(--code-border-color);
+}
+
+/* ====== LINKS ====== */
+a {
+    color: var(--accent-color-primary);
+    text-decoration: none;
+}
+a:hover, a:focus {
+    text-decoration: underline;
+}
+
+/* ====== RESPONSIVE TABLE STYLING ====== */
+@media screen and (max-width: 768px) { 
+    table, thead, tbody, th, td, tr { 
+        display: block; 
+    }
+    thead tr { 
+        position: absolute; 
+        top: -9999px; 
+        left: -9999px; 
+    }
+    tr { 
+        border-bottom: 2px solid var(--table-border-color); 
+        margin-bottom: var(--spacing-md); 
+    }
+    td { 
+        border: none; 
+        border-bottom: 1px solid var(--border-color-light); 
+        position: relative; 
+        padding-left: 50% !important;  
+        white-space: normal; 
+        text-align: right !important; 
+    }
+    td:before { 
+        position: absolute; 
+        top: var(--spacing-sm); 
+        left: var(--spacing-sm); 
+        width: 45%; 
+        padding-right: var(--spacing-sm); 
+        white-space: nowrap; 
+        text-align: left !important; 
+        font-weight: bold; 
+        content: attr(data-label); 
+        color: var(--primary-text-color); 
+    }
+    .log-entry { 
+        flex-direction: column; 
+    } 
+    .log-entry strong { 
+        min-width: unset; 
+        margin-bottom: var(--spacing-xs); 
+    }
+}

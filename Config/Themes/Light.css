@@ -1,0 +1,73 @@
+/* PoSh-Backup - Light Theme - Light.css */
+/* This file explicitly defines CSS variables for the Light theme. */
+/* These values typically mirror the defaults set in Base.css. */
+
+:root {
+    /* ====== LIGHT THEME COLOUR PALETTE ====== */
+
+    /* --- Core Palette --- */
+    --body-bg-color: #f8f9fa;                   
+    --container-bg-color: #ffffff;             
+    --primary-text-color: #212529;             
+    --secondary-text-color: #6c757d;           
+    --border-color-light: #dee2e6;             
+    --border-color-medium: #ced4da;            
+    --accent-color-primary: #007bff;           
+    --accent-color-primary-text: #ffffff;      
+    --accent-color-secondary: #6c757d;         
+    --accent-color-secondary-text: #ffffff;
+
+    /* --- Component-Specific Colours --- */
+    /* Header & Footer */
+    --header-border-color: var(--accent-color-primary);
+    --footer-text-color: var(--secondary-text-color);
+    --footer-border-color: var(--border-color-light);
+
+    /* Tables */
+    --table-header-bg: #e9ecef;                
+    --table-header-text-color: var(--primary-text-color);
+    --table-row-even-bg: #f8f9fa;              
+    --table-row-hover-bg: #ddeafd; 
+    --table-border-color: var(--border-color-light);
+
+    /* Code Blocks & Preformatted Text */
+    --code-bg-color: #e9ecef;                  
+    --code-text-color: #212529;                
+    --code-border-color: var(--border-color-medium);
+
+    /* Status Message Text Colours */
+    --status-success-text-color: #198754;      
+    --status-warning-text-color: #ffc107;      
+    --status-failure-text-color: #dc3545;      
+    --status-simulated-text-color: #6f42c1;    
+    --status-notfound-text-color: var(--secondary-text-color);
+    --status-info-text-color: var(--accent-color-primary);
+    --status-default-text-color: var(--primary-text-color);
+
+    /* Log Entry Backgrounds & Borders */
+    --log-info-bg: #cfe2ff;     --log-info-border: #9ec5fe;
+    --log-warning-bg: #fff3cd;  --log-warning-border: #ffe69c;
+    --log-error-bg: #f8d7da;    --log-error-border: #f1aeb5;
+    --log-simulate-bg: #e9d8fd; --log-simulate-border: #d3bcf0; 
+    --log-configtest-bg: var(--log-simulate-bg); --log-configtest-border: var(--log-simulate-border);
+    --log-debug-bg: #e9ecef;    --log-debug-border: #ced4da;
+    --log-vss-bg: #ffe8cc;      --log-vss-border: #ffd8a8;     
+    --log-hook-bg: #d1e7dd;     --log-hook-border: #a3cfbb;    
+    --log-success-bg: #d1e7dd;  --log-success-border: #a3cfbb;
+    --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
+
+    /* Log Entry Text Colours */
+    --log-info-text-color: #004085;            
+    --log-warning-text-color: #856404;         
+    --log-error-text-color: #721c24;           
+    --log-debug-text-color: #383d41;           
+    --log-success-text-color: #155724;         
+    --log-vss-text-color: #854C00;             
+    --log-hook-text-color: #0c5460;            
+    --log-simulate-text-color: #581c87;        
+    --log-configtest-text-color: var(--log-simulate-text-color);
+    --log-none-text-color: var(--primary-text-color);  
+}
+
+/* No additional structural CSS needed here if Base.css covers it all. */
+/* This file primarily ensures that if "Light" theme is selected, these variables are explicitly applied. */

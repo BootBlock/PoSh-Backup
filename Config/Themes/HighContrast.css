@@ -1,0 +1,97 @@
+/* PoSh-Backup - High Contrast Theme - HighContrast.css */
+/* This file overrides CSS variables defined in Base.css for a high contrast appearance. */
+/* It aims for maximum readability, often using black, white, and bright accent colours. */
+
+:root {
+    /* ====== HIGH CONTRAST THEME COLOUR PALETTE OVERRIDES ====== */
+
+    /* --- Core Palette --- */
+    --body-bg-color: #000000;                   /* Black page background */
+    --container-bg-color: #000000;             /* Black for main content area */
+    --primary-text-color: #ffffff;             /* White for main text */
+    --secondary-text-color: #dddddd;           /* Very light grey for secondary text */
+    --border-color-light: #888888;             /* Medium grey for borders for visibility */
+    --border-color-medium: #bbbbbb;            /* Lighter Grey border for more emphasis */
+    --accent-color-primary: #ffff00;           /* Bright Yellow for accents (links, etc.) */
+    --accent-color-primary-text: #000000;      /* Black text on yellow accent backgrounds */
+    --accent-color-secondary: #00ffff;         /* Bright Cyan for secondary accents */
+    --accent-color-secondary-text: #000000;    /* Black text on cyan accent */
+
+    /* --- Component-Specific Colours --- */
+    /* Header & Footer */
+    --header-border-color: var(--accent-color-primary); /* Yellow header border */
+    --footer-text-color: var(--secondary-text-color);
+    --footer-border-color: var(--border-color-medium);
+
+    /* Tables */
+    --table-header-bg: #1a1a1a;                /* Very dark grey for table headers */
+    --table-header-text-color: var(--accent-color-primary); /* Yellow text for headers */
+    --table-row-even-bg: #0d0d0d;              /* Slightly off-black for even rows */
+    --table-row-hover-bg: #2a2a2a;             /* Hover color for rows */
+    --table-border-color: var(--border-color-light);
+
+    /* Code Blocks & Preformatted Text */
+    --code-bg-color: #101010;                  /* Very dark grey for code */
+    --code-text-color: #f0f0f0;                /* Off-white for code text */
+    --code-border-color: var(--border-color-medium);
+
+    /* Status Message Text Colours - Using very bright, distinct colours */
+    --status-success-text-color: #00ff00;      /* Bright Green */
+    --status-warning-text-color: #ffff00;      /* Bright Yellow */
+    --status-failure-text-color: #ff0000;      /* Bright Red */
+    --status-simulated-text-color: #ff00ff;    /* Bright Magenta */
+    --status-notfound-text-color: var(--secondary-text-color);
+    --status-info-text-color: var(--accent-color-secondary); /* Bright Cyan */
+    --status-default-text-color: var(--primary-text-color); /* White */
+
+    /* Log Entry Backgrounds & Borders - Aim for max contrast with text */
+    /* Backgrounds will be dark, borders will be bright version of text, or white/yellow */
+    --log-info-bg: #000000;     --log-info-border: #00ffff; /* Black bg, cyan border */
+    --log-warning-bg: #000000;  --log-warning-border: #ffff00; /* Black bg, yellow border */
+    --log-error-bg: #000000;    --log-error-border: #ff0000; /* Black bg, red border */
+    --log-simulate-bg: #000000; --log-simulate-border: #ff00ff; /* Black bg, magenta border */
+    --log-configtest-bg: var(--log-simulate-bg); --log-configtest-border: var(--log-simulate-border);
+    --log-debug-bg: #000000;    --log-debug-border: #aaaaaa; /* Black bg, grey border */
+    --log-vss-bg: #000000;      --log-vss-border: #ffaa00;     /* Black bg, orange border */
+    --log-hook-bg: #000000;     --log-hook-border: #00ff88;    /* Black bg, bright mint border */
+    --log-success-bg: #000000;  --log-success-border: #00ff00; /* Black bg, green border */
+    --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
+
+
+    /* Log Entry Text Colours - Max contrast with black background */
+    --log-info-text-color: #00ffff;            /* Bright Cyan */
+    --log-warning-text-color: #ffff00;         /* Bright Yellow */
+    --log-error-text-color: #ff4d4d;           /* Bright Red (slightly less harsh than pure #ff0000) */
+    --log-debug-text-color: #cccccc;           /* Light Gray */
+    --log-success-text-color: #00ff00;         /* Bright Green */
+    --log-vss-text-color: #ffaa00;             /* Bright Orange */
+    --log-hook-text-color: #00ff88;            /* Bright Mint */
+    --log-simulate-text-color: #ff00ff;        /* Bright Magenta */
+    --log-configtest-text-color: var(--log-simulate-text-color);
+    --log-none-text-color: var(--primary-text-color); /* White */
+}
+
+/* Additional high-contrast specific overrides if needed beyond variables. */
+/* For example, ensuring all borders are very visible and thicker if needed. */
+h1, h2, table, th, td, .details-section, pre, .log-entry {
+    border-width: 1px !important; /* Make sure borders are clearly visible */
+    /* For even higher contrast, you might consider making borders white, */
+    /* but this can sometimes look too busy. The variable approach is preferred. */
+    /* Example: border-color: #FFFFFF !important; */
+}
+
+/* Ensure links are clearly distinguishable */
+a, a:visited {
+    color: var(--accent-color-primary) !important; /* Yellow */
+    text-decoration: underline !important; /* Always underline links for HC */
+}
+a:hover, a:focus {
+    background-color: var(--accent-color-primary) !important; /* Yellow background on hover */
+    color: var(--accent-color-primary-text) !important; /* Black text on hover */
+    text-decoration: none !important;
+}
+
+/* Ensure text in specific elements has enough contrast if variables aren't enough */
+.log-entry strong {
+    color: var(--accent-color-secondary) !important; /* Bright Cyan for timestamp/level headers */
+}
