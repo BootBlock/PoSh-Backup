@@ -15,6 +15,7 @@
     - External Configuration: All backup jobs, global settings, and backup sets are defined in an
       external .psd1 configuration file (default: Config\Default.psd1). User-specific overrides can
       be placed in Config\User.psd1. If User.psd1 is not found, the script may offer to create it.
+    - Early 7-Zip Check: Validates 7-Zip path immediately after configuration load and exits if not found.
     - Backup Jobs: Define specific sources, destination, archive names, retention policies, 7-Zip parameters,
       and other operational settings on a per-job basis.
     - Backup Sets: Group multiple backup jobs to run sequentially with the -RunSet parameter. Sets can define
@@ -134,13 +135,13 @@
 
 .NOTES
     Author:         [Joe Cox] with tons of Gemini AI to see how well it does (e.g. blame it for any issues, ahem)
-    Version:        1.6 (Added debugging for simulation banner)
+    Version:        1.7 (Added early 7-Zip path check)
     Date:           15-May-2025
     Requires:       PowerShell 5.1 or higher.
-                    7-Zip (7z.exe) must be installed and its path correctly specified in the configuration.
+                    7-Zip (7z.exe) must be installed and its path correctly specified in the configuration or auto-detectable.
     Privileges:     Administrator privileges are required for VSS functionality.
-    Modules:        Utils.psm1, Operations.psm1, Reporting.psm1 must be in a '.\Modules\' directory
-                    relative to this script, or in a standard PowerShell module path ($env:PSModulePath).
+    Modules:        Utils.psm1, Operations.psm1, Reporting.psm1 (and optionally PoShBackupValidator.psm1) must be 
+                    in a '.\Modules\' directory relative to this script, or in a standard PowerShell module path.
     Themes:         HTML report themes (Base.css, Light.css, Dark.css, etc.) are expected in a
                     '.\Config\Themes\' directory relative to this script.
     Configuration:  See the example Config\Default.psd1 for detailed configuration options.
@@ -222,16 +223,16 @@ $Global:StatusToColourMap = @{
     "SUCCESS"           = $Global:ColourSuccess
     "WARNINGS"          = $Global:ColourWarning
     "FAILURE"           = $Global:ColourError
-    "SIMULATED_COMPLETE"= $Global:ColourSimulate # Added for overall status
-    "DEFAULT"           = $Global:ColourInfo # Fallback for unknown statuses
+    "SIMULATED_COMPLETE"= $Global:ColourSimulate 
+    "DEFAULT"           = $Global:ColourInfo 
 }
 
 # Global variables for per-job data collection and logging state
 $Global:GlobalLogFile                       = $null 
 $Global:GlobalEnableFileLogging             = $false 
 $Global:GlobalLogDirectory                  = $null 
-$Global:GlobalJobLogEntries                 = $null # List of log entry objects for current job's HTML report
-$Global:GlobalJobHookScriptData             = $null # List of hook script execution data for current job's HTML report
+$Global:GlobalJobLogEntries                 = $null 
+$Global:GlobalJobHookScriptData             = $null 
 
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -ErrorAction Stop
@@ -244,13 +245,13 @@ try {
     Write-Host "Ensure 'Utils.psm1', 'Operations.psm1', and 'Reporting.psm1' are in the '.\Modules\' directory relative to the main script." -ForegroundColour $Global:ColourError
     Write-Host "Make sure 'Config\Themes' directory with CSS files (Base.css, etc.) exists if HTML reporting is used." -ForegroundColour $Global:ColourError
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColour $Global:ColourError
-    exit 10 # Critical error, cannot proceed
+    exit 10 
 }
 
-# Initial log messages (not part of per-job HTML report logs)
+# Initial log messages
 Write-LogMessage "---------------------------------" -ForegroundColour $Global:ColourHeading -Level "NONE"
 Write-LogMessage " Starting PoSh Backup Script     " -ForegroundColour $Global:ColourHeading -Level "NONE" 
-Write-LogMessage " Script Version: v1.6 (Debug Sim Banner)" -ForegroundColour $Global:ColourHeading -Level "NONE" 
+Write-LogMessage " Script Version: v1.7 (Early 7-Zip Check)" -ForegroundColour $Global:ColourHeading -Level "NONE" 
 if ($IsSimulateMode) { Write-LogMessage " ***** SIMULATION MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { Write-LogMessage " ***** CONFIGURATION TEST MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "CONFIG_TEST" } 
 if ($ListBackupLocations.IsPresent) { Write-LogMessage " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "CONFIG_TEST" } 
@@ -260,41 +261,35 @@ Write-LogMessage "---------------------------------" -ForegroundColour $Global:C
 
 #region --- Configuration Loading, Validation & Job Determination ---
 
-# Define paths for default configuration files (needed for pre-check)
 $defaultConfigDir = Join-Path -Path $PSScriptRoot -ChildPath "Config"
 $defaultBaseConfigFileName = "Default.psd1"
 $defaultUserConfigFileName = "User.psd1"
-
 $defaultBaseConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultBaseConfigFileName
 $defaultUserConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultUserConfigFileName
 
-# Check for User.psd1 and offer to create if it's missing AND no -ConfigFile is specified
-if (-not $PSBoundParameters.ContainsKey('ConfigFile')) { # Only if using default config loading
+if (-not $PSBoundParameters.ContainsKey('ConfigFile')) { 
     if (-not (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf)) {
         if (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf) {
             Write-LogMessage "[INFO] User configuration file ('$defaultUserConfigPath') not found." -Level "INFO"
-            # Only prompt in interactive console sessions
             if ($Host.Name -eq "ConsoleHost" -and -not $TestConfig.IsPresent -and -not $IsSimulateMode `
-                -and -not $ListBackupLocations.IsPresent -and -not $ListBackupSets.IsPresent) { # Also don't prompt if just listing
+                -and -not $ListBackupLocations.IsPresent -and -not $ListBackupSets.IsPresent) { 
                 $choiceTitle = "Create User Configuration?"
                 $choiceMessage = "The user-specific configuration file '$($defaultUserConfigFileName)' was not found in '$($defaultConfigDir)'.`nIt is recommended to create this file as it allows you to customize settings without modifying`nthe default file, ensuring your settings are not overwritten by script upgrades.`n`nWould you like to create '$($defaultUserConfigFileName)' now by copying the contents of '$($defaultBaseConfigFileName)'?"
                 $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Create '$($defaultUserConfigFileName)' from '$($defaultBaseConfigFileName)'."
                 $no = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Do not create the file. The script will use '$($defaultBaseConfigFileName)' only for this run."
                 $options = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
                 $decision = $Host.UI.PromptForChoice($choiceTitle, $choiceMessage, $options, 0)
-
-                if ($decision -eq 0) { # User selected Yes
+                if ($decision -eq 0) { 
                     try {
                         Copy-Item -LiteralPath $defaultBaseConfigPath -Destination $defaultUserConfigPath -Force -ErrorAction Stop
                         Write-LogMessage "[SUCCESS] '$defaultUserConfigFileName' has been created from '$defaultBaseConfigFileName' in '$defaultConfigDir'." -Level "SUCCESS" -ForegroundColour $Global:ColourSuccess
                         Write-LogMessage "          Please edit '$defaultUserConfigFileName' with your desired settings and then re-run PoSh-Backup." -Level "INFO" -ForegroundColour $Global:ColourInfo
                         Write-LogMessage "          Script will now exit." -Level "INFO"
-                        # Pause briefly so user can see the message before exit, unless PauseBehaviour is Never
-                        $_pauseSettingForUserPsd1Create = Get-ConfigValue -ConfigObject $cliOverrideSettings -Key 'PauseBehaviour' -DefaultValue "Always" # Default to pause
+                        $_pauseSettingForUserPsd1Create = Get-ConfigValue -ConfigObject $cliOverrideSettings -Key 'PauseBehaviour' -DefaultValue "Always" 
                         if ($_pauseSettingForUserPsd1Create -is [string] -and $_pauseSettingForUserPsd1Create.ToLowerInvariant() -ne "never" -and ($_pauseSettingForUserPsd1Create -isnot [bool] -or $_pauseSettingForUserPsd1Create -ne $false)) {
                            if ($Host.Name -eq "ConsoleHost") { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
                         }
-                        exit 0 # Exit after creating the file
+                        exit 0 
                     } catch {
                         Write-LogMessage "[ERROR] Failed to copy '$defaultBaseConfigPath' to '$defaultUserConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
                         Write-LogMessage "          Please create '$defaultUserConfigFileName' manually if desired. Script will continue with base configuration." -Level "WARNING"
@@ -312,11 +307,10 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) { # Only if using default
     }
 }
 
-# Load application configuration using helper from Utils.psm1
 $configResult = Import-AppConfiguration -UserSpecifiedPath $ConfigFile -IsTestConfigMode:(($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) -MainScriptPSScriptRoot $PSScriptRoot
 if (-not $configResult.IsValid) {
     Write-LogMessage "FATAL: Configuration loading or validation failed. Exiting." -Level "ERROR" -ForegroundColour $Global:ColourError
-    exit 1 # Exit code for configuration error
+    exit 1 
 }
 $Configuration = $configResult.Configuration
 $ActualConfigFile = $configResult.ActualPath 
@@ -335,6 +329,39 @@ if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
     Write-LogMessage "FATAL: Configuration object is not a valid hashtable after loading. Cannot inject PSScriptRoot." -Level "ERROR" -ForegroundColour $Global:ColourError
     exit 1
 }
+
+# --- Early 7-Zip Path Validation in PoSh-Backup.ps1 ---
+# This check runs AFTER special modes like -List or -TestConfig might exit,
+# but before any job processing or extensive logging setup.
+if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent -or $TestConfig.IsPresent)) {
+    $sevenZipPathFromFinalConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'SevenZipPath' -DefaultValue $null
+    if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
+        Write-LogMessage "FATAL: 7-Zip executable path ('$sevenZipPathFromFinalConfig') is invalid or not found after configuration loading and auto-detection attempts." -Level "ERROR" -ForegroundColour $Global:ColourError
+        Write-LogMessage "       Please ensure 'SevenZipPath' is correctly set in your configuration (Default.psd1 or User.psd1)," -Level "ERROR" -ForegroundColour $Global:ColourError
+        Write-LogMessage "       or that 7z.exe is available in standard Program Files locations or your system PATH for auto-detection." -Level "ERROR" -ForegroundColour $Global:ColourError
+        
+        $_earlyExitPauseSetting = Get-ConfigValue -ConfigObject $Configuration -Key 'PauseBeforeExit' -DefaultValue "Always" 
+        $_shouldEarlyExitPause = $false
+        if ($_earlyExitPauseSetting -is [bool]) {
+            $_shouldEarlyExitPause = $_earlyExitPauseSetting
+        } elseif ($_earlyExitPauseSetting -is [string]) {
+            if ($_earlyExitPauseSetting.ToLowerInvariant() -in @("always", "onfailure", "onfailureorwarning", "true")) { $_shouldEarlyExitPause = $true }
+        }
+        if ($cliOverrideSettings.PauseBehaviour) { 
+            if ($cliOverrideSettings.PauseBehaviour.ToLowerInvariant() -in @("always", "onfailure", "onfailureorwarning", "true")) { $_shouldEarlyExitPause = $true }
+            elseif ($cliOverrideSettings.PauseBehaviour.ToLowerInvariant() -in @("never", "false")) { $_shouldEarlyExitPause = $false }
+        }
+
+        if ($_shouldEarlyExitPause -and ($Host.Name -eq "ConsoleHost")) {
+            Write-LogMessage "`nPress any key to exit..." -ForegroundColour $Global:ColourWarning -Level "NONE"
+            try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null } catch {}
+        }
+        exit 3 
+    } else {
+        Write-LogMessage "[INFO] Effective 7-Zip executable path confirmed: '$sevenZipPathFromFinalConfig'" -Level "INFO"
+    }
+}
+# --- END Early 7-Zip Path Validation ---
 
 if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent)) {
     $Global:GlobalEnableFileLogging = Get-ConfigValue -ConfigObject $Configuration -Key 'EnableFileLogging' -DefaultValue $false
@@ -400,7 +427,7 @@ if ($TestConfig.IsPresent) {
         Write-LogMessage "          (User overrides from '$($configResult.UserConfigPath)' were applied)" -ForegroundColour $Global:ColourSuccess -Level "CONFIG_TEST"
     }
     Write-LogMessage "`n  --- Key Global Settings ---" -ForegroundColour $Global:ColourInfo -Level "CONFIG_TEST"
-    Write-LogMessage ("    7-Zip Path              : {0}" -f (Get-ConfigValue $Configuration 'SevenZipPath' 'N/A')) -Level "CONFIG_TEST"
+    Write-LogMessage ("    7-Zip Path              : {0}" -f (Get-ConfigValue $Configuration 'SevenZipPath' 'N/A')) -Level "CONFIG_TEST" # This will show the effective path
     Write-LogMessage ("    Default Destination Dir : {0}" -f (Get-ConfigValue $Configuration 'DefaultDestinationDir' 'N/A')) -Level "CONFIG_TEST"
     Write-LogMessage ("    Log Directory           : {0}" -f (Get-ConfigValue $Configuration 'LogDirectory' 'N/A (File Logging Disabled)')) -Level "CONFIG_TEST"
     Write-LogMessage ("    HTML Report Directory   : {0}" -f (Get-ConfigValue $Configuration 'HtmlReportDirectory' 'N/A')) -Level "CONFIG_TEST"
@@ -451,6 +478,13 @@ $stopSetOnError = $jobResolutionResult.StopSetOnErrorPolicy
 #endregion
 
 #region --- Main Processing Loop (Iterate through Jobs) ---
+# ... (Rest of the script: Main Processing Loop, Final Script Summary & Exit - remains unchanged) ...
+# For brevity, not repeating the entire loop and finalization section here.
+# Please ensure you merge this configuration section with the rest of your existing PoSh-Backup.ps1
+# (Main Processing Loop and Final Script Summary sections).
+#endregion
+
+#region --- Main Processing Loop (Iterate through Jobs) ---
 $overallSetStatus = "SUCCESS" 
 
 foreach ($currentJobName in $jobsToProcess) {
@@ -487,7 +521,7 @@ foreach ($currentJobName in $jobsToProcess) {
             PSScriptRootForPaths = $PSScriptRoot 
             ActualConfigFile    = $ActualConfigFile
             JobReportDataRef    = ([ref]$currentJobReportData)
-            IsSimulateMode      = $IsSimulateMode # Pass the script's $IsSimulateMode
+            IsSimulateMode      = $IsSimulateMode 
         }
         $jobResult = Invoke-PoShBackupJob @invokePoShBackupJobParams        
         $currentJobStatus = $jobResult.Status
@@ -602,11 +636,9 @@ switch ($effectivePauseBehaviour) {
     }
 }
 
-# Don't pause if $IsSimulateMode is true, UNLESS pause is explicitly "Always"
 if ($IsSimulateMode -and $effectivePauseBehaviour -ne "always") {
     $shouldPhysicallyPause = $false
 }
-
 
 if ($shouldPhysicallyPause) { 
     Write-LogMessage "`nPress any key to exit..." -ForegroundColour $Global:ColourWarning -Level "NONE"
@@ -620,8 +652,8 @@ if ($shouldPhysicallyPause) {
 }
 
 if ($IsSimulateMode) { exit 0 } 
-elseif ($overallSetStatus -eq "SIMULATED_COMPLETE") { exit 0 } # Treat successful simulation as exit 0
+elseif ($overallSetStatus -eq "SIMULATED_COMPLETE") { exit 0 } 
 elseif ($overallSetStatus -eq "SUCCESS") { exit 0 }
 elseif ($overallSetStatus -eq "WARNINGS") { exit 1 } 
-else { exit 2 } # FAILURE or any other unhandled status
+else { exit 2 } 
 #endregion
