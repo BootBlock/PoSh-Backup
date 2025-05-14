@@ -30,11 +30,18 @@
     #endregion
 
     #region --- Reporting Settings (Global Defaults) ---
-    ReportGeneratorType             = "HTML"                          # Primary report type. Options: "HTML", "CSV", "JSON", "XML", "None".
+    ReportGeneratorType             = @("HTML")                       # Primary report type(s). Can be a string or an array of strings.
+                                                                      # Options: "HTML", "CSV", "JSON", "XML", "TXT", "MD", "None".
                                                                       # This can be overridden per job.
-    
+
+    CsvReportDirectory              = "Reports\CSV"                   # Directory to store CSV reports.
+    JsonReportDirectory             = "Reports\JSON"                  # Directory to store JSON reports.
+    XmlReportDirectory              = "Reports\XML"                   # Directory to store XML reports.
+    TxtReportDirectory              = "Reports\TXT"                   # Directory to store Plain Text reports.
+    MdReportDirectory               = "Reports\MD"                    # Directory to store Markdown reports
+
     # --- HTML Specific Reporting Settings (used if ReportGeneratorType is "HTML") ---
-    HtmlReportDirectory             = "Reports"                       # Directory to store HTML reports. If relative, from PSScriptRoot (e.g., ".\Reports").
+    HtmlReportDirectory             = "Reports/HTML"                  # Directory to store HTML reports. If relative, from PSScriptRoot (e.g., ".\Reports").
                                                                       # Can be an absolute path. Script will attempt to create it.
     HtmlReportTitlePrefix           = "PoSh Backup Status Report"     # Prefix for the HTML report browser title and H1 tag. Job name is appended.
     HtmlReportLogoPath              = ""                              # Optional: Full UNC or local path to a logo image (PNG, JPG, GIF, SVG).
@@ -46,7 +53,7 @@
                                                                       # relative to PoSh-Backup.ps1.
                                                                       # Built-in: "Light", "Dark", "HighContrast", "Playful", "RetroTerminal".
                                                                       # A 'Base.css' in 'Config\Themes' is always loaded first.
-    
+
     # Override specific CSS variables for the selected theme (or base if no theme).
     # This allows fine-grained colour/style adjustments without creating a whole new theme file.
     # Keys should be valid CSS variable names (e.g., "--accent-color"), values are valid CSS color codes/values.

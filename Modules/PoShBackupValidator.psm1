@@ -11,8 +11,17 @@ $Script:PoShBackup_ConfigSchema = @{
     PauseBeforeExit                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Always", "Never", "OnFailure", "OnWarning", "OnFailureOrWarning", "True", "False") } 
     EnableFileLogging               = @{ Type = 'boolean'; Required = $false }
     LogDirectory                    = @{ Type = 'string'; Required = $false } 
-    ReportGeneratorType             = @{ Type = 'string'; Required = $false; AllowedValues = @("HTML", "None") } 
+    ReportGeneratorType = @{ 
+        Type = 'string_or_array'; # MODIFIED TO ALLOW ARRAY
+        Required = $false; 
+        AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") 
+    }
     HtmlReportDirectory             = @{ Type = 'string'; Required = $false }
+    CsvReportDirectory              = @{ Type = 'string'; Required = $false }
+    JsonReportDirectory             = @{ Type = 'string'; Required = $false }
+    XmlReportDirectory              = @{ Type = 'string'; Required = $false }
+    TxtReportDirectory              = @{ Type = 'string'; Required = $false }
+    MdReportDirectory               = @{ Type = 'string'; Required = $false }
     HtmlReportTitlePrefix           = @{ Type = 'string'; Required = $false }
     HtmlReportLogoPath              = @{ Type = 'string'; Required = $false }
     HtmlReportCustomCssPath         = @{ Type = 'string'; Required = $false }
@@ -64,7 +73,7 @@ $Script:PoShBackup_ConfigSchema = @{
             EnableVSS               = @{ Type = 'boolean'; Required = $false }
             VSSContextOption        = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
             SevenZipProcessPriority = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
-            ReportGeneratorType     = @{ Type = 'string'; Required = $false; AllowedValues = @("HTML", "None") }
+            ReportGeneratorType     = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
             ArchiveType             = @{ Type = 'string'; Required = $false }
             ArchiveExtension        = @{ Type = 'string'; Required = $false } 
             ArchiveDateFormat       = @{ Type = 'string'; Required = $false } 
@@ -79,8 +88,13 @@ $Script:PoShBackup_ConfigSchema = @{
             MinimumRequiredFreeSpaceGB   = @{ Type = 'int'; Required = $false; Min = 0 }
             ExitOnLowSpaceIfBelowMinimum = @{ Type = 'boolean'; Required = $false }
             TestArchiveAfterCreation     = @{ Type = 'boolean'; Required = $false }
-            HtmlReportTheme              = @{ Type = 'string'; Required = $false }
             HtmlReportDirectory          = @{ Type = 'string'; Required = $false }
+            CsvReportDirectory           = @{ Type = 'string'; Required = $false }
+            JsonReportDirectory          = @{ Type = 'string'; Required = $false }
+            XmlReportDirectory           = @{ Type = 'string'; Required = $false }
+            TxtReportDirectory           = @{ Type = 'string'; Required = $false }
+            MdReportDirectory            = @{ Type = 'string'; Required = $false } 
+            HtmlReportTheme              = @{ Type = 'string'; Required = $false }
             HtmlReportTitlePrefix        = @{ Type = 'string'; Required = $false }
             HtmlReportLogoPath           = @{ Type = 'string'; Required = $false }
             HtmlReportCustomCssPath      = @{ Type = 'string'; Required = $false }

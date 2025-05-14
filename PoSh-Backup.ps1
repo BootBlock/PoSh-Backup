@@ -38,8 +38,8 @@
       Normal, High) to manage system resource impact during backups.
     - Script Hooks: Execute custom PowerShell scripts at various stages of a backup job.
     - Detailed Multi-Format Reports: Generates reports (default HTML) for each processed backup job. HTML reports
-      feature theming, client-side log filtering, and simulation banners. Other formats like CSV, JSON, XML are stubbed.
-      Report appearance (title, logo, company name, theme, CSS variable overrides, visible sections) is highly customisable.
+      feature theming, client-side log filtering, and simulation banners. Other formats like CSV, JSON, XML, TXT, MD
+      are now supported. Report appearance for HTML is highly customisable.
     - Extensive Logging: Provides detailed console output with colour-coding for different message levels.
       Optionally logs to per-job text files.
     - Simulation Mode (-Simulate): Runs through the backup logic without making actual changes.
@@ -88,7 +88,7 @@
 .PARAMETER GenerateHtmlReportCLI
     Optional. A switch parameter. If present, this forces the generation of an HTML report for all
     processed jobs. If a job's 'ReportGeneratorType' in the configuration was set to "None" or another type, this
-    override will change it to "HTML" for that run.
+    override will change it to "HTML" for that run (or add HTML to the list if ReportGeneratorType is an array).
 
 .PARAMETER SevenZipPriorityCLI
     Optional. Allows specifying the 7-Zip process priority directly from the command line, overriding
@@ -131,15 +131,14 @@
 
 .NOTES
     Author:         [Joe Cox] with tons of Gemini AI to see how well it does (e.g. blame it for any issues, ahem)
-    Version:        1.8 (Reporting refactor to support multiple formats)
-    Date:           15-May-2025
+    Version:        1.9.2 (Corrected OrderedDictionary.ContainsKey error)
+    Date:           16-May-2025
     Requires:       PowerShell 5.1 or higher.
                     7-Zip (7z.exe) must be installed and its path correctly specified/auto-detectable.
     Privileges:     Administrator privileges are required for VSS functionality.
     Modules:        Utils.psm1, Operations.psm1, Reporting.psm1 (orchestrator), 
-                    ReportingHtml.psm1, ReportingCsv.psm1 (stub), ReportingJson.psm1 (stub), 
-                    ReportingXml.psm1 (stub), and optionally PoShBackupValidator.psm1 
-                    must be in '.\Modules\' relative to this script, or in $env:PSModulePath.
+                    and format-specific modules in Modules\Reporting\ (e.g., ReportingHtml.psm1).
+                    Optionally PoShBackupValidator.psm1.
     Themes:         HTML report themes in '.\Config\Themes\'.
     Configuration:  Config\Default.psd1 (base), Config\User.psd1 (overrides).
     Script Name:    PoSh-Backup.ps1
@@ -168,7 +167,7 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Switch. Enable retry mechanism for 7-Zip.")]
     [switch]$EnableRetriesCLI,
 
-    [Parameter(Mandatory=$false, HelpMessage="Switch. Forces HTML report generation for processed jobs.")]
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Forces HTML report generation for processed jobs, or adds HTML if ReportGeneratorType is an array.")]
     [switch]$GenerateHtmlReportCLI, 
 
     [Parameter(Mandatory=$false, HelpMessage="Optional. Set 7-Zip process priority (Idle, BelowNormal, Normal, AboveNormal, High).")]
@@ -198,7 +197,7 @@ $cliOverrideSettings = @{
     UseVSS                  = $UseVSS.IsPresent
     EnableRetries           = $EnableRetriesCLI.IsPresent
     TestArchive             = $TestArchive.IsPresent
-    GenerateHtmlReport      = $GenerateHtmlReportCLI.IsPresent
+    GenerateHtmlReport      = $GenerateHtmlReportCLI.IsPresent 
     SevenZipPriority        = if (-not [string]::IsNullOrWhiteSpace($SevenZipPriorityCLI)) { $SevenZipPriorityCLI } else { $null }
     PauseBehaviour          = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
 }
@@ -230,7 +229,7 @@ $Global:GlobalJobHookScriptData             = $null
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Operations.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Reporting.psm1") -Force -ErrorAction Stop # This is now the orchestrator
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Reporting.psm1") -Force -ErrorAction Stop 
     Write-Host "[INFO] Core modules Utils.psm1, Operations.psm1, and Reporting.psm1 (orchestrator) loaded." -ForegroundColour $Global:ColourInfo
     
 } catch {
@@ -242,7 +241,7 @@ try {
 
 Write-LogMessage "---------------------------------" -ForegroundColour $Global:ColourHeading -Level "NONE"
 Write-LogMessage " Starting PoSh Backup Script     " -ForegroundColour $Global:ColourHeading -Level "NONE" 
-Write-LogMessage " Script Version: v1.8 (Reporting Refactor)" -ForegroundColour $Global:ColourHeading -Level "NONE" 
+Write-LogMessage " Script Version: v1.9.2 (ContainsKey Fix)" -ForegroundColour $Global:ColourHeading -Level "NONE" 
 if ($IsSimulateMode) { Write-LogMessage " ***** SIMULATION MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { Write-LogMessage " ***** CONFIGURATION TEST MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "CONFIG_TEST" } 
 if ($ListBackupLocations.IsPresent) { Write-LogMessage " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -ForegroundColour $Global:ColourSimulate -Level "CONFIG_TEST" } 
@@ -395,7 +394,7 @@ if ($ListBackupSets.IsPresent) {
     }
     if ($Configuration.BackupSets -is [hashtable] -and $Configuration.BackupSets.Count -gt 0) {
         $Configuration.BackupSets.GetEnumerator() | Sort-Object Name | ForEach-Object {
-            Write-Host ("`n  Set Name     : " + $_.Name) -ForegroundColour $Global:ColourValue
+            Write-Host ("`n  Set Name     : " + $_.Name) -ForegroundColor $Global:ColourValue
             $jobsInSet = if ($_.Value.JobNames -is [array]) { ($_.Value.JobNames | ForEach-Object { "                 $_" }) -join [Environment]::NewLine } else { "                 None listed" }
             Write-Host ("  Jobs in Set  :`n" + $jobsInSet)
             Write-Host ("  On Error     : " + (Get-ConfigValue $_.Value 'OnErrorInJob' 'StopSet'))
@@ -417,7 +416,7 @@ if ($TestConfig.IsPresent) {
     Write-LogMessage ("    7-Zip Path              : {0}" -f (Get-ConfigValue $Configuration 'SevenZipPath' 'N/A')) -Level "CONFIG_TEST" 
     Write-LogMessage ("    Default Destination Dir : {0}" -f (Get-ConfigValue $Configuration 'DefaultDestinationDir' 'N/A')) -Level "CONFIG_TEST"
     Write-LogMessage ("    Log Directory           : {0}" -f (Get-ConfigValue $Configuration 'LogDirectory' 'N/A (File Logging Disabled)')) -Level "CONFIG_TEST"
-    Write-LogMessage ("    HTML Report Directory   : {0}" -f (Get-ConfigValue $Configuration 'HtmlReportDirectory' 'N/A')) -Level "CONFIG_TEST"
+    Write-LogMessage ("    Default Report Dir (HTML): {0}" -f (Get-ConfigValue $Configuration 'HtmlReportDirectory' 'N/A')) -Level "CONFIG_TEST" 
     Write-LogMessage ("    Default VSS Enabled     : {0}" -f (Get-ConfigValue $Configuration 'EnableVSS' $false)) -Level "CONFIG_TEST"
     Write-LogMessage ("    Default Retries Enabled : {0}" -f (Get-ConfigValue $Configuration 'EnableRetries' $false)) -Level "CONFIG_TEST"
     Write-LogMessage ("    Pause Before Exit       : {0}" -f (Get-ConfigValue $Configuration 'PauseBeforeExit' 'OnFailureOrWarning')) -Level "CONFIG_TEST"
@@ -504,7 +503,7 @@ foreach ($currentJobName in $jobsToProcess) {
             IsSimulateMode      = $IsSimulateMode 
         }
         $jobResult = Invoke-PoShBackupJob @invokePoShBackupJobParams        
-        $currentJobStatus = $jobResult.Status
+        $currentJobStatus = $jobResult.Status 
     } catch {
         $currentJobStatus = "FAILURE"
         Write-LogMessage "[FATAL] Top-level unhandled exception during Invoke-PoShBackupJob for job '$currentJobName': $($_.Exception.ToString())" -Level ERROR -ForegroundColour $Global:ColourError
@@ -514,10 +513,9 @@ foreach ($currentJobName in $jobsToProcess) {
     $currentJobReportData['LogEntries']  = if ($null -ne $Global:GlobalJobLogEntries) { $Global:GlobalJobLogEntries } else { [System.Collections.Generic.List[object]]::new() }
     $currentJobReportData['HookScripts'] = if ($null -ne $Global:GlobalJobHookScriptData) { $Global:GlobalJobHookScriptData } else { [System.Collections.Generic.List[object]]::new() }
     
-    # Invoke-PoShBackupJob now returns operational status.
-    # The $currentJobReportData.OverallStatus has already been set correctly (e.g. to SIMULATED_COMPLETE) inside Invoke-PoShBackupJob's finally block.
-    # So we just need to ensure $currentJobReportData.OverallStatus is correctly used.
-    # $currentJobReportData['OverallStatus'] = $currentJobStatus # This might overwrite SIMULATED_COMPLETE
+    if (-not ($currentJobReportData.PSObject.Properties.Name -contains 'OverallStatus')) {
+        $currentJobReportData.OverallStatus = $currentJobStatus
+    }
     $currentJobReportData['ScriptEndTime'] = Get-Date        
     
     if (($currentJobReportData.PSObject.Properties.Name -contains 'ScriptStartTime') -and `
@@ -527,65 +525,63 @@ foreach ($currentJobName in $jobsToProcess) {
     } else { 
         $currentJobReportData['TotalDuration'] = "N/A (Timing data incomplete)"
     }
-    if ($currentJobReportData.OverallStatus -eq "FAILURE" -and -not ($currentJobReportData.PSObject.Properties.Name -contains 'ErrorMessage')) {
+
+    if (($currentJobReportData.PSObject.Properties.Name -contains 'OverallStatus') -and $currentJobReportData.OverallStatus -eq "FAILURE" -and -not ($currentJobReportData.PSObject.Properties.Name -contains 'ErrorMessage')) {
         $currentJobReportData['ErrorMessage'] = "Job failed; specific error caught by main loop or not recorded by Invoke-PoShBackupJob."
     }
 
-    # Update overallSetStatus based on the operational status of the job ($currentJobStatus),
-    # not the report's OverallStatus which might be "SIMULATED_COMPLETE"
     if ($currentJobStatus -eq "FAILURE") { $overallSetStatus = "FAILURE" }
     elseif ($currentJobStatus -eq "WARNINGS" -and $overallSetStatus -ne "FAILURE") { $overallSetStatus = "WARNINGS" }
-    # If $IsSimulateMode is true and currentJobStatus is SUCCESS/WARNINGS, overallSetStatus will become SIMULATED_COMPLETE at the end.
     
-    $statusColour = $Global:StatusToColourMap[$currentJobReportData.OverallStatus] # Use report's status for log color
+    $displayStatusForLog = $currentJobReportData.OverallStatus
+    $statusColour = $Global:StatusToColourMap[$displayStatusForLog] 
     if (-not $statusColour) { $statusColour = $Global:StatusToColourMap["DEFAULT"] } 
-    Write-LogMessage "Finished processing job '$currentJobName'. Status: $($currentJobReportData.OverallStatus)" -ForegroundColour $statusColour # Log the report status
+    Write-LogMessage "Finished processing job '$currentJobName'. Status: $displayStatusForLog" -ForegroundColour $statusColour
     
-    $JobReportGeneratorTypeCurrent = Get-ConfigValue -ConfigObject $jobConfig -Key 'ReportGeneratorType' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'ReportGeneratorType' -DefaultValue "HTML")
-    if ($cliOverrideSettings.GenerateHtmlReport) { 
-        $JobReportGeneratorTypeCurrent = "HTML" # CLI -GenerateHtmlReportCLI overrides config to force HTML.
+    $_jobSpecificReportTypesSetting = Get-ConfigValue -ConfigObject $jobConfig -Key 'ReportGeneratorType' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'ReportGeneratorType' -DefaultValue "HTML")
+    $_jobReportGeneratorTypesList = [System.Collections.Generic.List[string]]::new()
+    if ($_jobSpecificReportTypesSetting -is [array]) {
+        $_jobSpecificReportTypesSetting | ForEach-Object { $_jobReportGeneratorTypesList.Add($_.ToString().ToUpperInvariant()) }
+    } else {
+        $_jobReportGeneratorTypesList.Add($_jobSpecificReportTypesSetting.ToString().ToUpperInvariant())
     }
 
-    if ($JobReportGeneratorTypeCurrent.ToUpperInvariant() -ne "NONE") {
-        $BaseReportDirectory = $null
-        # Try to get type-specific directory first, e.g., HtmlReportDirectory, CsvReportDirectory
-        $typeSpecificDirKey = "$($JobReportGeneratorTypeCurrent)ReportDirectory"
-        $BaseReportDirectory = Get-ConfigValue -ConfigObject $jobConfig -Key $typeSpecificDirKey -DefaultValue $null
-        if ($null -eq $BaseReportDirectory) {
-            $BaseReportDirectory = Get-ConfigValue -ConfigObject $Configuration -Key $typeSpecificDirKey -DefaultValue $null
+    if ($cliOverrideSettings.GenerateHtmlReport) { 
+        if ("HTML" -notin $_jobReportGeneratorTypesList) {
+            $_jobReportGeneratorTypesList.Add("HTML")
         }
-        # Fallback to a generic HtmlReportDirectory or a global ReportDirectory if the type-specific one isn't found
-        if ($null -eq $BaseReportDirectory) {
-            $BaseReportDirectory = Get-ConfigValue -ConfigObject $jobConfig -Key 'HtmlReportDirectory' -DefaultValue $null
+        if ($_jobReportGeneratorTypesList.Contains("NONE") -and $_jobReportGeneratorTypesList.Count -gt 1) {
+            $_jobReportGeneratorTypesList.Remove("NONE")
+        } elseif ($_jobReportGeneratorTypesList.Count -eq 1 -and $_jobReportGeneratorTypesList[0] -eq "NONE") {
+            $_jobReportGeneratorTypesList = [System.Collections.Generic.List[string]]@("HTML")
         }
-        if ($null -eq $BaseReportDirectory) {
-            $BaseReportDirectory = Get-ConfigValue -ConfigObject $Configuration -Key 'HtmlReportDirectory' -DefaultValue (Join-Path -Path $PSScriptRoot -ChildPath "Reports")
-        }
-        
-        if (-not ([System.IO.Path]::IsPathRooted($BaseReportDirectory))) {
-            $BaseReportDirectory = Join-Path -Path $PSScriptRoot -ChildPath $BaseReportDirectory
-        }
+    }
+    $_finalJobReportTypes = $_jobReportGeneratorTypesList | Select-Object -Unique
 
-        if (-not (Test-Path -LiteralPath $BaseReportDirectory -PathType Container)) {
-            Write-LogMessage "[INFO] Base Report directory '$BaseReportDirectory' for job '$currentJobName' (type: $JobReportGeneratorTypeCurrent) does not exist. Attempting to create..." -Level "INFO"
+    $_activeReportTypesForJob = $_finalJobReportTypes | Where-Object { $_ -ne "NONE" }
+
+
+    if ($_activeReportTypesForJob.Count -gt 0) {
+        $defaultJobReportsDir = Join-Path -Path $PSScriptRoot -ChildPath "Reports" 
+        if (-not (Test-Path -LiteralPath $defaultJobReportsDir -PathType Container)) {
+            Write-LogMessage "[INFO] Default reports directory '$defaultJobReportsDir' does not exist. Attempting to create..." -Level "INFO"
             try {
-                New-Item -Path $BaseReportDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
-                Write-LogMessage "  - Base Report directory '$BaseReportDirectory' created successfully." -ForegroundColour $Global:ColourSuccess
+                New-Item -Path $defaultJobReportsDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+                Write-LogMessage "  - Default reports directory '$defaultJobReportsDir' created successfully." -ForegroundColour $Global:ColourSuccess
             } catch {
-                Write-LogMessage "[WARNING] Failed to create Base Report directory '$BaseReportDirectory'. Report for job '$currentJobName' might be skipped or fail. Error: $($_.Exception.Message)" -Level "WARNING"
+                Write-LogMessage "[WARNING] Failed to create default reports directory '$defaultJobReportsDir'. Report generation may fail. Error: $($_.Exception.Message)" -Level "WARNING"
             }
         }
         
-        Invoke-ReportGenerator -ReportDirectory $BaseReportDirectory `
+        Invoke-ReportGenerator -ReportDirectory $defaultJobReportsDir `
                                -JobName $currentJobName `
                                -ReportData $currentJobReportData `
                                -GlobalConfig $Configuration `
                                -JobConfig $jobConfig 
     }
 
-    # If running a set and a job fails (operationally), and StopSetOnError is true, break the loop
     if ($currentSetName -and $currentJobStatus -eq "FAILURE" -and $stopSetOnError) {
-        Write-LogMessage "[ERROR] Job '$currentJobName' in set '$currentSetName' failed. Stopping set as 'OnErrorInJob' policy is 'StopSet'." -Level "ERROR" -ForegroundColour $Global:ColourError
+        Write-LogMessage "[ERROR] Job '$currentJobName' in set '$currentSetName' failed (operational status). Stopping set as 'OnErrorInJob' policy is 'StopSet'." -Level "ERROR" -ForegroundColour $Global:ColourError
         break 
     }
 } 
@@ -597,8 +593,7 @@ Write-LogMessage "`n============================================================
 Write-LogMessage "All PoSh Backup Operations Completed" -ForegroundColour $Global:ColourHeading 
 Write-LogMessage "================================================================================" -ForegroundColour $Global:ColourHeading -Level "NONE"
 
-# If all jobs were successful simulations, the overall status is SIMULATED_COMPLETE
-if ($IsSimulateMode -and $overallSetStatus -eq "SUCCESS") {
+if ($IsSimulateMode -and $overallSetStatus -ne "FAILURE" -and $overallSetStatus -ne "WARNINGS") { 
     $overallSetStatus = "SIMULATED_COMPLETE"
 }
 
@@ -659,5 +654,5 @@ if ($shouldPhysicallyPause) {
 
 if ($overallSetStatus -in @("SUCCESS", "SIMULATED_COMPLETE")) { exit 0 } 
 elseif ($overallSetStatus -eq "WARNINGS") { exit 1 } 
-else { exit 2 } # FAILURE or any other unhandled status
+else { exit 2 } 
 #endregion

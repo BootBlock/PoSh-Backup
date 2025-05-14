@@ -1,0 +1,89 @@
+# PowerShell Module: ReportingTxt.psm1
+# Description: Generates Plain Text reports for PoSh-Backup.
+# Version: 1.0
+
+function Invoke-TxtReport {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ReportDirectory,
+        [Parameter(Mandatory=$true)]
+        [string]$JobName,
+        [Parameter(Mandatory=$true)]
+        [hashtable]$ReportData,
+        [Parameter(Mandatory=$true)]
+        [hashtable]$GlobalConfig,
+        [Parameter(Mandatory=$true)] 
+        [hashtable]$JobConfig,
+        [Parameter(Mandatory=$false)]
+        [scriptblock]$Logger = $null
+    )
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour = $Global:ColourInfo)
+        if ($null -ne $Logger) { & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour } 
+        else { Write-Host "[$Level] (ReportingTxtDirect) $Message" }
+    }
+
+    & $LocalWriteLog -Message "[INFO] TXT Report generation started for job '$JobName'." -Level "INFO"
+        
+    $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
+    $reportFileName = "$($safeJobNameForFile)_Report_$($reportTimestamp).txt"
+    $reportFullPath = Join-Path -Path $ReportDirectory -ChildPath $reportFileName
+
+    $reportContent = [System.Text.StringBuilder]::new()
+    $null = $reportContent.AppendLine("PoSh Backup Report - Job: $JobName")
+    $null = $reportContent.AppendLine("Generated: $(Get-Date)")
+    $null = $reportContent.AppendLine(("-" * 70))
+
+    # Summary Section
+    $null = $reportContent.AppendLine("SUMMARY:")
+    $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport')} | ForEach-Object {
+        $value = if ($_.Value -is [array]) { $_.Value -join '; ' } else { $_.Value }
+        $null = $reportContent.AppendLine("  $($_.Name.PadRight(30)): $value")
+    }
+    $null = $reportContent.AppendLine(("-" * 70))
+
+    # Configuration Section (optional, could be verbose)
+    if ($ReportData.ContainsKey('JobConfiguration') -and $null -ne $ReportData.JobConfiguration) {
+        $null = $reportContent.AppendLine("CONFIGURATION USED:")
+        $ReportData.JobConfiguration.GetEnumerator() | Sort-Object Name | ForEach-Object {
+            $value = if ($_.Value -is [array]) { $_.Value -join '; ' } else { $_.Value }
+            $null = $reportContent.AppendLine("  $($_.Name.PadRight(30)): $value")
+        }
+        $null = $reportContent.AppendLine(("-" * 70))
+    }
+
+    # Hook Scripts Section
+    if ($ReportData.ContainsKey('HookScripts') -and $null -ne $ReportData.HookScripts -and $ReportData.HookScripts.Count -gt 0) {
+        $null = $reportContent.AppendLine("HOOK SCRIPTS EXECUTED:")
+        $ReportData.HookScripts | ForEach-Object {
+            $null = $reportContent.AppendLine("  Hook Type : $($_.Name)")
+            $null = $reportContent.AppendLine("  Path      : $($_.Path)")
+            $null = $reportContent.AppendLine("  Status    : $($_.Status)")
+            if (-not [string]::IsNullOrWhiteSpace($_.Output)) {
+                $null = $reportContent.AppendLine("  Output    : $($_.Output -replace "`r`n","`n"+" "*12)") # Indent multi-line output
+            }
+            $null = $reportContent.AppendLine() # Blank line
+        }
+        $null = $reportContent.AppendLine(("-" * 70))
+    }
+
+    # Detailed Log Section
+    if ($ReportData.ContainsKey('LogEntries') -and $null -ne $ReportData.LogEntries -and $ReportData.LogEntries.Count -gt 0) {
+        $null = $reportContent.AppendLine("DETAILED LOG:")
+        $ReportData.LogEntries | ForEach-Object {
+            $null = $reportContent.AppendLine("$($_.Timestamp) [$($_.Level.PadRight(8))] $($_.Message)")
+        }
+        $null = $reportContent.AppendLine(("-" * 70))
+    }
+    
+    try {
+        Set-Content -Path $reportFullPath -Value $reportContent.ToString() -Encoding UTF8 -Force
+        & $LocalWriteLog -Message "  - TXT report generated: $reportFullPath" -ForegroundColour $Global:ColourSuccess
+    } catch {
+         & $LocalWriteLog -Message "[ERROR] Failed to generate TXT report '$reportFullPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
+    }
+}
+
+Export-ModuleMember -Function Invoke-TxtReport

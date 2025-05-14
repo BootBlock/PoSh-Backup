@@ -1,6 +1,6 @@
 # PowerShell Module: ReportingXml.psm1
-# Description: Generates XML reports for PoSh-Backup. (Placeholder)
-# Version: 0.1
+# Description: Generates XML reports (PowerShell Clixml format) for PoSh-Backup.
+# Version: 1.0
 
 function Invoke-XmlReport {
     [CmdletBinding()]
@@ -21,18 +21,19 @@ function Invoke-XmlReport {
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour = $Global:ColourInfo)
         if ($null -ne $Logger) { & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour } 
-        else { Write-Host "[$Level] $Message" }
+        else { Write-Host "[$Level] (ReportingXmlDirect) $Message" }
     }
 
-    & $LocalWriteLog -Message "[INFO] XML Report generation requested for job '$JobName'." -Level "INFO"
+    & $LocalWriteLog -Message "[INFO] XML Report (Clixml) generation started for job '$JobName'." -Level "INFO"
         
     $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
     $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
-    $reportFileName = "$($safeJobNameForFile)_Report_$($reportTimestamp).xml"
+    $reportFileName = "$($safeJobNameForFile)_Report_$($reportTimestamp).xml" # Using .xml, though it's Clixml
     $reportFullPath = Join-Path -Path $ReportDirectory -ChildPath $reportFileName
 
     try {
-        # Convert the entire ReportData to XML. This creates a generic XML structure.
+        # Export-Clixml serializes PowerShell objects, including type information.
+        # It's great for re-importing into PowerShell but less generic for other XML parsers.
         [PSCustomObject]$ReportData | Export-Clixml -Path $reportFullPath -Encoding UTF8 -Force
         & $LocalWriteLog -Message "  - XML report (Export-Clixml format) generated: $reportFullPath" -ForegroundColour $Global:ColourSuccess
     } catch {
