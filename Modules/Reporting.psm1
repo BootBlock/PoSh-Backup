@@ -1,362 +1,78 @@
-# PowerShell Module: Reporting.psm1
-# Version 1.0: Uses _PoShBackup_PSScriptRoot from GlobalConfig for theme pathing.
-#              Adds conditional flashing cursor to H1 for "RetroTerminal" theme.
-#              Log message text colour driven by CSS classes.
-# Version 1.1: Added client-side JavaScript for log filtering and searching.
-# Version 1.2: Added simulation run banner.
-# Version 1.3: Added debug logging for simulation banner.
+# PowerShell Module: Reporting.psm1 (Orchestrator)
+# Description: Dispatches report generation to specific format modules.
+# Version: 2.0 
 
-#region --- HTML Encode Helper Function Definition ---
-Function ConvertTo-PoshBackupSafeHtmlInternal {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $false, ValueFromPipeline)]
-        [string]$Text
-    )
-    
-    if ($null -eq $Text) { return '' }
+# This module relies on Write-LogMessage being available from Utils.psm1,
+# which is imported by the main PoSh-Backup.ps1 script.
 
-    if ($Script:PoshBackup_Reporting_UseSystemWebHtmlEncode) { 
-        try { return [System.Web.HttpUtility]::HtmlEncode($Text) }
-        catch {
-            Write-Warning "[Reporting.psm1] System.Web.HttpUtility.HtmlEncode failed. Falling back to manual."
-            return $Text -replace '&', '&' -replace '<', '<' -replace '>', '>' -replace '"', '"' -replace "'", '&#39;'
-        }
-    } else {
-        return $Text -replace '&', '&' -replace '<', '<' -replace '>', '>' -replace '"', '"' -replace "'", '&#39;'
-    }
-}
-#endregion
-
-#region --- Module Top-Level Script Block (for Add-Type and Alias Export) ---
-$Script:PoshBackup_Reporting_UseSystemWebHtmlEncode = $false 
-try {
-    Add-Type -AssemblyName System.Web -ErrorAction Stop
-    $Script:PoshBackup_Reporting_UseSystemWebHtmlEncode = $true 
-    Write-Verbose "[Reporting.psm1] System.Web.HttpUtility::HtmlEncode will be available."
-} catch {
-    Write-Warning "[Reporting.psm1] System.Web.dll could not be loaded. Using basic manual HTML sanitisation."
-}
-
-Set-Alias -Name ConvertTo-SafeHtml -Value ConvertTo-PoshBackupSafeHtmlInternal -Scope Script -ErrorAction SilentlyContinue
-if (-not (Get-Alias ConvertTo-SafeHtml -ErrorAction SilentlyContinue)) {
-    Write-Warning "[Reporting.psm1] Failed to set alias 'ConvertTo-SafeHtml'."
-}
-#endregion
-
-#region --- HTML Report Function ---
-function Invoke-HtmlReport {
+function Invoke-ReportGenerator {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true)]
         [string]$ReportDirectory,
-
         [Parameter(Mandatory=$true)]
         [string]$JobName,
-
         [Parameter(Mandatory=$true)]
-        [hashtable]$ReportData, 
-
+        [hashtable]$ReportData,
         [Parameter(Mandatory=$true)]
-        [hashtable]$GlobalConfig, 
-
+        [hashtable]$GlobalConfig,
         [Parameter(Mandatory=$true)] 
         [hashtable]$JobConfig 
     )
-    
-    $getReportSetting = {
-        param($Key, $DefaultInFunction)
-        $val = $null
-        if ($null -ne $JobConfig -and $JobConfig.ContainsKey($Key)) { 
-            $val = $JobConfig[$Key]
-        } elseif ($GlobalConfig.ContainsKey($Key)) { 
-            $val = $GlobalConfig[$Key]
-        }
-        if ($null -eq $val) { return $DefaultInFunction } else { return $val }
-    }
 
-    # ... (rest of variable initializations remain the same) ...
-    $reportTitlePrefix       = ConvertTo-SafeHtml ($getReportSetting.Invoke('HtmlReportTitlePrefix', "PoSh Backup Status Report"))
-    # ... (etc.)
+    # Determine the ReportGeneratorType for the current job
+    $reportType = Get-ConfigValue -ConfigObject $JobConfig -Key 'ReportGeneratorType' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'ReportGeneratorType' -DefaultValue "HTML")
+    $reportType = $reportType.ToString().ToUpperInvariant() # Standardize to uppercase
 
-    # --- HTML Body Construction ---
-    $safeJobName = ConvertTo-SafeHtml $ReportData.JobName 
-    $htmlBody = "<div class='container'>" 
+    Write-LogMessage "`n[INFO] Report generation requested. Type: '$reportType' for job '$JobName'." -Level "INFO"
 
-    # --- Simulation Banner Logic ---
-    $isSimulation = $false
-    if ($ReportData.ContainsKey('IsSimulationReport')) {
-        # Ensure it's treated as a boolean, even if passed as $true/$false from a switch
-        if ($ReportData.IsSimulationReport -is [System.Management.Automation.SwitchParameter]) {
-             $isSimulation = $ReportData.IsSimulationReport.IsPresent
-        } elseif ($ReportData.IsSimulationReport -is [bool]) {
-            $isSimulation = $ReportData.IsSimulationReport
-        }
-    } elseif ($ReportData.ContainsKey('OverallStatus') -and ($ReportData.OverallStatus -is [string]) -and $ReportData.OverallStatus.ToUpperInvariant().Contains("SIMULAT")) {
-        $isSimulation = $true
-    }
-
-    if ($isSimulation) {
-        $htmlBody += "<div class='simulation-banner'><strong>*** SIMULATION MODE RUN ***</strong> This report reflects a simulated backup. No actual files were changed or archives created.</div>"
-    }
-    # --- END Simulation Banner ---
-
-    # ... (rest of HTML Body construction, including Header, Summary, Config, Hooks, Logs, Footer, JavaScript) ...
-    # Make sure the IsSimulationReport key is excluded from the summary table if it exists
-    # Example change in Summary Section:
-    # $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport')} | ForEach-Object {
-    # ... (rest of Invoke-HtmlReport remains the same as previously provided for log filtering)
-    
-    # The rest of the function including CSS loading, logo, other sections, JS, and file write
-    # remains the same as in the version where log filtering was added.
-    # For full context, ensure this logic is merged correctly with the previous version of Invoke-HtmlReport.
-    
-    # --- Start of previously provided HTML generation (ensure correct merge) ---
-    $reportLogoPath          = $getReportSetting.Invoke('HtmlReportLogoPath', "") 
-    $reportCustomCssPathUser = $getReportSetting.Invoke('HtmlReportCustomCssPath', "") 
-    $reportCompanyName       = ConvertTo-SafeHtml ($getReportSetting.Invoke('HtmlReportCompanyName', "PoSh Backup"))
-    
-    $reportThemeNameRaw      = $getReportSetting.Invoke('HtmlReportTheme', "Light") 
-    $reportThemeName         = if ($reportThemeNameRaw -is [array]) { $reportThemeNameRaw[0] } else { $reportThemeNameRaw }
-    if ([string]::IsNullOrWhiteSpace($reportThemeName)) { $reportThemeName = "Light" } 
-
-    $cssVariableOverrides = @{}
-    $globalCssVarOverrides = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'HtmlReportOverrideCssVariables' -DefaultValue @{}
-    $jobCssVarOverrides = Get-ConfigValue -ConfigObject $JobConfig -Key 'HtmlReportOverrideCssVariables' -DefaultValue @{}
-    
-    $globalCssVarOverrides.GetEnumerator() | ForEach-Object { $cssVariableOverrides[$_.Name] = $_.Value }
-    $jobCssVarOverrides.GetEnumerator() | ForEach-Object { $cssVariableOverrides[$_.Name] = $_.Value }
-
-    $reportShowSummary       = $getReportSetting.Invoke('HtmlReportShowSummary', $true)
-    $reportShowConfiguration = $getReportSetting.Invoke('HtmlReportShowConfiguration', $true)
-    $reportShowHooks         = $getReportSetting.Invoke('HtmlReportShowHooks', $true)
-    $reportShowLogEntries    = $getReportSetting.Invoke('HtmlReportShowLogEntries', $true)
-    
-    if (-not (Test-Path -Path $ReportDirectory -PathType Container)) {
-        Write-LogMessage "[ERROR] HTML Report directory '$ReportDirectory' does not exist. Report cannot be generated for job '$JobName'." -Level "ERROR" -ForegroundColour $Global:ColourError
+    if ($reportType -eq "NONE") {
+        Write-LogMessage "  - Report generation is set to 'None' for this job. Skipping." -Level "INFO"
         return
     }
 
-    $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
-    $reportFileName = "$($safeJobNameForFile)_Report_$($reportTimestamp).html"
-    $reportFullPath = Join-Path -Path $ReportDirectory -ChildPath $reportFileName
+    # Construct module name and function name based on type
+    $moduleFileName = "Reporting$($reportType).psm1" # e.g., ReportingHTML.psm1, ReportingCSV.psm1
+    $invokeFunctionName = "Invoke-$($reportType)Report" # e.g., Invoke-HtmlReport, Invoke-CsvReport
 
-    Write-LogMessage "`n[INFO] Generating HTML report: $reportFullPath (Theme: $reportThemeName)"
-
-    $mainScriptRoot = $GlobalConfig['_PoShBackup_PSScriptRoot'] 
-    
-    $baseCssContent = ""; $themeCssContent = ""; $overrideCssVariablesStyleBlock = ""; $customUserCssContentFromFile = ""
-    $htmlMetaTags = "<meta charset=`"UTF-8`"><meta name=`"viewport`" content=`"width=device-width, initial-scale=1.0`">" 
-
-    if ([string]::IsNullOrWhiteSpace($mainScriptRoot) -or -not (Test-Path $mainScriptRoot -PathType Container)) {
-        Write-LogMessage "[ERROR] Main script root path ('_PoShBackup_PSScriptRoot') not found or invalid in GlobalConfig. Cannot load theme CSS files from 'Config\Themes'. Report styling will be minimal." -Level ERROR -ForegroundColour $Global:ColourError
-        $finalCssToInject = "<style>body{font-family:sans-serif;margin:1em;} table{border-collapse:collapse;margin-top:1em;} th,td{border:1px solid #ccc;padding:0.25em 0.5em;text-align:left;} h1,h2{color:#003366;}</style>"
-    } else {
-        $configThemesDir = Join-Path -Path $mainScriptRoot -ChildPath "Config\Themes" 
-        $baseCssFilePath = Join-Path -Path $configThemesDir -ChildPath "Base.css"
-        if (Test-Path -LiteralPath $baseCssFilePath -PathType Leaf) {
-            try { $baseCssContent = Get-Content -LiteralPath $baseCssFilePath -Raw -ErrorAction Stop }
-            catch { Write-LogMessage "[WARNING] Could not load Base.css from '$baseCssFilePath': $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning }
-        } else { Write-LogMessage "[WARNING] Base.css not found at '$baseCssFilePath'. Report styling will heavily rely on theme or be minimal." -Level WARNING -ForegroundColour $Global:ColourWarning }
-
-        if (-not [string]::IsNullOrWhiteSpace($reportThemeName)) {
-            $reportThemeNameString = [string]$reportThemeName 
-            $safeThemeFileNameForFile = ($reportThemeNameString -replace '[^a-zA-Z0-9]', '') + ".css" 
-            $themeCssFilePath = Join-Path -Path $configThemesDir -ChildPath $safeThemeFileNameForFile
-            if (Test-Path -LiteralPath $themeCssFilePath -PathType Leaf) {
-                try { $themeCssContent = Get-Content -LiteralPath $themeCssFilePath -Raw -ErrorAction Stop }
-                catch { Write-LogMessage "[WARNING] Could not load theme CSS '$safeThemeFileNameForFile' from '$themeCssFilePath': $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning }
-            } else { 
-                Write-LogMessage "[WARNING] Theme CSS file '$safeThemeFileNameForFile' for theme '$reportThemeName' not found at '$themeCssFilePath'." -Level WARNING -ForegroundColour $Global:ColourWarning
-            }
-        }
-        
-        if ($cssVariableOverrides.Count -gt 0) {
-            $overrideCssVariablesStyleBlock = "<style>:root {" 
-            $cssVariableOverrides.GetEnumerator() | ForEach-Object {
-                $varName = ($_.Name -replace '[^a-zA-Z0-9_-]', '') 
-                $varValue = $_.Value 
-                if (-not $varName.StartsWith("--")) { $varName = "--" + $varName } 
-                $overrideCssVariablesStyleBlock += "$varName : $varValue ;"
-            }
-            $overrideCssVariablesStyleBlock += "}</style>"
-        }
-        
-        if (-not [string]::IsNullOrWhiteSpace($reportCustomCssPathUser) -and (Test-Path -LiteralPath $reportCustomCssPathUser -PathType Leaf)) {
-            try {
-                $customUserCssContentFromFile = Get-Content -LiteralPath $reportCustomCssPathUser -Raw -ErrorAction Stop
-            } catch { Write-LogMessage "[WARNING] Could not load user custom CSS from '$reportCustomCssPathUser'. Error: $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning }
-        }
-        $finalCssToInject = "<style>" + $baseCssContent + $themeCssContent + "</style>" + $overrideCssVariablesStyleBlock + "<style>" + $customUserCssContentFromFile + "</style>"
+    $mainScriptRoot = $GlobalConfig['_PoShBackup_PSScriptRoot']
+    if ([string]::IsNullOrWhiteSpace($mainScriptRoot)) {
+        Write-LogMessage "[ERROR] _PoShBackup_PSScriptRoot not found in GlobalConfig. Cannot determine path for report modules." -Level "ERROR"
+        return
     }
-    
-    $logFilterJavaScript = @"
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const keywordSearchInput = document.getElementById('logKeywordSearch');
-    const levelFilterCheckboxes = document.querySelectorAll('.log-level-filter');
-    const logEntriesContainer = document.getElementById('detailedLogEntries');
-    
-    if (!logEntriesContainer) return; 
-    const logEntries = Array.from(logEntriesContainer.getElementsByClassName('log-entry'));
+    $reportModulePath = Join-Path -Path $mainScriptRoot -ChildPath "Modules\$moduleFileName"
 
-    function filterLogs() {
-        const keyword = keywordSearchInput ? keywordSearchInput.value.toLowerCase() : '';
-        const activeLevelFilters = new Set();
-        let allLevelsUnchecked = true;
-        if (levelFilterCheckboxes.length > 0) {
-            levelFilterCheckboxes.forEach(checkbox => {
-                if (checkbox.checked) {
-                    activeLevelFilters.add(checkbox.value.toUpperCase());
-                    allLevelsUnchecked = false;
-                }
-            });
-        } else { 
-            allLevelsUnchecked = false; 
-        }
-
-        logEntries.forEach(entry => {
-            const entryText = entry.textContent.toLowerCase();
-            const entryLevelElement = entry.querySelector('strong'); 
-            let entryLevel = '';
-            if (entryLevelElement) {
-                const match = entryLevelElement.textContent.match(/\[(.*?)\]/);
-                if (match && match[1]) {
-                    entryLevel = match[1].toUpperCase();
-                }
-            }
-
-            const keywordMatch = keyword === '' || entryText.includes(keyword);
-            const levelMatch = allLevelsUnchecked || activeLevelFilters.size === 0 || activeLevelFilters.has(entryLevel);
-
-            if (keywordMatch && levelMatch) {
-                entry.style.display = 'flex'; 
-            } else {
-                entry.style.display = 'none';
-            }
-        });
+    if (-not (Test-Path -LiteralPath $reportModulePath -PathType Leaf)) {
+        Write-LogMessage "[WARNING] Report module file '$moduleFileName' not found at '$reportModulePath' for type '$reportType'. Skipping report generation." -Level "WARNING"
+        return
     }
-
-    if (keywordSearchInput) {
-        keywordSearchInput.addEventListener('keyup', filterLogs);
-    }
-    if (levelFilterCheckboxes.length > 0) {
-        levelFilterCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', filterLogs);
-        });
-    }
-});
-</script>
-"@
-
-    $htmlHead = $htmlMetaTags + $finalCssToInject 
-
-    $embeddedLogoHtml = ""
-    if (-not [string]::IsNullOrWhiteSpace($reportLogoPath) -and (Test-Path -LiteralPath $reportLogoPath -PathType Leaf)) {
-        try {
-            $logoBytes = [System.IO.File]::ReadAllBytes($reportLogoPath); $logoBase64 = [System.Convert]::ToBase64String($logoBytes)
-            $logoMimeType = switch ([System.IO.Path]::GetExtension($reportLogoPath).ToLowerInvariant()) {
-                ".png" { "image/png" } ".jpg" { "image/jpeg" } ".jpeg" { "image/jpeg" } ".gif" { "image/gif" } ".svg" { "image/svg+xml"} default { "image/png" } 
-            }
-            $embeddedLogoHtml = "<img src='data:$($logoMimeType);base64,$($logoBase64)' alt='Logo' class='report-logo'>"
-        } catch { Write-LogMessage "[WARNING] Could not embed logo from '$reportLogoPath': $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning}
-    }
-    
-    # Note: The $htmlBody construction with the banner is above. This part picks up from the header.
-    $headerTitle = "$($reportTitlePrefix) - $safeJobName"
-    if ($reportThemeName.ToLowerInvariant() -eq "retroterminal") {
-        $headerTitle += "<span class='blinking-cursor'></span>"
-    }
-    # $htmlBody was already started and potentially has the banner.
-    $htmlBody += "<div class='report-header'><h1>$headerTitle</h1>$($embeddedLogoHtml)</div>"
-
-    if ($reportShowSummary -and ($ReportData.Keys -contains 'OverallStatus') ) { 
-        $htmlBody += "<div class='details-section summary-section'><h2>Summary</h2><table>"
-        $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport')} | ForEach-Object { 
-            $keyName = ConvertTo-SafeHtml $_.Name
-            $value = $_.Value
-            $displayValue = if ($value -is [array]) { ($value | ForEach-Object { ConvertTo-SafeHtml ([string]$_) }) -join '<br>' } else { ConvertTo-SafeHtml ([string]$value) } 
-            $statusClass = ""
-            if ($_.Name -in @("OverallStatus", "ArchiveTestResult", "VSSStatus")) { 
-                 $sanitizedStatusValue = ([string]$_.Value -replace ' ','_') -replace '\(','_' -replace '\)','_' -replace ':','' -replace '/','_'
-                 $statusClass = "status-$(ConvertTo-SafeHtml $sanitizedStatusValue)"
-            }
-            $htmlBody += "<tr><td data-label='Item'>$($keyName)</td><td data-label='Detail' class='$($statusClass)'>$($displayValue)</td></tr>"
-        }
-        $htmlBody += "</table></div>"
-    }
-
-    if ($reportShowConfiguration -and ($ReportData.Keys -contains 'JobConfiguration') -and ($null -ne $ReportData.JobConfiguration)) {
-        $htmlBody += "<div class='details-section config-section'><h2>Configuration Used for Job '$safeJobName'</h2><table>"
-        $htmlBody += "<thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>"
-        foreach ($key in $ReportData.JobConfiguration.Keys | Sort-Object) { 
-            $value = $ReportData.JobConfiguration[$key]
-            $displayValue = if ($value -is [array]) { ($value | ForEach-Object { ConvertTo-SafeHtml ([string]$_) }) -join ", " } else { ConvertTo-SafeHtml ([string]$value) }
-            $htmlBody += "<tr><td data-label='Setting'>$(ConvertTo-SafeHtml $key)</td><td data-label='Value'>$($displayValue)</td></tr>"
-        }
-        $htmlBody += "</tbody></table></div>"
-    }
-
-    if ($reportShowHooks -and ($ReportData.Keys -contains 'HookScripts') -and ($null -ne $ReportData.HookScripts) -and $ReportData.HookScripts.Count -gt 0) {
-        $htmlBody += "<div class='details-section hooks-section'><h2>Hook Scripts Executed</h2><table>"
-        $htmlBody += "<thead><tr><th>Type</th><th>Path</th><th>Status</th><th>Output/Error</th></tr></thead><tbody>" 
-        $ReportData.HookScripts | ForEach-Object {
-            $sanitizedStatusValue = ([string]$_.Status -replace ' ','_') -replace '\(','_' -replace '\)','_' -replace ':','' -replace '/','_'
-            $statusClass = "status-$(ConvertTo-SafeHtml $sanitizedStatusValue)" 
-            $htmlBody += "<tr><td data-label='Hook Type'>$(ConvertTo-SafeHtml $_.Name)</td><td data-label='Path'>$(ConvertTo-SafeHtml $_.Path)</td><td data-label='Status' class='$($statusClass)'>$(ConvertTo-SafeHtml $_.Status)</td><td data-label='Output/Error'><pre>$(ConvertTo-SafeHtml $_.Output)</pre></td></tr>"
-        }
-        $htmlBody += "</tbody></table></div>"
-    }
-
-    if ($reportShowLogEntries -and ($ReportData.Keys -contains 'LogEntries') -and ($null -ne $ReportData.LogEntries) -and $ReportData.LogEntries.Count -gt 0) { 
-        $htmlBody += "<div class='details-section log-section'><h2>Detailed Log</h2>"
-        $htmlBody += "<div class='log-filters' style='margin-bottom: 1em; padding: 0.5em; border: 1px solid var(--border-color-light); border-radius: var(--border-radius-sm); background-color: var(--table-row-even-bg); display: flex; flex-wrap: wrap; gap: 1em; align-items: center;'>"
-        $htmlBody += "<div style='flex-grow: 1;'><label for='logKeywordSearch' style='margin-right: 0.5em; font-weight: bold;'>Search Logs:</label><input type='text' id='logKeywordSearch' placeholder='Enter keyword...' style='padding: 0.3em; border: 1px solid var(--border-color-medium); border-radius: var(--border-radius-sm); width: 90%; min-width: 200px;'></div>"
-        
-        $logLevelsInReport = ($ReportData.LogEntries.Level | Select-Object -Unique | Sort-Object)
-        if ($logLevelsInReport.Count -gt 0) {
-            $htmlBody += "<div class='log-level-filters-container' style='display: flex; flex-wrap: wrap; gap: 0.5em 1em; align-items: center;'><strong style='margin-right:0.5em;'>Filter by Level:</strong>"
-            foreach ($level in $logLevelsInReport) {
-                if ([string]::IsNullOrWhiteSpace($level)) { continue } 
-                $safeLevel = ConvertTo-SafeHtml $level
-                $htmlBody += "<label style='white-space: nowrap;'><input type='checkbox' class='log-level-filter' value='$safeLevel' checked> $safeLevel</label>"
-            }
-            $htmlBody += "</div>" 
-        }
-        $htmlBody += "</div>" 
-
-        $htmlBody += "<div id='detailedLogEntries'>" 
-        $ReportData.LogEntries | ForEach-Object {
-            $entryClass = "log-$(ConvertTo-SafeHtml $_.Level)" 
-            $htmlBody += "<div class='log-entry $entryClass' data-level='$(ConvertTo-SafeHtml $_.Level)'><strong>$(ConvertTo-SafeHtml $_.Timestamp) [$(ConvertTo-SafeHtml $_.Level)]</strong> <span>$(ConvertTo-SafeHtml $_.Message)</span></div>"
-        }
-        $htmlBody += "</div>" 
-        $htmlBody += "</div>" 
-
-    } elseif ($reportShowLogEntries) { 
-         $htmlBody += "<div class='details-section log-section'><h2>Detailed Log</h2><p>No log entries were recorded or available for this HTML report.</p></div>"
-    }
-    
-    $htmlBody += "<footer>"
-    if (-not [string]::IsNullOrWhiteSpace($reportCompanyName)) { 
-        $htmlBody += "$($reportCompanyName) - " 
-    }
-    $htmlBody += "PoSh Backup Script - Generated on $(ConvertTo-SafeHtml ([string](Get-Date)))</footer>"
-    $htmlBody += $logFilterJavaScript
-    $htmlBody += "</div>" # Closing .container
 
     try {
-        ConvertTo-Html -Head $htmlHead -Body $htmlBody -Title "$($reportTitlePrefix) - $safeJobName" |
-        Set-Content -Path $reportFullPath -Encoding UTF8 -Force -ErrorAction Stop
-        Write-LogMessage "  - HTML report generated successfully: $reportFullPath" -ForegroundColour $Global:ColourSuccess
-    } catch {
-        Write-LogMessage "[ERROR] Failed to generate HTML report '$reportFullPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
-    }
-    # --- End of previously provided HTML generation ---
-}
-#endregion
+        Write-LogMessage "  - Attempting to load report module: $moduleFileName" -Level "DEBUG"
+        Import-Module -Name $reportModulePath -Force -ErrorAction Stop
+        
+        # Check if the specific invoke function exists after import
+        if (Get-Command $invokeFunctionName -ErrorAction SilentlyContinue) {
+            Write-LogMessage "  - Executing $invokeFunctionName..." -Level "DEBUG"
+            
+            # Prepare parameters for the specific report generator
+            $reportParams = @{
+                ReportDirectory = $ReportDirectory
+                JobName         = $JobName
+                ReportData      = $ReportData
+                GlobalConfig    = $GlobalConfig
+                JobConfig       = $JobConfig
+                Logger          = ${function:Write-LogMessage} # Pass reference to Write-LogMessage
+            }
+            
+            & $invokeFunctionName @reportParams
 
-#region --- Exported Functions ---
-Export-ModuleMember -Function Invoke-HtmlReport -Alias ConvertTo-SafeHtml
-#endregion
+        } else {
+            Write-LogMessage "[ERROR] Function '$invokeFunctionName' not found in module '$moduleFileName' after import. Report generation failed for type '$reportType'." -Level "ERROR"
+        }
+    } catch {
+        Write-LogMessage "[ERROR] Failed to load or execute report module '$moduleFileName' for type '$reportType'. Error: $($_.Exception.Message)" -Level "ERROR"
+    }
+}
+
+Export-ModuleMember -Function Invoke-ReportGenerator

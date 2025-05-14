@@ -30,7 +30,7 @@
     #endregion
 
     #region --- Reporting Settings (Global Defaults) ---
-    ReportGeneratorType             = "HTML"                          # Primary report type. Options: "HTML", "None". (Future: "CSV", "XML")
+    ReportGeneratorType             = "HTML"                          # Primary report type. Options: "HTML", "CSV", "JSON", "XML", "None".
                                                                       # This can be overridden per job.
     
     # --- HTML Specific Reporting Settings (used if ReportGeneratorType is "HTML") ---
@@ -206,7 +206,7 @@
             "ExitOnLowSpaceIfBelowMinimum"  = $true 
             "TestArchiveAfterCreation"      = $true                     # Always test this critical backup.
             
-            "ReportGeneratorType"           = "HTML" 
+            "ReportGeneratorType"           = "HTML"                    # Primary report type. Options: "HTML", "CSV", "JSON", "XML", "None".
             "HtmlReportTheme"               = "RetroTerminal" 
             "HtmlReportDirectory"           = "\\SHARE\AdminReports\PoShBackup\WebApp" 
             "HtmlReportTitlePrefix"         = "Web Application Backup Status"
