@@ -1,5 +1,5 @@
 # PoSh-Backup
-A powerful PowerShell script for backing up your files that uses the free [7-Zip](https://www.7-zip.org/) compression software.
+A powerful set of PowerShell scripts for backing up your files that uses the free [7-Zip](https://www.7-zip.org/) compression software.
 
 > **Notice:** You use this at your own risk! It hasn't undergone as much testing as I'd like, as it's still deep within development! **Another bonus:** I'm testing some AI features, and so this has been written via that AI under guidance.
 
