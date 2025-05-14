@@ -24,4 +24,4 @@ A powerful PowerShell script for backing up your files that uses the free [7-Zip
 *   **Exit Pause:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
 
 ## How to Use
-This information is coming soon to the wiki, but for now, run the `PoSh-Backup.ps1` script via PowerShell; it'll ask you whether you want to create the default `User.psd1` config file - you do, so hit Y and enter. Next, open up the `Config\User.psd1` file in a text editor [Visual Studio Code](https://code.visualstudio.com/) is good for this due to its syntax highlighting) and take a look; its comments function as live documentation.
+This information is coming soon to the wiki, but for now, run the `PoSh-Backup.ps1` script via PowerShell; it'll ask you whether you want to create the default `User.psd1` config file - you do so you don't lose your settings upon upgrade, so hit Y and enter. Next, open up the `Config\User.psd1` file in a text editor ([Visual Studio Code](https://code.visualstudio.com/) is good for this due to its syntax highlighting) and take a look; its comments function as live documentation.
