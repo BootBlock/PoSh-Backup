@@ -10,8 +10,8 @@
     and invokes their respective report generation functions, passing all required data.
     It also handles the creation of report directories if they don't exist.
 .NOTES
-    Author:         PoSh-Backup Project
-    Version:        2.1
+    Author:         Joe Cox/AI Assistant
+    Version:        2.1.1 (PSScriptAnalyzer fix - use Level for log color)
     DateCreated:    10-May-2025
     LastModified:   15-May-2025
     Purpose:        Manages and dispatches report generation to format-specific modules.
@@ -30,12 +30,11 @@ function Invoke-ReportGenerator {
         [hashtable]$ReportData,
         [Parameter(Mandatory=$true)]
         [hashtable]$GlobalConfig,
-        [Parameter(Mandatory=$true)] 
-        [hashtable]$JobConfig 
+        [Parameter(Mandatory=$true)]
+        [hashtable]$JobConfig
     )
 
     $reportTypeSetting = Get-ConfigValue -ConfigObject $JobConfig -Key 'ReportGeneratorType' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'ReportGeneratorType' -DefaultValue "HTML")
-    # Handle if ReportGeneratorType is an array (e.g., from user config) - take the first valid one or default
     $reportTypesToGenerate = @()
     if ($reportTypeSetting -is [array]) {
         $reportTypesToGenerate = $reportTypeSetting | ForEach-Object { $_.ToString().ToUpperInvariant() }
@@ -51,16 +50,15 @@ function Invoke-ReportGenerator {
             continue
         }
 
-        $moduleSubPath = "Reporting" # New subdirectory
-        $moduleFileName = "Reporting$($reportType).psm1" 
-        $invokeFunctionName = "Invoke-$($reportType)Report" 
+        $moduleSubPath = "Reporting"
+        $moduleFileName = "Reporting$($reportType).psm1"
+        $invokeFunctionName = "Invoke-$($reportType)Report"
 
         $mainScriptRoot = $GlobalConfig['_PoShBackup_PSScriptRoot']
         if ([string]::IsNullOrWhiteSpace($mainScriptRoot)) {
             Write-LogMessage "[ERROR] _PoShBackup_PSScriptRoot not found in GlobalConfig. Cannot determine path for report modules." -Level "ERROR"
             continue
         }
-        # MODIFIED PATH:
         $reportModulePath = Join-Path -Path $mainScriptRoot -ChildPath "Modules\$moduleSubPath\$moduleFileName"
 
         if (-not (Test-Path -LiteralPath $reportModulePath -PathType Leaf)) {
@@ -71,49 +69,46 @@ function Invoke-ReportGenerator {
         try {
             Write-LogMessage "  - Attempting to load report module: $moduleFileName" -Level "DEBUG"
             Import-Module -Name $reportModulePath -Force -ErrorAction Stop
-            
+
             if (Get-Command $invokeFunctionName -ErrorAction SilentlyContinue) {
                 Write-LogMessage "  - Executing $invokeFunctionName..." -Level "DEBUG"
-                
-                # Determine specific directory for this report type, defaulting to $ReportDirectory
-                $typeSpecificDirKey = "$($reportType)ReportDirectory" # e.g. HtmlReportDirectory, CsvReportDirectory
+
+                $typeSpecificDirKey = "$($reportType)ReportDirectory"
                 $specificReportDirectory = Get-ConfigValue -ConfigObject $JobConfig -Key $typeSpecificDirKey -DefaultValue `
                                             (Get-ConfigValue -ConfigObject $GlobalConfig -Key $typeSpecificDirKey -DefaultValue $ReportDirectory)
 
                 if (-not ([System.IO.Path]::IsPathRooted($specificReportDirectory))) {
                     $specificReportDirectory = Join-Path -Path $mainScriptRoot -ChildPath $specificReportDirectory
                 }
-                 # Ensure the specific directory exists
                 if (-not (Test-Path -LiteralPath $specificReportDirectory -PathType Container)) {
                     Write-LogMessage "[INFO] Report directory '$specificReportDirectory' for type '$reportType' does not exist. Attempting to create..." -Level "INFO"
                     try {
                         New-Item -Path $specificReportDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
-                        Write-LogMessage "  - Report directory '$specificReportDirectory' created successfully." -ForegroundColour $Global:ColourSuccess
+                        Write-LogMessage "  - Report directory '$specificReportDirectory' created successfully." -Level "SUCCESS" # Changed to Level
                     } catch {
                         Write-LogMessage "[WARNING] Failed to create report directory '$specificReportDirectory'. Report for type '$reportType' might be skipped. Error: $($_.Exception.Message)" -Level "WARNING"
-                        continue # Skip this report type if its directory can't be made
+                        continue
                     }
                 }
 
-
                 $reportParams = @{
-                    ReportDirectory = $specificReportDirectory # Use the potentially type-specific directory
+                    ReportDirectory = $specificReportDirectory
                     JobName         = $JobName
                     ReportData      = $ReportData
-                    GlobalConfig    = $GlobalConfig
-                    JobConfig       = $JobConfig
-                    Logger          = ${function:Write-LogMessage} 
+                    GlobalConfig    = $GlobalConfig # Still passed, individual modules decide if they use it
+                    JobConfig       = $JobConfig    # Still passed
+                    Logger          = ${function:Write-LogMessage}
                 }
-                
+
                 & $invokeFunctionName @reportParams
 
             } else {
                 Write-LogMessage "[ERROR] Function '$invokeFunctionName' not found in module '$moduleFileName' after import. Report generation failed for type '$reportType'." -Level "ERROR"
             }
         } catch {
-            Write-LogMessage "[ERROR] Failed to load or execute report module '$moduleFileName' for type '$reportType'. Error: $($_.Exception.Message)" -Level "ERROR"
+            Write-LogMessage "[ERROR] Failed to load or execute report module '$moduleFileName' for type '$reportType'. Error: $($_.Exception.ToString())" -Level "ERROR"
         }
-    } # End foreach $reportType
+    }
 }
 
 Export-ModuleMember -Function Invoke-ReportGenerator

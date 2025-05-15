@@ -8,8 +8,8 @@
     This format is ideal for machine-to-machine communication, API integration,
     or for use with various data processing tools that understand JSON.
 .NOTES
-    Author:         PoSh-Backup Project
-    Version:        1.0
+    Author:         Joe Cox/AI Assistant
+    Version:        1.0.4 (Removed PSSA attribute suppression; trailing whitespace removed)
     DateCreated:    14-May-2025
     LastModified:   15-May-2025
     Purpose:        JSON report generation for PoSh-Backup.
@@ -24,35 +24,32 @@ function Invoke-JsonReport {
         [Parameter(Mandatory=$true)]
         [string]$JobName,
         [Parameter(Mandatory=$true)]
-        [hashtable]$ReportData, # Entire report data structure
+        [hashtable]$ReportData,
         [Parameter(Mandatory=$true)]
-        [hashtable]$GlobalConfig, # Included for consistency, might be useful for context
-        [Parameter(Mandatory=$true)] 
-        [hashtable]$JobConfig,    # Included for consistency
-        [Parameter(Mandatory=$false)]
-        [scriptblock]$Logger = $null
+        # PSUseDeclaredVarsMoreThanAssignments for Logger is now excluded globally via PSScriptAnalyzerSettings.psd1
+        [scriptblock]$Logger
     )
     $LocalWriteLog = {
-        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour = $Global:ColourInfo)
-        if ($null -ne $Logger) { & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour } 
-        else { Write-Host "[$Level] (ReportingJsonDirect) $Message" }
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
     }
 
     & $LocalWriteLog -Message "[INFO] JSON Report generation started for job '$JobName'." -Level "INFO"
-    
+
     $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
+    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_'
     $reportFileName = "$($safeJobNameForFile)_Report_$($reportTimestamp).json"
     $reportFullPath = Join-Path -Path $ReportDirectory -ChildPath $reportFileName
 
     try {
-        # Convert the entire ReportData hashtable to JSON. 
-        # Depth 10 should be sufficient for nested objects like LogEntries.
-        # The default depth of ConvertTo-Json is 2, which is often too shallow for complex objects.
         $ReportData | ConvertTo-Json -Depth 10 | Set-Content -Path $reportFullPath -Encoding UTF8 -Force
-        & $LocalWriteLog -Message "  - JSON report generated: $reportFullPath" -ForegroundColour $Global:ColourSuccess
+        & $LocalWriteLog -Message "  - JSON report generated: $reportFullPath" -Level "SUCCESS"
     } catch {
-         & $LocalWriteLog -Message "[ERROR] Failed to generate JSON report '$reportFullPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
+         & $LocalWriteLog -Message "[ERROR] Failed to generate JSON report '$reportFullPath'. Error: $($_.Exception.Message)" -Level "ERROR"
     }
 }
 

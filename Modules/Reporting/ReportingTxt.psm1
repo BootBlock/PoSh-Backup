@@ -9,8 +9,8 @@
     a snapshot of the job configuration, details of any executed hook scripts, and the
     full sequence of log messages.
 .NOTES
-    Author:         PoSh-Backup Project
-    Version:        1.0
+    Author:         Joe Cox/AI Assistant
+    Version:        1.0.4 (Removed PSSA attribute suppression; trailing whitespace removed)
     DateCreated:    14-May-2025
     LastModified:   15-May-2025
     Purpose:        Plain text report generation for PoSh-Backup.
@@ -27,22 +27,22 @@ function Invoke-TxtReport {
         [Parameter(Mandatory=$true)]
         [hashtable]$ReportData,
         [Parameter(Mandatory=$true)]
-        [hashtable]$GlobalConfig,
-        [Parameter(Mandatory=$true)] 
-        [hashtable]$JobConfig,
-        [Parameter(Mandatory=$false)]
-        [scriptblock]$Logger = $null
+        # PSUseDeclaredVarsMoreThanAssignments for Logger is now excluded globally via PSScriptAnalyzerSettings.psd1
+        [scriptblock]$Logger
     )
     $LocalWriteLog = {
-        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour = $Global:ColourInfo)
-        if ($null -ne $Logger) { & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour } 
-        else { Write-Host "[$Level] (ReportingTxtDirect) $Message" }
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
     }
 
     & $LocalWriteLog -Message "[INFO] TXT Report generation started for job '$JobName'." -Level "INFO"
-        
+
     $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
+    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_'
     $reportFileName = "$($safeJobNameForFile)_Report_$($reportTimestamp).txt"
     $reportFullPath = Join-Path -Path $ReportDirectory -ChildPath $reportFileName
 
@@ -59,7 +59,7 @@ function Invoke-TxtReport {
     }
     $null = $reportContent.AppendLine(("-" * 70))
 
-    # Configuration Section (optional, could be verbose)
+    # Configuration Section
     if ($ReportData.ContainsKey('JobConfiguration') -and $null -ne $ReportData.JobConfiguration) {
         $null = $reportContent.AppendLine("CONFIGURATION USED:")
         $ReportData.JobConfiguration.GetEnumerator() | Sort-Object Name | ForEach-Object {
@@ -77,9 +77,9 @@ function Invoke-TxtReport {
             $null = $reportContent.AppendLine("  Path      : $($_.Path)")
             $null = $reportContent.AppendLine("  Status    : $($_.Status)")
             if (-not [string]::IsNullOrWhiteSpace($_.Output)) {
-                $null = $reportContent.AppendLine("  Output    : $($_.Output -replace "`r`n","`n"+" "*12)") # Indent multi-line output
+                $null = $reportContent.AppendLine("  Output    : $($_.Output -replace "`r`n","`n"+" "*12)")
             }
-            $null = $reportContent.AppendLine() # Blank line
+            $null = $reportContent.AppendLine()
         }
         $null = $reportContent.AppendLine(("-" * 70))
     }
@@ -92,12 +92,12 @@ function Invoke-TxtReport {
         }
         $null = $reportContent.AppendLine(("-" * 70))
     }
-    
+
     try {
         Set-Content -Path $reportFullPath -Value $reportContent.ToString() -Encoding UTF8 -Force
-        & $LocalWriteLog -Message "  - TXT report generated: $reportFullPath" -ForegroundColour $Global:ColourSuccess
+        & $LocalWriteLog -Message "  - TXT report generated: $reportFullPath" -Level "SUCCESS"
     } catch {
-         & $LocalWriteLog -Message "[ERROR] Failed to generate TXT report '$reportFullPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
+         & $LocalWriteLog -Message "[ERROR] Failed to generate TXT report '$reportFullPath'. Error: $($_.Exception.Message)" -Level "ERROR"
     }
 }
 

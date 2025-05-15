@@ -9,8 +9,8 @@
     password sources to cater to different operational needs, from interactive use to
     fully automated scheduled tasks.
 .NOTES
-    Author:         PoSh-Backup Project
-    Version:        1.1
+    Author:         Joe Cox/AI Assistant
+    Version:        1.1.3 (Removed PSSA attribute suppression; trailing whitespace removed)
     DateCreated:    10-May-2025
     LastModified:   15-May-2025
     Purpose:        Centralised password management for archive encryption.
@@ -52,19 +52,17 @@ function Get-PoShBackupArchivePassword {
         [Parameter(Mandatory=$false)]
         [switch]$IsSimulateMode, # Indicates if the script is in simulation mode
 
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory=$true)] # Logger is now mandatory as its PSSA warning is globally excluded
         [scriptblock]$Logger # A scriptblock reference to the main Write-LogMessage function for consistent logging
     )
 
-    # Internal helper to use the passed-in logger or a basic Write-Host fallback.
+    # Internal helper to use the passed-in logger.
     $LocalWriteLog = {
-        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour = $Global:ColourInfo)
-        if ($null -ne $Logger) { 
-            # Call the provided logger scriptblock
-            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour 
-        } else { 
-            # Fallback if no logger is provided (shouldn't happen in normal use)
-            Write-Host "[$Level] (PasswordManagerDirect) $Message" 
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
         }
     }
 
@@ -84,20 +82,14 @@ function Get-PoShBackupArchivePassword {
             # If 'UsePassword = $true' and no modern method is set, default to "INTERACTIVE".
             if ((Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'UsePassword' -DefaultValue $false) -eq $true) {
                 & $LocalWriteLog -Message "[INFO] Legacy 'UsePassword = `$true' found with 'ArchivePasswordMethod = None'. Defaulting to INTERACTIVE for job '$JobName'." -Level INFO
-                # This will cause the switch to re-evaluate with "INTERACTIVE" due to fallthrough logic if not explicitly broken.
-                # To be cleaner, we can directly set the passwordMethod and re-evaluate or call the interactive part.
-                # For simplicity here, we'll let it fall through or handle it in the next "INTERACTIVE" block if needed.
-                # Let's make it explicit:
-                $passwordMethod = "INTERACTIVE" 
+                $passwordMethod = "INTERACTIVE"
                 # Fallthrough to "INTERACTIVE" case below will now trigger
             } else {
                 $passwordSource = "None (Not Configured)"
                 & $LocalWriteLog -Message "  - No archive password configured for job '$JobName'." -Level DEBUG
                 return @{ PlainTextPassword = $null; PasswordSource = $passwordSource } # Explicitly return, no password
             }
-            # If $passwordMethod was changed to "INTERACTIVE", execution will continue to that case.
-        } 
-        # If 'NONE' and UsePassword was not true, it returned above. If UsePassword was true, it falls to INTERACTIVE.
+        }
 
         "INTERACTIVE" {
             $passwordSource = "Interactive (Get-Credential)"
@@ -105,14 +97,14 @@ function Get-PoShBackupArchivePassword {
             & $LocalWriteLog -Message "`n[INFO] Password required for '$JobName' (interactive prompt)." -Level INFO
             if ($IsSimulateMode.IsPresent) {
                 & $LocalWriteLog -Message "SIMULATE: Would prompt for password interactively for job '$JobName'." -Level SIMULATE
-                $plainTextPassword = "SimulatedPasswordInteractive123!" 
+                $plainTextPassword = "SimulatedPasswordInteractive123!"
             } else {
                 $cred = Get-Credential -UserName $userNameHint -Message "Enter password for 7-Zip backup: '$JobName'"
-                if ($null -ne $cred) { 
+                if ($null -ne $cred) {
                     $plainTextPassword = $cred.GetNetworkCredential().Password
-                    & $LocalWriteLog -Message "   - Credentials obtained interactively." -ForegroundColour $Global:ColourSuccess
-                } else { 
-                    & $LocalWriteLog -Message "FATAL: Password entry cancelled for '$JobName'." -Level ERROR; throw "Password entry cancelled for job '$JobName'." 
+                    & $LocalWriteLog -Message "   - Credentials obtained interactively." -Level SUCCESS
+                } else {
+                    & $LocalWriteLog -Message "FATAL: Password entry cancelled for '$JobName'." -Level ERROR; throw "Password entry cancelled for job '$JobName'."
                 }
             }
         }
@@ -126,10 +118,9 @@ function Get-PoShBackupArchivePassword {
                 & $LocalWriteLog -Message "FATAL: ArchivePasswordMethod is 'SecretManagement' but 'ArchivePasswordSecretName' is not defined for job '$JobName'." -Level ERROR; throw "ArchivePasswordSecretName not configured for SecretManagement."
             }
 
-            # CORRECTED LOGGING STRING CONSTRUCTION
             $vaultInfoString = if (-not [string]::IsNullOrWhiteSpace($secretVault)) { " from vault '$secretVault'" } else { "" }
             & $LocalWriteLog -Message "`n[INFO] Attempting to retrieve archive password from SecretManagement for job '$JobName' (Secret: '$secretName'$vaultInfoString)." -Level INFO
-            
+
             if ($IsSimulateMode.IsPresent) {
                 & $LocalWriteLog -Message "SIMULATE: Would retrieve secret '$secretName'$vaultInfoString." -Level SIMULATE
                 $plainTextPassword = "SimulatedPasswordSecret123!"
@@ -143,14 +134,14 @@ function Get-PoShBackupArchivePassword {
                         $getSecretParams.Vault = $secretVault
                     }
                     $secretObject = Get-Secret @getSecretParams
-                    
+
                     if ($null -ne $secretObject) {
                         if ($secretObject.Secret -is [System.Security.SecureString]) {
                             $plainTextPassword = ConvertTo-PlainTextSecureStringInternal -SecureString $secretObject.Secret
-                            & $LocalWriteLog -Message "   - Password successfully retrieved from SecretManagement and converted." -ForegroundColour $Global:ColourSuccess
-                        } elseif ($secretObject.Secret -is [string]) { 
+                            & $LocalWriteLog -Message "   - Password successfully retrieved from SecretManagement and converted." -Level SUCCESS
+                        } elseif ($secretObject.Secret -is [string]) {
                             $plainTextPassword = $secretObject.Secret
-                            & $LocalWriteLog -Message "   - Password (plain text) successfully retrieved from SecretManagement." -ForegroundColour $Global:ColourSuccess
+                            & $LocalWriteLog -Message "   - Password (plain text) successfully retrieved from SecretManagement." -Level SUCCESS
                         } else {
                              & $LocalWriteLog -Message "FATAL: Secret '$secretName' retrieved but was not a SecureString or String. Type: $($secretObject.Secret.GetType().Name)" -Level ERROR; throw "Invalid secret type for '$secretName'."
                         }
@@ -158,7 +149,6 @@ function Get-PoShBackupArchivePassword {
                         & $LocalWriteLog -Message "FATAL: Secret '$secretName' not found or could not be retrieved (Get-Secret returned null)." -Level ERROR; throw "Secret '$secretName' not found or Get-Secret returned null."
                     }
                 } catch {
-                    # CORRECTED LOGGING STRING CONSTRUCTION
                     & $LocalWriteLog -Message "FATAL: Failed to retrieve secret '$secretName'$vaultInfoString. Error: $($_.Exception.Message)" -Level ERROR
                     throw "Failed to retrieve secret for job '$JobName': $($_.Exception.Message)"
                 }
@@ -175,7 +165,7 @@ function Get-PoShBackupArchivePassword {
             if (-not (Test-Path -LiteralPath $secureStringPath -PathType Leaf)) {
                 & $LocalWriteLog -Message "FATAL: SecureStringFile '$secureStringPath' not found for job '$JobName'." -Level ERROR; throw "SecureStringFile not found: $secureStringPath"
             }
-            
+
             & $LocalWriteLog -Message "`n[INFO] Attempting to retrieve archive password from SecureStringFile: '$secureStringPath' for job '$JobName'." -Level INFO
             if ($IsSimulateMode.IsPresent) {
                 & $LocalWriteLog -Message "SIMULATE: Would read and decrypt password from '$secureStringPath'." -Level SIMULATE
@@ -185,7 +175,7 @@ function Get-PoShBackupArchivePassword {
                     $secureString = Import-Clixml -LiteralPath $secureStringPath -ErrorAction Stop
                     if ($secureString -is [System.Security.SecureString]) {
                         $plainTextPassword = ConvertTo-PlainTextSecureStringInternal -SecureString $secureString
-                        & $LocalWriteLog -Message "   - Password successfully retrieved from SecureStringFile and converted." -ForegroundColour $Global:ColourSuccess
+                        & $LocalWriteLog -Message "   - Password successfully retrieved from SecureStringFile and converted." -Level SUCCESS
                     } else {
                         & $LocalWriteLog -Message "FATAL: File '$secureStringPath' did not contain a valid SecureString object." -Level ERROR; throw "Invalid content in SecureStringFile: $secureStringPath"
                     }
@@ -195,31 +185,27 @@ function Get-PoShBackupArchivePassword {
                 }
             }
         }
-        
+
         "PLAINTEXT" {
             $passwordSource = "PlainText (Insecure)"
             $plainTextPassword = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordPlainText' -DefaultValue $null
-            
+
             if ([string]::IsNullOrWhiteSpace($plainTextPassword)) {
                 & $LocalWriteLog -Message "FATAL: ArchivePasswordMethod is 'PlainText' but 'ArchivePasswordPlainText' is empty or not defined for job '$JobName'." -Level ERROR; throw "ArchivePasswordPlainText not configured."
             }
-            & $LocalWriteLog -Message "[WARNING] Using PLAIN TEXT password from configuration for job '$JobName'. This is INSECURE and NOT RECOMMENDED for production." -Level WARNING -ForegroundColour $Global:ColourError
+            & $LocalWriteLog -Message "[WARNING] Using PLAIN TEXT password from configuration for job '$JobName'. This is INSECURE and NOT RECOMMENDED for production." -Level WARNING
             if ($IsSimulateMode.IsPresent) {
                  & $LocalWriteLog -Message "SIMULATE: Would use plain text password from configuration." -Level SIMULATE
             }
         }
 
         Default {
-            # This case is hit if $passwordMethod was something unexpected after ToUpperInvariant()
-            # or if 'NONE' fell through because UsePassword was true, but then INTERACTIVE was not explicitly handled above it
-            # (which it is now). So this should primarily catch invalid method strings.
-            if ($passwordMethod -ne "NONE" -and $passwordMethod -ne "INTERACTIVE") { # Avoid erroring if it was a valid fallthrough to INTERACTIVE
+            if ($passwordMethod -ne "NONE" -and $passwordMethod -ne "INTERACTIVE") {
                 & $LocalWriteLog -Message "FATAL: Invalid 'ArchivePasswordMethod' ('$(Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordMethod' -DefaultValue "UNDEFINED")') specified for job '$JobName'." -Level ERROR
                 throw "Invalid ArchivePasswordMethod specified."
             } elseif ($passwordMethod -eq "NONE") {
                  $passwordSource = "None (Explicitly or Defaulted)"
                 & $LocalWriteLog -Message "  - No archive password to be used for job '$JobName' (Method: None)." -Level DEBUG
-                # No password, so $plainTextPassword remains $null
             }
         }
     }

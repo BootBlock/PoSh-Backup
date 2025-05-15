@@ -15,7 +15,7 @@
     #                        See Pester tests or documentation for SecretManagement setup.
     #   "SecureStringFile" : Reads a password from an encrypted file (created via Export-CliXml).
     #                        Requires: 'ArchivePasswordSecureStringPath' (full path to the .clixml file).
-    #                        To create the file: 
+    #                        To create the file:
     #                           $SecurePass = Read-Host -AsSecureString "Enter password:"
     #                           $SecurePass | Export-CliXml -Path "C:\path\to\your\passwordfile.clixml"
     #   "PlainText"        : (HIGHLY DISCOURAGED - INSECURE) Reads password directly from config.
@@ -62,14 +62,14 @@
                                                                       # Options: "HTML", "CSV", "JSON", "XML", "TXT", "MD", "None".
                                                                       # This can be overridden per job.
 
-    CsvReportDirectory              = "Reports\CSV"                   # Directory to store CSV reports.
-    JsonReportDirectory             = "Reports\JSON"                  # Directory to store JSON reports.
-    XmlReportDirectory              = "Reports\XML"                   # Directory to store XML reports.
-    TxtReportDirectory              = "Reports\TXT"                   # Directory to store Plain Text reports.
-    MdReportDirectory               = "Reports\MD"                    # Directory to store Markdown reports
+    CsvReportDirectory              = "Reports"                       # Directory to store CSV reports.
+    JsonReportDirectory             = "Reports"                       # Directory to store JSON reports.
+    XmlReportDirectory              = "Reports"                       # Directory to store XML reports.
+    TxtReportDirectory              = "Reports"                       # Directory to store Plain Text reports.
+    MdReportDirectory               = "Reports"                       # Directory to store Markdown reports
 
     # --- HTML Specific Reporting Settings (used if ReportGeneratorType is "HTML") ---
-    HtmlReportDirectory             = "Reports/HTML"                  # Directory to store HTML reports. If relative, from PSScriptRoot (e.g., ".\Reports").
+    HtmlReportDirectory             = "Reports"                       # Directory to store HTML reports. If relative, from PSScriptRoot (e.g., ".\Reports").
                                                                       # Can be an absolute path. Script will attempt to create it.
     HtmlReportTitlePrefix           = "PoSh Backup Status Report"     # Prefix for the HTML report browser title and H1 tag. Job name is appended.
     HtmlReportLogoPath              = ""                              # Optional: Full UNC or local path to a logo image (PNG, JPG, GIF, SVG).
@@ -85,11 +85,11 @@
     # Override specific CSS variables for the selected theme (or base if no theme).
     # This allows fine-grained colour/style adjustments without creating a whole new theme file.
     # Keys should be valid CSS variable names (e.g., "--accent-color"), values are valid CSS color codes/values.
-    HtmlReportOverrideCssVariables  = @{                            
+    HtmlReportOverrideCssVariables  = @{
         # Example: To change the main accent colour for all HTML reports globally:
         # "--accent-color"       = "#005A9C" # A specific shade of blue
         # To change the main container background for all reports:
-        # "--container-bg-color" = "#FAFAFA" 
+        # "--container-bg-color" = "#FAFAFA"
     }
     HtmlReportShowSummary           = $true                           # $true to include the summary table in the HTML report.
     HtmlReportShowConfiguration     = $true                           # $true to include the job configuration details used for the backup.
@@ -189,7 +189,7 @@
             ArchivePasswordVaultName  = ""                            # e.g., "MyLocalStore" (optional, uses default vault if empty)
             ArchivePasswordSecureStringPath = ""                      # e.g., "C:\secrets\projects_pass.clixml"
             ArchivePasswordPlainText  = ""                            # e.g., "ActualPassword123!" (INSECURE and HIGHLY DISCOURAGED)
-            
+
             UsePassword             = $false                          # For backward compatibility or simple interactive toggle.
                                                                       # Legacy - will default to Interactive if ArchivePasswordMethod is None/empty and this is $true
 
@@ -208,7 +208,7 @@
 
             ArchivePasswordMethod      = "Interactive"                   # Example: Wants to be prompted for this one
             CredentialUserNameHint     = "DocsUser"
-            # ArchivePasswordSecretName  = "" 
+            # ArchivePasswordSecretName  = ""
             # ArchivePasswordVaultName   = ""
             # ArchivePasswordSecureStringPath = ""
             # ArchivePasswordPlainText   = ""
@@ -223,23 +223,23 @@
         <#
         "ComprehensiveExample_WebApp" = @{
             "Path"                    = @(                             # Multiple source paths can be specified in an array.
-                                        "C:\inetpub\wwwroot\MyWebApp", 
+                                        "C:\inetpub\wwwroot\MyWebApp",
                                         "D:\Databases\MyWebApp_Config.xml"
-                                      ) 
-            "Name"                    = "WebApp_Production" 
+                                      )
+            "Name"                    = "WebApp_Production"
             "DestinationDir"          = "\\BACKUPSERVER\Share\WebApps"  # Backup to a network share.
             "RetentionCount"          = 14                              # Keep two weeks of daily backups.
             "DeleteToRecycleBin"      = $false                          # Recycle Bin often not applicable for network shares.
 
-            "UsePassword"             = $true 
-            "CredentialUserNameHint"  = "WebAppBackupUser" 
+            "UsePassword"             = $true
+            "CredentialUserNameHint"  = "WebAppBackupUser"
 
-            "ArchiveType"             = "-t7z"  
-            "ArchiveExtension"        = ".7z"   
+            "ArchiveType"             = "-t7z"
+            "ArchiveExtension"        = ".7z"
             "ArchiveDateFormat"       = "yyyy-MM-dd_HHmm"               # More granular date for frequent backups.
 
             "ThreadsToUse"            = 2                               # Limit CPU impact if 7-Zip's auto-detection is too high.
-            "SevenZipProcessPriority" = "BelowNormal" 
+            "SevenZipProcessPriority" = "BelowNormal"
             "CompressionLevel"        = "-mx=5"                         # Faster compression than default.
             "CompressOpenFiles"       = $true                           # 7-Zip's own open file handling (VSS is often better).
             "AdditionalExclusions"    = @(                             # Array of 7-Zip exclusion patterns.
@@ -247,22 +247,22 @@
                                         "*\temp\*",                     # Exclude all temp folders and their contents.
                                         "web.config.temp",
                                         "*.TMP"
-                                        ) 
+                                        )
 
-            "EnableVSS"                     = $true 
+            "EnableVSS"                     = $true
             "VSSContextOption"              = "Volatile NoWriters"      # Snapshot auto-deleted after use. Recommended for scripts.
-            
-            "EnableRetries"                 = $true 
-            "MaxRetryAttempts"              = 2     
+
+            "EnableRetries"                 = $true
+            "MaxRetryAttempts"              = 2
             "RetryDelaySeconds"             = 120                       # Longer delay, perhaps for transient network issues.
-            
-            "MinimumRequiredFreeSpaceGB"    = 50    
-            "ExitOnLowSpaceIfBelowMinimum"  = $true 
+
+            "MinimumRequiredFreeSpaceGB"    = 50
+            "ExitOnLowSpaceIfBelowMinimum"  = $true
             "TestArchiveAfterCreation"      = $true                     # Always test this critical backup.
-            
+
             "ReportGeneratorType"           = "HTML"                    # Primary report type. Options: "HTML", "CSV", "JSON", "XML", "None".
-            "HtmlReportTheme"               = "RetroTerminal" 
-            "HtmlReportDirectory"           = "\\SHARE\AdminReports\PoShBackup\WebApp" 
+            "HtmlReportTheme"               = "RetroTerminal"
+            "HtmlReportDirectory"           = "\\SHARE\AdminReports\PoShBackup\WebApp"
             "HtmlReportTitlePrefix"         = "Web Application Backup Status"
             "HtmlReportLogoPath"            = "\\SHARE\Branding\WebAppLogo.png"
             "HtmlReportCustomCssPath"       = "\\SHARE\Branding\WebAppReportOverrides.css"
@@ -272,7 +272,7 @@
                 "--header-border-color" = "black";
             }
             "HtmlReportShowSummary"         = $true
-            "HtmlReportShowConfiguration"   = $true 
+            "HtmlReportShowConfiguration"   = $true
             "HtmlReportShowHooks"           = $true
             "HtmlReportShowLogEntries"      = $true
 
@@ -308,8 +308,8 @@
         }
         "Nightly_Full_System_Simulate" = @{                           # Example for a simulation run of multiple jobs.
             JobNames = @("Projects", "AnExample")
-            OnErrorInJob = "ContinueSet" 
-            # Note: To run this set in simulation, use: 
+            OnErrorInJob = "ContinueSet"
+            # Note: To run this set in simulation, use:
             # .\PoSh-Backup.ps1 -RunSet "Nightly_Full_System_Simulate" -Simulate
         }
     }

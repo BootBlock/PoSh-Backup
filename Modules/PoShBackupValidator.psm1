@@ -10,8 +10,8 @@
     contributing to more robust configuration management. This module is intended to be
     optionally enabled via a setting in the main configuration file.
 .NOTES
-    Author:         PoSh-Backup Project
-    Version:        1.1
+    Author:         Joe Cox/AI Assistant
+    Version:        1.1.5 (Reverted to comment PSSA suppression for Validate verb)
     DateCreated:    14-May-2025
     LastModified:   15-May-2025
     Purpose:        Optional advanced configuration validation for PoSh-Backup.
@@ -20,6 +20,7 @@
 
 #region --- Module-Scoped Schema Definition ---
 $Script:PoShBackup_ConfigSchema = @{
+    # ... (schema definition remains the same as v1.1.4) ...
     # Top-level keys
     SevenZipPath                    = @{ Type = 'string'; Required = $true; ValidateScript = { Test-Path -LiteralPath $_ -PathType Leaf } } 
     DefaultDestinationDir           = @{ Type = 'string'; Required = $false }
@@ -28,7 +29,7 @@ $Script:PoShBackup_ConfigSchema = @{
     EnableAdvancedSchemaValidation  = @{ Type = 'boolean'; Required = $false }
     EnableFileLogging               = @{ Type = 'boolean'; Required = $false }
     LogDirectory                    = @{ Type = 'string'; Required = $false } 
-    ReportGeneratorType             = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } # AllowedValues applies if it's a string
+    ReportGeneratorType             = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } 
     HtmlReportDirectory             = @{ Type = 'string'; Required = $false }
     CsvReportDirectory              = @{ Type = 'string'; Required = $false }
     JsonReportDirectory             = @{ Type = 'string'; Required = $false }
@@ -69,7 +70,7 @@ $Script:PoShBackup_ConfigSchema = @{
     DefaultCompressOpenFiles        = @{ Type = 'boolean'; Required = $false }
     DefaultScriptExcludeRecycleBin  = @{ Type = 'string'; Required = $false }
     DefaultScriptExcludeSysVolInfo  = @{ Type = 'string'; Required = $false }
-    _PoShBackup_PSScriptRoot        = @{ Type = 'string'; Required = $false }
+    _PoShBackup_PSScriptRoot        = @{ Type = 'string'; Required = $false } 
 
     BackupLocations = @{
         Type = 'hashtable'
@@ -87,12 +88,12 @@ $Script:PoShBackup_ConfigSchema = @{
             ArchivePasswordVaultName  = @{ Type = 'string'; Required = $false } 
             ArchivePasswordSecureStringPath = @{ Type = 'string'; Required = $false }
             ArchivePasswordPlainText  = @{ Type = 'string'; Required = $false }
-            UsePassword             = @{ Type = 'boolean'; Required = $false } # Legacy
+            UsePassword             = @{ Type = 'boolean'; Required = $false } 
 
             EnableVSS               = @{ Type = 'boolean'; Required = $false }
             VSSContextOption        = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
             SevenZipProcessPriority = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
-            ReportGeneratorType     = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } # AllowedValues applies if it's a string
+            ReportGeneratorType     = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } 
             HtmlReportDirectory     = @{ Type = 'string'; Required = $false }
             CsvReportDirectory      = @{ Type = 'string'; Required = $false }
             JsonReportDirectory     = @{ Type = 'string'; Required = $false }
@@ -141,7 +142,7 @@ $Script:PoShBackup_ConfigSchema = @{
 #endregion
 
 #region --- Private Validation Logic ---
-# ... (Validate-AgainstSchemaRecursiveInternal function as previously provided - no changes here for this step) ...
+# PSScriptAnalyzer Suppress PSUseApprovedVerbs[Validate-AgainstSchemaRecursiveInternal] - 'Validate' is descriptive for this internal schema helper and commonly understood.
 function Validate-AgainstSchemaRecursiveInternal { 
     param(
         [Parameter(Mandatory)]
@@ -171,7 +172,6 @@ function Validate-AgainstSchemaRecursiveInternal {
 
         $configValue = $ConfigObject[$schemaKey]
         $expectedType = $keyDefinition.Type.ToLowerInvariant()
-        $actualType = if ($null -eq $configValue) { "null" } else { $configValue.GetType().Name.ToLowerInvariant() }
         
         $typeMatch = $false
         switch ($expectedType) {
@@ -191,7 +191,7 @@ function Validate-AgainstSchemaRecursiveInternal {
 
         if ($keyDefinition.ContainsKey("AllowedValues")) {
             $valuesToCheck = @()
-            if ($configValue -is [array] -and $expectedType -eq 'string_or_array'){ # Check each item in an array for ReportGeneratorType
+            if ($configValue -is [array] -and $expectedType -eq 'string_or_array'){ 
                 $valuesToCheck = $configValue 
             } elseif ($configValue -is [string]) {
                 $valuesToCheck = @($configValue)
@@ -227,7 +227,7 @@ function Validate-AgainstSchemaRecursiveInternal {
     if (-not $allowUnknownKeys) {
         foreach ($configKey in $ConfigObject.Keys) {
             if (-not $Schema.ContainsKey($configKey)) {
-                if ($configKey -ne '_PoShBackup_PSScriptRoot') { # This is added by the script, not user config
+                if ($configKey -ne '_PoShBackup_PSScriptRoot') { 
                      $ValidationMessages.Value.Add("Unknown key '$CurrentPath.$configKey' found in configuration. Check for typos or if it's supported by the current schema version.")
                 }
             }
@@ -237,7 +237,6 @@ function Validate-AgainstSchemaRecursiveInternal {
 #endregion
 
 #region --- Exported Functions ---
-# ... (Invoke-PoShBackupConfigValidation function as previously provided - no changes here for this step) ...
 function Invoke-PoShBackupConfigValidation {
     [CmdletBinding()]
     param(

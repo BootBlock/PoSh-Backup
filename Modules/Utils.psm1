@@ -8,8 +8,8 @@
     to promote code reusability and maintainability. It handles tasks that are not specific
     to backup operations or report generation but are essential for the overall script's functionality.
 .NOTES
-    Author:         PoSh-Backup Project
-    Version:        1.4 
+    Author:         Joe Cox/AI Assistant
+    Version:        1.5.0 (PSScriptAnalyzer fixes: Write-Host, unused params, naming)
     DateCreated:    10-May-2025
     LastModified:   15-May-2025
     Purpose:        Core utility functions for PoSh-Backup.
@@ -17,7 +17,7 @@
 #>
 
 #region --- Private Helper Functions ---
-function Merge-DeepHashtables {
+function Merge-DeepHashtable { # Renamed
     param(
         [Parameter(Mandatory)]
         [hashtable]$Base,
@@ -25,16 +25,13 @@ function Merge-DeepHashtables {
         [hashtable]$Override
     )
 
-    $merged = $Base.Clone() # Start with a copy of the base to avoid modifying the original $Base in place
+    $merged = $Base.Clone()
 
     foreach ($key in $Override.Keys) {
         if ($merged.ContainsKey($key) -and $merged[$key] -is [hashtable] -and $Override[$key] -is [hashtable]) {
-            # Key exists in both and both values are hashtables, so recurse
-            $merged[$key] = Merge-DeepHashtables -Base $merged[$key] -Override $Override[$key]
+            $merged[$key] = Merge-DeepHashtable -Base $merged[$key] -Override $Override[$key] # Recurse with renamed function
         }
         else {
-            # Override value takes precedence, or a new key is added
-            # This also handles cases where the type might change (e.g., base has a string, override has a bool)
             $merged[$key] = $Override[$key]
         }
     }
@@ -48,7 +45,7 @@ function Find-SevenZipExecutable {
     Write-LogMessage "  - Attempting to auto-detect 7z.exe..." -Level "DEBUG"
     $commonPaths = @(
         (Join-Path -Path $env:ProgramFiles -ChildPath "7-Zip\7z.exe"),
-        (Join-Path -Path ${env:ProgramFiles(x86)} -ChildPath "7-Zip\7z.exe") # Check x86 path if it exists
+        (Join-Path -Path ${env:ProgramFiles(x86)} -ChildPath "7-Zip\7z.exe") 
     )
 
     foreach ($pathAttempt in $commonPaths) {
@@ -66,8 +63,7 @@ function Find-SevenZipExecutable {
         }
     }
     catch {
-        # Get-Command might throw if not found, even with SilentlyContinue for some errors.
-        Write-LogMessage "    - 7z.exe not found in system PATH (Get-Command)." -Level "DEBUG"
+        Write-LogMessage "    - 7z.exe not found in system PATH (Get-Command error: $($_.Exception.Message))." -Level "DEBUG"
     }
     
     Write-LogMessage "    - Auto-detection failed to find 7z.exe in common locations or system PATH." -Level "DEBUG"
@@ -80,7 +76,7 @@ function Write-LogMessage {
     [CmdletBinding()]
     param (
         [string]$Message,
-        [string]$ForegroundColour = $Global:ColourInfo,
+        [string]$ForegroundColour = $Global:ColourInfo, # Default color, will be overridden by Level if applicable
         [switch]$NoNewLine,
         [string]$Level = "INFO",
         [switch]$NoTimestampToLogFile = $false
@@ -89,18 +85,26 @@ function Write-LogMessage {
     $consoleMessage = $Message
     $logMessage = if ($NoTimestampToLogFile) { $Message } else { "$timestamp [$Level] $Message" }
 
-    # Determine CONSOLE ForegroundColour based on Level
     $effectiveConsoleColour = $ForegroundColour 
-    switch -Wildcard ($Level.ToUpperInvariant()) {
-        "SIMULATE"       { $effectiveConsoleColour = $Global:ColourSimulate }
-        "CONFIG_TEST"    { $effectiveConsoleColour = $Global:ColourSimulate }
-        "VSS"            { $effectiveConsoleColour = $Global:ColourAdmin }
-        "HOOK"           { $effectiveConsoleColour = $Global:ColourDebug }
-        "ERROR"          { $effectiveConsoleColour = $Global:ColourError }
-        "WARNING"        { $effectiveConsoleColour = $Global:ColourWarning }
-        "SUCCESS"        { $effectiveConsoleColour = $Global:ColourSuccess }
-        "DEBUG"          { $effectiveConsoleColour = $Global:ColourDebug }
+    # If a specific level is given, use its mapped color, otherwise use the passed $ForegroundColour or its default ($Global:ColourInfo)
+    if ($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
+        $effectiveConsoleColour = $Global:StatusToColourMap[$Level.ToUpperInvariant()]
+    } elseif ($Global:StatusToColourMap.ContainsKey("DEFAULT")) { # Fallback for unknown levels
+        # This logic was slightly different before, ensuring a explicit mapping if level exists
+        # For general levels not in StatusToColourMap, use the specific $Global:Colour<Level>
+        switch -Wildcard ($Level.ToUpperInvariant()) {
+            "SIMULATE"       { $effectiveConsoleColour = $Global:ColourSimulate }
+            "CONFIG_TEST"    { $effectiveConsoleColour = $Global:ColourSimulate } # Retain for consistency
+            "VSS"            { $effectiveConsoleColour = $Global:ColourAdmin }
+            "HOOK"           { $effectiveConsoleColour = $Global:ColourDebug } # Hook messages are often debug-like
+            "ERROR"          { $effectiveConsoleColour = $Global:ColourError }
+            "WARNING"        { $effectiveConsoleColour = $Global:ColourWarning }
+            "SUCCESS"        { $effectiveConsoleColour = $Global:ColourSuccess }
+            "DEBUG"          { $effectiveConsoleColour = $Global:ColourDebug }
+            # For INFO, or any other non-mapped level, it will use the $ForegroundColour param or its default ($Global:ColourInfo)
+        }
     }
+
 
     if ($NoNewLine) {
         Write-Host $consoleMessage -ForegroundColor $effectiveConsoleColour -NoNewline
@@ -120,7 +124,8 @@ function Write-LogMessage {
         try {
             Add-Content -Path $Global:GlobalLogFile -Value $logMessage -ErrorAction Stop
         } catch {
-            Write-Host "CRITICAL: Failed to write to log file '$($Global:GlobalLogFile)'. Error: $($_.Exception.Message)" -ForegroundColor $Global:ColourError
+            # Using Write-Host directly here as Write-LogMessage might be the source of a recursive error if file logging fails.
+            Write-Host "CRITICAL: Failed to write to log file '$($Global:GlobalLogFile)'. Error: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
 }
@@ -132,8 +137,8 @@ function Get-ConfigValue {
     param (
         [object]$ConfigObject,
         [string]$Key,
-        [object]$DefaultValue,
-        [string]$JobNameForError = "Global" 
+        [object]$DefaultValue
+        # [string]$JobNameForError = "Global" # Parameter removed as unused
     )
     if ($null -ne $ConfigObject -and $ConfigObject -is [hashtable] -and $ConfigObject.ContainsKey($Key)) {
         return $ConfigObject[$Key]
@@ -145,17 +150,17 @@ function Get-ConfigValue {
 }
 #endregion
 
-#region --- Helper Function Test-AdminPrivileges ---
-function Test-AdminPrivileges {
+#region --- Helper Function Test-AdminPrivilege ---
+function Test-AdminPrivilege { # Renamed
     [CmdletBinding()]
     param()
     Write-LogMessage "[INFO] Checking for Administrator privileges..." -Level "DEBUG"
     $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
     $isAdmin = $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($isAdmin) {
-        Write-LogMessage "  - Running with Administrator privileges." -ForegroundColour $Global:ColourSuccess
+        Write-LogMessage "  - Running with Administrator privileges." -Level "SUCCESS" # Changed level for color
     } else {
-        Write-LogMessage "  - NOT running with Administrator privileges." -Level "WARNING" -ForegroundColour $Global:ColourWarning
+        Write-LogMessage "  - NOT running with Administrator privileges." -Level "WARNING"
     }
     return $isAdmin
 }
@@ -167,14 +172,14 @@ function Invoke-HookScript {
     param(
         [string]$ScriptPath,
         [string]$HookType,
-        [hashtable]$HookParameters, 
-        [switch]$IsSimulateMode     
+        [hashtable]$HookParameters,
+        [switch]$IsSimulateMode
     )
     if ([string]::IsNullOrWhiteSpace($ScriptPath)) { return }
 
     Write-LogMessage "`n[INFO] Attempting to execute $HookType script: $ScriptPath" -Level "HOOK"
     if (-not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) {
-        Write-LogMessage "[WARNING] $HookType script not found at '$ScriptPath'. Skipping." -Level "WARNING" -ForegroundColour $Global:ColourWarning
+        Write-LogMessage "[WARNING] $HookType script not found at '$ScriptPath'. Skipping." -Level "WARNING"
         if ($Global:GlobalJobHookScriptData -is [System.Collections.Generic.List[object]]) {
             $Global:GlobalJobHookScriptData.Add([PSCustomObject]@{ Name = $HookType; Path = $ScriptPath; Status = "Not Found"; Output = ""})
         }
@@ -184,7 +189,7 @@ function Invoke-HookScript {
     $outputLog = [System.Collections.Generic.List[string]]::new()
     $status = "Success"
     try {
-        if ($IsSimulateMode.IsPresent) { 
+        if ($IsSimulateMode.IsPresent) {
             Write-LogMessage "SIMULATE: Would execute $HookType script '$ScriptPath' with parameters: $($HookParameters | Out-String)" -Level "SIMULATE"
             $outputLog.Add("SIMULATE: Script execution skipped.")
             $status = "Simulated"
@@ -192,17 +197,17 @@ function Invoke-HookScript {
             Write-LogMessage "  - Executing $HookType script..." -Level "HOOK"
             $processArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
             $paramString = ""
-            
+
             foreach ($key in $HookParameters.Keys) {
                 $value = $HookParameters[$key]
                 if ($value -is [bool] -or $value -is [switch]) {
-                    if ($value) { 
+                    if ($value) {
                         $paramString += " -$key"
                     }
                 } elseif ($value -is [string] -and ($value.Contains(" ") -or $value.Contains("'") -or $value.Contains('"')) ) {
-                    $escapedValueForCmd = $value -replace '"', '""' 
-                    $paramString += " -$key " + '"' + $escapedValueForCmd + '"' 
-                } elseif ($null -ne $value) { 
+                    $escapedValueForCmd = $value -replace '"', '""'
+                    $paramString += " -$key " + '"' + $escapedValueForCmd + '"'
+                } elseif ($null -ne $value) {
                     $paramString += " -$key $value"
                 }
             }
@@ -221,23 +226,23 @@ function Invoke-HookScript {
             Remove-Item $tempStdErr.FullName -Force -ErrorAction SilentlyContinue
 
             if ($stdOutContent) {
-                $stdOutContent | ForEach-Object { Write-LogMessage "    OUT: $_" -Level "HOOK" -ForegroundColour $Global:ColourValue; $outputLog.Add("OUTPUT: $_") }
+                $stdOutContent | ForEach-Object { Write-LogMessage "    OUT: $_" -Level "HOOK"; $outputLog.Add("OUTPUT: $_") } # Removed explicit color
             }
             if ($proc.ExitCode -ne 0) {
-                Write-LogMessage "[ERROR] $HookType script '$ScriptPath' exited with code $($proc.ExitCode)." -Level "ERROR" -ForegroundColour $Global:ColourError
+                Write-LogMessage "[ERROR] $HookType script '$ScriptPath' exited with code $($proc.ExitCode)." -Level "ERROR"
                 $status = "Failure (ExitCode $($proc.ExitCode))"
                 if ($stdErrContent) {
-                    $stdErrContent | ForEach-Object { Write-LogMessage "    ERR: $_" -Level "ERROR" -ForegroundColour $Global:ColourError; $outputLog.Add("ERROR: $_") }
+                    $stdErrContent | ForEach-Object { Write-LogMessage "    ERR: $_" -Level "ERROR"; $outputLog.Add("ERROR: $_") }
                 }
             } elseif ($stdErrContent) {
-                 Write-LogMessage "[WARNING] $HookType script '$ScriptPath' wrote to stderr despite exiting successfully." -Level "WARNING" -ForegroundColour $Global:ColourWarning
-                 $stdErrContent | ForEach-Object { Write-LogMessage "    ERR: $_" -Level "WARNING" -ForegroundColour $Global:ColourWarning; $outputLog.Add("STDERR: $_") }
+                 Write-LogMessage "[WARNING] $HookType script '$ScriptPath' wrote to stderr despite exiting successfully." -Level "WARNING"
+                 $stdErrContent | ForEach-Object { Write-LogMessage "    ERR: $_" -Level "WARNING"; $outputLog.Add("STDERR: $_") }
             }
-            $currentStatusColour = if($status -like "Failure*"){$Global:ColourError}else{$Global:ColourSuccess}
-            Write-LogMessage "  - $HookType script execution finished. Status: $status" -Level "HOOK" -ForegroundColour $currentStatusColour
+            $statusLevelForLog = if($status -like "Failure*"){"ERROR"}elseif($status -eq "Simulated"){"SIMULATE"}else{"SUCCESS"}
+            Write-LogMessage "  - $HookType script execution finished. Status: $status" -Level $statusLevelForLog
         }
     } catch {
-        Write-LogMessage "[ERROR] Exception while trying to execute $HookType script '$ScriptPath': $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
+        Write-LogMessage "[ERROR] Exception while trying to execute $HookType script '$ScriptPath': $($_.Exception.Message)" -Level "ERROR"
         $outputLog.Add("EXCEPTION: $($_.Exception.Message)")
         $status = "Exception"
     }
@@ -265,7 +270,7 @@ function Get-ArchiveSizeFormatted {
             $FormattedSize = "File not found"
         }
     } catch {
-        Write-LogMessage "[WARNING] Error getting size for '$PathToArchive': $($_.Exception.Message)" -Level "WARNING" -ForegroundColour $Global:ColourWarning
+        Write-LogMessage "[WARNING] Error getting size for '$PathToArchive': $($_.Exception.Message)" -Level "WARNING"
         $FormattedSize = "Error getting size"
     }
     return $FormattedSize
@@ -282,8 +287,8 @@ function Import-AppConfiguration {
     )
 
     $finalConfiguration = $null
-    $baseConfigPath = $null
-    $userConfigPath = $null
+    # $baseConfigPath = $null # Not strictly needed here as they are redefined below
+    # $userConfigPath = $null
     $userConfigLoadedSuccessfully = $false
     $primaryConfigPathForReturn = $null 
 
@@ -298,72 +303,70 @@ function Import-AppConfiguration {
         Write-LogMessage "`n[INFO] Using specified configuration file: $($UserSpecifiedPath)"
         $primaryConfigPathForReturn = $UserSpecifiedPath
         if (-not (Test-Path -LiteralPath $UserSpecifiedPath -PathType Leaf)) {
-            Write-LogMessage "FATAL: Specified configuration file '$UserSpecifiedPath' not found." -Level "ERROR" -ForegroundColour $Global:ColourError
+            Write-LogMessage "FATAL: Specified configuration file '$UserSpecifiedPath' not found." -Level "ERROR"
             return @{ IsValid = $false; ErrorMessage = "Configuration file not found at '$UserSpecifiedPath'." }
         }
         try {
             $finalConfiguration = Import-PowerShellDataFile -LiteralPath $UserSpecifiedPath -ErrorAction Stop
-            Write-LogMessage "  - Configuration loaded successfully from '$UserSpecifiedPath'." -ForegroundColour $Global:ColourSuccess
+            Write-LogMessage "  - Configuration loaded successfully from '$UserSpecifiedPath'." -Level "SUCCESS"
         } catch {
-            Write-LogMessage "FATAL: Could not load or parse specified configuration file '$UserSpecifiedPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
+            Write-LogMessage "FATAL: Could not load or parse specified configuration file '$UserSpecifiedPath'. Error: $($_.Exception.Message)" -Level "ERROR"
             return @{ IsValid = $false; ErrorMessage = "Failed to parse configuration file '$UserSpecifiedPath': $($_.Exception.Message)" }
         }
     } else {
-        $baseConfigPath = $defaultBaseConfigPath
-        $userConfigPath = $defaultUserConfigPath
-        $primaryConfigPathForReturn = $baseConfigPath
-        Write-LogMessage "`n[INFO] No -ConfigFile specified. Loading base configuration from: $($baseConfigPath)"
-        if (-not (Test-Path -LiteralPath $baseConfigPath -PathType Leaf)) {
-            Write-LogMessage "FATAL: Base configuration file '$baseConfigPath' not found. This file is required." -Level "ERROR" -ForegroundColour $Global:ColourError
-            return @{ IsValid = $false; ErrorMessage = "Base configuration file '$baseConfigPath' not found." }
+        # $baseConfigPath = $defaultBaseConfigPath # Already defined
+        # $userConfigPath = $defaultUserConfigPath # Already defined
+        $primaryConfigPathForReturn = $defaultBaseConfigPath # Use the actual path being processed
+        Write-LogMessage "`n[INFO] No -ConfigFile specified. Loading base configuration from: $($defaultBaseConfigPath)"
+        if (-not (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf)) {
+            Write-LogMessage "FATAL: Base configuration file '$defaultBaseConfigPath' not found. This file is required." -Level "ERROR"
+            return @{ IsValid = $false; ErrorMessage = "Base configuration file '$defaultBaseConfigPath' not found." }
         }
         try {
-            $loadedBaseConfiguration = Import-PowerShellDataFile -LiteralPath $baseConfigPath -ErrorAction Stop
-            Write-LogMessage "  - Base configuration loaded successfully from '$baseConfigPath'." -ForegroundColour $Global:ColourSuccess
+            $loadedBaseConfiguration = Import-PowerShellDataFile -LiteralPath $defaultBaseConfigPath -ErrorAction Stop
+            Write-LogMessage "  - Base configuration loaded successfully from '$defaultBaseConfigPath'." -Level "SUCCESS"
             $finalConfiguration = $loadedBaseConfiguration
         } catch {
-            Write-LogMessage "FATAL: Could not load or parse base configuration file '$baseConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR" -ForegroundColour $Global:ColourError
-            return @{ IsValid = $false; ErrorMessage = "Failed to parse base configuration file '$baseConfigPath': $($_.Exception.Message)" }
+            Write-LogMessage "FATAL: Could not load or parse base configuration file '$defaultBaseConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR"
+            return @{ IsValid = $false; ErrorMessage = "Failed to parse base configuration file '$defaultBaseConfigPath': $($_.Exception.Message)" }
         }
-        Write-LogMessage "[INFO] Checking for user override configuration at: $($userConfigPath)"
-        if (Test-Path -LiteralPath $userConfigPath -PathType Leaf) {
+        Write-LogMessage "[INFO] Checking for user override configuration at: $($defaultUserConfigPath)"
+        if (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf) {
             try {
-                $loadedUserConfiguration = Import-PowerShellDataFile -LiteralPath $userConfigPath -ErrorAction Stop
+                $loadedUserConfiguration = Import-PowerShellDataFile -LiteralPath $defaultUserConfigPath -ErrorAction Stop
                 if ($null -ne $loadedUserConfiguration -and $loadedUserConfiguration -is [hashtable]) {
-                    Write-LogMessage "  - User override configuration '$userConfigPath' found and loaded successfully." -ForegroundColour $Global:ColourSuccess
+                    Write-LogMessage "  - User override configuration '$defaultUserConfigPath' found and loaded successfully." -Level "SUCCESS"
                     Write-LogMessage "  - Merging user configuration over base configuration..." -Level "DEBUG"
-                    $finalConfiguration = Merge-DeepHashtables -Base $finalConfiguration -Override $loadedUserConfiguration
+                    $finalConfiguration = Merge-DeepHashtable -Base $finalConfiguration -Override $loadedUserConfiguration # Call renamed helper
                     $userConfigLoadedSuccessfully = $true
-                    Write-LogMessage "  - User configuration merged successfully." -ForegroundColour $Global:ColourSuccess
+                    Write-LogMessage "  - User configuration merged successfully." -Level "SUCCESS"
                 } else {
-                    Write-LogMessage "[WARNING] User override configuration file '$userConfigPath' did not load as a valid hashtable. Skipping user overrides." -Level "WARNING" -ForegroundColour $Global:ColourWarning
+                    Write-LogMessage "[WARNING] User override configuration file '$defaultUserConfigPath' did not load as a valid hashtable. Skipping user overrides." -Level "WARNING"
                 }
             } catch {
-                Write-LogMessage "[WARNING] Could not load or parse user override configuration file '$userConfigPath'. Error: $($_.Exception.Message). Using base configuration only." -Level "WARNING" -ForegroundColour $Global:ColourWarning
+                Write-LogMessage "[WARNING] Could not load or parse user override configuration file '$defaultUserConfigPath'. Error: $($_.Exception.Message). Using base configuration only." -Level "WARNING"
             }
         } else {
-            Write-LogMessage "  - User override configuration file '$userConfigPath' not found. Using base configuration only."
+            Write-LogMessage "  - User override configuration file '$defaultUserConfigPath' not found. Using base configuration only."
         }
     }
 
     if ($null -eq $finalConfiguration -or -not ($finalConfiguration -is [hashtable])) {
-        Write-LogMessage "FATAL: Final configuration is not a valid hashtable after loading/merging." -Level "ERROR" -ForegroundColour $Global:ColourError
+        Write-LogMessage "FATAL: Final configuration is not a valid hashtable after loading/merging." -Level "ERROR"
         return @{ IsValid = $false; ErrorMessage = "Final configuration is not a valid hashtable." }
     }
     
     $validationMessages = [System.Collections.Generic.List[string]]::new()
 
-    # --- Optional Advanced Schema Validation ---
     $enableAdvancedValidation = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'EnableAdvancedSchemaValidation' -DefaultValue $false
     if ($enableAdvancedValidation -eq $true) {
         Write-LogMessage "[INFO] Advanced Schema Validation is enabled. Attempting to load PoShBackupValidator module..." -Level "INFO"
         try {
             Import-Module -Name (Join-Path -Path $MainScriptPSScriptRoot -ChildPath "Modules\PoShBackupValidator.psm1") -Force -ErrorAction Stop
             Write-LogMessage "  - PoShBackupValidator module loaded. Performing schema validation..." -Level "DEBUG"
-            # Invoke the validation function from the external module
             Invoke-PoShBackupConfigValidation -ConfigurationToValidate $finalConfiguration -ValidationMessagesListRef ([ref]$validationMessages)
-            if ($IsTestConfigMode.IsPresent -and $validationMessages.Count -eq 0) { # Only log success if in test mode and no existing messages
-                 Write-LogMessage "[SUCCESS] Advanced schema validation completed successfully (no new errors found by schema)." -Level "CONFIG_TEST" -ForegroundColour $Global:ColourSuccess
+            if ($IsTestConfigMode.IsPresent -and $validationMessages.Count -eq 0) {
+                 Write-LogMessage "[SUCCESS] Advanced schema validation completed successfully (no new errors found by schema)." -Level "CONFIG_TEST"
             }
         } catch {
             Write-LogMessage "[WARNING] Could not load or execute PoShBackupValidator module. Advanced schema validation will be skipped. Error: $($_.Exception.Message)" -Level "WARNING"
@@ -373,9 +376,7 @@ function Import-AppConfiguration {
             Write-LogMessage "[INFO] Advanced Schema Validation is disabled in the configuration ('EnableAdvancedSchemaValidation' is `$false or missing)." -Level "CONFIG_TEST"
         }
     }
-    # --- End Optional Advanced Schema Validation ---
 
-    # --- Specific Value Validations (these remain important) ---
     $vssCachePath = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab" 
     try {
         $expandedVssCachePath = [System.Environment]::ExpandEnvironmentVariables($vssCachePath) 
@@ -390,20 +391,17 @@ function Import-AppConfiguration {
         $validationMessages.Add("Global 'VSSMetadataCachePath' ('$vssCachePath') is not a valid path format after expansion.")
     }
 
-    # Handle SevenZipPath: Use configured, or auto-detect, then validate final path.
     $sevenZipPathFromConfigOriginal = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'SevenZipPath' -DefaultValue $null
     $sevenZipPathSource = "configuration"
 
     if (-not ([string]::IsNullOrWhiteSpace($finalConfiguration.SevenZipPath)) -and (Test-Path -LiteralPath $finalConfiguration.SevenZipPath -PathType Leaf)) {
-        # Path is already good in $finalConfiguration (either from config or previous auto-detection)
         if ($IsTestConfigMode.IsPresent) {
-             # Determine source for logging if it wasn't explicitly set by auto-detection below
             if ($sevenZipPathFromConfigOriginal -ne $finalConfiguration.SevenZipPath -and (-not [string]::IsNullOrWhiteSpace($finalConfiguration.SevenZipPath))) {
-                $sevenZipPathSource = "auto-detected" # Generic if source unclear
+                $sevenZipPathSource = "auto-detected"
             }
             Write-LogMessage "  - Effective 7-Zip Path: '$($finalConfiguration.SevenZipPath)' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
         }
-    } else { # Path in $finalConfiguration is bad or empty, try to resolve
+    } else { 
         $initialPathIsEmpty = [string]::IsNullOrWhiteSpace($sevenZipPathFromConfigOriginal)
         if (-not $initialPathIsEmpty) {
             Write-LogMessage "[WARNING] Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') is invalid or not found. Attempting auto-detection..." -Level "WARNING"
@@ -413,7 +411,7 @@ function Import-AppConfiguration {
         
         $foundPath = Find-SevenZipExecutable
         if ($null -ne $foundPath) {
-            $finalConfiguration.SevenZipPath = $foundPath # Update the configuration
+            $finalConfiguration.SevenZipPath = $foundPath 
             $sevenZipPathSource = if ($initialPathIsEmpty) { "auto-detected (config empty)" } else { "auto-detected (config invalid)" }
             Write-LogMessage "[INFO] Using auto-detected 7-Zip Path: '$foundPath'." -Level "INFO"
             if ($IsTestConfigMode.IsPresent) {
@@ -428,7 +426,6 @@ function Import-AppConfiguration {
             if (-not $validationMessages.Contains($errorMsg)) { $validationMessages.Add($errorMsg) }
         }
     }
-    # Final check, ensuring no silent failure if $finalConfiguration.SevenZipPath remains bad after all attempts
     if ([string]::IsNullOrWhiteSpace($finalConfiguration.SevenZipPath) -or (-not (Test-Path -LiteralPath $finalConfiguration.SevenZipPath -PathType Leaf))) {
         $criticalErrorMsg = "CRITICAL: Effective 'SevenZipPath' ('$($finalConfiguration.SevenZipPath)') is invalid or not found after all checks."
         if (-not $validationMessages.Contains($criticalErrorMsg) -and `
@@ -437,7 +434,6 @@ function Import-AppConfiguration {
              $validationMessages.Add($criticalErrorMsg)
         }
     }
-
 
     $defaultDateFormat = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd"
     if ($finalConfiguration.ContainsKey('DefaultArchiveDateFormat')) { 
@@ -465,7 +461,6 @@ function Import-AppConfiguration {
         if ($null -ne $finalConfiguration.BackupLocations -and $finalConfiguration.BackupLocations -is [hashtable]) {
             foreach ($jobKey in $finalConfiguration.BackupLocations.Keys) {
                 $jobConfig = $finalConfiguration.BackupLocations[$jobKey]
-                # Specific format checks that complement schema validation
                 if ($null -ne $jobConfig -and $jobConfig.ContainsKey('ArchiveExtension')) { 
                     $userArchiveExt = $jobConfig['ArchiveExtension']
                      if (-not ($userArchiveExt -match "^\.[a-zA-Z0-9]+([a-zA-Z0-9\.]*[a-zA-Z0-9]+)?$")) { 
@@ -495,11 +490,11 @@ function Import-AppConfiguration {
     if ($finalConfiguration.ContainsKey('BackupSets') -and $finalConfiguration.BackupSets -is [hashtable]) {
         foreach ($setKey in $finalConfiguration.BackupSets.Keys) {
             $setConfig = $finalConfiguration.BackupSets[$setKey]
-            if ($setConfig -is [hashtable]) { # Schema would catch if $setConfig is not a hashtable
+            if ($setConfig -is [hashtable]) { 
                 $jobNames = @(Get-ConfigValue -ConfigObject $setConfig -Key 'JobNames' -DefaultValue @())
-                if ($jobNames.Count -gt 0) { # Schema ensures JobNames is an array and required
+                if ($jobNames.Count -gt 0) { 
                     foreach ($jobNameInSetCandidate in $jobNames) {
-                        if ([string]::IsNullOrWhiteSpace($jobNameInSetCandidate)) { continue } # Schema doesn't check content of array items
+                        if ([string]::IsNullOrWhiteSpace($jobNameInSetCandidate)) { continue } 
                         $jobNameInSet = $jobNameInSetCandidate.Trim()
                         if ($finalConfiguration.ContainsKey('BackupLocations') -and $finalConfiguration.BackupLocations -is [hashtable] -and -not $finalConfiguration.BackupLocations.ContainsKey($jobNameInSet)) {
                             $validationMessages.Add("BackupSet '$setKey': Job '$jobNameInSet' is not defined in 'BackupLocations'.")
@@ -513,16 +508,15 @@ function Import-AppConfiguration {
     }
     
     if ($validationMessages.Count -gt 0) {
-        Write-LogMessage "Configuration validation failed with the following errors:" -Level "ERROR" -ForegroundColour $Global:ColourError
-        # Deduplicate messages before printing
-        ($validationMessages | Select-Object -Unique) | ForEach-Object { Write-LogMessage "  - $_" -Level "ERROR" -ForegroundColour $Global:ColourError }
+        Write-LogMessage "Configuration validation failed with the following errors:" -Level "ERROR"
+        ($validationMessages | Select-Object -Unique) | ForEach-Object { Write-LogMessage "  - $_" -Level "ERROR" }
         return @{ IsValid = $false; ErrorMessage = "Configuration validation failed." }
     }
 
-    return @{ 
-        IsValid = $true; 
-        Configuration = $finalConfiguration; 
-        ActualPath = $primaryConfigPathForReturn; 
+    return @{
+        IsValid = $true;
+        Configuration = $finalConfiguration;
+        ActualPath = $primaryConfigPathForReturn;
         UserConfigLoaded = $userConfigLoadedSuccessfully;
         UserConfigPath = if($userConfigLoadedSuccessfully -or (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf)) {$defaultUserConfigPath} else {$null}
     }
@@ -542,7 +536,7 @@ function Get-JobsToProcess {
     $stopSetOnErrorPolicy = $true 
 
     if (-not [string]::IsNullOrWhiteSpace($SpecifiedSetName)) {
-        Write-LogMessage "`n[INFO] Backup Set specified: '$SpecifiedSetName'" -ForegroundColour $Global:ColourValue
+        Write-LogMessage "`n[INFO] Backup Set specified: '$SpecifiedSetName'"
         if ($Config.ContainsKey('BackupSets') -and $Config['BackupSets'] -is [hashtable] -and $Config['BackupSets'].ContainsKey($SpecifiedSetName)) {
             $setDefinition = $Config['BackupSets'][$SpecifiedSetName]
             $setName = $SpecifiedSetName
@@ -569,7 +563,7 @@ function Get-JobsToProcess {
     } elseif (-not [string]::IsNullOrWhiteSpace($SpecifiedJobName)) {
         if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable] -and $Config['BackupLocations'].ContainsKey($SpecifiedJobName)) {
             $jobsToRun.Add($SpecifiedJobName)
-            Write-LogMessage "`n[INFO] Single Backup Location specified: '$SpecifiedJobName'" -ForegroundColour $Global:ColourValue
+            Write-LogMessage "`n[INFO] Single Backup Location specified: '$SpecifiedJobName'"
         } else {
             $availableJobsMessage = "No Backup Locations are defined in the configuration."
             if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable] -and $Config['BackupLocations'].Keys.Count -gt 0) {
@@ -587,7 +581,7 @@ function Get-JobsToProcess {
         if ($jobCount -eq 1) {
             $singleJobKey = ($Config['BackupLocations'].Keys | Select-Object -First 1) 
             $jobsToRun.Add($singleJobKey)
-            Write-LogMessage "`n[INFO] No job or set specified. Automatically selected single defined Backup Location: '$singleJobKey'" -ForegroundColour $Global:ColourSuccess
+            Write-LogMessage "`n[INFO] No job or set specified. Automatically selected single defined Backup Location: '$singleJobKey'" -Level "SUCCESS"
         } elseif ($jobCount -eq 0) {
             return @{ Success = $false; ErrorMessage = "No BackupLocationName or RunSet specified, and no Backup Locations are defined in the configuration." }
         } else { 
@@ -618,5 +612,5 @@ function Get-JobsToProcess {
 #endregion
 
 #region --- Exported Functions ---
-Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivileges, Invoke-HookScript, Get-ArchiveSizeFormatted, Import-AppConfiguration, Get-JobsToProcess
+Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Invoke-HookScript, Get-ArchiveSizeFormatted, Import-AppConfiguration, Get-JobsToProcess
 #endregion
