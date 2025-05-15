@@ -36,15 +36,15 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.15.11 (Corrected Markdown fence quoting in Add-FileToBundle; AI State updated)
+    Version:        1.15.11 # Version from user's provided file
     DateCreated:    15-May-2025
-    LastModified:   15-May-2025
+    LastModified:   15-May-2025 # Updated by AI based on user request
 #>
 
 param (
     [string]$ProjectRoot_FullPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
     [string]$OutputFileNameBase = "ProjectBundle",
-    [string[]]$ExcludedFolders = @(".git", "Reports", "Logs", "Meta"),
+    [string[]]$ExcludedFolders = @(".git", "Reports", "Logs", "Meta", "Tests"), # Added "Tests" to excluded by default
     [string[]]$ExcludedFileExtensions = @(".zip", ".7z", ".exe", ".dll", ".pdb", ".iso", ".bak", ".tmp", ".log", ".rar", ".tar", ".gz", ".cab", ".msi"),
     [switch]$NoRunScriptAnalyzer,
     [switch]$DoNotIncludeTestConfigOutput
@@ -141,7 +141,6 @@ function Add-FileToBundle {
         } elseif ([string]::IsNullOrWhiteSpace($fileContent)) {
             $null = $BundleBuilder.AppendLine("(This file is empty or contains only whitespace)")
         } else {
-            # CORRECTED: Use single quotes for literal Markdown fences
             $null = $BundleBuilder.AppendLine(('```' + $currentLanguageHint))
             $null = $BundleBuilder.AppendLine($fileContent)
             $null = $BundleBuilder.AppendLine('```')
@@ -273,7 +272,7 @@ finally {
     }
 
     $thisBundlerScriptFileObject = Get-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue
-    $bundlerScriptVersion = "1.15.11" # This is the version of the script being generated
+    $bundlerScriptVersion = "1.15.11" # Version as per user's provided file, AI does not change this unless instructed to update *this script*
     if ($thisBundlerScriptFileObject) {
         $readBundlerVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content -LiteralPath $thisBundlerScriptFileObject.FullName -Raw -ErrorAction SilentlyContinue) -ScriptNameForWarning $thisBundlerScriptFileObject.Name
         if ($readBundlerVersion -ne $bundlerScriptVersion -and $readBundlerVersion -ne "N/A" -and $readBundlerVersion -notlike "N/A (*" -and $PSCommandPath -ne $MyInvocation.MyCommand.Path) {
@@ -283,12 +282,13 @@ finally {
          Write-Warning "Bundler: Could not get bundler script file object for version extraction. Using manually set version '$bundlerScriptVersion' for AI State."
     }
 
+    # AI STATE BLOCK - Updated by AI as requested
     $aiState = @{
         project_name = "PoSh Backup Solution";
         project_root_folder_name = $ProjectRoot_DisplayName;
-        bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss");
-        main_script_poSh_backup_version = $poShBackupVersion;
-        bundler_script_version = $bundlerScriptVersion;
+        bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); # AI_UPDATE: Updated time
+        main_script_poSh_backup_version = $poShBackupVersion; # Read from PoSh-Backup.ps1
+        bundler_script_version = $bundlerScriptVersion; # Matches script version
 
         conversation_summary = @(
             "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1).",
@@ -297,11 +297,12 @@ finally {
             "Core Features: Early 7-Zip check (auto-detection), VSS, retries, hooks, flexible password management.",
             "Validation: Optional schema-based configuration validation (PoShBackupValidator.psm1).",
             "Bundler Improvements: Regex for version extraction refined; PoSh-Backup.ps1 -TestConfig output included by default; PSSA uses settings file; bundler's own PSSA warnings addressed (Write-Host to Write-Verbose/Output, Invoke-Expression suppression).",
-            "PSScriptAnalyzer: Iteratively addressed warnings in production code through direct fixes and by updating PSScriptAnalyzerSettings.psd1 to globally exclude specific rules. Removed corresponding in-line/attribute suppressions from code."
-        );
-        module_descriptions = $script:autoDetectedModuleDescriptions;
+            "PSScriptAnalyzer: Iteratively addressed warnings in production code through direct fixes and by updating PSScriptAnalyzerSettings.psd1 to globally exclude specific rules. Removed corresponding in-line/attribute suppressions from code.",
+            "Pester Tests: Attempted to create/debug Pester tests for Utils.psm1 and PasswordManager.psm1. Encountered significant and persistent issues with Pester environment setup, cmdlet availability (Get-Mock, Remove-Mock), mock scoping, and test logic. These tests are currently non-functional and were excluded from this bundle generation."
+        ); # AI_UPDATE: Added note about Pester test issues
+        module_descriptions = $script:autoDetectedModuleDescriptions; # Auto-detected
         external_dependencies = @{
-            powershell_modules = ($script:autoDetectedPsDependencies | Sort-Object -Unique);
+            powershell_modules = ($script:autoDetectedPsDependencies | Sort-Object -Unique); # Auto-detected, currently null
             executables = @(
                 "7z.exe (7-Zip command-line tool - path configurable or auto-detected)"
             )
@@ -318,8 +319,9 @@ finally {
             "SCOPE: Double-check variable scopes when helper functions modify collections intended for wider use (prefer passing by ref or using script scope explicitly and carefully, e.g., `$script:varName`).",
             "STRUCTURE: Respect the modular design (Utils, Operations, PasswordManager, Reporting orchestrator, Reporting sub-modules).",
             "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code, especially in complex `if/try/catch/finally` blocks and `param()` blocks.",
-            "PSSA: Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions (from PSScriptAnalyzerSettings.psd1 or in-line attributes/comments). Trust VS Code's PSSA feedback (when configured with the settings file) more for true suppression status."
-        );
+            "PSSA: Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions (from PSScriptAnalyzerSettings.psd1 or in-line attributes/comments). Trust VS Code's PSSA feedback (when configured with the settings file) more for true suppression status.",
+            "PESTER (SESSION): Current Pester tests are non-functional. Significant issues encountered with Pester v5 environment, cmdlet availability (Get-Mock/Remove-Mock were not exported by Pester 5.7.1), mock scoping, and test logic that could not be resolved during the session. Further Pester work will require a reset or a different diagnostic approach."
+        ); # AI_UPDATE: Added specific Pester watch item
         ai_bundler_update_instructions = @{
             purpose = "Instructions for AI on how to regenerate the content of this `$aiState hashtable within the Generate-ProjectBundleForAI.ps1 script when requested by the user.";
             when_to_update = "Only when the user explicitly asks to 'update the bundler script's AI state'.";
@@ -340,13 +342,13 @@ finally {
             reminder_for_ai = "When asked to update this state, proactively consider if any recent challenges or frequent corrections should be added to the 'ai_development_watch_list'."
         }
     }
+    # END AI STATE BLOCK
 
     # Assemble the final output in order
     $finalOutputBuilder = [System.Text.StringBuilder]::new()
     $null = $finalOutputBuilder.Append($headerContentBuilder.ToString())
 
     $null = $finalOutputBuilder.AppendLine("--- AI_STATE_START ---")
-    # CORRECTED: Use single quotes for literal Markdown fences
     $null = $finalOutputBuilder.AppendLine('```json')
     $null = $finalOutputBuilder.AppendLine(($aiState | ConvertTo-Json -Depth 10))
     $null = $finalOutputBuilder.AppendLine('```')
@@ -372,7 +374,11 @@ finally {
                     $childItems = $childItems | Where-Object { $_.PSIsContainer -or ($_.Extension.ToLowerInvariant() -notin $reportFileExtensionsToExcludeInOverview) }
                 } elseif ($item.Name -eq "Meta" -and $item.FullName -eq $PSScriptRoot) {
                      $childItems = $childItems | Where-Object { $_.Name -eq ($OutputFileNameBase + "-" + $timestamp + ".txt") -or $_.Name -eq "Generate-ProjectBundleForAI.ps1" -or $_.PSIsContainer}
+                } elseif ($item.Name -eq "Tests") { # AI_UPDATE: Ensure "Tests" children are represented as "..." if Tests folder is excluded at top level
+                    $null = $finalOutputBuilder.AppendLine("  |  |- ... (Content excluded by bundler settings)")
+                    $childItems = @() # Don't list children if parent is excluded
                 }
+
 
                 $childItems | Sort-Object PSIsContainer -Descending | ForEach-Object {
                     $childItem = $_
@@ -407,7 +413,6 @@ finally {
                 Push-Location (Split-Path -Path $fullPathToPoShBackupScript -Parent)
                 try {
                     $invokeCommand = ". `"$fullPathToPoShBackupScript`" -TestConfig *>&1"
-                    # PSScriptAnalyzer Suppress PSAvoidUsingInvokeExpression - Justified for robust output capture of a separate script when other methods failed.
                     $testConfigOutput = Invoke-Expression $invokeCommand | Out-String
                 }
                 catch {
@@ -443,12 +448,11 @@ finally {
         $null = $finalOutputBuilder.AppendLine("")
     }
 
-    $analyzerSettingsPath = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PSScriptAnalyzerSettings.psd1" # Define path once
+    $analyzerSettingsPath = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PSScriptAnalyzerSettings.psd1"
     if ($shouldRunScriptAnalyzer -and (Test-Path -LiteralPath $analyzerSettingsPath -PathType Leaf)) {
         $null = $finalOutputBuilder.AppendLine("--- PSSCRIPTANALYZER_SETTINGS_FILE_CONTENT_START ---")
         $null = $finalOutputBuilder.AppendLine("Path: PSScriptAnalyzerSettings.psd1 (Project Root)")
         $null = $finalOutputBuilder.AppendLine("--- FILE_CONTENT ---")
-        # CORRECTED: Use single quotes for literal Markdown fences
         $null = $finalOutputBuilder.AppendLine('```powershell')
         try {
             $settingsContent = Get-Content -LiteralPath $analyzerSettingsPath -Raw -ErrorAction Stop
@@ -469,7 +473,7 @@ finally {
                 $scriptFilesToAnalyze = Get-ChildItem -Path $ProjectRoot_FullPath -Recurse -Include *.ps1, *.psm1 |
                     Where-Object {
                         $isExcluded = $false
-                        foreach($excludedDirName in $ExcludedFolders) {
+                        foreach($excludedDirName in $ExcludedFolders) { # $ExcludedFolders already updated to include "Tests"
                             $fullExcludedPath = Join-Path -Path $ProjectRoot_FullPath -ChildPath $excludedDirName
                             if ($_.FullName.StartsWith($fullExcludedPath, [System.StringComparison]::OrdinalIgnoreCase)) { $isExcluded = $true; break }
                         }
@@ -480,8 +484,6 @@ finally {
                     $allAnalyzerResultsList = [System.Collections.Generic.List[object]]::new()
                     foreach ($scriptFile in $scriptFilesToAnalyze) {
                         Write-Verbose "Analyzing $($scriptFile.FullName)..."
-
-                        # $analyzerSettingsPath already defined
                         $invokeAnalyzerParams = @{
                             Path = $scriptFile.FullName
                             Severity = @('Error', 'Warning')
