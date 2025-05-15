@@ -1,8 +1,20 @@
-# PowerShell Module: Utils.psm1
-# Version 1.0: Updated PauseBeforeExit validation to include new string options (Always, Never, OnFailure, etc.).
-# Version 1.1: Added User Configuration Override (User.psd1) and deep merge functionality.
-# Version 1.2: Added auto-detection for 7-Zip executable.
-# Version 1.4: Moved schema validation to PoShBackupValidator.psm1 (optional) and refined 7zip path detection.
+<#
+.SYNOPSIS
+    Provides a collection of utility functions for the PoSh-Backup script, including logging,
+    configuration value retrieval, administrative privilege checks, hook script execution,
+    archive size formatting, application configuration import/validation, and job/set resolution.
+.DESCRIPTION
+    This module centralizes common helper functions used throughout the PoSh-Backup solution
+    to promote code reusability and maintainability. It handles tasks that are not specific
+    to backup operations or report generation but are essential for the overall script's functionality.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        1.4 
+    DateCreated:    10-May-2025
+    LastModified:   15-May-2025
+    Purpose:        Core utility functions for PoSh-Backup.
+    Prerequisites:  PowerShell 5.1+
+#>
 
 #region --- Private Helper Functions ---
 function Merge-DeepHashtables {

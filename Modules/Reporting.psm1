@@ -1,6 +1,23 @@
-# PowerShell Module: Reporting.psm1 (Orchestrator)
-# Description: Dispatches report generation to specific format modules.
-# Version: 2.1 (Updated module paths for subdirectory structure) 
+<#
+.SYNOPSIS
+    Acts as the central orchestrator for report generation in the PoSh-Backup solution.
+    It determines the required report format(s) for a job and dispatches the report
+    creation task to the appropriate format-specific reporting module.
+.DESCRIPTION
+    The Reporting orchestrator module is responsible for managing the overall reporting process.
+    It reads configuration to determine which report types are enabled for a job, dynamically
+    loads the necessary reporting sub-modules (e.g., ReportingHtml.psm1, ReportingCsv.psm1),
+    and invokes their respective report generation functions, passing all required data.
+    It also handles the creation of report directories if they don't exist.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        2.1
+    DateCreated:    10-May-2025
+    LastModified:   15-May-2025
+    Purpose:        Manages and dispatches report generation to format-specific modules.
+    Prerequisites:  PowerShell 5.1+, Utils.psm1, and format-specific reporting modules
+                    (e.g., ReportingHtml.psm1) located in Modules\Reporting\.
+#>
 
 function Invoke-ReportGenerator {
     [CmdletBinding()]

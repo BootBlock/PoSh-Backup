@@ -1,6 +1,23 @@
-# PowerShell Module: ReportingHtml.psm1
-# Description: Generates HTML reports for PoSh-Backup.
-# Version: 1.2 (Corrected Add-Type logic and try-catch block)
+<#
+.SYNOPSIS
+    Generates detailed HTML reports for PoSh-Backup jobs, featuring customizable themes,
+    CSS overrides, embedded logos, and client-side JavaScript for log filtering and searching.
+    Includes a banner for simulation mode runs.
+.DESCRIPTION
+    This module is dedicated to creating rich, interactive HTML reports. It handles CSS loading
+    for themes and user overrides, embeds images, structures the report into sections (Summary,
+    Configuration, Hooks, Logs), and includes JavaScript for dynamic log filtering.
+    It uses robust HTML encoding to prevent XSS vulnerabilities.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        1.2 
+    DateCreated:    14-May-2025
+    LastModified:   15-May-2025
+    Purpose:        HTML report generation for PoSh-Backup.
+    Prerequisites:  PowerShell 5.1+. Called by Reporting.psm1 (orchestrator).
+                    System.Web assembly (optional, for enhanced HtmlEncode).
+                    Base.css and theme CSS files in Config\Themes\.
+#>
 
 #region --- HTML Encode Helper Function Definition ---
 Function ConvertTo-PoshBackupSafeHtmlInternal {

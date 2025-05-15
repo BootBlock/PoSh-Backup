@@ -1,6 +1,20 @@
-# PowerShell Module: ReportingCsv.psm1
-# Description: Generates CSV reports for PoSh-Backup.
-# Version: 1.0
+<#
+.SYNOPSIS
+    Generates CSV (Comma Separated Values) reports for PoSh-Backup jobs, providing a summary,
+    detailed log entries, and hook script execution details in separate CSV files for easy
+    parsing or spreadsheet import.
+.DESCRIPTION
+    This module creates structured data output in CSV format. It generates a main summary CSV
+    file for each job, and optionally separate CSV files for detailed log entries and
+    executed hook scripts if such data is present in the report data.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        1.0
+    DateCreated:    14-May-2025
+    LastModified:   15-May-2025
+    Purpose:        CSV report generation for PoSh-Backup.
+    Prerequisites:  PowerShell 5.1+. Called by Reporting.psm1 (orchestrator).
+#>
 
 function Invoke-CsvReport {
     [CmdletBinding()]

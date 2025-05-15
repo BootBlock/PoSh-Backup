@@ -1,6 +1,22 @@
-# PowerShell Module: PasswordManager.psm1
-# Description: Handles retrieval of archive passwords for PoSh-Backup using various methods.
-# Version: 1.1 (Corrected string interpolation errors for logging)
+<#
+.SYNOPSIS
+    Handles the retrieval of archive passwords for PoSh-Backup jobs using various configurable
+    methods, such as interactive prompts (Get-Credential), PowerShell SecretManagement,
+    reading from an encrypted SecureString file, or (discouraged) plain text from configuration.
+.DESCRIPTION
+    This module abstracts the password acquisition logic, providing a centralized and secure
+    way to obtain passwords needed for encrypting 7-Zip archives. It supports multiple
+    password sources to cater to different operational needs, from interactive use to
+    fully automated scheduled tasks.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        1.1
+    DateCreated:    10-May-2025
+    LastModified:   15-May-2025
+    Purpose:        Centralised password management for archive encryption.
+    Prerequisites:  PowerShell 5.1+. For 'SecretManagement' method, the
+                    Microsoft.PowerShell.SecretManagement module and a configured vault are required.
+#>
 
 #region --- Private Helper: SecureString to PlainText ---
 # To be used ONLY for passing to 7-Zip temp file and cleared immediately.

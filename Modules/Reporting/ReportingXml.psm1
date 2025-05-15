@@ -1,6 +1,21 @@
-# PowerShell Module: ReportingXml.psm1
-# Description: Generates XML reports (PowerShell Clixml format) for PoSh-Backup.
-# Version: 1.0
+<#
+.SYNOPSIS
+    Generates XML (Extensible Markup Language) reports for PoSh-Backup jobs using PowerShell's
+    Export-Clixml format, which serializes PowerShell objects including type information,
+    suitable for re-importing into PowerShell.
+.DESCRIPTION
+    This module creates an XML representation of the backup job report data. It uses
+    PowerShell's native `Export-Clixml` cmdlet, which produces a detailed XML structure
+    that accurately represents PowerShell objects and can be easily re-hydrated using
+    `Import-Clixml`.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        1.0
+    DateCreated:    14-May-2025
+    LastModified:   15-May-2025
+    Purpose:        XML (Clixml) report generation for PoSh-Backup.
+    Prerequisites:  PowerShell 5.1+. Called by Reporting.psm1 (orchestrator).
+#>
 
 function Invoke-XmlReport {
     [CmdletBinding()]

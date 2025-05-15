@@ -1,6 +1,21 @@
-# PowerShell Module: ReportingTxt.psm1
-# Description: Generates Plain Text reports for PoSh-Backup.
-# Version: 1.0
+<#
+.SYNOPSIS
+    Generates plain text (.txt) summary reports for PoSh-Backup jobs, providing a simple,
+    human-readable overview of the backup operation, including summary details,
+    configuration used, hook script actions, and log entries.
+.DESCRIPTION
+    This module produces a straightforward plain text report, formatted for easy reading
+    in any text editor or for inclusion in email bodies. It includes key summary information,
+    a snapshot of the job configuration, details of any executed hook scripts, and the
+    full sequence of log messages.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        1.0
+    DateCreated:    14-May-2025
+    LastModified:   15-May-2025
+    Purpose:        Plain text report generation for PoSh-Backup.
+    Prerequisites:  PowerShell 5.1+. Called by Reporting.psm1 (orchestrator).
+#>
 
 function Invoke-TxtReport {
     [CmdletBinding()]

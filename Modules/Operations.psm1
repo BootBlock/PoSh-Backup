@@ -1,11 +1,23 @@
-# PowerShell Module: Operations.psm1
-# Version 1.0: Implemented inclusive retention count. Added Invoke-VisualBasicDeleteFile wrapper.
-#              Uses JobArchiveDateFormat for archive filenames.
-#              Maintains DEBUG level logging of captured STDOUT when HideSevenZipOutput is true.
-# Version 1.1: Added IsSimulationReport to report data for HTML report banner.
-# Version 1.2: Added debug logging for simulation status.
-# Version 1.4: Integrated with PasswordManager.psm1 for flexible password handling.
-# Version 1.6: Corrected ALL identified syntax errors related to brackets and statement blocks.
+<#
+.SYNOPSIS
+    Manages the core backup operations for a single backup job within the PoSh-Backup solution.
+    This includes gathering effective job configurations, handling VSS (Volume Shadow Copy Service)
+    creation and cleanup, executing 7-Zip for archiving and testing, applying retention policies,
+    and checking destination free space.
+.DESCRIPTION
+    The Operations module encapsulates the entire lifecycle of processing a single backup job.
+    It interfaces with VSS for snapshotting, 7-Zip for compression, PasswordManager for password
+    retrieval, and utility functions for logging and configuration. It aims to make each backup
+    job execution robust and report detailed status.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        1.6 
+    DateCreated:    10-May-2025
+    LastModified:   15-May-2025
+    Purpose:        Handles the execution logic for individual backup jobs.
+    Prerequisites:  PowerShell 5.1+, 7-Zip, Utils.psm1, PasswordManager.psm1.
+                    Administrator privileges required for VSS functionality.
+#>
 
 #region --- Private Helper: Gather Job Configuration ---
 # Not exported

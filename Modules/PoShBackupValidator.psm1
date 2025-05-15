@@ -1,6 +1,22 @@
-# PowerShell Module: PoShBackupValidator.psm1
-# Description: Provides advanced schema-based validation for PoSh-Backup configuration files.
-# Version: 1.1 (Added new password management keys to schema)
+<#
+.SYNOPSIS
+    (Optional Module) Provides advanced schema-based validation for PoSh-Backup configuration files,
+    checking for correct structure, data types, required keys, and allowed values to ensure
+    configuration integrity.
+.DESCRIPTION
+    This module contains a schema definition for the PoSh-Backup configuration structure and
+    functions to recursively validate a loaded configuration object against this schema.
+    It helps detect typos, incorrect data types, missing required settings, or invalid values,
+    contributing to more robust configuration management. This module is intended to be
+    optionally enabled via a setting in the main configuration file.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        1.1
+    DateCreated:    14-May-2025
+    LastModified:   15-May-2025
+    Purpose:        Optional advanced configuration validation for PoSh-Backup.
+    Prerequisites:  PowerShell 5.1+. Called by Utils.psm1 if enabled in config.
+#>
 
 #region --- Module-Scoped Schema Definition ---
 $Script:PoShBackup_ConfigSchema = @{

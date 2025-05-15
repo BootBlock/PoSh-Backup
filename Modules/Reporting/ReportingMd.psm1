@@ -1,6 +1,20 @@
-# PowerShell Module: ReportingMd.psm1
-# Description: Generates Markdown reports for PoSh-Backup.
-# Version: 1.1 (Corrected syntax in Hook Scripts section)
+<#
+.SYNOPSIS
+    Generates Markdown (.md) formatted reports for PoSh-Backup jobs, offering a human-readable
+    plain text format that can also be rendered into rich HTML by Markdown processors,
+    suitable for documentation or version control.
+.DESCRIPTION
+    This module creates reports using Markdown syntax. The output includes structured sections
+    for summary, configuration, hook scripts, and detailed logs, utilizing Markdown tables,
+    code blocks, and headings for clear presentation when rendered.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        1.1
+    DateCreated:    14-May-2025
+    LastModified:   15-May-2025
+    Purpose:        Markdown report generation for PoSh-Backup.
+    Prerequisites:  PowerShell 5.1+. Called by Reporting.psm1 (orchestrator).
+#>
 
 function Invoke-MdReport {
     [CmdletBinding()]

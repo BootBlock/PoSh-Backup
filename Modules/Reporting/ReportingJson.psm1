@@ -1,6 +1,20 @@
-# PowerShell Module: ReportingJson.psm1
-# Description: Generates JSON reports for PoSh-Backup.
-# Version: 1.0
+<#
+.SYNOPSIS
+    Generates JSON (JavaScript Object Notation) reports for PoSh-Backup jobs, serializing
+    the complete report data structure for programmatic consumption and integration
+    with other tools or systems.
+.DESCRIPTION
+    This module outputs the entire backup job report data as a single JSON file.
+    This format is ideal for machine-to-machine communication, API integration,
+    or for use with various data processing tools that understand JSON.
+.NOTES
+    Author:         PoSh-Backup Project
+    Version:        1.0
+    DateCreated:    14-May-2025
+    LastModified:   15-May-2025
+    Purpose:        JSON report generation for PoSh-Backup.
+    Prerequisites:  PowerShell 5.1+. Called by Reporting.psm1 (orchestrator).
+#>
 
 function Invoke-JsonReport {
     [CmdletBinding()]

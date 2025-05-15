@@ -1,3 +1,4 @@
-Logs/*.log
-Reports/*.html
 Config/User.psd1
+Logs/*.log
+Meta/*.txt
+Reports/*.html
