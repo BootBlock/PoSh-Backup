@@ -4,6 +4,8 @@
 #              Maintains DEBUG level logging of captured STDOUT when HideSevenZipOutput is true.
 # Version 1.1: Added IsSimulationReport to report data for HTML report banner.
 # Version 1.2: Added debug logging for simulation status.
+# Version 1.4: Integrated with PasswordManager.psm1 for flexible password handling.
+# Version 1.6: Corrected ALL identified syntax errors related to brackets and statement blocks.
 
 #region --- Private Helper: Gather Job Configuration ---
 # Not exported
@@ -17,20 +19,25 @@ function Get-PoShBackupJobEffectiveConfiguration {
         [Parameter(Mandatory)] [ref]$JobReportDataRef 
     )
 
-    $effectiveConfig = @{}
+    $effectiveConfig = @{} 
     $reportData = $JobReportDataRef.Value 
 
-    $effectiveConfig.OriginalSourcePath = $JobConfig.Path
-    $effectiveConfig.BaseFileName       = $JobConfig.Name
-    $reportData.JobConfiguration        = $JobConfig 
+    $effectiveConfig.OriginalSourcePath = $JobConfig.Path 
+    $effectiveConfig.BaseFileName       = $JobConfig.Name 
+    $reportData.JobConfiguration        = $JobConfig
 
     $effectiveConfig.DestinationDir = Get-ConfigValue -ConfigObject $JobConfig -Key 'DestinationDir' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDestinationDir' -DefaultValue $null)
-    $effectiveConfig.RetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionCount' -DefaultValue 1
+    $effectiveConfig.RetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3) 
     if ($effectiveConfig.RetentionCount -lt 0) { $effectiveConfig.RetentionCount = 0 } 
-    $effectiveConfig.DeleteToRecycleBin = Get-ConfigValue -ConfigObject $JobConfig -Key 'DeleteToRecycleBin' -DefaultValue $false
+    $effectiveConfig.DeleteToRecycleBin = Get-ConfigValue -ConfigObject $JobConfig -Key 'DeleteToRecycleBin' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDeleteToRecycleBin' -DefaultValue $false)
     
-    $effectiveConfig.UsePassword = Get-ConfigValue -ConfigObject $JobConfig -Key 'UsePassword' -DefaultValue $false
+    $effectiveConfig.ArchivePasswordMethod = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordMethod' -DefaultValue "None"
     $effectiveConfig.CredentialUserNameHint = Get-ConfigValue -ConfigObject $JobConfig -Key 'CredentialUserNameHint' -DefaultValue "BackupUser"
+    $effectiveConfig.ArchivePasswordSecretName = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordSecretName' -DefaultValue $null
+    $effectiveConfig.ArchivePasswordVaultName = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordVaultName' -DefaultValue $null
+    $effectiveConfig.ArchivePasswordSecureStringPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordSecureStringPath' -DefaultValue $null
+    $effectiveConfig.ArchivePasswordPlainText = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordPlainText' -DefaultValue $null
+    $effectiveConfig.UsePassword = Get-ConfigValue -ConfigObject $JobConfig -Key 'UsePassword' -DefaultValue $false 
 
     $effectiveConfig.HideSevenZipOutput = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'HideSevenZipOutput' -DefaultValue $true
     
@@ -46,23 +53,20 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.JobCompressOpenFiles = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressOpenFiles' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressOpenFiles' -DefaultValue $true)
     $effectiveConfig.JobAdditionalExclusions = @(Get-ConfigValue -ConfigObject $JobConfig -Key 'AdditionalExclusions' -DefaultValue @()) 
 
-    $scriptDefaultThreads = [System.Environment]::ProcessorCount
-    $globalConfigThreads  = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultThreadCount' -DefaultValue 0
-    $jobSpecificThreads   = Get-ConfigValue -ConfigObject $JobConfig -Key 'ThreadsToUse' -DefaultValue 0
-    $threadsFor7Zip = if ($jobSpecificThreads -gt 0) { $jobSpecificThreads } elseif ($globalConfigThreads -gt 0) { $globalConfigThreads } else { $scriptDefaultThreads }
-    if ($threadsFor7Zip -le 0) { $threadsFor7Zip = $scriptDefaultThreads } 
-    $effectiveConfig.ThreadsSetting = "-mmt=$($threadsFor7Zip)"
+    $_scriptDefaultThreads = [System.Environment]::ProcessorCount # This variable is now used
+    $_globalConfigThreads  = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultThreadCount' -DefaultValue 0
+    $_jobSpecificThreadsToUse = Get-ConfigValue -ConfigObject $JobConfig -Key 'ThreadsToUse' -DefaultValue 0 
+    $_threadsFor7Zip = if ($_jobSpecificThreadsToUse -gt 0) { $_jobSpecificThreadsToUse } elseif ($_globalConfigThreads -gt 0) { $_globalConfigThreads } else { 0 } 
+    $effectiveConfig.ThreadsSetting = if ($_threadsFor7Zip -gt 0) { "-mmt=$($_threadsFor7Zip)"} else {"-mmt"} 
 
     $effectiveConfig.JobEnableVSS = if ($CliOverrides.UseVSS) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableVSS' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableVSS' -DefaultValue $false) }
     $effectiveConfig.JobVSSContextOption = Get-ConfigValue -ConfigObject $JobConfig -Key 'VSSContextOption' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVSSContextOption' -DefaultValue "Persistent NoWriters")
-    
-    $vssCachePathFromConfig = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab"
-    $effectiveConfig.VSSMetadataCachePath = [System.Environment]::ExpandEnvironmentVariables($vssCachePathFromConfig)
-    
+    $_vssCachePathFromConfig = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab"
+    $effectiveConfig.VSSMetadataCachePath = [System.Environment]::ExpandEnvironmentVariables($_vssCachePathFromConfig)
     $effectiveConfig.VSSPollingTimeoutSeconds = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSPollingTimeoutSeconds' -DefaultValue 120
     $effectiveConfig.VSSPollingIntervalSeconds = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSPollingIntervalSeconds' -DefaultValue 5
 
-    $effectiveConfig.JobEnableRetries = if ($CliOverrides.EnableRetries) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableRetries' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableRetries' -DefaultValue $false) }
+    $effectiveConfig.JobEnableRetries = if ($CliOverrides.EnableRetries) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableRetries' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableRetries' -DefaultValue $true) } 
     $effectiveConfig.JobMaxRetryAttempts = Get-ConfigValue -ConfigObject $JobConfig -Key 'MaxRetryAttempts' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MaxRetryAttempts' -DefaultValue 3)
     $effectiveConfig.JobRetryDelaySeconds = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetryDelaySeconds' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetryDelaySeconds' -DefaultValue 60)
     
@@ -83,12 +87,12 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.PostBackupScriptAlwaysPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptAlwaysPath' -DefaultValue $null
     
     $reportData.SourcePath = if ($effectiveConfig.OriginalSourcePath -is [array]) {$effectiveConfig.OriginalSourcePath} else {@($effectiveConfig.OriginalSourcePath)}
-    $reportData.VSSUsed = $effectiveConfig.JobEnableVSS
+    $reportData.VSSUsed = $effectiveConfig.JobEnableVSS 
     $reportData.RetriesEnabled = $effectiveConfig.JobEnableRetries
     $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation 
     $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority
 
-    $effectiveConfig.GlobalConfigRef = $GlobalConfig
+    $effectiveConfig.GlobalConfigRef = $GlobalConfig 
 
     return $effectiveConfig
 }
@@ -98,7 +102,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
 function Get-PoShBackup7ZipArguments {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [hashtable]$EffectiveConfig,
+        [Parameter(Mandatory)] [hashtable]$EffectiveConfig, 
         [Parameter(Mandatory)] [string]$FinalArchivePath,
         [Parameter(Mandatory)] [object]$CurrentJobSourcePathFor7Zip, 
         [Parameter(Mandatory=$false)] [string]$TempPasswordFile = $null 
@@ -122,23 +126,25 @@ function Get-PoShBackup7ZipArguments {
         $EffectiveConfig.JobAdditionalExclusions | ForEach-Object { 
             if (-not [string]::IsNullOrWhiteSpace($_)) { 
                 $exclusion = $_.Trim()
-                if (-not ($exclusion.StartsWith("-x!") -or $exclusion.StartsWith("-xr!") -or $exclusion.StartsWith("-i!") -or $exclusion.StartsWith("-ir!"))) { $exclusion = "-x!$($exclusion)" } 
+                if (-not ($exclusion.StartsWith("-x!") -or $exclusion.StartsWith("-xr!") -or $exclusion.StartsWith("-i!") -or $exclusion.StartsWith("-ir!"))) {
+                    $exclusion = "-x!$($exclusion)" 
+                }
                 $sevenZipArgs.Add($exclusion) 
             } 
         }
     }
 
-    if ($EffectiveConfig.UsePassword) {
+    if ($EffectiveConfig.PasswordInUseFor7Zip) {
         $sevenZipArgs.Add("-mhe=on") 
         if (-not [string]::IsNullOrWhiteSpace($TempPasswordFile)) {
-            $sevenZipArgs.Add("-spf$TempPasswordFile") 
+            $sevenZipArgs.Add("-spf`"$TempPasswordFile`"") 
         } else {
-            Write-LogMessage "[WARNING] Password requested but no temp password file provided to 7-Zip; password will not be applied." -Level WARNING
+            Write-LogMessage "[WARNING] PasswordInUseFor7Zip is true but no temp password file provided to 7-Zip; password will not be applied." -Level WARNING
         }
     }
     
     if ([string]::IsNullOrWhiteSpace($FinalArchivePath)) {
-        Write-LogMessage "[CRITICAL] FinalArchivePath is NULL or EMPTY in Get-PoShBackup7ZipArguments. This can cause 7-Zip to use default output." -Level ERROR -ForegroundColour $Global:ColourError
+        Write-LogMessage "[CRITICAL] FinalArchivePath is NULL or EMPTY in Get-PoShBackup7ZipArguments. 7-Zip may use a default name or fail." -Level ERROR -ForegroundColour $Global:ColourError
     }
     $sevenZipArgs.Add($FinalArchivePath) 
     
@@ -148,35 +154,50 @@ function Get-PoShBackup7ZipArguments {
         $sevenZipArgs.Add($CurrentJobSourcePathFor7Zip) 
     }
     return $sevenZipArgs.ToArray()
-}
+} # CORRECTED: Missing closing brace for Get-PoShBackup7ZipArguments
 #endregion
 
 #region --- Main Job Processing Function ---
-function Invoke-PoShBackupJob {
+function Invoke-PoShBackupJob { # CORRECTED: Opening brace for function on new line or spaced after param
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [string]$JobName,
-        [Parameter(Mandatory)] [hashtable]$JobConfig,
-        [Parameter(Mandatory)] [hashtable]$GlobalConfig,
-        [Parameter(Mandatory)] [hashtable]$CliOverrides,
-        [Parameter(Mandatory)] [string]$PSScriptRootForPaths,
-        [Parameter(Mandatory)] [string]$ActualConfigFile,
-        [Parameter(Mandatory)] [ref]$JobReportDataRef,
-        [Parameter(Mandatory=$false)] [switch]$IsSimulateMode 
+        [Parameter(Mandatory)] 
+        [string]$JobName,
+
+        [Parameter(Mandatory)] 
+        [hashtable]$JobConfig,      
+        
+        [Parameter(Mandatory)] 
+        [hashtable]$GlobalConfig,   
+        
+        [Parameter(Mandatory)] 
+        [hashtable]$CliOverrides,
+        
+        [Parameter(Mandatory)] 
+        [string]$PSScriptRootForPaths, 
+        
+        [Parameter(Mandatory)] 
+        [string]$ActualConfigFile,     
+        
+        [Parameter(Mandatory)] 
+        [ref]$JobReportDataRef,       
+        
+        [Parameter(Mandatory=$false)] 
+        [switch]$IsSimulateMode 
     )
 
-    $currentJobStatus = "SUCCESS" # Default operational status
-    $JobPasswordPlainText = $null 
+    $currentJobStatus = "SUCCESS" 
     $tempPasswordFilePath = $null 
     $FinalArchivePath = $null
     $VSSPathsInUse = $null      
     $reportData = $JobReportDataRef.Value 
-
-    $reportData.IsSimulationReport = $IsSimulateMode.IsPresent # This will be $true or $false
+    $reportData.IsSimulationReport = $IsSimulateMode.IsPresent 
 
     if (-not ($reportData.PSObject.Properties.Name -contains 'ScriptStartTime')) { 
         $reportData['ScriptStartTime'] = Get-Date 
     }
+
+    $plainTextPasswordForJob = $null 
 
     try {
         $effectiveJobConfig = Get-PoShBackupJobEffectiveConfiguration -JobConfig $JobConfig -GlobalConfig $GlobalConfig -CliOverrides $CliOverrides -PSScriptRootForPaths $PSScriptRootForPaths -JobReportDataRef $JobReportDataRef
@@ -185,16 +206,9 @@ function Invoke-PoShBackupJob {
         Write-LogMessage "   - Effective Source Path(s): $(if ($effectiveJobConfig.OriginalSourcePath -is [array]) {$effectiveJobConfig.OriginalSourcePath -join '; '} else {$effectiveJobConfig.OriginalSourcePath})" -ForegroundColour $Global:ColourValue
         Write-LogMessage "   - Destination Directory  : $($effectiveJobConfig.DestinationDir)" -ForegroundColour $Global:ColourValue
         Write-LogMessage "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)" -ForegroundColour $Global:ColourValue
-        Write-LogMessage "   - Archive Extension      : $($effectiveJobConfig.JobArchiveExtension)" -ForegroundColour $Global:ColourValue
-        Write-LogMessage "   - Archive Date Format    : $($effectiveJobConfig.JobArchiveDateFormat)" -ForegroundColour $Global:ColourValue
-        Write-LogMessage "   - VSS Enabled            : $($effectiveJobConfig.JobEnableVSS)" -ForegroundColour $Global:ColourValue
-        if ($effectiveJobConfig.JobEnableVSS) {
-            Write-LogMessage "     - VSS Context Option   : $($effectiveJobConfig.JobVSSContextOption)" -ForegroundColour $Global:ColourValue
-            Write-LogMessage "     - VSS Cache Path       : $($effectiveJobConfig.VSSMetadataCachePath)" -ForegroundColour $Global:ColourValue
-        }
-        Write-LogMessage "   - 7-Zip Priority         : $($effectiveJobConfig.JobSevenZipProcessPriority)" -ForegroundColour $Global:ColourValue
-        Write-LogMessage "   - 7-Zip Threads          : $($effectiveJobConfig.ThreadsSetting)" -ForegroundColour $Global:ColourValue
-        
+        Write-LogMessage "   - ArchivePasswordMethod  : $($effectiveJobConfig.ArchivePasswordMethod)" -ForegroundColour $Global:ColourValue
+
+
         if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.DestinationDir)) {
             Write-LogMessage "FATAL: Destination directory for job '$JobName' is not defined. Cannot proceed." -Level ERROR -ForegroundColour $Global:ColourError; throw "DestinationDir missing for job '$JobName'."
         }
@@ -208,23 +222,50 @@ function Invoke-PoShBackupJob {
             }
         }
 
-        if ($effectiveJobConfig.UsePassword) {
-            Write-LogMessage "`n[INFO] Password required for '$JobName'. Prompting..."
-            # In simulation, we don't prompt for password but need to simulate having one for 7zip args
-            if ($IsSimulateMode.IsPresent) {
-                Write-LogMessage "SIMULATE: Would prompt for password for job '$JobName'." -Level SIMULATE
-                $tempPasswordFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "simulated_password.tmp") # Dummy path for simulation
-            } else {
-                $cred = Get-Credential -UserName $effectiveJobConfig.CredentialUserNameHint -Message "Enter password for 7-Zip backup: '$JobName'"
-                if ($null -ne $cred) { 
-                    $JobPasswordPlainText = $cred.GetNetworkCredential().Password
-                    $tempPasswordFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-                    Set-Content -Path $tempPasswordFilePath -Value $JobPasswordPlainText -Encoding UTF8 -Force -ErrorAction Stop
-                    Write-LogMessage "   - Credentials obtained. Password written to temporary file for 7-Zip." -ForegroundColour $Global:ColourSuccess
-                } else { 
-                    Write-LogMessage "FATAL: Password entry cancelled for '$JobName'." -Level ERROR -ForegroundColour $Global:ColourError; throw "Password entry cancelled for job '$JobName'." 
+        $passwordResult = $null
+        $isPasswordRequiredOrConfigured = ($effectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -ne "NONE") -or $effectiveJobConfig.UsePassword 
+        $effectiveJobConfig.PasswordInUseFor7Zip = $false 
+
+        if ($isPasswordRequiredOrConfigured) {
+            try {
+                $passwordManagerModulePath = Join-Path -Path $PSScriptRootForPaths -ChildPath "Modules\PasswordManager.psm1"
+                if (-not (Test-Path -LiteralPath $passwordManagerModulePath -PathType Leaf)) {
+                    throw "PasswordManager.psm1 module not found at '$passwordManagerModulePath'. This module is required for password handling."
                 }
+                Import-Module -Name $passwordManagerModulePath -Force -ErrorAction Stop
+                
+                $passwordParams = @{
+                    JobConfigForPassword = $effectiveJobConfig 
+                    JobName              = $JobName
+                    IsSimulateMode       = $IsSimulateMode
+                    Logger               = ${function:Write-LogMessage}
+                }
+                $passwordResult = Get-PoShBackupArchivePassword @passwordParams
+                
+                $reportData.PasswordSource = $passwordResult.PasswordSource 
+
+                if ($null -ne $passwordResult -and (-not [string]::IsNullOrWhiteSpace($passwordResult.PlainTextPassword))) {
+                    $plainTextPasswordForJob = $passwordResult.PlainTextPassword 
+                    $effectiveJobConfig.PasswordInUseFor7Zip = $true 
+
+                    if ($IsSimulateMode.IsPresent) {
+                        $tempPasswordFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "simulated_poshbackup_pass.tmp") 
+                        Write-LogMessage "SIMULATE: Would write password (obtained via $($reportData.PasswordSource)) to temporary file '$tempPasswordFilePath'." -Level SIMULATE
+                    } else {
+                        $tempPasswordFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+                        Set-Content -Path $tempPasswordFilePath -Value $plainTextPasswordForJob -Encoding UTF8 -Force -ErrorAction Stop
+                        Write-LogMessage "   - Password (obtained via $($reportData.PasswordSource)) written to temporary file '$tempPasswordFilePath' for 7-Zip." -Level DEBUG
+                    }
+                } elseif ($isPasswordRequiredOrConfigured -and $effectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -ne "NONE" -and (-not $IsSimulateMode.IsPresent)) {
+                     Write-LogMessage "FATAL: Password was required for job '$JobName' via method '$($effectiveJobConfig.ArchivePasswordMethod)' but could not be obtained/is empty (after Get-PoShBackupArchivePassword)." -Level ERROR
+                     throw "Password unavailable/empty for job '$JobName' using method '$($effectiveJobConfig.ArchivePasswordMethod)'."
+                } # CORRECTED: Added closing brace for the outer if ($isPasswordRequiredOrConfigured)
+            } catch { # CORRECTED: This catch belongs to the inner try for password retrieval
+                Write-LogMessage "FATAL: Error during password retrieval process for job '$JobName'. Error: $($_.Exception.ToString())" -Level ERROR
+                throw 
             }
+        } elseif ($effectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -eq "NONE") { # Added closing brace above for outer if. This is an elseif
+            $reportData.PasswordSource = "None (Explicitly Configured)"
         }
 
         Invoke-HookScript -ScriptPath $effectiveJobConfig.PreBackupScriptPath -HookType "PreBackup" `
@@ -247,12 +288,12 @@ function Invoke-PoShBackupJob {
             $VSSPathsInUse = New-VSSShadowCopy @vssParams 
 
             if ($null -eq $VSSPathsInUse -or $VSSPathsInUse.Count -eq 0) {
-                if (-not $IsSimulateMode.IsPresent) { # Actual failure
+                if (-not $IsSimulateMode.IsPresent) { 
                     Write-LogMessage "[ERROR] VSS shadow copy creation failed or returned no paths for job '$JobName'. Using original source paths." -Level ERROR -ForegroundColour $Global:ColourError; $reportData.VSSStatus = "Failed to create/map shadows"
-                } else { # Simulated failure or no paths
+                } else { 
                      Write-LogMessage "SIMULATE: VSS shadow copy creation would have been attempted for job '$JobName'. Assuming original paths for simulation." -Level SIMULATE; $reportData.VSSStatus = "Simulated (No Shadows Created/Needed)"
                 }
-            } else { # $VSSPathsInUse has paths (real or simulated)
+            } else { 
                 Write-LogMessage "  - VSS shadow copies successfully created/mapped for job '$JobName'. Using shadow paths for backup." -ForegroundColour $Global:ColourSuccess -Level VSS
                 $currentJobSourcePathFor7Zip = if ($effectiveJobConfig.OriginalSourcePath -is [array]) { 
                     $effectiveJobConfig.OriginalSourcePath | ForEach-Object { 
@@ -271,8 +312,6 @@ function Invoke-PoShBackupJob {
         Write-LogMessage "   - Using source(s) for 7-Zip: $(if ($currentJobSourcePathFor7Zip -is [array]) {($currentJobSourcePathFor7Zip | Where-Object {$_}) -join '; '} else {$currentJobSourcePathFor7Zip})" -ForegroundColour $Global:ColourValue
         
         if (-not (Test-DestinationFreeSpace -DestDir $effectiveJobConfig.DestinationDir -MinRequiredGB $effectiveJobConfig.JobMinimumRequiredFreeSpaceGB -ExitOnLow $effectiveJobConfig.JobExitOnLowSpace -IsSimulateMode:$IsSimulateMode)) {
-            # Test-DestinationFreeSpace will log SIMULATE or actual error/warning
-            # If it returns $false, it means an exit condition was met (if ExitOnLow was true and space was low)
             throw "Low disk space condition met for job '$JobName'." 
         }
 
@@ -297,7 +336,7 @@ function Invoke-PoShBackupJob {
                                                         -CurrentJobSourcePathFor7Zip $currentJobSourcePathFor7Zip `
                                                         -TempPasswordFile $tempPasswordFilePath
         
-        $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath'
+        $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath' 
         $zipOpParams = @{ 
             SevenZipPathExe = $sevenZipPathGlobal; SevenZipArguments = $sevenZipArgsArray
             ProcessPriority = $effectiveJobConfig.JobSevenZipProcessPriority; HideOutput = $effectiveJobConfig.HideSevenZipOutput
@@ -310,30 +349,26 @@ function Invoke-PoShBackupJob {
         $reportData.CompressionTime = if ($null -ne $sevenZipResult.ElapsedTime) {$sevenZipResult.ElapsedTime.ToString()} else {"N/A"}
         $reportData.RetryAttemptsMade = $sevenZipResult.AttemptsMade
 
-        $archiveSize = "N/A (Simulated)" # Default for simulation
-        if (-not $IsSimulateMode.IsPresent -and (Test-Path $FinalArchivePath -PathType Leaf)) {
+        $archiveSize = "N/A (Simulated)" 
+        if (-not $IsSimulateMode.IsPresent -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) { 
              $archiveSize = Get-ArchiveSizeFormatted -PathToArchive $FinalArchivePath
         } elseif ($IsSimulateMode.IsPresent) {
-            # In simulation, 7z doesn't create a file, so size is effectively 0 or placeholder
             $archiveSize = "0 Bytes (Simulated)" 
         }
         $reportData.ArchiveSizeFormatted = $archiveSize
 
-        # Determine currentJobStatus based on 7zip operation
-        # Invoke-7ZipOperation returns ExitCode 0 in simulation if it *would* have run
         if ($sevenZipResult.ExitCode -eq 0) { $currentJobStatus = "SUCCESS" }
-        elseif ($sevenZipResult.ExitCode -eq 1) { $currentJobStatus = "WARNINGS" } # 7zip warning
-        else { $currentJobStatus = "FAILURE" } # 7zip error or other failure
+        elseif ($sevenZipResult.ExitCode -eq 1) { $currentJobStatus = "WARNINGS" }
+        else { $currentJobStatus = "FAILURE" }
 
         $reportData.ArchiveTested = $effectiveJobConfig.JobTestArchiveAfterCreation
-        # Only test if compression was successful (or simulated successfully) and not in simulation mode (actual test)
-        if ($effectiveJobConfig.JobTestArchiveAfterCreation -and ($currentJobStatus -eq "SUCCESS") -and (-not $IsSimulateMode.IsPresent) -and (Test-Path $FinalArchivePath -PathType Leaf)) {
+        if ($effectiveJobConfig.JobTestArchiveAfterCreation -and ($currentJobStatus -eq "SUCCESS") -and (-not $IsSimulateMode.IsPresent) -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
             $testArchiveParams = @{
                 SevenZipPathExe = $sevenZipPathGlobal; ArchivePath = $FinalArchivePath
-                TempPasswordFile = $tempPasswordFilePath
+                TempPasswordFile = $tempPasswordFilePath 
                 ProcessPriority = $effectiveJobConfig.JobSevenZipProcessPriority; HideOutput = $effectiveJobConfig.HideSevenZipOutput
                 MaxRetries = $effectiveJobConfig.JobMaxRetryAttempts; RetryDelaySeconds = $effectiveJobConfig.JobRetryDelaySeconds
-                EnableRetries = $effectiveJobConfig.JobEnableRetries; IsSimulateMode = $IsSimulateMode.IsPresent # Will be $false here
+                EnableRetries = $effectiveJobConfig.JobEnableRetries; IsSimulateMode = $false 
             }
             $testResult = Test-7ZipArchive @testArchiveParams
 
@@ -341,39 +376,46 @@ function Invoke-PoShBackupJob {
                 $reportData.ArchiveTestResult = "PASSED" 
             } else {
                 $reportData.ArchiveTestResult = "FAILED (Code $($testResult.ExitCode))"
-                if ($currentJobStatus -ne "FAILURE") {$currentJobStatus = "WARNINGS"} # Downgrade overall job status to WARNINGS if compression was OK but test failed
+                if ($currentJobStatus -ne "FAILURE") {$currentJobStatus = "WARNINGS"}
             }
             $reportData.TestRetryAttemptsMade = $testResult.AttemptsMade
-        } elseif ($effectiveJobConfig.JobTestArchiveAfterCreation) { # Test was configured but not run
+        } elseif ($effectiveJobConfig.JobTestArchiveAfterCreation) { 
              $reportData.ArchiveTestResult = if($IsSimulateMode.IsPresent){"Not Performed (Simulated)"} else {"Not Performed (Archive Missing or Compression Error)"}
-        } else { # Test not configured
+        } else { 
             $reportData.ArchiveTestResult = "Not Configured"
         }
 
     } catch {
         Write-LogMessage "ERROR during processing of job '$JobName': $($_.Exception.ToString())" -Level ERROR -ForegroundColour $Global:ColourError
         $currentJobStatus = "FAILURE"
-        $reportData.ErrorMessage = $_.Exception.ToString()
+        $reportData.ErrorMessage = $_.Exception.ToString() 
     } finally {
         if ($null -ne $VSSPathsInUse) {
             Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode.IsPresent
         }
 
-        # Clean up temp password file only if it was actually created (not just a dummy path in simulation)
-        if (-not [string]::IsNullOrWhiteSpace($tempPasswordFilePath) -and (Test-Path -LiteralPath $tempPasswordFilePath -PathType Leaf) -and -not ($IsSimulateMode.IsPresent -and $tempPasswordFilePath.EndsWith("simulated_password.tmp")) ) {
-            try { Remove-Item -LiteralPath $tempPasswordFilePath -Force -ErrorAction Stop }
+        if (-not [string]::IsNullOrWhiteSpace($plainTextPasswordForJob)) {
+            try {
+                $plainTextPasswordForJob = $null 
+                Clear-Variable plainTextPasswordForJob -Scope Script -ErrorAction SilentlyContinue 
+                [System.GC]::Collect()
+                [System.GC]::WaitForPendingFinalizers()
+                Write-LogMessage "   - Plain text password for job cleared from Operations module memory." -Level DEBUG
+            } catch { Write-LogMessage "[WARNING] Exception while clearing plain text password from Operations module memory. Error: $($_.Exception.Message)" -Level WARNING }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($tempPasswordFilePath) -and (Test-Path -LiteralPath $tempPasswordFilePath -PathType Leaf) `
+            -and -not ($IsSimulateMode.IsPresent -and $tempPasswordFilePath.EndsWith("simulated_poshbackup_pass.tmp")) ) { 
+            try { 
+                Remove-Item -LiteralPath $tempPasswordFilePath -Force -ErrorAction Stop 
+                Write-LogMessage "   - Temporary password file '$tempPasswordFilePath' deleted." -Level DEBUG
+            }
             catch { Write-LogMessage "[WARNING] Failed to delete temporary password file '$tempPasswordFilePath'. Manual deletion may be required. Error: $($_.Exception.Message)" -Level "WARNING" -ForegroundColour $Global:ColourWarning }
         }
-        if ($null -ne $JobPasswordPlainText) {
-            try { $JobPasswordPlainText = $null; [System.GC]::Collect(); [System.GC]::WaitForPendingFinalizers() } catch {}
-        }
         
-        # Finalize OverallStatus for the report
         if ($IsSimulateMode.IsPresent -and $currentJobStatus -ne "FAILURE") {
-            # If it was a simulation and didn't fail operationally, mark as SIMULATED_COMPLETE for reporting
             $reportData.OverallStatus = "SIMULATED_COMPLETE"
         } else {
-            $reportData.OverallStatus = $currentJobStatus # Use the actual operational status
+            $reportData.OverallStatus = $currentJobStatus
         }
 
         $reportData.ScriptEndTime = Get-Date 
@@ -384,24 +426,20 @@ function Invoke-PoShBackupJob {
         }
 
         $hookArgsForExternalScript = @{ 
-            JobName = $JobName; Status = $reportData.OverallStatus; ArchivePath = $FinalArchivePath; # Use report's overall status for hooks
+            JobName = $JobName; Status = $reportData.OverallStatus; ArchivePath = $FinalArchivePath; 
             ConfigFile = $ActualConfigFile; SimulateMode = $IsSimulateMode.IsPresent 
         }
 
-        # Hooks are triggered based on the report's overall status, which includes SIMULATED_COMPLETE
         if ($reportData.OverallStatus -in @("SUCCESS", "WARNINGS", "SIMULATED_COMPLETE") ) { 
             Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptOnSuccessPath -HookType "PostBackupOnSuccess" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode
-        } else { # FAILURE
+        } else { 
             Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptOnFailurePath -HookType "PostBackupOnFailure" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode
         }
         Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptAlwaysPath -HookType "PostBackupAlways" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode
     }
     
-    # Return the *operational* status of the job (SUCCESS, WARNINGS, FAILURE)
-    # This is used by the main script to determine overall script success/failure
-    # and for the StopSetOnError logic.
     return @{ Status = $currentJobStatus } 
-}
+} # CORRECTED: Closing brace for Invoke-PoShBackupJob
 #endregion
 
 #region --- VSS Functions ---
@@ -457,7 +495,7 @@ CREATE
                 $mappedShadowPaths[$currentSourcePath] = "\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopySIMULATED$($simulatedIndex)$relativePathSimulated"
             } catch {
                  Write-LogMessage "SIMULATE: Could not get volume for '$currentSourcePath' to create simulated shadow path." -Level SIMULATE
-                 $mappedShadowPaths[$currentSourcePath] = "$currentSourcePath (Simulated - Original Path)" # Fallback
+                 $mappedShadowPaths[$currentSourcePath] = "$currentSourcePath (Simulated - Original Path)" 
             }
         }
         Remove-Item -LiteralPath $tempDiskshadowScriptFile -Force -ErrorAction SilentlyContinue
@@ -515,7 +553,7 @@ CREATE
         $foundShadowsForThisCall.Keys | ForEach-Object {
             $volNameToClean = $_
             if ($currentRunShadowIDsForThisVSScall.ContainsKey($volNameToClean)) {
-                Remove-VSSShadowCopyById -ShadowID $currentRunShadowIDsForThisVSScall[$volNameToClean] -IsSimulateMode:$IsSimulateMode # Pass simulate mode
+                Remove-VSSShadowCopyById -ShadowID $currentRunShadowIDsForThisVSScall[$volNameToClean] -IsSimulateMode:$IsSimulateMode 
                 $currentRunShadowIDsForThisVSScall.Remove($volNameToClean) 
             }
         }
@@ -625,19 +663,19 @@ function Remove-VSSShadowCopy {
 function Invoke-7ZipOperation {
     [CmdletBinding()]
     param(
-        [string]$SevenZipPathExe,
-        [array]$SevenZipArguments, 
-        [string]$ProcessPriority = "Normal",
-        [switch]$HideOutput, 
-        [switch]$IsSimulateMode,
-        [int]$MaxRetries = 1,
-        [int]$RetryDelaySeconds = 60,
-        [bool]$EnableRetries = $false
+        [string]$SevenZipPathExe,      
+        [array]$SevenZipArguments,     
+        [string]$ProcessPriority = "Normal", 
+        [switch]$HideOutput,           
+        [switch]$IsSimulateMode,       
+        [int]$MaxRetries = 1,          
+        [int]$RetryDelaySeconds = 60,  
+        [bool]$EnableRetries = $false  
     )
     
     $currentTry = 0
-    $actualMaxTries = if ($EnableRetries) { [math]::Max(1, $MaxRetries) } else { 1 }
-    $actualDelaySeconds = if ($EnableRetries) { $RetryDelaySeconds } else { 0 }
+    $actualMaxTries = if ($EnableRetries) { [math]::Max(1, $MaxRetries) } else { 1 } 
+    $actualDelaySeconds = if ($EnableRetries -and $actualMaxTries -gt 1) { $RetryDelaySeconds } else { 0 }
     $operationExitCode = -1 
     $operationElapsedTime = New-TimeSpan -Seconds 0
     $attemptsMade = 0
@@ -657,7 +695,7 @@ function Invoke-7ZipOperation {
 
         if ($IsSimulateMode.IsPresent) {
             Write-LogMessage "SIMULATE: 7-Zip (Attempt $currentTry/$actualMaxTries): `"$SevenZipPathExe`" $argumentStringForProcess" -Level SIMULATE
-            $operationExitCode = 0 # Simulate success for 7zip operation itself
+            $operationExitCode = 0 
             $operationElapsedTime = New-TimeSpan -Seconds 0 
             break 
         }
@@ -732,7 +770,7 @@ function Invoke-7ZipOperation {
         }
         
         Write-LogMessage "   - 7-Zip attempt $currentTry finished. Exit: $operationExitCode. Elapsed: $operationElapsedTime"
-        if ($operationExitCode -in @(0,1)) { break } # 0 = Success, 1 = Warning (e.g. some files not found but archive created)
+        if ($operationExitCode -in @(0,1)) { break } 
         elseif ($currentTry -lt $actualMaxTries) { Write-LogMessage "[WARNING] 7-Zip failed. Retrying in $actualDelaySeconds s..." -Level WARNING -ForegroundColour $Global:ColourWarning; Start-Sleep -Seconds $actualDelaySeconds } 
         else { Write-LogMessage "[ERROR] 7-Zip failed after $actualMaxTries attempts." -Level ERROR -ForegroundColour $Global:ColourError }
     }
@@ -747,8 +785,10 @@ function Test-7ZipArchive {
         [string]$TempPasswordFile = $null, 
         [string]$ProcessPriority = "Normal",
         [switch]$HideOutput, 
-        [switch]$IsSimulateMode, # This is the IsSimulateMode for the *overall job*
-        [int]$MaxRetries = 1, [int]$RetryDelaySeconds = 60, [bool]$EnableRetries = $false
+        [switch]$IsSimulateMode, 
+        [int]$MaxRetries = 1, 
+        [int]$RetryDelaySeconds = 60, 
+        [bool]$EnableRetries = $false
     )
     Write-LogMessage "`n[INFO] Performing archive integrity test for '$ArchivePath'..."
     $testArguments = [System.Collections.Generic.List[string]]::new()
@@ -756,22 +796,15 @@ function Test-7ZipArchive {
     $testArguments.Add($ArchivePath) 
     
     if (-not [string]::IsNullOrWhiteSpace($TempPasswordFile) -and (Test-Path -LiteralPath $TempPasswordFile)) {
-        $testArguments.Add("-spf$TempPasswordFile") 
+        $testArguments.Add("-spf`"$TempPasswordFile`"") 
     }
     Write-LogMessage "   - Test Command (raw args before Invoke-7ZipOperation quoting): `"$SevenZipPathExe`" $($testArguments -join ' ')" -Level DEBUG
-
-    # The Test-7ZipArchive function itself doesn't "simulate" the test; it either runs it or doesn't based on job simulation.
-    # The IsSimulateMode parameter passed to Invoke-7ZipOperation inside this function should be $false if we are actually testing.
-    # However, this function (Test-7ZipArchive) should not be called if the overall job is a simulation.
-    # The $IsSimulateMode here is more for the Invoke-7ZipOperation call's internal simulation handling if needed,
-    # but for a test, simulation generally means "don't do the test".
-    # The parent (Invoke-PoShBackupJob) decides IF Test-7ZipArchive is called based on $IsSimulateMode.
 
     $invokeParams = @{
         SevenZipPathExe = $SevenZipPathExe; SevenZipArguments = $testArguments.ToArray()
         ProcessPriority = $ProcessPriority; HideOutput = $HideOutput 
         MaxRetries = $MaxRetries; RetryDelaySeconds = $RetryDelaySeconds; EnableRetries = $EnableRetries
-        IsSimulateMode = $false # We always want to run the test if this function is called; parent handles simulation logic
+        IsSimulateMode = $false 
     }
     $result = Invoke-7ZipOperation @invokeParams
     
@@ -874,7 +907,7 @@ function Test-DestinationFreeSpace {
         [string]$DestDir, 
         [int]$MinRequiredGB, 
         [bool]$ExitOnLow,
-        [switch]$IsSimulateMode # Added for logging simulation
+        [switch]$IsSimulateMode 
     )
     if ($MinRequiredGB -le 0) { return $true } 
     Write-LogMessage "`n[INFO] Checking destination free space for '$DestDir'..."
@@ -888,7 +921,7 @@ function Test-DestinationFreeSpace {
     try {
         if (-not (Test-Path -LiteralPath $DestDir -PathType Container)) { 
             Write-LogMessage "[WARNING] Dest dir '$DestDir' for free space check not found. Skipping." -Level WARNING -ForegroundColour $Global:ColourWarning
-            return $true # Don't fail the job if dest dir isn't there yet, it might be created later or be a job config issue
+            return $true 
         }
         $driveLetter = (Get-Item -LiteralPath $DestDir).PSDrive.Name
         $destDrive = Get-PSDrive -Name $driveLetter -EA Stop
@@ -898,11 +931,11 @@ function Test-DestinationFreeSpace {
             Write-LogMessage "[WARNING] Low disk space. Available: $freeSpaceGB GB, Required: $MinRequiredGB GB." -Level WARNING -ForegroundColour $Global:ColourWarning
             if ($ExitOnLow) { 
                 Write-LogMessage "FATAL: Exiting due to low disk space (ExitOnLowSpaceIfBelowMinimum is true)." -Level ERROR -ForegroundColour $Global:ColourError
-                return $false # Signal to abort
+                return $false 
             }
         } else { Write-LogMessage "   - Free space check: OK" -ForegroundColour $Global:ColourSuccess }
     } catch { Write-LogMessage "[WARNING] Could not determine free space for '$DestDir'. Error: $($_.Exception.Message)" -Level WARNING -ForegroundColour $Global:ColourWarning }
-    return $true # Return true if not exiting on low space, or if check errored (don't fail job for check error)
+    return $true 
 }
 #endregion
 

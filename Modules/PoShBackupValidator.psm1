@@ -1,6 +1,6 @@
 # PowerShell Module: PoShBackupValidator.psm1
 # Description: Provides advanced schema-based validation for PoSh-Backup configuration files.
-# Version: 1.0
+# Version: 1.1 (Added new password management keys to schema)
 
 #region --- Module-Scoped Schema Definition ---
 $Script:PoShBackup_ConfigSchema = @{
@@ -9,13 +9,10 @@ $Script:PoShBackup_ConfigSchema = @{
     DefaultDestinationDir           = @{ Type = 'string'; Required = $false }
     HideSevenZipOutput              = @{ Type = 'boolean'; Required = $false }
     PauseBeforeExit                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Always", "Never", "OnFailure", "OnWarning", "OnFailureOrWarning", "True", "False") } 
+    EnableAdvancedSchemaValidation  = @{ Type = 'boolean'; Required = $false }
     EnableFileLogging               = @{ Type = 'boolean'; Required = $false }
     LogDirectory                    = @{ Type = 'string'; Required = $false } 
-    ReportGeneratorType = @{ 
-        Type = 'string_or_array'; # MODIFIED TO ALLOW ARRAY
-        Required = $false; 
-        AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") 
-    }
+    ReportGeneratorType             = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } # AllowedValues applies if it's a string
     HtmlReportDirectory             = @{ Type = 'string'; Required = $false }
     CsvReportDirectory              = @{ Type = 'string'; Required = $false }
     JsonReportDirectory             = @{ Type = 'string'; Required = $false }
@@ -56,7 +53,6 @@ $Script:PoShBackup_ConfigSchema = @{
     DefaultCompressOpenFiles        = @{ Type = 'boolean'; Required = $false }
     DefaultScriptExcludeRecycleBin  = @{ Type = 'string'; Required = $false }
     DefaultScriptExcludeSysVolInfo  = @{ Type = 'string'; Required = $false }
-    EnableAdvancedSchemaValidation  = @{ Type = 'boolean'; Required = $false } # Schema to validate itself!
     _PoShBackup_PSScriptRoot        = @{ Type = 'string'; Required = $false }
 
     BackupLocations = @{
@@ -68,12 +64,25 @@ $Script:PoShBackup_ConfigSchema = @{
             DestinationDir          = @{ Type = 'string'; Required = $false }
             RetentionCount          = @{ Type = 'int'; Required = $false; Min = 0 }
             DeleteToRecycleBin      = @{ Type = 'boolean'; Required = $false }
-            UsePassword             = @{ Type = 'boolean'; Required = $false }
+            
+            ArchivePasswordMethod   = @{ Type = 'string'; Required = $false; AllowedValues = @("NONE", "INTERACTIVE", "SECRETMANAGEMENT", "SECURESTRINGFILE", "PLAINTEXT") }
             CredentialUserNameHint  = @{ Type = 'string'; Required = $false }
+            ArchivePasswordSecretName = @{ Type = 'string'; Required = $false } 
+            ArchivePasswordVaultName  = @{ Type = 'string'; Required = $false } 
+            ArchivePasswordSecureStringPath = @{ Type = 'string'; Required = $false }
+            ArchivePasswordPlainText  = @{ Type = 'string'; Required = $false }
+            UsePassword             = @{ Type = 'boolean'; Required = $false } # Legacy
+
             EnableVSS               = @{ Type = 'boolean'; Required = $false }
             VSSContextOption        = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
             SevenZipProcessPriority = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
-            ReportGeneratorType     = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
+            ReportGeneratorType     = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } # AllowedValues applies if it's a string
+            HtmlReportDirectory     = @{ Type = 'string'; Required = $false }
+            CsvReportDirectory      = @{ Type = 'string'; Required = $false }
+            JsonReportDirectory     = @{ Type = 'string'; Required = $false }
+            XmlReportDirectory      = @{ Type = 'string'; Required = $false }
+            TxtReportDirectory      = @{ Type = 'string'; Required = $false }
+            MdReportDirectory       = @{ Type = 'string'; Required = $false }
             ArchiveType             = @{ Type = 'string'; Required = $false }
             ArchiveExtension        = @{ Type = 'string'; Required = $false } 
             ArchiveDateFormat       = @{ Type = 'string'; Required = $false } 
@@ -88,12 +97,6 @@ $Script:PoShBackup_ConfigSchema = @{
             MinimumRequiredFreeSpaceGB   = @{ Type = 'int'; Required = $false; Min = 0 }
             ExitOnLowSpaceIfBelowMinimum = @{ Type = 'boolean'; Required = $false }
             TestArchiveAfterCreation     = @{ Type = 'boolean'; Required = $false }
-            HtmlReportDirectory          = @{ Type = 'string'; Required = $false }
-            CsvReportDirectory           = @{ Type = 'string'; Required = $false }
-            JsonReportDirectory          = @{ Type = 'string'; Required = $false }
-            XmlReportDirectory           = @{ Type = 'string'; Required = $false }
-            TxtReportDirectory           = @{ Type = 'string'; Required = $false }
-            MdReportDirectory            = @{ Type = 'string'; Required = $false } 
             HtmlReportTheme              = @{ Type = 'string'; Required = $false }
             HtmlReportTitlePrefix        = @{ Type = 'string'; Required = $false }
             HtmlReportLogoPath           = @{ Type = 'string'; Required = $false }
@@ -122,7 +125,8 @@ $Script:PoShBackup_ConfigSchema = @{
 #endregion
 
 #region --- Private Validation Logic ---
-function Validate-AgainstSchemaRecursiveInternal { # Renamed to avoid conflict if module not removed
+# ... (Validate-AgainstSchemaRecursiveInternal function as previously provided - no changes here for this step) ...
+function Validate-AgainstSchemaRecursiveInternal { 
     param(
         [Parameter(Mandatory)]
         [object]$ConfigObject,
@@ -169,10 +173,21 @@ function Validate-AgainstSchemaRecursiveInternal { # Renamed to avoid conflict i
             continue 
         }
 
-        if ($keyDefinition.ContainsKey("AllowedValues") -and $configValue -is [string]) {
-            $allowed = $keyDefinition.AllowedValues | ForEach-Object { $_.ToString().ToLowerInvariant() }
-            if ($configValue.ToString().ToLowerInvariant() -notin $allowed) {
-                $ValidationMessages.Value.Add("Invalid value for '$fullKeyPath': '$configValue'. Allowed values (case-insensitive): $($keyDefinition.AllowedValues -join ', ').")
+        if ($keyDefinition.ContainsKey("AllowedValues")) {
+            $valuesToCheck = @()
+            if ($configValue -is [array] -and $expectedType -eq 'string_or_array'){ # Check each item in an array for ReportGeneratorType
+                $valuesToCheck = $configValue 
+            } elseif ($configValue -is [string]) {
+                $valuesToCheck = @($configValue)
+            }
+
+            if($valuesToCheck.Count -gt 0) {
+                $allowed = $keyDefinition.AllowedValues | ForEach-Object { $_.ToString().ToLowerInvariant() }
+                foreach($valItem in $valuesToCheck){
+                    if ($valItem.ToString().ToLowerInvariant() -notin $allowed) {
+                        $ValidationMessages.Value.Add("Invalid value for '$fullKeyPath': '$valItem'. Allowed values (case-insensitive): $($keyDefinition.AllowedValues -join ', ').")
+                    }
+                }
             }
         }
         if ($expectedType -eq "int") {
@@ -196,8 +211,8 @@ function Validate-AgainstSchemaRecursiveInternal { # Renamed to avoid conflict i
     if (-not $allowUnknownKeys) {
         foreach ($configKey in $ConfigObject.Keys) {
             if (-not $Schema.ContainsKey($configKey)) {
-                if ($configKey -ne '_PoShBackup_PSScriptRoot') {
-                     $ValidationMessages.Value.Add("Unknown key '$CurrentPath.$configKey' found in configuration. Check for typos or if it's supported.")
+                if ($configKey -ne '_PoShBackup_PSScriptRoot') { # This is added by the script, not user config
+                     $ValidationMessages.Value.Add("Unknown key '$CurrentPath.$configKey' found in configuration. Check for typos or if it's supported by the current schema version.")
                 }
             }
         }
@@ -206,6 +221,7 @@ function Validate-AgainstSchemaRecursiveInternal { # Renamed to avoid conflict i
 #endregion
 
 #region --- Exported Functions ---
+# ... (Invoke-PoShBackupConfigValidation function as previously provided - no changes here for this step) ...
 function Invoke-PoShBackupConfigValidation {
     [CmdletBinding()]
     param(
@@ -213,14 +229,9 @@ function Invoke-PoShBackupConfigValidation {
         [hashtable]$ConfigurationToValidate,
 
         [Parameter(Mandatory)]
-        [ref]$ValidationMessagesListRef # Pass the list by reference to collect messages
+        [ref]$ValidationMessagesListRef 
     )
-
-    # Use the $Script:PoShBackup_ConfigSchema defined in this module
     Validate-AgainstSchemaRecursiveInternal -ConfigObject $ConfigurationToValidate -Schema $Script:PoShBackup_ConfigSchema -ValidationMessages $ValidationMessagesListRef -CurrentPath "Configuration"
-    
-    # The function doesn't return true/false, it populates the $ValidationMessagesListRef
-    # The caller will check if the list is empty.
 }
 
 Export-ModuleMember -Function Invoke-PoShBackupConfigValidation

@@ -2,6 +2,34 @@
 # --> THIS WILL GET OVERWRITTEN ON UPGRADE if you don't use a User.psd1 for your changes! <--
 # Version 1.2: Added EnableAdvancedSchemaValidation. SevenZipPath empty for auto-detection. Comments reformatted.
 @{
+    #region --- Password Management Instructions ---
+    # Choose ONE password method per job by setting 'ArchivePasswordMethod'.
+    #
+    # Available 'ArchivePasswordMethod' values:
+    #   "None"             : (Default) No password used for the archive.
+    #   "Interactive"      : Prompts the user for credentials via Get-Credential.
+    #                        Use 'CredentialUserNameHint' to pre-fill username.
+    #   "SecretManagement" : (RECOMMENDED FOR AUTOMATION) Retrieves password from PowerShell SecretManagement.
+    #                        Requires: 'ArchivePasswordSecretName' (name of the secret).
+    #                        Optional: 'ArchivePasswordVaultName' (vault name, uses default if omitted).
+    #                        See Pester tests or documentation for SecretManagement setup.
+    #   "SecureStringFile" : Reads a password from an encrypted file (created via Export-CliXml).
+    #                        Requires: 'ArchivePasswordSecureStringPath' (full path to the .clixml file).
+    #                        To create the file: 
+    #                           $SecurePass = Read-Host -AsSecureString "Enter password:"
+    #                           $SecurePass | Export-CliXml -Path "C:\path\to\your\passwordfile.clixml"
+    #   "PlainText"        : (HIGHLY DISCOURAGED - INSECURE) Reads password directly from config.
+    #                        Requires: 'ArchivePasswordPlainText' (the password string).
+    #                        Only use if you fully understand the security risks.
+    #
+    # If a password method other than "None" is chosen, 7-Zip's -mhe=on (encrypt headers) is auto-added.
+    # The script writes the obtained password to a temporary file for 7-Zip's -spf switch,
+    # which is deleted immediately after 7-Zip exits.
+    #
+    # The legacy 'UsePassword = $true' without a specific 'ArchivePasswordMethod' will default to "Interactive".
+    # It's recommended to use 'ArchivePasswordMethod' explicitly.
+    #endregion
+
     #region --- General Global Settings ---
     SevenZipPath                    = ""                              # Full path to 7z.exe. Leave empty to attempt auto-detection.
                                                                       # If auto-detection fails, script will error.
@@ -147,13 +175,24 @@
 
     BackupLocations                 = @{
         "Projects"  = @{
-            Path                    = "P:\*"                          # Path to recursively back-up.
+            Path                    = "P:\Images\*"                   # Path to recursively back-up.
             Name                    = "Projects"                      # Base name for the archive file (before date/extension).
             DestinationDir          = "D:\Backups"                    # Override global DefaultDestinationDir if needed.
             RetentionCount          = 3                               # Number of archive versions to keep.
             DeleteToRecycleBin      = $false                          # $true to send old archives to Recycle Bin, $false for permanent delete.
-            UsePassword             = $false                          # Set to $true to enable password protection for this job.
+
+            ArchivePasswordMethod   = "None"                          # "None", "Interactive", "SecretManagement", "SecureStringFile", "PlainText"
+            # --- Settings for "Interactive" ---
             CredentialUserNameHint  = "ProjectBackupUser"             # Pre-filled username for Get-Credential if UsePassword is $true.
+            # --- Settings for "SecretManagement" ---
+            ArchivePasswordSecretName = ""                            # e.g., "ProjectsBackupPass"
+            ArchivePasswordVaultName  = ""                            # e.g., "MyLocalStore" (optional, uses default vault if empty)
+            ArchivePasswordSecureStringPath = ""                      # e.g., "C:\secrets\projects_pass.clixml"
+            ArchivePasswordPlainText  = ""                            # e.g., "ActualPassword123!" (INSECURE and HIGHLY DISCOURAGED)
+            
+            UsePassword             = $false                          # For backward compatibility or simple interactive toggle.
+                                                                      # Legacy - will default to Interactive if ArchivePasswordMethod is None/empty and this is $true
+
             EnableVSS               = $false                          # $true to use VSS for this job (requires Admin).
             SevenZipProcessPriority = "Normal"                        # Override global 7-Zip priority for this job.
             ReportGeneratorType     = "HTML"                          # Report type for this job ("HTML", "None").
@@ -166,10 +205,18 @@
             ArchiveDateFormat          = "dd-MM-yyyy"                    # Custom date format for this job's archives.
             RetentionCount             = 5
             DeleteToRecycleBin         = $true
-            UsePassword                = $false
+
+            ArchivePasswordMethod      = "Interactive"                   # Example: Wants to be prompted for this one
+            CredentialUserNameHint     = "DocsUser"
+            # ArchivePasswordSecretName  = "" 
+            # ArchivePasswordVaultName   = ""
+            # ArchivePasswordSecureStringPath = ""
+            # ArchivePasswordPlainText   = ""
+
+            UsePassword                = $true                           # Redundant if method is Interactive, but good for clarity.
             MinimumRequiredFreeSpaceGB = 2                               # Custom free space check for this job.
             ReportGeneratorType        = "HTML"
-            HtmlReportTheme            = "Dark"                          # Use the Dark theme for this job's HTML report.
+            HtmlReportTheme            = "RetroTerminal"                 # Use the Dark theme for this job's HTML report.
         }
 
         #region --- Comprehensive Example (Commented Out for Reference) ---
