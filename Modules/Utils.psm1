@@ -9,15 +9,15 @@
     to backup operations or report generation but are essential for the overall script's functionality.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.0 (PSScriptAnalyzer fixes: Write-Host, unused params, naming)
+    Version:        1.6.0 # Refactored Write-LogMessage color logic.
     DateCreated:    10-May-2025
-    LastModified:   15-May-2025
+    LastModified:   16-May-2025 # Simplified Write-LogMessage color logic.
     Purpose:        Core utility functions for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+
 #>
 
 #region --- Private Helper Functions ---
-function Merge-DeepHashtable { # Renamed
+function Merge-DeepHashtable { 
     param(
         [Parameter(Mandatory)]
         [hashtable]$Base,
@@ -29,7 +29,7 @@ function Merge-DeepHashtable { # Renamed
 
     foreach ($key in $Override.Keys) {
         if ($merged.ContainsKey($key) -and $merged[$key] -is [hashtable] -and $Override[$key] -is [hashtable]) {
-            $merged[$key] = Merge-DeepHashtable -Base $merged[$key] -Override $Override[$key] # Recurse with renamed function
+            $merged[$key] = Merge-DeepHashtable -Base $merged[$key] -Override $Override[$key] 
         }
         else {
             $merged[$key] = $Override[$key]
@@ -76,7 +76,7 @@ function Write-LogMessage {
     [CmdletBinding()]
     param (
         [string]$Message,
-        [string]$ForegroundColour = $Global:ColourInfo, # Default color, will be overridden by Level if applicable
+        [string]$ForegroundColour = $Global:ColourInfo, 
         [switch]$NoNewLine,
         [string]$Level = "INFO",
         [switch]$NoTimestampToLogFile = $false
@@ -85,26 +85,17 @@ function Write-LogMessage {
     $consoleMessage = $Message
     $logMessage = if ($NoTimestampToLogFile) { $Message } else { "$timestamp [$Level] $Message" }
 
-    $effectiveConsoleColour = $ForegroundColour 
-    # If a specific level is given, use its mapped color, otherwise use the passed $ForegroundColour or its default ($Global:ColourInfo)
+    $effectiveConsoleColour = $ForegroundColour # Start with the explicitly passed color, or its default ($Global:ColourInfo)
+
+    # Prioritize $Global:StatusToColourMap (defined in PoSh-Backup.ps1)
     if ($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
         $effectiveConsoleColour = $Global:StatusToColourMap[$Level.ToUpperInvariant()]
-    } elseif ($Global:StatusToColourMap.ContainsKey("DEFAULT")) { # Fallback for unknown levels
-        # This logic was slightly different before, ensuring a explicit mapping if level exists
-        # For general levels not in StatusToColourMap, use the specific $Global:Colour<Level>
-        switch -Wildcard ($Level.ToUpperInvariant()) {
-            "SIMULATE"       { $effectiveConsoleColour = $Global:ColourSimulate }
-            "CONFIG_TEST"    { $effectiveConsoleColour = $Global:ColourSimulate } # Retain for consistency
-            "VSS"            { $effectiveConsoleColour = $Global:ColourAdmin }
-            "HOOK"           { $effectiveConsoleColour = $Global:ColourDebug } # Hook messages are often debug-like
-            "ERROR"          { $effectiveConsoleColour = $Global:ColourError }
-            "WARNING"        { $effectiveConsoleColour = $Global:ColourWarning }
-            "SUCCESS"        { $effectiveConsoleColour = $Global:ColourSuccess }
-            "DEBUG"          { $effectiveConsoleColour = $Global:ColourDebug }
-            # For INFO, or any other non-mapped level, it will use the $ForegroundColour param or its default ($Global:ColourInfo)
-        }
+    } elseif ($Level.ToUpperInvariant() -eq 'NONE') {
+        # If level is NONE, and not in map, use current host foreground
+        $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
     }
-
+    # If the Level is not in the map and not NONE, $effectiveConsoleColour retains its initial value
+    # (either $ForegroundColour if passed explicitly by caller, or $Global:ColourInfo by default).
 
     if ($NoNewLine) {
         Write-Host $consoleMessage -ForegroundColor $effectiveConsoleColour -NoNewline
@@ -124,7 +115,6 @@ function Write-LogMessage {
         try {
             Add-Content -Path $Global:GlobalLogFile -Value $logMessage -ErrorAction Stop
         } catch {
-            # Using Write-Host directly here as Write-LogMessage might be the source of a recursive error if file logging fails.
             Write-Host "CRITICAL: Failed to write to log file '$($Global:GlobalLogFile)'. Error: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
@@ -138,7 +128,6 @@ function Get-ConfigValue {
         [object]$ConfigObject,
         [string]$Key,
         [object]$DefaultValue
-        # [string]$JobNameForError = "Global" # Parameter removed as unused
     )
     if ($null -ne $ConfigObject -and $ConfigObject -is [hashtable] -and $ConfigObject.ContainsKey($Key)) {
         return $ConfigObject[$Key]
@@ -151,14 +140,14 @@ function Get-ConfigValue {
 #endregion
 
 #region --- Helper Function Test-AdminPrivilege ---
-function Test-AdminPrivilege { # Renamed
+function Test-AdminPrivilege { 
     [CmdletBinding()]
     param()
     Write-LogMessage "[INFO] Checking for Administrator privileges..." -Level "DEBUG"
     $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
     $isAdmin = $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($isAdmin) {
-        Write-LogMessage "  - Running with Administrator privileges." -Level "SUCCESS" # Changed level for color
+        Write-LogMessage "  - Running with Administrator privileges." -Level "SUCCESS" 
     } else {
         Write-LogMessage "  - NOT running with Administrator privileges." -Level "WARNING"
     }
@@ -226,7 +215,7 @@ function Invoke-HookScript {
             Remove-Item $tempStdErr.FullName -Force -ErrorAction SilentlyContinue
 
             if ($stdOutContent) {
-                $stdOutContent | ForEach-Object { Write-LogMessage "    OUT: $_" -Level "HOOK"; $outputLog.Add("OUTPUT: $_") } # Removed explicit color
+                $stdOutContent | ForEach-Object { Write-LogMessage "    OUT: $_" -Level "HOOK"; $outputLog.Add("OUTPUT: $_") } 
             }
             if ($proc.ExitCode -ne 0) {
                 Write-LogMessage "[ERROR] $HookType script '$ScriptPath' exited with code $($proc.ExitCode)." -Level "ERROR"
@@ -287,8 +276,6 @@ function Import-AppConfiguration {
     )
 
     $finalConfiguration = $null
-    # $baseConfigPath = $null # Not strictly needed here as they are redefined below
-    # $userConfigPath = $null
     $userConfigLoadedSuccessfully = $false
     $primaryConfigPathForReturn = $null 
 
@@ -314,9 +301,7 @@ function Import-AppConfiguration {
             return @{ IsValid = $false; ErrorMessage = "Failed to parse configuration file '$UserSpecifiedPath': $($_.Exception.Message)" }
         }
     } else {
-        # $baseConfigPath = $defaultBaseConfigPath # Already defined
-        # $userConfigPath = $defaultUserConfigPath # Already defined
-        $primaryConfigPathForReturn = $defaultBaseConfigPath # Use the actual path being processed
+        $primaryConfigPathForReturn = $defaultBaseConfigPath 
         Write-LogMessage "`n[INFO] No -ConfigFile specified. Loading base configuration from: $($defaultBaseConfigPath)"
         if (-not (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf)) {
             Write-LogMessage "FATAL: Base configuration file '$defaultBaseConfigPath' not found. This file is required." -Level "ERROR"
@@ -337,7 +322,7 @@ function Import-AppConfiguration {
                 if ($null -ne $loadedUserConfiguration -and $loadedUserConfiguration -is [hashtable]) {
                     Write-LogMessage "  - User override configuration '$defaultUserConfigPath' found and loaded successfully." -Level "SUCCESS"
                     Write-LogMessage "  - Merging user configuration over base configuration..." -Level "DEBUG"
-                    $finalConfiguration = Merge-DeepHashtable -Base $finalConfiguration -Override $loadedUserConfiguration # Call renamed helper
+                    $finalConfiguration = Merge-DeepHashtable -Base $finalConfiguration -Override $loadedUserConfiguration 
                     $userConfigLoadedSuccessfully = $true
                     Write-LogMessage "  - User configuration merged successfully." -Level "SUCCESS"
                 } else {

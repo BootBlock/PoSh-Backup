@@ -3,7 +3,8 @@
     Consolidates project files, including itself, into a single text bundle file for AI ingestion.
 .DESCRIPTION
     This script iterates through files in the project root and its subdirectories (excluding specified folders and file types),
-    and outputs their relative paths and contents into a text file named 'ProjectBundle-YYYYMMDD_HHMMSS.txt'.
+    and outputs their relative paths and contents into a text file named 'PoSh-Backup-AI-Bundle.txt' in the project root directory.
+    The script ensures this output file is overwritten on each run and does not bundle its own previous output.
     It also explicitly includes its own source code in the bundle.
     The bundle includes a project structure overview, AI-readable state with auto-detected module descriptions,
     PowerShell dependencies, and by default includes both PSScriptAnalyzer summary (can be disabled with -NoRunScriptAnalyzer)
@@ -12,8 +13,6 @@
     The displayed project root path in the bundle is an anonymized version (just the root folder name).
 .PARAMETER ProjectRoot
     The root directory of the project to bundle. Defaults to the parent directory of this script's location.
-.PARAMETER OutputFileNameBase
-    The base name for the output bundle file. A timestamp will be appended. Defaults to 'ProjectBundle'.
 .PARAMETER ExcludedFolders
     An array of folder names (relative to ProjectRoot) to exclude from bundling.
 .PARAMETER ExcludedFileExtensions
@@ -25,30 +24,50 @@
     A switch parameter. If present, the script will NOT run 'PoSh-Backup.ps1 -TestConfig'
     and its output will be excluded from the bundle. By default, the TestConfig output is included.
 .EXAMPLE
-    .\Generate-ProjectBundleForAI.ps1
-    Generates 'ProjectBundle-YYYYMMDD_HHMMSS.txt' in the Meta folder, showing progress messages.
+    .\Meta\Generate-ProjectBundleForAI.ps1
+    Generates 'PoSh-Backup-AI-Bundle.txt' in the project root folder, overwriting any existing file and ensuring
+    it doesn't include its own previous output. Shows progress messages.
     Includes PSScriptAnalyzer results (using PSScriptAnalyzerSettings.psd1 if found, and including its content)
     AND PoSh-Backup.ps1 -TestConfig output by default.
 
 .EXAMPLE
-    .\Generate-ProjectBundleForAI.ps1 -NoRunScriptAnalyzer -DoNotIncludeTestConfigOutput
-    Generates the bundle, showing progress, but skips PSScriptAnalyzer AND PoSh-Backup.ps1 -TestConfig output.
+    .\Meta\Generate-ProjectBundleForAI.ps1 -NoRunScriptAnalyzer -DoNotIncludeTestConfigOutput
+    Generates 'PoSh-Backup-AI-Bundle.txt', overwriting any existing file. Shows progress, but skips PSScriptAnalyzer AND PoSh-Backup.ps1 -TestConfig output.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.15.11 # Version from user's provided file
+    Version:        1.18.0 # Language hint via hashtable, single Resolve-Path.
     DateCreated:    15-May-2025
-    LastModified:   15-May-2025 # Updated by AI based on user request
+    LastModified:   16-May-2025 # Refactored language hint and path resolution.
 #>
 
 param (
     [string]$ProjectRoot_FullPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
-    [string]$OutputFileNameBase = "ProjectBundle",
-    [string[]]$ExcludedFolders = @(".git", "Reports", "Logs", "Meta", "Tests"), # Added "Tests" to excluded by default
+    [string[]]$ExcludedFolders = @(".git", "Reports", "Logs", "Meta", "Tests"), 
     [string[]]$ExcludedFileExtensions = @(".zip", ".7z", ".exe", ".dll", ".pdb", ".iso", ".bak", ".tmp", ".log", ".rar", ".tar", ".gz", ".cab", ".msi"),
     [switch]$NoRunScriptAnalyzer,
     [switch]$DoNotIncludeTestConfigOutput
 )
+
+# --- Script-Scoped Variables ---
+$script:autoDetectedModuleDescriptions = @{}
+$script:autoDetectedPsDependencies = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+$script:fileExtensionToLanguageMap = @{
+    ".ps1"    = "powershell"; ".psm1"   = "powershell"; ".psd1"   = "powershell"
+    ".css"    = "css";        ".html"   = "html";       ".js"     = "javascript"
+    ".json"   = "json";       ".xml"    = "xml";        ".md"     = "markdown"
+    ".txt"    = "text";       ".yml"    = "yaml";       ".yaml"   = "yaml"
+    ".ini"    = "ini";        ".conf"   = "plaintext";  ".config" = "xml"
+    ".sh"     = "shell";      ".bash"   = "bash";       ".py"     = "python"
+    ".cs"     = "csharp";     ".c"      = "c";          ".cpp"    = "cpp"; ".h" = "c"
+    ".java"   = "java";       ".rb"     = "ruby";       ".php"    = "php"
+    ".go"     = "go";         ".swift"  = "swift";      ".kt"     = "kotlin"
+    ".sql"    = "sql"
+    # Add more mappings as needed
+}
+# --- End Script-Scoped Variables ---
+
 
 # --- Helper Functions ---
 function Get-ScriptVersionFromContent {
@@ -83,43 +102,23 @@ function Get-ScriptVersionFromContent {
     return $versionString
 }
 
-$script:autoDetectedModuleDescriptions = @{}
-$script:autoDetectedPsDependencies = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-
 function Add-FileToBundle {
     param(
         [Parameter(Mandatory)]
         [System.IO.FileInfo]$FileObject,
         [Parameter(Mandatory)]
-        [string]$RootPathForRelativeCalculations,
+        [string]$RootPathForRelativeCalculations, # This is the pre-resolved normalized path
         [Parameter(Mandatory)]
         [System.Text.StringBuilder]$BundleBuilder
     )
 
     $currentRelativePath = $FileObject.FullName.Substring($RootPathForRelativeCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-    $currentLanguageHint = ""
-    switch ($FileObject.Extension.ToLowerInvariant()) {
-        ".ps1"  { $currentLanguageHint = "powershell" }
-        ".psm1" { $currentLanguageHint = "powershell" }
-        ".psd1" { $currentLanguageHint = "powershell" }
-        ".css"  { $currentLanguageHint = "css" }
-        ".html" { $currentLanguageHint = "html" }
-        ".js"   { $currentLanguageHint = "javascript" }
-        ".json" { $currentLanguageHint = "json" }
-        ".xml"  { $currentLanguageHint = "xml" }
-        ".md"   { $currentLanguageHint = "markdown" }
-        ".txt"  { $currentLanguageHint = "text" }
-        ".yml"  { $currentLanguageHint = "yaml" }; ".yaml" { $currentLanguageHint = "yaml" }
-        ".ini"  { $currentLanguageHint = "ini" };  ".conf" { $currentLanguageHint = "plaintext" }
-        ".config" { $currentLanguageHint = "xml" }; ".sh"   { $currentLanguageHint = "shell" }
-        ".bash" { $currentLanguageHint = "bash" };  ".py"   { $currentLanguageHint = "python" }
-        ".cs"   { $currentLanguageHint = "csharp" }; ".c"    { $currentLanguageHint = "c" }
-        ".cpp"  { $currentLanguageHint = "cpp" };  ".h"    { $currentLanguageHint = "c" }
-        ".java" { $currentLanguageHint = "java" };  ".rb"   { $currentLanguageHint = "ruby" }
-        ".php"  { $currentLanguageHint = "php" };   ".go"   { $currentLanguageHint = "go" }
-        ".swift"{ $currentLanguageHint = "swift" }; ".kt"   { $currentLanguageHint = "kotlin" }
-        ".sql"  { $currentLanguageHint = "sql" }
-        default { $currentLanguageHint = "text" }
+    
+    $fileExtLower = $FileObject.Extension.ToLowerInvariant()
+    $currentLanguageHint = if ($script:fileExtensionToLanguageMap.ContainsKey($fileExtLower)) {
+        $script:fileExtensionToLanguageMap[$fileExtLower]
+    } else {
+        "text" # Default hint
     }
 
     $null = $BundleBuilder.AppendLine("--- FILE_START ---")
@@ -193,15 +192,17 @@ $shouldRunScriptAnalyzer = -not $NoRunScriptAnalyzer.IsPresent
 $shouldIncludeTestConfigOutput = -not $DoNotIncludeTestConfigOutput.IsPresent
 
 $ProjectRoot_DisplayName = (Get-Item -LiteralPath $ProjectRoot_FullPath).Name
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$outputFilePath = Join-Path -Path $PSScriptRoot -ChildPath "$($OutputFileNameBase)-$($timestamp).txt"
+$outputFilePath = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PoSh-Backup-AI-Bundle.txt"
+
+# Resolve the project root path once for use in the loop
+$normalizedProjectRootForCalculations = (Resolve-Path $ProjectRoot_FullPath).Path
 
 Write-Host "Starting project file bundling process..."
 Write-Host "Actual Project Root (for script execution): $ProjectRoot_FullPath"
 Write-Host "Displayed Project Root (in bundle): $ProjectRoot_DisplayName"
 Write-Host "Run PSScriptAnalyzer: $($shouldRunScriptAnalyzer)"
 Write-Host "Include PoSh-Backup -TestConfig output: $($shouldIncludeTestConfigOutput)"
-Write-Host "Output File: $outputFilePath"
+Write-Host "Output File: $outputFilePath (will be overwritten)"
 
 $headerContentBuilder = [System.Text.StringBuilder]::new()
 $null = $headerContentBuilder.AppendLine("Hello AI Assistant!")
@@ -222,7 +223,7 @@ try {
     if (-not (Test-Path -LiteralPath $ProjectRoot_FullPath -PathType Container)) {
         $errorMessage = "Project root '$ProjectRoot_FullPath' not found or is not a directory."
         Write-Error $errorMessage
-        $null = $headerContentBuilder.Insert(0, "ERROR: $errorMessage`r`n")
+        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue 
         ($headerContentBuilder.ToString() + $fileContentBuilder.ToString()) | Set-Content -Path $outputFilePath -Encoding UTF8 -Force -ErrorAction SilentlyContinue
         exit 1
     }
@@ -230,16 +231,15 @@ try {
     $thisScriptFileObject = Get-Item -LiteralPath $PSCommandPath
     Write-Verbose "Explicitly adding bundler script: $($thisScriptFileObject.FullName)"
     Add-FileToBundle -FileObject $thisScriptFileObject `
-                     -RootPathForRelativeCalculations $ProjectRoot_FullPath `
+                     -RootPathForRelativeCalculations $normalizedProjectRootForCalculations `
                      -BundleBuilder $fileContentBuilder
 
     Get-ChildItem -Path $ProjectRoot_FullPath -Recurse -File -Depth 10 -ErrorAction SilentlyContinue | ForEach-Object {
         $file = $_
-        if ($file.FullName -eq $thisScriptFileObject.FullName) { return }
+        if ($file.FullName -eq $thisScriptFileObject.FullName) { Write-Verbose "Skipping bundler script itself in main loop: $($file.FullName)"; return }
+        if ($file.FullName -eq $outputFilePath) { Write-Verbose "Skipping previous output bundle file: $($file.FullName)"; return } 
 
-        $normalizedProjectRootForCalc = (Resolve-Path $ProjectRoot_FullPath).Path
-        $normalizedFilePath = $file.FullName
-        $currentRelativePath = $normalizedFilePath.Substring($normalizedProjectRootForCalc.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        $currentRelativePath = $file.FullName.Substring($normalizedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
 
         $isExcludedFolder = $false
         foreach ($excludedDir in $ExcludedFolders) {
@@ -252,7 +252,7 @@ try {
         if ($ExcludedFileExtensions -contains $file.Extension.ToLowerInvariant()) { Write-Verbose "Skipping (excluded extension): $currentRelativePath"; return }
 
         Add-FileToBundle -FileObject $file `
-                         -RootPathForRelativeCalculations $normalizedProjectRootForCalc `
+                         -RootPathForRelativeCalculations $normalizedProjectRootForCalculations `
                          -BundleBuilder $fileContentBuilder
     }
 }
@@ -272,7 +272,7 @@ finally {
     }
 
     $thisBundlerScriptFileObject = Get-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue
-    $bundlerScriptVersion = "1.15.11" # Version as per user's provided file, AI does not change this unless instructed to update *this script*
+    $bundlerScriptVersion = "1.18.0" # Updated script version
     if ($thisBundlerScriptFileObject) {
         $readBundlerVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content -LiteralPath $thisBundlerScriptFileObject.FullName -Raw -ErrorAction SilentlyContinue) -ScriptNameForWarning $thisBundlerScriptFileObject.Name
         if ($readBundlerVersion -ne $bundlerScriptVersion -and $readBundlerVersion -ne "N/A" -and $readBundlerVersion -notlike "N/A (*" -and $PSCommandPath -ne $MyInvocation.MyCommand.Path) {
@@ -286,9 +286,9 @@ finally {
     $aiState = @{
         project_name = "PoSh Backup Solution";
         project_root_folder_name = $ProjectRoot_DisplayName;
-        bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); # AI_UPDATE: Updated time
-        main_script_poSh_backup_version = $poShBackupVersion; # Read from PoSh-Backup.ps1
-        bundler_script_version = $bundlerScriptVersion; # Matches script version
+        bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); 
+        main_script_poSh_backup_version = $poShBackupVersion; 
+        bundler_script_version = $bundlerScriptVersion; # Updated to 1.18.0
 
         conversation_summary = @(
             "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1).",
@@ -296,13 +296,14 @@ finally {
             "Reporting: Multi-format (HTML, CSV, JSON, XML, TXT, MD). HTML reports feature theming, log filtering, sim banner.",
             "Core Features: Early 7-Zip check (auto-detection), VSS, retries, hooks, flexible password management.",
             "Validation: Optional schema-based configuration validation (PoShBackupValidator.psm1).",
-            "Bundler Improvements: Regex for version extraction refined; PoSh-Backup.ps1 -TestConfig output included by default; PSSA uses settings file; bundler's own PSSA warnings addressed (Write-Host to Write-Verbose/Output, Invoke-Expression suppression).",
+            "Bundler Improvements: Regex for version extraction refined; PoSh-Backup.ps1 -TestConfig output included by default; PSSA uses settings file; bundler's own PSSA warnings addressed (Write-Host to Write-Verbose/Output, Invoke-Expression suppression); Bundle file moved to root with static name 'PoSh-Backup-AI-Bundle.txt', ensures it overwrites existing bundle, and skips bundling its own previous output. Language hint detection refactored to use hashtable. Project root path resolution optimized.", # Updated summary
+            "Utils.psm1: Write-LogMessage color logic simplified to prioritize $Global:StatusToColourMap for level-specific colors.",
             "PSScriptAnalyzer: Iteratively addressed warnings in production code through direct fixes and by updating PSScriptAnalyzerSettings.psd1 to globally exclude specific rules. Removed corresponding in-line/attribute suppressions from code.",
             "Pester Tests: Attempted to create/debug Pester tests for Utils.psm1 and PasswordManager.psm1. Encountered significant and persistent issues with Pester environment setup, cmdlet availability (Get-Mock, Remove-Mock), mock scoping, and test logic. These tests are currently non-functional and were excluded from this bundle generation."
-        ); # AI_UPDATE: Added note about Pester test issues
-        module_descriptions = $script:autoDetectedModuleDescriptions; # Auto-detected
+        ); 
+        module_descriptions = $script:autoDetectedModuleDescriptions; 
         external_dependencies = @{
-            powershell_modules = ($script:autoDetectedPsDependencies | Sort-Object -Unique); # Auto-detected, currently null
+            powershell_modules = ($script:autoDetectedPsDependencies | Sort-Object -Unique); 
             executables = @(
                 "7z.exe (7-Zip command-line tool - path configurable or auto-detected)"
             )
@@ -321,7 +322,7 @@ finally {
             "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code, especially in complex `if/try/catch/finally` blocks and `param()` blocks.",
             "PSSA: Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions (from PSScriptAnalyzerSettings.psd1 or in-line attributes/comments). Trust VS Code's PSSA feedback (when configured with the settings file) more for true suppression status.",
             "PESTER (SESSION): Current Pester tests are non-functional. Significant issues encountered with Pester v5 environment, cmdlet availability (Get-Mock/Remove-Mock were not exported by Pester 5.7.1), mock scoping, and test logic that could not be resolved during the session. Further Pester work will require a reset or a different diagnostic approach."
-        ); # AI_UPDATE: Added specific Pester watch item
+        ); 
         ai_bundler_update_instructions = @{
             purpose = "Instructions for AI on how to regenerate the content of this `$aiState hashtable within the Generate-ProjectBundleForAI.ps1 script when requested by the user.";
             when_to_update = "Only when the user explicitly asks to 'update the bundler script's AI state'.";
@@ -373,10 +374,10 @@ finally {
                     $reportFileExtensionsToExcludeInOverview = @(".html", ".csv", ".json", ".xml", ".txt", ".md")
                     $childItems = $childItems | Where-Object { $_.PSIsContainer -or ($_.Extension.ToLowerInvariant() -notin $reportFileExtensionsToExcludeInOverview) }
                 } elseif ($item.Name -eq "Meta" -and $item.FullName -eq $PSScriptRoot) {
-                     $childItems = $childItems | Where-Object { $_.Name -eq ($OutputFileNameBase + "-" + $timestamp + ".txt") -or $_.Name -eq "Generate-ProjectBundleForAI.ps1" -or $_.PSIsContainer}
-                } elseif ($item.Name -eq "Tests") { # AI_UPDATE: Ensure "Tests" children are represented as "..." if Tests folder is excluded at top level
+                     $childItems = $childItems | Where-Object { $_.Name -eq "Generate-ProjectBundleForAI.ps1" -or $_.PSIsContainer}
+                } elseif ($item.Name -eq "Tests") { 
                     $null = $finalOutputBuilder.AppendLine("  |  |- ... (Content excluded by bundler settings)")
-                    $childItems = @() # Don't list children if parent is excluded
+                    $childItems = @() 
                 }
 
 
@@ -389,7 +390,9 @@ finally {
                     }
                 }
             } else {
-                $null = $finalOutputBuilder.AppendLine("  |- $($item.Name)")
+                if ($item.FullName -ne $outputFilePath) {
+                    $null = $finalOutputBuilder.AppendLine("  |- $($item.Name)")
+                }
             }
         }
     } catch {
@@ -472,8 +475,10 @@ finally {
                 Write-Host "Running PSScriptAnalyzer (this may take a moment)..." -ForegroundColor Yellow
                 $scriptFilesToAnalyze = Get-ChildItem -Path $ProjectRoot_FullPath -Recurse -Include *.ps1, *.psm1 |
                     Where-Object {
+                        if ($_.FullName -eq $outputFilePath) { return $false } 
+
                         $isExcluded = $false
-                        foreach($excludedDirName in $ExcludedFolders) { # $ExcludedFolders already updated to include "Tests"
+                        foreach($excludedDirName in $ExcludedFolders) { 
                             $fullExcludedPath = Join-Path -Path $ProjectRoot_FullPath -ChildPath $excludedDirName
                             if ($_.FullName.StartsWith($fullExcludedPath, [System.StringComparison]::OrdinalIgnoreCase)) { $isExcluded = $true; break }
                         }
@@ -532,6 +537,7 @@ finally {
     $null = $finalOutputBuilder.AppendLine("--- END OF PROJECT FILE BUNDLE ---")
 
     try {
+        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue
         $finalOutputBuilder.ToString() | Set-Content -Path $outputFilePath -Encoding UTF8 -Force
         Write-Output "Project bundle successfully written to: $outputFilePath"
     } catch {

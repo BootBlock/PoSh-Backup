@@ -1,4 +1,7 @@
-Config/User.psd1
+# Wildcard files
 Logs/*.log
-Meta/*.txt
 Reports/*.html
+
+# Explicit files
+Config/User.psd1
+PoSh-Backup-AI-Bundle.txt
