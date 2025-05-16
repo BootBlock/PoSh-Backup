@@ -1,27 +1,148 @@
 # PoSh-Backup
-A powerful set of PowerShell scripts for backing up your files that uses the free [7-Zip](https://www.7-zip.org/) compression software.
+A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software.
 
-> **Notice:** You use this at your own risk! It hasn't undergone as much testing as I'd like, as it's still deep within development! **Another bonus:** I'm testing some AI features, and so this has been written via that AI under guidance.
+> **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
-## Features include:
+## Features
 *   **Enterprise-Grade PowerShell Solution:** Robust, modular design built with dedicated PowerShell modules for reliability, maintainability, and clarity.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, and backup sets via a human-readable `.psd1` configuration file.
 *   **Granular Backup Job Control:** Precisely define sources, destinations, archive names, retention policies, 7-Zip parameters, and more for each individual backup job.
 *   **Backup Sets:** Group multiple jobs to run sequentially, with set-level error handling (stop on error or continue) for automated workflows.
 *   **Live File Backups with VSS:** Utilise the Windows Volume Shadow Copy Service (VSS) to seamlessly back up open or locked files (requires Administrator privileges). Features configurable VSS context, reliable shadow copy creation, and a configurable metadata cache path.
 *   **Advanced 7-Zip Integration:** Leverage 7-Zip for efficient, highly configurable compression. Customise archive type, compression level, method, dictionary/word/solid block sizes, thread count, and file exclusions.
-*   **Secure Password Protection:** Encrypt backups with passwords, handled securely via temporary files (using 7-Zip's `-spf` switch) to prevent command-line exposure.
-*   **Customizable Archive Naming:** Tailor archive filenames with a base name and a configurable date stamp (e.g., "yyyy-MMM-dd", "yyyyMMdd_HHmmss"). Set archive extensions (e.g., .7z, .zip) per job.
+*   **Secure Password Protection:** Encrypt backups with passwords, handled securely via temporary files (using 7-Zip's `-spf` switch) to prevent command-line exposure. Multiple password sources supported (Interactive, PowerShell SecretManagement, Encrypted File, Plaintext).
+*   **Customisable Archive Naming:** Tailor archive filenames with a base name and a configurable date stamp (e.g., "yyyy-MMM-dd", "yyyyMMdd_HHmmss"). Set archive extensions (e.g., .7z, .zip) per job.
 *   **Automatic Retry Mechanism:** Overcome transient failures during 7-Zip operations with configurable automatic retries and delays.
 *   **CPU Priority Control:** Manage system resource impact by setting the 7-Zip process priority (e.g., Idle, BelowNormal, Normal, High).
 *   **Extensible Script Hooks:** Execute your own custom PowerShell scripts at various stages of a backup job for ultimate operational flexibility.
-*   **Rich HTML Reporting:** Generate comprehensive, highly customisable HTML reports for each job. Tailor titles, logos, company info, themes (via external CSS), and visible sections. Includes robust HTML encoding for XSS protection.
+*   **Multi-Format Reporting:** Generate comprehensive reports for each job.
+    *   **HTML Reports:** Highly customisable with titles, logos, company info, themes (via external CSS), client-side log filtering/searching, and simulation banners.
+    *   **Other Formats:** CSV, JSON, XML (CliXml), Plain Text (TXT), and Markdown (MD) also supported.
 *   **Comprehensive Logging:** Get detailed, colour-coded console output and optional per-job text file logs for easy monitoring and troubleshooting.
 *   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview backup operations without making any actual changes.
-*   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`) before execution.
+*   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`) before execution. Optional advanced schema validation available.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created archives to ensure backup reliability.
-*   **Exit Pause:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
+*   **Exit Pause Control:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
 
-## How to Use
-This information is coming soon to the wiki, but for now, run the `PoSh-Backup.ps1` script via PowerShell; it'll ask you whether you want to create the default `User.psd1` config file - you do so you don't lose your settings upon upgrade, so hit Y and enter. Next, open up the `Config\User.psd1` file in a text editor ([Visual Studio Code](https://code.visualstudio.com/) is good for this due to its syntax highlighting) and take a look; its comments function as live documentation.
+## Getting Started
+
+### 1. Prerequisites
+*   **PowerShell:** Version 5.1 or higher.
+*   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
+*   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files.
+
+### 2. Installation & Initial Setup
+1.  **Obtain the Script:**
+    *   Download the project files (e.g., as a ZIP archive from the project page) or clone the repository if you use Git.
+    *   Extract/place the `PoSh-Backup` folder in your desired location (e.g., `C:\Scripts\PoSh-Backup`).
+2.  **Directory Structure Overview:**
+    *   `PoSh-Backup.ps1`: The main executable script you will run.
+    *   `Config/`: Contains all configuration files.
+        *   `Default.psd1`: The master configuration file. It lists all available settings with detailed comments explaining each one. **It's recommended not to edit this file directly**, as your changes would be overwritten if you update the script.
+        *   `User.psd1`: (Will be created on first run if it doesn't exist) This is where your custom settings go.
+        *   `Themes/`: Contains CSS files for different HTML report themes.
+    *   `Modules/`: Contains PowerShell modules that provide the core functionality (Backup Operations, Utility functions, Reporting, Password Management, etc.).
+    *   `Meta/`: Contains scripts related to the development of PoSh-Backup itself (like the script to generate bundles for AI).
+    *   `Logs/`: Default directory where text log files will be stored for each job run (if file logging is enabled in the configuration).
+    *   `Reports/`: Default directory where generated backup reports (HTML, CSV, etc.) will be saved.
+3.  **First Run & User Configuration:**
+    *   Open a PowerShell console.
+    *   Navigate to the root directory where you placed the `PoSh-Backup` folder (e.g., `cd C:\Scripts\PoSh-Backup`).
+    *   Execute the main script: `.\PoSh-Backup.ps1`
+    *   On the very first run, if `Config\User.psd1` does not exist, the script will prompt you to create it by copying `Config\Default.psd1`.
+        *   It is **highly recommended** to type `Y` and press Enter.
+        *   This action creates `Config\User.psd1` as a copy of `Config\Default.psd1`. You should then edit `Config\User.psd1` with your specific settings. Any settings defined in `User.psd1` will override the corresponding settings from `Default.psd1`. This ensures your customisations are preserved when the script is updated.
+    *   After creating `User.psd1`, the script will likely inform you that no backup jobs are defined (unless you've already edited it) or it might exit.
+
+### 3. Configuration
+1.  **Edit `Config\User.psd1`:**
+    *   Open `Config\User.psd1` in your preferred text editor (Visual Studio Code is excellent for PowerShell files due to its syntax highlighting and PowerShell extension).
+2.  **Key Settings to Review/Modify Initially:**
+    *   **`SevenZipPath`**:
+        *   By default, this is empty (`""`), and the script tries to auto-detect `7z.exe`.
+        *   If auto-detection fails, or you have multiple 7-Zip versions and want to specify one, set the full path here. Example: `'C:\Program Files\7-Zip\7z.exe'`.
+    *   **`DefaultDestinationDir`**:
+        *   Set your primary backup destination directory. Example: `'D:\Backups'`.
+        *   Ensure this directory exists, or the script has permissions to create it.
+    *   **`BackupLocations`**:
+        *   This is the most important section for defining what to back up. It's a hashtable where each entry is a backup job.
+        *   `User.psd1` (copied from `Default.psd1`) will contain example job definitions. Modify or replace these with your actual requirements.
+        *   A minimal job definition looks like this:
+            ```powershell
+            # Inside User.psd1
+            @{
+                # ... other global settings ...
+
+                BackupLocations = @{
+                    "MyImportantDocs" = @{
+                        Path           = @( # Array of paths to back up
+                                         "C:\Users\YourUserName\Documents",
+                                         "E:\WorkProjects\CriticalData"
+                                       )
+                        Name           = "ImportantDocumentsArchive" # Base name for the archive file (date stamp will be added)
+                        DestinationDir = "D:\MyBackups\Documents"    # Optional: overrides DefaultDestinationDir for this job
+                        RetentionCount = 7                          # Number of old archive versions to keep (e.g., 7 for one week of dailies)
+                        # Add other job-specific settings here, like EnableVSS, ArchivePasswordMethod, etc.
+                    }
+                    "MyPhotos" = @{
+                        Path           = "F:\Photos"
+                        Name           = "PhotoBackup"
+                        RetentionCount = 30
+                    }
+                    # Add more jobs as needed
+                }
+
+                # ... other settings like BackupSets ...
+            }
+            ```
+3.  **Explore `Config\Default.psd1` for All Options:**
+    *   Open `Config\Default.psd1` (but don't edit it for your settings). This file serves as a comprehensive reference. It contains detailed comments explaining every available global and job-specific setting, including VSS options, retry mechanisms, 7-Zip parameters, reporting customisations, and more.
+
+### 4. Basic Usage Examples
+Once your `Config\User.psd1` is configured with at least one backup job, you can run PoSh-Backup from a PowerShell console located in the script's root directory:
+
+*   **Run a specific backup job:**
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "MyImportantDocs"
+    ```
+    (Replace `"MyImportantDocs"` with the actual name of a job you defined in `BackupLocations`.)
+
+*   **Run a predefined Backup Set:** (Backup Sets group multiple jobs and are defined in `User.psd1` or `Default.psd1`.)
+    ```powershell
+    .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups"
+    ```
+    (Replace `"DailyCriticalBackups"` with the name of a defined set.)
+
+*   **Simulate a backup job (perform a dry run - no actual files are backed up or changed):**
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "MyImportantDocs" -Simulate
+    ```
+
+*   **Test your configuration file for errors and view a summary of loaded settings:**
+    ```powershell
+    .\PoSh-Backup.ps1 -TestConfig
+    ```
+    (This is very useful after making changes to `User.psd1`.)
+
+*   **List all defined backup jobs and their basic details:**
+    ```powershell
+    .\PoSh-Backup.ps1 -ListBackupLocations
+    ```
+
+*   **List all defined backup sets and the jobs they contain:**
+    ```powershell
+    .\PoSh-Backup.ps1 -ListBackupSets
+    ```
+
+### 5. Key Operational Command-Line Parameters
+These parameters allow you to override certain configuration settings for a specific run:
+
+*   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (requires Administrator privileges).
+*   `-TestArchive`: Forces an integrity test of newly created archives for all processed jobs.
+*   `-Simulate`: Runs in simulation mode, as described above.
+*   `-PauseBehaviourCLI <Always|Never|OnFailure|OnWarning|OnFailureOrWarning>`: Controls if the script pauses with a "Press any key to continue" message before exiting. Overrides the `PauseBeforeExit` setting in the configuration file.
+
+For a full list of all command-line parameters and their descriptions, use PowerShell's built-in help:
+```powershell
+Get-Help .\PoSh-Backup.ps1 -Full
