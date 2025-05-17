@@ -1,5 +1,8 @@
 # Wildcard files
 Logs/*.log
+Reports/*.csv
+Reports/*.xml
+Reports/*.md
 Reports/*.html
 
 # Explicit files

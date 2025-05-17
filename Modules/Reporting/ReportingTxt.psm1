@@ -22,7 +22,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Enhanced CBH for module and Invoke-TxtReport.
+    Version:        1.1.1 # Implemented logger usage.
     DateCreated:    14-May-2025
     LastModified:   16-May-2025
     Purpose:        Plain text summary report generation sub-module for PoSh-Backup.
@@ -71,7 +71,7 @@ function Invoke-TxtReport {
         [Parameter(Mandatory=$true)]
         [hashtable]$ReportData,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger 
     )
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
@@ -85,14 +85,13 @@ function Invoke-TxtReport {
     & $LocalWriteLog -Message "[INFO] TXT Report generation process started for job '$JobName'." -Level "INFO"
 
     $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' # Sanitize job name for filename
+    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
     $reportFileName = "$($safeJobNameForFile)_Report_$($reportTimestamp).txt"
     $reportFullPath = Join-Path -Path $ReportDirectory -ChildPath $reportFileName
 
     $reportContent = [System.Text.StringBuilder]::new()
-    $separatorLine = "-" * 70 # Define a separator line for consistent formatting
+    $separatorLine = "-" * 70 
 
-    # --- Report Header ---
     $null = $reportContent.AppendLine("PoSh Backup Report - Job: $JobName")
     $null = $reportContent.AppendLine("Generated: $(Get-Date)")
     if ($ReportData.ContainsKey('IsSimulationReport') -and $ReportData.IsSimulationReport) {
@@ -102,7 +101,6 @@ function Invoke-TxtReport {
     }
     $null = $reportContent.AppendLine($separatorLine)
 
-    # --- Summary Section ---
     $null = $reportContent.AppendLine("SUMMARY:")
     $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot')} | ForEach-Object {
         $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $_ -replace "`r`n", " " -replace "`n", " " }) -join '; ' } else { ($_.Value | Out-String).Trim() }
@@ -110,7 +108,6 @@ function Invoke-TxtReport {
     }
     $null = $reportContent.AppendLine($separatorLine)
 
-    # --- Configuration Section ---
     if ($ReportData.ContainsKey('JobConfiguration') -and $null -ne $ReportData.JobConfiguration) {
         $null = $reportContent.AppendLine("CONFIGURATION USED FOR JOB '$JobName':")
         $ReportData.JobConfiguration.GetEnumerator() | Sort-Object Name | ForEach-Object {
@@ -120,7 +117,6 @@ function Invoke-TxtReport {
         $null = $reportContent.AppendLine($separatorLine)
     }
 
-    # --- Hook Scripts Section ---
     if ($ReportData.ContainsKey('HookScripts') -and $null -ne $ReportData.HookScripts -and $ReportData.HookScripts.Count -gt 0) {
         $null = $reportContent.AppendLine("HOOK SCRIPTS EXECUTED:")
         $ReportData.HookScripts | ForEach-Object {
@@ -128,16 +124,14 @@ function Invoke-TxtReport {
             $null = $reportContent.AppendLine("  Path      : $($_.Path)")
             $null = $reportContent.AppendLine("  Status    : $($_.Status)")
             if (-not [string]::IsNullOrWhiteSpace($_.Output)) {
-                # Indent multi-line output for better readability
                 $indentedOutput = ($_.Output.TrimEnd() -split '\r?\n' | ForEach-Object { "              $_" }) -join [Environment]::NewLine
-                $null = $reportContent.AppendLine("  Output    : $($indentedOutput.TrimStart())") # Trim leading spaces from first line of output
+                $null = $reportContent.AppendLine("  Output    : $($indentedOutput.TrimStart())") 
             }
-            $null = $reportContent.AppendLine() # Add a blank line between hook script entries
+            $null = $reportContent.AppendLine() 
         }
         $null = $reportContent.AppendLine($separatorLine)
     }
 
-    # --- Detailed Log Section ---
     if ($ReportData.ContainsKey('LogEntries') -and $null -ne $ReportData.LogEntries -and $ReportData.LogEntries.Count -gt 0) {
         $null = $reportContent.AppendLine("DETAILED LOG:")
         $ReportData.LogEntries | ForEach-Object {

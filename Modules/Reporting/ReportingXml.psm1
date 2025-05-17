@@ -18,7 +18,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Enhanced CBH for module and Invoke-XmlReport.
+    Version:        1.1.1 # Implemented logger usage and enhanced CBH.
     DateCreated:    14-May-2025
     LastModified:   16-May-2025
     Purpose:        XML (specifically PowerShell Clixml) report generation sub-module for PoSh-Backup.
@@ -73,7 +73,7 @@ function Invoke-XmlReport {
         [Parameter(Mandatory=$true)]
         [hashtable]$ReportData,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger 
     )
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
@@ -87,7 +87,7 @@ function Invoke-XmlReport {
     & $LocalWriteLog -Message "[INFO] XML Report (Clixml format) generation process started for job '$JobName'." -Level "INFO"
 
     $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' # Sanitize job name for filename
+    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
     $reportFileName = "$($safeJobNameForFile)_Report_$($reportTimestamp).xml"
     $reportFullPath = Join-Path -Path $ReportDirectory -ChildPath $reportFileName
 

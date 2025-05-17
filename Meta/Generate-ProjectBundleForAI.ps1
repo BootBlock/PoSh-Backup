@@ -37,9 +37,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.19.0 # Added ProjectRoot validation, more verbose output.
+    Version:        1.19.1 # Addressed PSSA warnings for aliases and unused loggers. Enhanced bundler validation and verbose logging.
     DateCreated:    15-May-2025
-    LastModified:   16-May-2025 # Enhanced parameter validation and verbose logging.
+    LastModified:   16-May-2025 # PSSA warning fixes. Bundler self-validation and verbose logging.
 #>
 
 param (
@@ -138,7 +138,7 @@ function Add-FileToBundle {
     $fileContent = ""
     try {
         $fileContent = Get-Content -LiteralPath $FileObject.FullName -Raw -Encoding UTF8 -ErrorAction Stop
-        if ($null -eq $fileContent -and $LASTEXITCODE -ne 0) { # Fallback if UTF8 fails (rare)
+        if ($null -eq $fileContent -and $LASTEXITCODE -ne 0) { 
             $fileContent = Get-Content -LiteralPath $FileObject.FullName -Raw -ErrorAction SilentlyContinue
         }
 
@@ -155,10 +155,8 @@ function Add-FileToBundle {
         $null = $BundleBuilder.AppendLine("(Error reading file '$($FileObject.FullName)': $($_.Exception.Message))")
     }
 
-    # Extract synopsis and PowerShell module dependencies
     if ($FileObject.Extension -in ".ps1", ".psm1" -and -not [string]::IsNullOrEmpty($fileContent)) {
         try {
-            # Regex for .SYNOPSIS block
             $synopsisMatch = [regex]::Match($fileContent, '(?s)\.SYNOPSIS\s*(.*?)(?=\r?\n\s*\.(?:DESCRIPTION|EXAMPLE|PARAMETER|NOTES|LINK)|<#|$)')
             if ($synopsisMatch.Success) {
                 $synopsisText = $synopsisMatch.Groups[1].Value.Trim() -replace '\s*\r?\n\s*', ' ' -replace '\s{2,}', ' '
@@ -172,7 +170,6 @@ function Add-FileToBundle {
         }
 
         try {
-            # Regex for #Requires -Module statements
             $regexPatternForRequires = '(?im)^\s*#Requires\s+-Module\s+(?:@{ModuleName\s*=\s*)?["'']?([a-zA-Z0-9._-]+)["'']?'
             $requiresMatches = [regex]::Matches($fileContent, $regexPatternForRequires)
 
@@ -204,7 +201,7 @@ $shouldIncludeTestConfigOutput = -not $DoNotIncludeTestConfigOutput.IsPresent
 $ProjectRoot_DisplayName = (Get-Item -LiteralPath $ProjectRoot_FullPath).Name
 $outputFilePath = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PoSh-Backup-AI-Bundle.txt"
 
-$normalizedProjectRootForCalculations = (Resolve-Path $ProjectRoot_FullPath).Path # Resolved once
+$normalizedProjectRootForCalculations = (Resolve-Path $ProjectRoot_FullPath).Path 
 
 Write-Host "Starting project file bundling process..."
 Write-Host "Actual Project Root (for script execution): $ProjectRoot_FullPath"
@@ -215,7 +212,7 @@ Write-Host "Output File: $outputFilePath (will be overwritten)"
 Write-Verbose "Normalized project root for path calculations: $normalizedProjectRootForCalculations"
 
 $headerContentBuilder = [System.Text.StringBuilder]::new()
-$null = $headerContentBuilder.AppendLine("Hello AI Assistant!") # Standard greeting
+$null = $headerContentBuilder.AppendLine("Hello AI Assistant!") 
 $null = $headerContentBuilder.AppendLine("")
 $null = $headerContentBuilder.AppendLine("This bundle contains the current state of our PowerShell backup project ('PoSh-Backup').")
 $null = $headerContentBuilder.AppendLine("It is designed to allow us to seamlessly continue our previous conversation in a new chat session.")
@@ -230,8 +227,6 @@ $fileContentBuilder = [System.Text.StringBuilder]::new()
 
 # --- Main Processing Logic ---
 try {
-    # Initial validation of ProjectRoot_FullPath is now handled by ValidateScript on the parameter.
-    # Test-Path check here is a fallback, though should be redundant if ValidateScript works.
     if (-not (Test-Path -LiteralPath $ProjectRoot_FullPath -PathType Container)) {
         $errorMessage = "Project root '$ProjectRoot_FullPath' not found or is not a directory (post-parameter validation check)."
         Write-Error $errorMessage
@@ -289,7 +284,7 @@ finally {
 
     Write-Verbose "Reading bundler script for its own version information..."
     $thisBundlerScriptFileObject = Get-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue
-    $bundlerScriptVersion = "1.19.0" # Updated script version
+    $bundlerScriptVersion = "1.19.1" # Updated script version
     if ($thisBundlerScriptFileObject) {
         $readBundlerVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content -LiteralPath $thisBundlerScriptFileObject.FullName -Raw -ErrorAction SilentlyContinue) -ScriptNameForWarning $thisBundlerScriptFileObject.Name
         if ($readBundlerVersion -ne $bundlerScriptVersion -and $readBundlerVersion -ne "N/A" -and $readBundlerVersion -notlike "N/A (*" -and $PSCommandPath -ne $MyInvocation.MyCommand.Path) {
@@ -305,7 +300,7 @@ finally {
         project_root_folder_name = $ProjectRoot_DisplayName;
         bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); 
         main_script_poSh_backup_version = $poShBackupVersion; 
-        bundler_script_version = $bundlerScriptVersion; # Updated to 1.19.0
+        bundler_script_version = $bundlerScriptVersion; # Updated to 1.19.1
 
         conversation_summary = @(
             "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1).",
@@ -313,10 +308,11 @@ finally {
             "Reporting: Multi-format (HTML, CSV, JSON, XML, TXT, MD). HTML reports feature theming, log filtering, sim banner. Reporting.psm1 orchestrator intelligently passes parameters to sub-modules.",
             "Core Features: Early 7-Zip check (auto-detection), VSS, retries, hooks, flexible password management.",
             "Validation: Optional schema-based configuration validation (PoShBackupValidator.psm1).",
-            "Bundler Improvements: Regex for version extraction refined; PoSh-Backup.ps1 -TestConfig output included by default; PSSA uses settings file; bundler's own PSSA warnings addressed (Write-Host to Write-Verbose/Output, Invoke-Expression suppression); Bundle file moved to root with static name 'PoSh-Backup-AI-Bundle.txt', ensures it overwrites existing bundle, and skips bundling its own previous output. Language hint detection refactored to use hashtable. Project root path resolution optimized. Added ProjectRoot parameter validation and more verbose output messages.", # Updated summary
-            "Utils.psm1: Write-LogMessage color logic simplified to prioritize `$Global:StatusToColourMap`.",
+            "Bundler Improvements: Regex for version extraction refined; PoSh-Backup.ps1 -TestConfig output included by default; PSSA uses settings file; bundler's own PSSA warnings addressed (Write-Host to Write-Verbose/Output, Invoke-Expression suppression); Bundle file moved to root with static name 'PoSh-Backup-AI-Bundle.txt', ensures it overwrites existing bundle, and skips bundling its own previous output. Language hint detection refactored to use hashtable. Project root path resolution optimized. Added ProjectRoot parameter validation and more verbose output messages.", 
+            "Utils.psm1: Write-LogMessage color logic simplified to prioritize `$Global:StatusToColourMap`; PSSA alias warning (Select to Select-Object) fixed.",
+            "Reporting Sub-Modules: Ensured '$Logger' parameter is consistently used for logging start/end of report generation, addressing PSSA warnings.",
             "Documentation: Extensive review and enhancement of README.md and Comment-Based Help (CBH) for PoSh-Backup.ps1, Config/Default.psd1 (comments), and all modules (Operations, Utils, PasswordManager, Reporting orchestrator, all individual Reporting sub-modules, PoShBackupValidator).",
-            "PSScriptAnalyzer: Iteratively addressed warnings in production code through direct fixes and by updating PSScriptAnalyzerSettings.psd1 to globally exclude specific rules. Removed corresponding in-line/attribute suppressions from code.",
+            "PSScriptAnalyzer: Iteratively addressed warnings in production code through direct fixes and by updating PSScriptAnalyzerSettings.psd1 to globally exclude specific rules. Removed corresponding in-line/attribute suppressions from code. Addressed PSSA alias warning in Utils.psm1 and unused Logger parameters in reporting sub-modules.", 
             "Pester Tests: Attempted to create/debug Pester tests for Utils.psm1 and PasswordManager.psm1. Encountered significant and persistent issues with Pester environment setup, cmdlet availability (Get-Mock, Remove-Mock), mock scoping, and test logic. These tests are currently non-functional and were excluded from this bundle generation."
         ); 
         module_descriptions = $script:autoDetectedModuleDescriptions; 

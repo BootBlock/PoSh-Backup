@@ -19,7 +19,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Enhanced CBH for module and Invoke-CsvReport.
+    Version:        1.1.1 # Implemented logger usage.
     DateCreated:    14-May-2025
     LastModified:   16-May-2025
     Purpose:        CSV report generation sub-module for PoSh-Backup.
@@ -70,7 +70,7 @@ function Invoke-CsvReport {
         [Parameter(Mandatory=$true)]
         [hashtable]$ReportData,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger 
     )
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
@@ -84,17 +84,15 @@ function Invoke-CsvReport {
     & $LocalWriteLog -Message "[INFO] CSV Report generation process started for job '$JobName'." -Level "INFO"
 
     $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' # Sanitize job name for use in filename
+    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
 
-    # --- Generate Summary CSV Report ---
     $summaryReportFileName = "$($safeJobNameForFile)_Summary_$($reportTimestamp).csv"
     $summaryReportFullPath = Join-Path -Path $ReportDirectory -ChildPath $summaryReportFileName
 
     try {
-        # Create a PSCustomObject for the summary, excluding complex nested objects like logs/hooks
         $summaryObject = [PSCustomObject]@{}
         $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport')} | ForEach-Object {
-            $value = if ($_.Value -is [array]) { $_.Value -join '; ' } else { $_.Value } # Simple join for array values in summary
+            $value = if ($_.Value -is [array]) { $_.Value -join '; ' } else { $_.Value }
             Add-Member -InputObject $summaryObject -MemberType NoteProperty -Name $_.Name -Value $value
         }
 
@@ -104,7 +102,6 @@ function Invoke-CsvReport {
          & $LocalWriteLog -Message "[ERROR] Failed to generate Summary CSV report '$summaryReportFullPath' for job '$JobName'. Error: $($_.Exception.Message)" -Level "ERROR"
     }
 
-    # --- Generate Log Entries CSV Report (if logs exist) ---
     if ($ReportData.ContainsKey('LogEntries') -and $null -ne $ReportData.LogEntries -and $ReportData.LogEntries.Count -gt 0) {
         $logReportFileName = "$($safeJobNameForFile)_Logs_$($reportTimestamp).csv"
         $logReportFullPath = Join-Path -Path $ReportDirectory -ChildPath $logReportFileName
@@ -118,12 +115,10 @@ function Invoke-CsvReport {
         & $LocalWriteLog -Message "  - No log entries found in report data for job '$JobName'. Log Entries CSV report will not be generated." -Level "DEBUG"
     }
 
-    # --- Generate Hook Scripts CSV Report (if hook data exists) ---
     if ($ReportData.ContainsKey('HookScripts') -and $null -ne $ReportData.HookScripts -and $ReportData.HookScripts.Count -gt 0) {
         $hookReportFileName = "$($safeJobNameForFile)_Hooks_$($reportTimestamp).csv"
         $hookReportFullPath = Join-Path -Path $ReportDirectory -ChildPath $hookReportFileName
         try {
-            # HookScripts data is expected to be an array of PSCustomObjects with Name, Path, Status, Output
             $ReportData.HookScripts | Export-Csv -Path $hookReportFullPath -NoTypeInformation -Encoding UTF8 -Force
             & $LocalWriteLog -Message "  - Hook Scripts CSV report generated successfully: '$hookReportFullPath'" -Level "SUCCESS"
         } catch {

@@ -25,7 +25,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Enhanced CBH for module and Invoke-MdReport.
+    Version:        1.2.1 # Implemented logger usage.
     DateCreated:    14-May-2025
     LastModified:   16-May-2025
     Purpose:        Markdown (.md) report generation sub-module for PoSh-Backup.
@@ -75,7 +75,7 @@ function Invoke-MdReport {
         [Parameter(Mandatory=$true)]
         [hashtable]$ReportData,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger 
     )
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
@@ -86,55 +86,49 @@ function Invoke-MdReport {
         }
     }
 
-    # Helper scriptblock to escape characters problematic in Markdown table cells.
-    # Primarily escapes pipe characters and converts newlines to <br> for HTML rendering.
     $EscapeMarkdownTableContent = {
         param($Content)
         if ($null -eq $Content) { return "" }
         return $Content.ToString() -replace '\|', '\|' -replace '\r?\n', '<br>'
     }
 
-    # Helper scriptblock for content intended for Markdown code blocks (minimal escaping needed).
     $EscapeMarkdownCodeContent = {
         param($Content)
         if ($null -eq $Content) { return "" }
-        return $Content.ToString() # Generally, content in triple-backtick blocks is literal.
+        return $Content.ToString() 
     }
 
     & $LocalWriteLog -Message "[INFO] Markdown Report generation process started for job '$JobName'." -Level "INFO"
 
     $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' # Sanitize for filename
+    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
     $reportFileName = "$($safeJobNameForFile)_Report_$($reportTimestamp).md"
     $reportFullPath = Join-Path -Path $ReportDirectory -ChildPath $reportFileName
 
     $reportContent = [System.Text.StringBuilder]::new()
 
-    # --- Report Header ---
     $titlePrefix = "PoSh Backup Status Report"
-    $null = $reportContent.AppendLine("# $($titlePrefix) - $($JobName | ForEach-Object {$EscapeMarkdownCodeContent.Invoke($_)})") # Escape job name just in case
+    $null = $reportContent.AppendLine("# $($titlePrefix) - $($JobName | ForEach-Object {$EscapeMarkdownCodeContent.Invoke($_)})") 
     $null = $reportContent.AppendLine("")
     $null = $reportContent.AppendLine("**Generated:** $(Get-Date)")
     $null = $reportContent.AppendLine("")
 
     if ($ReportData.ContainsKey('IsSimulationReport') -and $ReportData.IsSimulationReport) {
-        $null = $reportContent.AppendLine("> **\*\*\* SIMULATION MODE RUN \*\*\***") # Blockquote for emphasis
+        $null = $reportContent.AppendLine("> **\*\*\* SIMULATION MODE RUN \*\*\***") 
         $null = $reportContent.AppendLine("> This report reflects a simulated backup. No actual files were changed or archives created.")
         $null = $reportContent.AppendLine("")
     }
 
-    # --- Summary Section ---
     $null = $reportContent.AppendLine("## Summary")
     $null = $reportContent.AppendLine("")
     $null = $reportContent.AppendLine("| Item                      | Detail |")
-    $null = $reportContent.AppendLine("| :------------------------ | :----- |") # Markdown table alignment
+    $null = $reportContent.AppendLine("| :------------------------ | :----- |") 
     $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot')} | ForEach-Object {
         $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $EscapeMarkdownTableContent.Invoke($_) }) -join '; ' } else { $EscapeMarkdownTableContent.Invoke($_.Value) }
         $null = $reportContent.AppendLine("| $($EscapeMarkdownTableContent.Invoke($_.Name).PadRight(25)) | $value |")
     }
     $null = $reportContent.AppendLine("")
 
-    # --- Configuration Section ---
     if ($ReportData.ContainsKey('JobConfiguration') -and $null -ne $ReportData.JobConfiguration) {
         $null = $reportContent.AppendLine("## Configuration Used for Job '$($JobName | ForEach-Object {$EscapeMarkdownCodeContent.Invoke($_)})'")
         $null = $reportContent.AppendLine("")
@@ -147,7 +141,6 @@ function Invoke-MdReport {
         $null = $reportContent.AppendLine("")
     }
 
-    # --- Hook Scripts Section ---
     if ($ReportData.ContainsKey('HookScripts') -and $null -ne $ReportData.HookScripts -and $ReportData.HookScripts.Count -gt 0) {
         $null = $reportContent.AppendLine("## Hook Scripts Executed")
         $null = $reportContent.AppendLine("")
@@ -155,12 +148,9 @@ function Invoke-MdReport {
         $null = $reportContent.AppendLine("| :------ | :------------------ | :------ | :----------- |")
         $ReportData.HookScripts | ForEach-Object {
             $hookPathEscaped = & $EscapeMarkdownTableContent $_.Path
-            # For hook output in Markdown, embedding in <pre><code> for potentially multi-line content
-            # is often better for rendered views than trying to fit it all in a raw table cell.
             $hookOutputMd = if ([string]::IsNullOrWhiteSpace($_.Output)) {
                                 "*(No output recorded)*"
                             } else {
-                                # Escape for HTML context within Markdown, then wrap in pre/code
                                 $escapedHtmlOutput = ConvertTo-PoshBackupSafeHtmlInternal -Text $_.Output.TrimEnd()
                                 "<pre><code>$($escapedHtmlOutput)</code></pre>"
                             }
@@ -169,16 +159,15 @@ function Invoke-MdReport {
         $null = $reportContent.AppendLine("")
     }
 
-    # --- Detailed Log Section ---
     if ($ReportData.ContainsKey('LogEntries') -and $null -ne $ReportData.LogEntries -and $ReportData.LogEntries.Count -gt 0) {
         $null = $reportContent.AppendLine("## Detailed Log")
         $null = $reportContent.AppendLine("")
         $ReportData.LogEntries | ForEach-Object {
             $logLine = "$($_.Timestamp) [$($_.Level.ToUpper())] $($_.Message)"
-            $null = $reportContent.AppendLine('```text') # Using 'text' hint for plain log block
-            $null = $reportContent.AppendLine(($EscapeMarkdownCodeContent.Invoke($logLine))) # Message content itself
+            $null = $reportContent.AppendLine('```text') 
+            $null = $reportContent.AppendLine(($EscapeMarkdownCodeContent.Invoke($logLine))) 
             $null = $reportContent.AppendLine('```')
-            $null = $reportContent.AppendLine("") # Adds a little space between log entries
+            $null = $reportContent.AppendLine("") 
         }
     }
 
@@ -191,7 +180,6 @@ function Invoke-MdReport {
     & $LocalWriteLog -Message "[INFO] Markdown Report generation process finished for job '$JobName'." -Level "INFO"
 }
 
-# Ensure ConvertTo-PoshBackupSafeHtmlInternal is available if not already (e.g., if System.Web wasn't loaded)
 if (-not (Get-Command ConvertTo-PoshBackupSafeHtmlInternal -ErrorAction SilentlyContinue)) {
     Function ConvertTo-PoshBackupSafeHtmlInternal { param([string]$Text) return $Text -replace '&', '&' -replace '<', '<' -replace '>', '>' -replace '"', '"' -replace "'", '&#39;' }
 }

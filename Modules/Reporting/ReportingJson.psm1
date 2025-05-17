@@ -15,7 +15,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Enhanced CBH for module and Invoke-JsonReport.
+    Version:        1.1.1 # Implemented logger usage.
     DateCreated:    14-May-2025
     LastModified:   16-May-2025
     Purpose:        JSON report generation sub-module for PoSh-Backup.
@@ -65,7 +65,7 @@ function Invoke-JsonReport {
         [Parameter(Mandatory=$true)]
         [hashtable]$ReportData,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger 
     )
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
@@ -79,12 +79,11 @@ function Invoke-JsonReport {
     & $LocalWriteLog -Message "[INFO] JSON Report generation process started for job '$JobName'." -Level "INFO"
 
     $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' # Sanitize job name for filename
+    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
     $reportFileName = "$($safeJobNameForFile)_Report_$($reportTimestamp).json"
     $reportFullPath = Join-Path -Path $ReportDirectory -ChildPath $reportFileName
 
     try {
-        # Convert the entire ReportData hashtable to JSON. Depth 10 should be sufficient for nested objects.
         $ReportData | ConvertTo-Json -Depth 10 | Set-Content -Path $reportFullPath -Encoding UTF8 -Force
         & $LocalWriteLog -Message "  - JSON report generated successfully: '$reportFullPath'" -Level "SUCCESS"
     } catch {
