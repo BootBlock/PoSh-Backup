@@ -37,9 +37,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.19.1 # Addressed PSSA warnings for aliases and unused loggers. Enhanced bundler validation and verbose logging.
+    Version:        1.19.2 # Updated PSSA summary Out-String width to 250. Updated AI state.
     DateCreated:    15-May-2025
-    LastModified:   16-May-2025 # PSSA warning fixes. Bundler self-validation and verbose logging.
+    LastModified:   17-May-2025 # Increased PSSA Out-String width.
 #>
 
 param (
@@ -50,8 +50,8 @@ param (
         return $true
     })]
     [string]$ProjectRoot_FullPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
-    
-    [string[]]$ExcludedFolders = @(".git", "Reports", "Logs", "Meta", "Tests"), 
+
+    [string[]]$ExcludedFolders = @(".git", "Reports", "Logs", "Meta", "Tests"),
     [string[]]$ExcludedFileExtensions = @(".zip", ".7z", ".exe", ".dll", ".pdb", ".iso", ".bak", ".tmp", ".log", ".rar", ".tar", ".gz", ".cab", ".msi"),
     [switch]$NoRunScriptAnalyzer,
     [switch]$DoNotIncludeTestConfigOutput
@@ -114,18 +114,18 @@ function Add-FileToBundle {
         [Parameter(Mandatory)]
         [System.IO.FileInfo]$FileObject,
         [Parameter(Mandatory)]
-        [string]$RootPathForRelativeCalculations, 
+        [string]$RootPathForRelativeCalculations,
         [Parameter(Mandatory)]
         [System.Text.StringBuilder]$BundleBuilder
     )
 
     $currentRelativePath = $FileObject.FullName.Substring($RootPathForRelativeCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-    
+
     $fileExtLower = $FileObject.Extension.ToLowerInvariant()
     $currentLanguageHint = if ($script:fileExtensionToLanguageMap.ContainsKey($fileExtLower)) {
         $script:fileExtensionToLanguageMap[$fileExtLower]
     } else {
-        "text" 
+        "text"
     }
 
     $null = $BundleBuilder.AppendLine("--- FILE_START ---")
@@ -138,7 +138,7 @@ function Add-FileToBundle {
     $fileContent = ""
     try {
         $fileContent = Get-Content -LiteralPath $FileObject.FullName -Raw -Encoding UTF8 -ErrorAction Stop
-        if ($null -eq $fileContent -and $LASTEXITCODE -ne 0) { 
+        if ($null -eq $fileContent -and $LASTEXITCODE -ne 0) {
             $fileContent = Get-Content -LiteralPath $FileObject.FullName -Raw -ErrorAction SilentlyContinue
         }
 
@@ -201,7 +201,7 @@ $shouldIncludeTestConfigOutput = -not $DoNotIncludeTestConfigOutput.IsPresent
 $ProjectRoot_DisplayName = (Get-Item -LiteralPath $ProjectRoot_FullPath).Name
 $outputFilePath = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PoSh-Backup-AI-Bundle.txt"
 
-$normalizedProjectRootForCalculations = (Resolve-Path $ProjectRoot_FullPath).Path 
+$normalizedProjectRootForCalculations = (Resolve-Path $ProjectRoot_FullPath).Path
 
 Write-Host "Starting project file bundling process..."
 Write-Host "Actual Project Root (for script execution): $ProjectRoot_FullPath"
@@ -212,7 +212,7 @@ Write-Host "Output File: $outputFilePath (will be overwritten)"
 Write-Verbose "Normalized project root for path calculations: $normalizedProjectRootForCalculations"
 
 $headerContentBuilder = [System.Text.StringBuilder]::new()
-$null = $headerContentBuilder.AppendLine("Hello AI Assistant!") 
+$null = $headerContentBuilder.AppendLine("Hello AI Assistant!")
 $null = $headerContentBuilder.AppendLine("")
 $null = $headerContentBuilder.AppendLine("This bundle contains the current state of our PowerShell backup project ('PoSh-Backup').")
 $null = $headerContentBuilder.AppendLine("It is designed to allow us to seamlessly continue our previous conversation in a new chat session.")
@@ -230,7 +230,7 @@ try {
     if (-not (Test-Path -LiteralPath $ProjectRoot_FullPath -PathType Container)) {
         $errorMessage = "Project root '$ProjectRoot_FullPath' not found or is not a directory (post-parameter validation check)."
         Write-Error $errorMessage
-        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue 
+        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue
         ($headerContentBuilder.ToString() + $fileContentBuilder.ToString()) | Set-Content -Path $outputFilePath -Encoding UTF8 -Force -ErrorAction SilentlyContinue
         exit 1
     }
@@ -245,7 +245,7 @@ try {
     Get-ChildItem -Path $ProjectRoot_FullPath -Recurse -File -Depth 10 -ErrorAction SilentlyContinue | ForEach-Object {
         $file = $_
         if ($file.FullName -eq $thisScriptFileObject.FullName) { Write-Verbose "Skipping bundler script (already added): $($file.FullName)"; return }
-        if ($file.FullName -eq $outputFilePath) { Write-Verbose "Skipping previous output bundle file to prevent self-inclusion: $($file.FullName)"; return } 
+        if ($file.FullName -eq $outputFilePath) { Write-Verbose "Skipping previous output bundle file to prevent self-inclusion: $($file.FullName)"; return }
 
         $currentRelativePath = $file.FullName.Substring($normalizedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
 
@@ -284,79 +284,89 @@ finally {
 
     Write-Verbose "Reading bundler script for its own version information..."
     $thisBundlerScriptFileObject = Get-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue
-    $bundlerScriptVersion = "1.19.1" # Updated script version
+    $bundlerScriptVersion = "1.19.2" # Manually set desired version for this generation
     if ($thisBundlerScriptFileObject) {
         $readBundlerVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content -LiteralPath $thisBundlerScriptFileObject.FullName -Raw -ErrorAction SilentlyContinue) -ScriptNameForWarning $thisBundlerScriptFileObject.Name
-        if ($readBundlerVersion -ne $bundlerScriptVersion -and $readBundlerVersion -ne "N/A" -and $readBundlerVersion -notlike "N/A (*" -and $PSCommandPath -ne $MyInvocation.MyCommand.Path) {
-             Write-Verbose "Bundler: Read version '$readBundlerVersion' from current disk file ($($thisBundlerScriptFileObject.Name)), but AI State will use hardcoded version '$bundlerScriptVersion' for this generation."
+        if ($readBundlerVersion -ne $bundlerScriptVersion -and $readBundlerVersion -ne "N/A" -and $readBundlerVersion -notlike "N/A (*" ) {
+             # If the version hardcoded in this AI State block ($bundlerScriptVersion) differs from what Get-ScriptVersionFromContent reads from the .NOTES
+             # of the currently executing file on disk, prefer the hardcoded one for the AI State generation to ensure it reflects what the AI is being *told* the version is.
+             # The user should ensure the .NOTES section matches the hardcoded version when they save the script provided by the AI.
+             Write-Verbose "Bundler: Read version '$readBundlerVersion' from current disk file's CBH ($($thisBundlerScriptFileObject.Name)), but AI State will use hardcoded version '$bundlerScriptVersion' for this generation. Ensure CBH is updated to '$bundlerScriptVersion'."
         }
     } else {
          Write-Warning "Bundler: Could not get bundler script file object ('$($PSCommandPath)') for version extraction. Using manually set version '$bundlerScriptVersion' for AI State."
     }
 
     # AI STATE BLOCK - Updated by AI as requested
-    $aiState = @{
-        project_name = "PoSh Backup Solution";
-        project_root_folder_name = $ProjectRoot_DisplayName;
-        bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); 
-        main_script_poSh_backup_version = $poShBackupVersion; 
-        bundler_script_version = $bundlerScriptVersion; # Updated to 1.19.1
-
-        conversation_summary = @(
-            "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1).",
-            "Modular design: Modules/ (Utils, Operations, PasswordManager, Reporting orchestrator), Modules/Reporting/ (format-specific), Config/ (Default.psd1, User.psd1, Themes/), Meta/ (bundler).",
-            "Reporting: Multi-format (HTML, CSV, JSON, XML, TXT, MD). HTML reports feature theming, log filtering, sim banner. Reporting.psm1 orchestrator intelligently passes parameters to sub-modules.",
-            "Core Features: Early 7-Zip check (auto-detection), VSS, retries, hooks, flexible password management.",
-            "Validation: Optional schema-based configuration validation (PoShBackupValidator.psm1).",
-            "Bundler Improvements: Regex for version extraction refined; PoSh-Backup.ps1 -TestConfig output included by default; PSSA uses settings file; bundler's own PSSA warnings addressed (Write-Host to Write-Verbose/Output, Invoke-Expression suppression); Bundle file moved to root with static name 'PoSh-Backup-AI-Bundle.txt', ensures it overwrites existing bundle, and skips bundling its own previous output. Language hint detection refactored to use hashtable. Project root path resolution optimized. Added ProjectRoot parameter validation and more verbose output messages.", 
-            "Utils.psm1: Write-LogMessage color logic simplified to prioritize `$Global:StatusToColourMap`; PSSA alias warning (Select to Select-Object) fixed.",
-            "Reporting Sub-Modules: Ensured '$Logger' parameter is consistently used for logging start/end of report generation, addressing PSSA warnings.",
-            "Documentation: Extensive review and enhancement of README.md and Comment-Based Help (CBH) for PoSh-Backup.ps1, Config/Default.psd1 (comments), and all modules (Operations, Utils, PasswordManager, Reporting orchestrator, all individual Reporting sub-modules, PoShBackupValidator).",
-            "PSScriptAnalyzer: Iteratively addressed warnings in production code through direct fixes and by updating PSScriptAnalyzerSettings.psd1 to globally exclude specific rules. Removed corresponding in-line/attribute suppressions from code. Addressed PSSA alias warning in Utils.psm1 and unused Logger parameters in reporting sub-modules.", 
-            "Pester Tests: Attempted to create/debug Pester tests for Utils.psm1 and PasswordManager.psm1. Encountered significant and persistent issues with Pester environment setup, cmdlet availability (Get-Mock, Remove-Mock), mock scoping, and test logic. These tests are currently non-functional and were excluded from this bundle generation."
-        ); 
-        module_descriptions = $script:autoDetectedModuleDescriptions; 
-        external_dependencies = @{
-            powershell_modules = ($script:autoDetectedPsDependencies | Sort-Object -Unique); 
-            executables = @(
-                "7z.exe (7-Zip command-line tool - path configurable or auto-detected)"
-            )
-        };
-        ai_development_watch_list = @(
-            "CRITICAL (AI): Ensure full, untruncated files are provided when requested by the user. AI has made this mistake multiple times.",
-            "CRITICAL (AI): Verify line counts and comment integrity when AI provides full script updates; inadvertent removal/truncation has occurred (e.g., missing comments, fewer lines than expected).",
-            "CRITICAL (AI): Ensure no extraneous trailing whitespace is introduced on any lines, including apparently blank ones when providing code.",
-            "CRITICAL (SYNTAX): For literal triple backticks (```) in PowerShell strings meant for Markdown code fences, use single quotes: `'```' (e.g., `$sb.AppendLine('```')`). Double quotes will cause parsing errors or misinterpretation.",
-            "SYNTAX: PowerShell ordered dictionaries (`[ordered]@{}`) use `(\$dict.PSObject.Properties.Name -contains 'Key')`, NOT `\$dict.ContainsKey('Key')`.",
-            "REGEX: Be cautious with string interpolation vs. literal characters in regex patterns. Test regex patterns carefully. Ensure PowerShell string parsing is correct before regex engine sees it (e.g., use single-quoted strings for regex patterns, ensure proper escaping of special characters within the pattern if needed).",
-            "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting.",
-            "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`) is correctly set in the `\$ReportData` ref object *before* report generation functions are called.",
-            "SCOPE: Double-check variable scopes when helper functions modify collections intended for wider use (prefer passing by ref or using script scope explicitly and carefully, e.g., `$script:varName`).",
-            "STRUCTURE: Respect the modular design (Utils, Operations, PasswordManager, Reporting orchestrator, Reporting sub-modules).",
-            "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code, especially in complex `if/try/catch/finally` blocks and `param()` blocks.",
-            "PSSA: Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions (from PSScriptAnalyzerSettings.psd1 or in-line attributes/comments). Trust VS Code's PSSA feedback (when configured with the settings file) more for true suppression status.",
-            "PESTER (SESSION): Current Pester tests are non-functional. Significant issues encountered with Pester v5 environment, cmdlet availability (Get-Mock/Remove-Mock were not exported by Pester 5.7.1), mock scoping, and test logic that could not be resolved during the session. Further Pester work will require a reset or a different diagnostic approach."
-        ); 
-        ai_bundler_update_instructions = @{
-            purpose = "Instructions for AI on how to regenerate the content of this `$aiState hashtable within the Generate-ProjectBundleForAI.ps1 script when requested by the user.";
-            when_to_update = "Only when the user explicitly asks to 'update the bundler script's AI state'.";
-            fields_to_update_by_ai = @(
-                "conversation_summary: Refine based on newly implemented and stable features reflected in the code. Focus on *what is currently in the code*.",
-                "module_descriptions: AI should verify/update this based on current file synopses if major changes occur to files or new modules are added/removed (auto-detected by bundler).",
-                "external_dependencies.powershell_modules: AI should verify this list if new #Requires statements are added/removed from scripts (auto-detected by bundler).",
-                "main_script_poSh_backup_version: AI should update this if it modifies PoSh-Backup.ps1's version information (auto-read by this bundler).",
-                "bundler_script_version: AI should update this if it modifies this bundler script's version information (auto-read by this bundler).",
-                "ai_development_watch_list: AI should review this list. If new persistent common errors or important reminders have emerged during the session, AI should suggest or include updates to this list when asked to update the bundler state."
-            );
-            fields_to_be_updated_by_user = @(
-                "external_dependencies.executables (if new external tools are added - AI cannot auto-detect this reliably)"
-            );
-            output_format_for_ai = "Provide the updated `$aiState block as a complete PowerShell hashtable string, ready for copy-pasting directly into Generate-ProjectBundleForAI.ps1, replacing the existing `$aiState = @{ ... }` block. Ensure strings are correctly quoted and arrays use PowerShell syntax, e.g., `@('item1', 'item2')`.";
-            example_of_ai_provided_block_start = "`$aiState = @{";
-            example_of_ai_provided_block_end = "}";
-            reminder_for_ai = "When asked to update this state, proactively consider if any recent challenges or frequent corrections should be added to the 'ai_development_watch_list'."
-        }
-    }
+$aiState = @{
+    project_name = "PoSh Backup Solution";
+    main_script_poSh_backup_version = $poShBackupVersion; # Auto-read by bundler
+    ai_bundler_update_instructions = @{
+        purpose = "Instructions for AI on how to regenerate the content of this `$aiState hashtable within the Generate-ProjectBundleForAI.ps1 script when requested by the user.";
+        example_of_ai_provided_block_start = "`$aiState = @{";
+        output_format_for_ai = "Provide the updated `$aiState block as a complete PowerShell hashtable string, ready for copy-pasting directly into Generate-ProjectBundleForAI.ps1, replacing the existing `$aiState = @{ ... }` block. Ensure strings are correctly quoted and arrays use PowerShell syntax, e.g., `@('item1', 'item2')`.";
+        reminder_for_ai = "When asked to update this state, proactively consider if any recent challenges or frequent corrections should be added to the 'ai_development_watch_list'.";
+        fields_to_be_updated_by_user = @(
+            "external_dependencies.executables (if new external tools are added - AI cannot auto-detect this reliably)"
+        );
+        fields_to_update_by_ai = @(
+            "conversation_summary: Refine based on newly implemented and stable features reflected in the code. Focus on *what is currently in the code*.",
+            "module_descriptions: AI should verify/update this based on current file synopses if major changes occur to files or new modules are added/removed (auto-detected by bundler).",
+            "external_dependencies.powershell_modules: AI should verify this list if new #Requires statements are added/removed from scripts (auto-detected by bundler).",
+            "main_script_poSh_backup_version: AI should update this if it modifies PoSh-Backup.ps1's version information (auto-read by this bundler).",
+            "bundler_script_version: AI should update this if it modifies this bundler script's version information (auto-read by this bundler).",
+            "ai_development_watch_list: AI should review this list. If new persistent common errors or important reminders have emerged during the session, AI should suggest or include updates to this list when asked to update the bundler state."
+        );
+        when_to_update = "Only when the user explicitly asks to 'update the bundler script's AI state'.";
+        example_of_ai_provided_block_end = "}"
+    };
+    bundler_script_version = "1.19.2"; # Updated by AI to reflect bundler script changes (PSSA width)
+    conversation_summary = @(
+        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1).",
+        "Modular design: Modules/ (Utils, Operations, PasswordManager, Reporting orchestrator), Modules/Reporting/ (format-specific), Config/ (Default.psd1, User.psd1, Themes/), Meta/ (bundler).",
+        "Reporting: Multi-format (HTML, CSV, JSON, XML, TXT, MD). HTML reports feature theming, log filtering, sim banner. Reporting.psm1 orchestrator intelligently passes parameters to sub-modules.",
+        "Core Features: Early 7-Zip check (auto-detection), VSS, retries, hooks, flexible password management.",
+        "Validation: Optional schema-based configuration validation (PoShBackupValidator.psm1).",
+        "PSScriptAnalyzer (PSSA) Refinements:",
+        "  - Fixed 'Select' alias to 'Select-Object' in Utils.psm1 and Operations.psm1, resolving PSSA warnings.",
+        "  - Modernized VSS polling in Operations.psm1 from Get-WmiObject to Get-CimInstance, resolving a PSSA warning.",
+        "  - Addressed an 'unused parameter' PSSA warning for PollingIntervalSeconds in Operations.psm1 that arose from the CIM change.",
+        "  - Added defensive/explicit calls to the `$Logger` parameter in all 7 affected modules (ReportingCsv, ReportingHtml, ReportingJson, ReportingMd, ReportingTxt, ReportingXml, and PasswordManager) to resolve PSSA warnings about unused parameters. This was necessary as PSSA's analysis via the bundler did not consistently recognize indirect usage within closures.",
+        "  - Updated PSScriptAnalyzerSettings.psd1: Added 'PSAvoidGlobalVars' to exclusions. Removed 'PSUseCIMToolingForWin32Namespace' and 'PSUseDeclaredVarsMoreThanAssignments' as underlying code issues or PSSA recognition issues were addressed by direct code changes/workarounds.",
+        "  - PSSA summary in the bundle is now clean (0 warnings/errors).",
+        "Bundler Improvements:",
+        "  - Regex for version extraction refined; PoSh-Backup.ps1 -TestConfig output included by default; PSSA uses settings file; bundler's own PSSA warnings addressed (Write-Host to Write-Verbose/Output, Invoke-Expression suppression); Bundle file moved to root with static name 'PoSh-Backup-AI-Bundle.txt', ensures it overwrites existing bundle, and skips bundling its own previous output. Language hint detection refactored to use hashtable. Project root path resolution optimized. Added ProjectRoot parameter validation and more verbose output messages.",
+        "  - Bundler's PSSA output display width for Invoke-ScriptAnalyzer results increased to 250 characters to prevent truncation of ScriptName/Line/Column information.",
+        "Utils.psm1: Write-LogMessage color logic simplified to prioritize `$Global:StatusToColourMap`.",
+        "Documentation: Extensive review and enhancement of README.md and Comment-Based Help (CBH) for PoSh-Backup.ps1, Config/Default.psd1 (comments), and all modules.",
+        "Pester Tests: Attempted to create/debug Pester tests for Utils.psm1 and PasswordManager.psm1. Encountered significant and persistent issues with Pester environment setup, cmdlet availability (Get-Mock, Remove-Mock), mock scoping, and test logic. These tests are currently non-functional and were excluded from the initial bundle generation."
+    );
+    project_root_folder_name = $ProjectRoot_DisplayName; # Auto-set by bundler
+    bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); # Auto-set by bundler
+    module_descriptions = $script:autoDetectedModuleDescriptions; # Auto-populated by bundler
+    external_dependencies = @{
+        executables = @(
+            "7z.exe (7-Zip command-line tool - path configurable or auto-detected)"
+        );
+        powershell_modules = ($script:autoDetectedPsDependencies | Sort-Object -Unique) # Auto-populated by bundler
+    };
+    ai_development_watch_list = @(
+        "CRITICAL (AI): Ensure full, untruncated files are provided when requested by the user. AI has made this mistake multiple times.",
+        "CRITICAL (AI): Verify line counts and comment integrity when AI provides full script updates; inadvertent removal/truncation has occurred (e.g., missing comments, fewer lines than expected).",
+        "CRITICAL (AI): Ensure no extraneous trailing whitespace is introduced on any lines, including apparently blank ones when providing code.",
+        "CRITICAL (SYNTAX): For literal triple backticks (```) in PowerShell strings meant for Markdown code fences, use single quotes: `'```' (e.g., `$sb.AppendLine('```')`). Double quotes will cause parsing errors or misinterpretation.",
+        "SYNTAX: PowerShell ordered dictionaries (`[ordered]@{}`) use `(\$dict.PSObject.Properties.Name -contains 'Key')`, NOT `\$dict.ContainsKey('Key')`.",
+        "REGEX: Be cautious with string interpolation vs. literal characters in regex patterns. Test regex patterns carefully. Ensure PowerShell string parsing is correct before regex engine sees it (e.g., use single-quoted strings for regex patterns, ensure proper escaping of special characters within the pattern if needed).",
+        "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting.",
+        "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`) is correctly set in the `\$ReportData` ref object *before* report generation functions are called.",
+        "SCOPE: Double-check variable scopes when helper functions modify collections intended for wider use (prefer passing by ref or using script scope explicitly and carefully, e.g., `$script:varName`).",
+        "STRUCTURE: Respect the modular design (Utils, Operations, PasswordManager, Reporting orchestrator, Reporting sub-modules).",
+        "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code, especially in complex `if/try/catch/finally` blocks and `param()` blocks.",
+        "PSSA (BUNDLER): Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions from `PSScriptAnalyzerSettings.psd1`, even if VS Code (with the settings file) shows no issues. This was observed with unused parameters in closures, requiring defensive code changes.",
+        "PSSA (CLOSURES): PSScriptAnalyzer may not always detect parameter/variable usage within scriptblock closures assigned to local variables, potentially leading to false 'unused' warnings that require defensive/explicit calls for PSSA appeasement.",
+        "PESTER (SESSION): Current Pester tests are non-functional. Significant issues encountered with Pester v5 environment, cmdlet availability (Get-Mock/Remove-Mock were not exported by Pester 5.7.1), mock scoping, and test logic that could not be resolved during the session. Further Pester work will require a reset or a different diagnostic approach."
+    )
+}
     # END AI STATE BLOCK
 
     # Assemble the final output in order
@@ -391,9 +401,9 @@ finally {
                     $childItems = $childItems | Where-Object { $_.PSIsContainer -or ($_.Extension.ToLowerInvariant() -notin $reportFileExtensionsToExcludeInOverview) }
                 } elseif ($item.Name -eq "Meta" -and $item.FullName -eq $PSScriptRoot) {
                      $childItems = $childItems | Where-Object { $_.Name -eq "Generate-ProjectBundleForAI.ps1" -or $_.PSIsContainer}
-                } elseif ($item.Name -eq "Tests") { 
+                } elseif ($item.Name -eq "Tests") {
                     $null = $finalOutputBuilder.AppendLine("  |  |- ... (Content excluded by bundler settings)")
-                    $childItems = @() 
+                    $childItems = @()
                 }
 
 
@@ -495,6 +505,8 @@ finally {
                 $scriptFilesToAnalyze = Get-ChildItem -Path $ProjectRoot_FullPath -Recurse -Include *.ps1, *.psm1 |
                     Where-Object {
                         if ($_.FullName -eq $outputFilePath) { return $false } # Skip the bundle output file
+                        # NOTE: Bundler script ($PSCommandPath) is excluded by $ExcludedFolders containing "Meta" by default
+                        # if ($_.FullName -eq $PSCommandPath) { return $false } # Explicitly skip the bundler script itself
 
                         $isExcluded = $false
                         foreach($excludedDirName in $ExcludedFolders) { # $ExcludedFolders is the param
@@ -532,7 +544,7 @@ finally {
 
                     if ($allAnalyzerResultsList.Count -gt 0) {
                         $null = $finalOutputBuilder.AppendLine("Found $($allAnalyzerResultsList.Count) issues (Errors/Warnings):")
-                        $formattedResults = $allAnalyzerResultsList | Select-Object Severity, Message, ScriptName, Line, Column | Format-Table -AutoSize | Out-String -Width 120
+                        $formattedResults = $allAnalyzerResultsList | Select-Object Severity, Message, ScriptName, Line, Column | Format-Table -AutoSize | Out-String -Width 250 # MODIFIED: Width increased
                         $null = $finalOutputBuilder.AppendLine($formattedResults)
                     } else {
                         $null = $finalOutputBuilder.AppendLine("(No PSScriptAnalyzer errors or warnings found in .ps1/.psm1 files after applying settings.)")

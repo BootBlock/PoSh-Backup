@@ -17,9 +17,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Enhanced CBH for module and Get-PoShBackupArchivePassword.
+    Version:        1.2.1 # Added defensive logger call for PSSA.
     DateCreated:    10-May-2025
-    LastModified:   16-May-2025
+    LastModified:   17-May-2025
     Purpose:        Centralised password management for archive encryption within PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     For the 'SecretManagement' method, the 'Microsoft.PowerShell.SecretManagement'
@@ -103,17 +103,21 @@ function Get-PoShBackupArchivePassword {
     #>
     param(
         [Parameter(Mandatory=$true)]
-        [hashtable]$JobConfigForPassword, 
+        [hashtable]$JobConfigForPassword,
 
         [Parameter(Mandatory=$true)]
-        [string]$JobName, 
+        [string]$JobName,
 
         [Parameter(Mandatory=$false)]
-        [switch]$IsSimulateMode, 
+        [switch]$IsSimulateMode,
 
-        [Parameter(Mandatory=$true)] 
-        [scriptblock]$Logger 
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
+
+    # Defensive PSSA appeasement line: Logger is functionally used via $LocalWriteLog,
+    # but this direct call ensures PSSA sees it explicitly.
+    & $Logger -Message "Get-PoShBackupArchivePassword: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     # Internal helper to use the passed-in logger consistently
     $LocalWriteLog = {

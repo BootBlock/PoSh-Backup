@@ -19,9 +19,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.1 # Implemented logger usage.
+    Version:        1.1.2 # Added defensive logger call for PSSA.
     DateCreated:    14-May-2025
-    LastModified:   16-May-2025
+    LastModified:   17-May-2025
     Purpose:        CSV report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -70,8 +70,13 @@ function Invoke-CsvReport {
         [Parameter(Mandatory=$true)]
         [hashtable]$ReportData,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger 
+        [scriptblock]$Logger
     )
+
+    # Defensive PSSA appeasement line: Logger is functionally used via $LocalWriteLog,
+    # but this direct call ensures PSSA sees it explicitly.
+    & $Logger -Message "Invoke-CsvReport: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -84,7 +89,7 @@ function Invoke-CsvReport {
     & $LocalWriteLog -Message "[INFO] CSV Report generation process started for job '$JobName'." -Level "INFO"
 
     $reportTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_' 
+    $safeJobNameForFile = $JobName -replace '[^a-zA-Z0-9_-]', '_'
 
     $summaryReportFileName = "$($safeJobNameForFile)_Summary_$($reportTimestamp).csv"
     $summaryReportFullPath = Join-Path -Path $ReportDirectory -ChildPath $summaryReportFileName

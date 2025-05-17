@@ -30,9 +30,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Enhanced CBH, minor inline comment improvements.
+    Version:        1.3.1 # Added defensive logger call for PSSA.
     DateCreated:    14-May-2025
-    LastModified:   16-May-2025
+    LastModified:   17-May-2025
     Purpose:        Interactive HTML report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -176,6 +176,10 @@ function Invoke-HtmlReport {
         [scriptblock]$Logger
     )
 
+    # Defensive PSSA appeasement line: Logger is functionally used via $LocalWriteLog,
+    # but this direct call ensures PSSA sees it explicitly.
+    & $Logger -Message "Invoke-HtmlReport: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -247,7 +251,7 @@ function Invoke-HtmlReport {
         $finalCssToInject = "<style>body{font-family:sans-serif;margin:1em;} table{border-collapse:collapse;margin-top:1em;} th,td{border:1px solid #ccc;padding:0.25em 0.5em;text-align:left;} h1,h2{color:#003366;}</style>"
     } else {
         $configThemesDir = Join-Path -Path $mainScriptRoot -ChildPath "Config\Themes"
-        
+
         # Load Base.css (foundational styles)
         $baseCssFilePath = Join-Path -Path $configThemesDir -ChildPath "Base.css"
         if (Test-Path -LiteralPath $baseCssFilePath -PathType Leaf) {
@@ -355,7 +359,7 @@ document.addEventListener('DOMContentLoaded', function () {
             checkbox.addEventListener('change', filterLogs);
         });
         // Initial filter call in case some checkboxes start unchecked or keyword field has a default (though unlikely here)
-        filterLogs(); 
+        filterLogs();
     }
 });
 </script>
@@ -466,7 +470,7 @@ document.addEventListener('DOMContentLoaded', function () {
         # Filter controls HTML structure
         $htmlBodyLocal += "<div class='log-filters'>" # Style this container via CSS
         $htmlBodyLocal += "<div><label for='logKeywordSearch'>Search Logs:</label><input type='text' id='logKeywordSearch' placeholder='Enter keyword...'></div>"
-        
+
         $logLevelsInReport = ($ReportData.LogEntries.Level | Select-Object -Unique | Sort-Object | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         if ($logLevelsInReport.Count -gt 0) {
             $htmlBodyLocal += "<div class='log-level-filters-container'><strong>Filter by Level:</strong>"

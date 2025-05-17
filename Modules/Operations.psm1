@@ -698,28 +698,29 @@ CREATE
         return $null # VSS creation failed
     }
 
-    Write-LogMessage "  - Shadow copy creation command completed by diskshadow. Polling WMI for shadow details (Timeout: ${PollingTimeoutSeconds}s)..." -Level VSS
+    # Note: Changed "Polling WMI" to "Polling CIM" in the log message below
+    Write-LogMessage "  - Shadow copy creation command completed by diskshadow. Polling CIM for shadow details (Timeout: ${PollingTimeoutSeconds}s)..." -Level VSS
 
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $allVolumesSuccessfullyShadowed = $false
     $foundShadowsForThisSpecificCall = @{} # Tracks shadows found in this current polling loop for these specific volumes
 
     while ($stopwatch.Elapsed.TotalSeconds -lt $PollingTimeoutSeconds) {
-        # Get recently created shadow copies
-        $wmiShadowsThisPoll = Get-WmiObject Win32_ShadowCopy -ErrorAction SilentlyContinue |
+        # Get recently created shadow copies using CIM
+        $cimShadowsThisPoll = Get-CimInstance -ClassName Win32_ShadowCopy -ErrorAction SilentlyContinue |
                               Where-Object { $_.InstallDate -gt (Get-Date).AddMinutes(-5) } # Filter for very recent shadows
 
-        if ($null -ne $wmiShadowsThisPoll) {
+        if ($null -ne $cimShadowsThisPoll) {
             foreach ($volName in $volumesToShadow) {
                 if (-not $foundShadowsForThisSpecificCall.ContainsKey($volName)) { # Only look if not already found for this volume
                     # Find the newest shadow for this volume that isn't already tracked by this script run
-                    $candidateShadow = $wmiShadowsThisPoll |
+                    $candidateShadow = $cimShadowsThisPoll |
                                        Where-Object { $_.VolumeName -eq $volName -and (-not $currentCallShadowIDs.ContainsValue($_.ID)) } |
                                        Sort-Object InstallDate -Descending |
                                        Select-Object -First 1
 
                     if ($null -ne $candidateShadow) {
-                        Write-LogMessage "  - Found shadow via WMI for volume '$volName': Device '$($candidateShadow.DeviceObject)' (ID: $($candidateShadow.ID))" -Level VSS
+                        Write-LogMessage "  - Found shadow via CIM for volume '$volName': Device '$($candidateShadow.DeviceObject)' (ID: $($candidateShadow.ID))" -Level VSS
                         $currentCallShadowIDs[$volName] = $candidateShadow.ID # Store ID for cleanup
                         $foundShadowsForThisSpecificCall[$volName] = $candidateShadow.DeviceObject # Store device path for mapping
                     }
@@ -733,13 +734,15 @@ CREATE
             break # All found
         }
 
-        Start-Sleep -Seconds $PollingIntervalSeconds
-        Write-LogMessage "  - Polling WMI for shadow copies... ($([math]::Round($stopwatch.Elapsed.TotalSeconds))s / ${PollingTimeoutSeconds}s remaining)" -Level "VSS" -NoTimestampToLogFile ($stopwatch.Elapsed.TotalSeconds -ge $PollingIntervalSeconds)
-    }
+        Start-Sleep -Seconds $PollingIntervalSeconds # RESTORED
+        Write-LogMessage "  - Polling CIM for shadow copies... ($([math]::Round($stopwatch.Elapsed.TotalSeconds))s / ${PollingTimeoutSeconds}s remaining)" -Level "VSS" -NoTimestampToLogFile ($stopwatch.Elapsed.TotalSeconds -ge $PollingIntervalSeconds) # RESTORED & text updated WMI->CIM
+    } # End of while loop
+
     $stopwatch.Stop()
 
     if (-not $allVolumesSuccessfullyShadowed) {
-        Write-LogMessage "[ERROR] Timed out or failed to find all required shadow copies via WMI after $PollingTimeoutSeconds seconds." -Level ERROR
+        # Note: Changed "via WMI" to "via CIM" in the log message below
+        Write-LogMessage "[ERROR] Timed out or failed to find all required shadow copies via CIM after $PollingTimeoutSeconds seconds." -Level ERROR
         # Attempt to clean up any shadows that were successfully created and identified in this failed attempt
         $foundShadowsForThisSpecificCall.Keys | ForEach-Object {
             $volNameToClean = $_
