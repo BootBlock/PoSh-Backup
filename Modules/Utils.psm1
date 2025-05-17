@@ -18,18 +18,21 @@
     - Invoke-HookScript: Executes user-defined PowerShell scripts at various hook points.
     - Get-ArchiveSizeFormatted: Converts byte sizes to human-readable formats (KB, MB, GB).
     - Import-AppConfiguration: Loads, merges (Default.psd1 and User.psd1), and validates the
-      PoSh-Backup configuration. It also handles 7-Zip path auto-detection.
+      PoSh-Backup configuration. It also handles 7-Zip path auto-detection by calling the
+      Find-SevenZipExecutable function from the 7ZipManager.psm1 module.
     - Get-JobsToProcess: Determines the list of backup jobs to execute based on command-line
       parameters or default configuration rules.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.7.2 # Changed 'Select' alias to 'Select-Object' for PSSA compliance.
+    Version:        1.8.0 # Removed Find-SevenZipExecutable (moved to 7ZipManager.psm1).
     DateCreated:    10-May-2025
-    LastModified:   17-May-2025 # Corrected PSSA warning for Select alias.
+    LastModified:   17-May-2025
     Purpose:        Core utility functions for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+. Some functions may have dependencies on specific global
                     variables (e.g., $Global:StatusToColourMap) being set by the main script.
+                    The 7ZipManager.psm1 module should be imported by the main script for
+                    Find-SevenZipExecutable to be available to Import-AppConfiguration.
 #>
 
 #region --- Private Helper Functions ---
@@ -58,39 +61,7 @@ function Merge-DeepHashtable {
     return $merged
 }
 
-# Attempts to find the 7z.exe executable in common locations or the system PATH.
-function Find-SevenZipExecutable {
-    [CmdletBinding()]
-    param()
-
-    Write-LogMessage "  - Attempting to auto-detect 7z.exe..." -Level "DEBUG"
-    $commonPaths = @(
-        (Join-Path -Path $env:ProgramFiles -ChildPath "7-Zip\7z.exe"),
-        (Join-Path -Path ${env:ProgramFiles(x86)} -ChildPath "7-Zip\7z.exe")
-    )
-
-    foreach ($pathAttempt in $commonPaths) {
-        if ($null -ne $pathAttempt -and (Test-Path -LiteralPath $pathAttempt -PathType Leaf)) {
-            Write-LogMessage "    - Auto-detected 7z.exe at '$pathAttempt' (common installation location)." -Level "INFO"
-            return $pathAttempt
-        }
-    }
-
-    # Try finding 7z.exe via Get-Command (searches PATH environment variable)
-    try {
-        $pathFromCommand = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
-        if (-not [string]::IsNullOrWhiteSpace($pathFromCommand) -and (Test-Path -LiteralPath $pathFromCommand -PathType Leaf)) {
-            Write-LogMessage "    - Auto-detected 7z.exe at '$pathFromCommand' (found in system PATH)." -Level "INFO"
-            return $pathFromCommand
-        }
-    }
-    catch {
-        Write-LogMessage "    - 7z.exe not found in system PATH (Get-Command error: $($_.Exception.Message))." -Level "DEBUG"
-    }
-
-    Write-LogMessage "    - Auto-detection failed to find 7z.exe in common locations or system PATH. Please ensure 'SevenZipPath' is set in the configuration." -Level "DEBUG"
-    return $null # Return null if not found
-}
+# Removed Find-SevenZipExecutable - It has been moved to Modules\7ZipManager.psm1
 #endregion --- Private Helper Functions ---
 
 #region --- Logging Function ---
@@ -410,7 +381,8 @@ function Import-AppConfiguration {
         After loading, it performs basic validation (e.g., 7-Zip path) and can optionally invoke
         advanced schema validation if 'EnableAdvancedSchemaValidation' is set to $true in the
         loaded configuration and the 'PoShBackupValidator.psm1' module is available.
-        It also handles the auto-detection of the 7-Zip executable path if not explicitly set.
+        It also handles the auto-detection of the 7-Zip executable path if not explicitly set,
+        by calling 'Find-SevenZipExecutable' (expected to be available from 7ZipManager.psm1).
     .PARAMETER UserSpecifiedPath
         Optional. The full path to a specific .psd1 configuration file to load.
         If provided, the default 'Config\Default.psd1' and 'Config\User.psd1' loading/merging logic is bypassed.
@@ -560,21 +532,29 @@ function Import-AppConfiguration {
             Write-LogMessage "[INFO] 'SevenZipPath' is empty or not set in configuration. Attempting auto-detection..." -Level "INFO"
         }
 
-        $foundPath = Find-SevenZipExecutable
-        if ($null -ne $foundPath) {
-            $finalConfiguration.SevenZipPath = $foundPath
-            $sevenZipPathSource = if ($initialPathIsEmpty) { "auto-detected (config was empty)" } else { "auto-detected (configured path was invalid)" }
-            Write-LogMessage "[INFO] Successfully auto-detected and using 7-Zip Path: '$foundPath'." -Level "INFO"
-            if ($IsTestConfigMode.IsPresent) {
-                Write-LogMessage "  - Effective 7-Zip Path set to: '$foundPath' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
-            }
+        # Ensure Find-SevenZipExecutable is available (expected from 7ZipManager.psm1)
+        if (-not (Get-Command Find-SevenZipExecutable -ErrorAction SilentlyContinue)) {
+            $criticalErrorMsg = "CRITICAL: The function 'Find-SevenZipExecutable' is not available. Ensure '7ZipManager.psm1' is imported by PoSh-Backup.ps1. Cannot auto-detect 7-Zip path."
+            Write-LogMessage $criticalErrorMsg -Level ERROR
+            if (-not $validationMessages.Contains($criticalErrorMsg)) { $validationMessages.Add($criticalErrorMsg) }
+            # Do not attempt to call it if not found, proceed to failure case
         } else {
-            $errorMsg = if ($initialPathIsEmpty) {
-                "CRITICAL: 'SevenZipPath' is empty in configuration and auto-detection failed. PoSh-Backup cannot function without a valid 7-Zip path."
+            $foundPath = Find-SevenZipExecutable # Call the function (now from 7ZipManager.psm1)
+            if ($null -ne $foundPath) {
+                $finalConfiguration.SevenZipPath = $foundPath
+                $sevenZipPathSource = if ($initialPathIsEmpty) { "auto-detected (config was empty)" } else { "auto-detected (configured path was invalid)" }
+                Write-LogMessage "[INFO] Successfully auto-detected and using 7-Zip Path: '$foundPath'." -Level "INFO"
+                if ($IsTestConfigMode.IsPresent) {
+                    Write-LogMessage "  - Effective 7-Zip Path set to: '$foundPath' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
+                }
             } else {
-                "CRITICAL: Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') is invalid, and auto-detection also failed. PoSh-Backup cannot function."
+                $errorMsg = if ($initialPathIsEmpty) {
+                    "CRITICAL: 'SevenZipPath' is empty in configuration and auto-detection failed. PoSh-Backup cannot function without a valid 7-Zip path."
+                } else {
+                    "CRITICAL: Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') is invalid, and auto-detection also failed. PoSh-Backup cannot function."
+                }
+                if (-not $validationMessages.Contains($errorMsg)) { $validationMessages.Add($errorMsg) }
             }
-            if (-not $validationMessages.Contains($errorMsg)) { $validationMessages.Add($errorMsg) }
         }
     }
     if ([string]::IsNullOrWhiteSpace($finalConfiguration.SevenZipPath) -or (-not (Test-Path -LiteralPath $finalConfiguration.SevenZipPath -PathType Leaf))) {

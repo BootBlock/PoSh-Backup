@@ -10,12 +10,13 @@
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
     It is designed for robustness, extensive configurability, and detailed operational feedback.
     Core logic is managed by the main script, which orchestrates operations performed by dedicated
-    PowerShell modules for utility functions, backup operations, password management, and reporting.
+    PowerShell modules for utility functions, backup operations, password management, 7-Zip interaction,
+    and reporting.
 
     Key Features:
     - Modular Design: Facilitates maintainability and clarity by separating concerns into modules
-      (e.g., Utils.psm1, Operations.psm1, Reporting.psm1, PasswordManager.psm1, and specific
-      report format modules like ReportingHtml.psm1).
+      (e.g., Utils.psm1, Operations.psm1, Reporting.psm1, PasswordManager.psm1, 7ZipManager.psm1,
+      and specific report format modules like ReportingHtml.psm1).
     - External Configuration: All backup jobs, global settings (e.g., 7-Zip path, default VSS state),
       and backup sets are defined in an external '.psd1' configuration file. The script loads
       'Config\Default.psd1' and merges 'Config\User.psd1' (if present) for user-specific overrides.
@@ -29,8 +30,8 @@
     - Volume Shadow Copy Service (VSS): Optionally allows backing up files that are open or locked by other
       processes. This feature requires Administrator privileges. VSS context options and polling
       behaviour are configurable.
-    - 7-Zip Integration: Leverages the 7-Zip command-line tool for efficient compression and archiving.
-      Supports a wide range of 7-Zip parameters, which can be configured globally or per job.
+    - 7-Zip Integration: Leverages the 7-Zip command-line tool for efficient compression and archiving
+      (managed by 7ZipManager.psm1). Supports a wide range of 7-Zip parameters.
     - Secure Password Handling: If password protection is enabled for a job, the script supports
       multiple methods for securely obtaining the password (interactive prompt, PowerShell
       SecretManagement, encrypted file, or plain text from config [discouraged]). The password is
@@ -194,7 +195,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.5
+    Version:        1.9.6
     Date:           17-May-2025
     Requires:       PowerShell 5.1 or higher.
                     7-Zip (7z.exe) must be installed and its path correctly specified in the
@@ -202,8 +203,8 @@
     Privileges:     Administrator privileges are required for VSS functionality.
     Modules:        This script relies on several PowerShell modules located in the '.\Modules'
                     subdirectory: Utils.psm1, Operations.psm1, Reporting.psm1 (orchestrator),
-                    PasswordManager.psm1, and format-specific reporting modules in '.\Modules\Reporting\'
-                    (e.g., ReportingHtml.psm1, ReportingCsv.psm1, etc.).
+                    PasswordManager.psm1, 7ZipManager.psm1, and format-specific reporting modules
+                    in '.\Modules\Reporting\' (e.g., ReportingHtml.psm1, ReportingCsv.psm1, etc.).
                     Optionally, 'PoShBackupValidator.psm1' can be used for advanced configuration validation.
     Themes:         HTML report themes (CSS files) are located in '.\Config\Themes\'.
     Configuration:  Primary configuration is managed via '.\Config\Default.psd1' (master settings
@@ -310,7 +311,8 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Operations.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Reporting.psm1") -Force -ErrorAction Stop
-    Write-Host "[INFO] Core modules Utils.psm1, Operations.psm1, and Reporting.psm1 (orchestrator) loaded." -ForegroundColour $Global:ColourInfo
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\7ZipManager.psm1") -Force -ErrorAction Stop # NEW: Import 7ZipManager
+    Write-Host "[INFO] Core modules Utils, Operations, Reporting (orchestrator), and 7ZipManager loaded." -ForegroundColour $Global:ColourInfo
 
 } catch {
     Write-Host "[FATAL] Failed to import required script modules." -ForegroundColour $Global:ColourError
@@ -322,7 +324,7 @@ try {
 Write-LogMessage "---------------------------------" -Level "NONE"
 Write-LogMessage " Starting PoSh Backup Script     " -Level "HEADING"
 # Version in this log message is static and reflects the PoSh-Backup.ps1 script version, not the bundler's.
-Write-LogMessage " Script Version: v1.9.5 (Added -SkipUserConfigCreation switch)" -Level "HEADING"
+Write-LogMessage " Script Version: v1.9.6 (Added 7ZipManager module)" -Level "HEADING"
 if ($IsSimulateMode) { Write-LogMessage " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { Write-LogMessage " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { Write-LogMessage " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }

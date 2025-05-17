@@ -320,12 +320,13 @@ $aiState = @{
         when_to_update = "Only when the user explicitly asks to 'update the bundler script's AI state'.";
         example_of_ai_provided_block_end = "}"
     };
-    bundler_script_version = "1.19.2"; # Updated by AI to reflect bundler script changes (PSSA width)
+    bundler_script_version = "1.19.2"; # Version of Generate-ProjectBundleForAI.ps1
     conversation_summary = @(
         "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1).",
-        "Modular design: Modules/ (Utils, Operations, PasswordManager, Reporting orchestrator), Modules/Reporting/ (format-specific), Config/ (Default.psd1, User.psd1, Themes/), Meta/ (bundler).",
+        "Modular design: Modules/ (Utils, Operations, PasswordManager, Reporting orchestrator, 7ZipManager), Modules/Reporting/ (format-specific), Config/ (Default.psd1, User.psd1, Themes/), Meta/ (bundler).",
         "Reporting: Multi-format (HTML, CSV, JSON, XML, TXT, MD). HTML reports feature theming, log filtering, sim banner. Reporting.psm1 orchestrator intelligently passes parameters to sub-modules.",
         "Core Features: Early 7-Zip check (auto-detection), VSS, retries, hooks, flexible password management.",
+        "PoSh-Backup.ps1: Added -SkipUserConfigCreation switch to bypass interactive prompt for creating User.psd1.",
         "Validation: Optional schema-based configuration validation (PoShBackupValidator.psm1).",
         "PSScriptAnalyzer (PSSA) Refinements:",
         "  - Fixed 'Select' alias to 'Select-Object' in Utils.psm1 and Operations.psm1, resolving PSSA warnings.",
@@ -337,6 +338,12 @@ $aiState = @{
         "Bundler Improvements:",
         "  - Regex for version extraction refined; PoSh-Backup.ps1 -TestConfig output included by default; PSSA uses settings file; bundler's own PSSA warnings addressed (Write-Host to Write-Verbose/Output, Invoke-Expression suppression); Bundle file moved to root with static name 'PoSh-Backup-AI-Bundle.txt', ensures it overwrites existing bundle, and skips bundling its own previous output. Language hint detection refactored to use hashtable. Project root path resolution optimized. Added ProjectRoot parameter validation and more verbose output messages.",
         "  - Bundler's PSSA output display width for Invoke-ScriptAnalyzer results increased to 250 characters to prevent truncation of ScriptName/Line/Column information.",
+        "Modular Refactoring (Stage 1 - 7ZipManager):",
+        "  - Created new module 'Modules\7ZipManager.psm1' (v1.0.0) to centralise 7-Zip interactions.",
+        "  - Moved 'Find-SevenZipExecutable' from 'Utils.psm1' to '7ZipManager.psm1'.",
+        "  - Moved 'Get-PoShBackup7ZipArgument', 'Invoke-7ZipOperation', and 'Test-7ZipArchive' from 'Operations.psm1' to '7ZipManager.psm1'.",
+        "  - Updated 'PoSh-Backup.ps1' to import '7ZipManager.psm1'.",
+        "  - Updated 'Utils.psm1' (v1.8.0) and 'Operations.psm1' (v1.8.0) to reflect moved functions.",
         "Utils.psm1: Write-LogMessage color logic simplified to prioritize `$Global:StatusToColourMap`.",
         "Documentation: Extensive review and enhancement of README.md and Comment-Based Help (CBH) for PoSh-Backup.ps1, Config/Default.psd1 (comments), and all modules.",
         "Pester Tests: Attempted to create/debug Pester tests for Utils.psm1 and PasswordManager.psm1. Encountered significant and persistent issues with Pester environment setup, cmdlet availability (Get-Mock, Remove-Mock), mock scoping, and test logic. These tests are currently non-functional and were excluded from the initial bundle generation."
@@ -360,7 +367,7 @@ $aiState = @{
         "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting.",
         "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`) is correctly set in the `\$ReportData` ref object *before* report generation functions are called.",
         "SCOPE: Double-check variable scopes when helper functions modify collections intended for wider use (prefer passing by ref or using script scope explicitly and carefully, e.g., `$script:varName`).",
-        "STRUCTURE: Respect the modular design (Utils, Operations, PasswordManager, Reporting orchestrator, Reporting sub-modules).",
+        "STRUCTURE: Respect the modular design (Utils, Operations, PasswordManager, Reporting orchestrator, Reporting sub-modules, 7ZipManager).",
         "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code, especially in complex `if/try/catch/finally` blocks and `param()` blocks.",
         "PSSA (BUNDLER): Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions from `PSScriptAnalyzerSettings.psd1`, even if VS Code (with the settings file) shows no issues. This was observed with unused parameters in closures, requiring defensive code changes.",
         "PSSA (CLOSURES): PSScriptAnalyzer may not always detect parameter/variable usage within scriptblock closures assigned to local variables, potentially leading to false 'unused' warnings that require defensive/explicit calls for PSSA appeasement.",

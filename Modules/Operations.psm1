@@ -2,8 +2,9 @@
 .SYNOPSIS
     Manages the core backup operations for a single backup job within the PoSh-Backup solution.
     This includes gathering effective job configurations, handling VSS (Volume Shadow Copy Service)
-    creation and cleanup, executing 7-Zip for archiving and testing, applying retention policies,
-    and checking destination free space. It also orchestrates password retrieval and hook script execution.
+    creation and cleanup, executing 7-Zip for archiving and testing (via 7ZipManager.psm1),
+    applying retention policies, and checking destination free space. It also orchestrates
+    password retrieval and hook script execution.
 
 .DESCRIPTION
     The Operations module encapsulates the entire lifecycle of processing a single, defined backup job.
@@ -23,26 +24,26 @@
     6.  Performs a pre-backup check for sufficient free space on the destination drive (if configured).
     7.  Applies the backup retention policy, deleting older archives to make space for the new one,
         adhering to the configured retention count.
-    8.  Constructs the 7-Zip command-line arguments based on the effective job configuration,
-        including archive type, compression settings, exclusions, and password (if used).
-    9.  Executes 7-Zip to create the archive, with support for retries on failure.
-    10. Optionally tests the integrity of the newly created archive using 7-Zip.
+    8.  Constructs the 7-Zip command-line arguments using 'Get-PoShBackup7ZipArgument' from 7ZipManager.psm1.
+    9.  Executes 7-Zip to create the archive using 'Invoke-7ZipOperation' from 7ZipManager.psm1,
+        with support for retries.
+    10. Optionally tests the integrity of the newly created archive using 'Test-7ZipArchive' from 7ZipManager.psm1.
     11. Cleans up VSS shadow copies (if they were created).
     12. Securely disposes of any temporary password files.
     13. Executes any post-backup hook scripts (on success, on failure, or always).
     14. Returns a status indicating the outcome of the job (Success, Warnings, Failure).
 
-    This module relies on other PoSh-Backup modules like Utils.psm1 (for logging, config retrieval)
-    and PasswordManager.psm1, and interacts directly with 7-Zip and the VSS subsystem via diskshadow.exe.
+    This module relies on other PoSh-Backup modules like Utils.psm1 (for logging, config retrieval),
+    PasswordManager.psm1, and 7ZipManager.psm1. It interacts with the VSS subsystem via diskshadow.exe.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.7.1 # Corrected PSSA Select alias.
+    Version:        1.8.0 # Moved 7-Zip functions to 7ZipManager.psm1.
     DateCreated:    10-May-2025
-    LastModified:   17-May-2025 # Corrected PSSA warning for Select alias.
+    LastModified:   17-May-2025
     Purpose:        Handles the execution logic for individual backup jobs.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed and configured/auto-detectable.
-                    Core PoSh-Backup modules: Utils.psm1, PasswordManager.psm1.
+                    Core PoSh-Backup modules: Utils.psm1, PasswordManager.psm1, 7ZipManager.psm1.
                     Administrator privileges are required for VSS functionality.
 #>
 
@@ -146,72 +147,8 @@ function Get-PoShBackupJobEffectiveConfiguration {
 }
 #endregion
 
-#region --- Private Helper: Construct 7-Zip Arguments ---
-# Internal helper to build the argument list for 7z.exe
-function Get-PoShBackup7ZipArgument {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [hashtable]$EffectiveConfig,
-        [Parameter(Mandatory)] [string]$FinalArchivePath,
-        [Parameter(Mandatory)] [object]$CurrentJobSourcePathFor7Zip, # Can be string or array of strings
-        [Parameter(Mandatory=$false)]
-        [string]$TempPasswordFile = $null
-    )
-    $sevenZipArgs = [System.Collections.Generic.List[string]]::new()
-    $sevenZipArgs.Add("a") # Add (archive) command
-
-    # Add configured 7-Zip switches
-    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobArchiveType)) { $sevenZipArgs.Add($EffectiveConfig.JobArchiveType) }
-    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobCompressionLevel)) { $sevenZipArgs.Add($EffectiveConfig.JobCompressionLevel) }
-    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobCompressionMethod)) { $sevenZipArgs.Add($EffectiveConfig.JobCompressionMethod) }
-    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobDictionarySize)) { $sevenZipArgs.Add($EffectiveConfig.JobDictionarySize) }
-    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobWordSize)) { $sevenZipArgs.Add($EffectiveConfig.JobWordSize) }
-    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSolidBlockSize)) { $sevenZipArgs.Add($EffectiveConfig.JobSolidBlockSize) }
-    if ($EffectiveConfig.JobCompressOpenFiles) { $sevenZipArgs.Add("-ssw") } # Compress shared files
-    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.ThreadsSetting)) {$sevenZipArgs.Add($EffectiveConfig.ThreadsSetting) } # -mmt or -mmt=N
-
-    # Add default global exclusions (Recycle Bin, System Volume Information)
-    $sevenZipArgs.Add((Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultScriptExcludeRecycleBin' -DefaultValue '-x!$RECYCLE.BIN'))
-    $sevenZipArgs.Add((Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultScriptExcludeSysVolInfo' -DefaultValue '-x!System Volume Information'))
-
-    # Add job-specific additional exclusions
-    if ($EffectiveConfig.JobAdditionalExclusions -is [array] -and $EffectiveConfig.JobAdditionalExclusions.Count -gt 0) {
-        $EffectiveConfig.JobAdditionalExclusions | ForEach-Object {
-            if (-not [string]::IsNullOrWhiteSpace($_)) {
-                $exclusion = $_.Trim()
-                # Ensure it's a valid 7-Zip exclusion switch if not already prefixed
-                if (-not ($exclusion.StartsWith("-x!") -or $exclusion.StartsWith("-xr!") -or $exclusion.StartsWith("-i!") -or $exclusion.StartsWith("-ir!"))) {
-                    $exclusion = "-x!$($exclusion)" # Default to exclude switch
-                }
-                $sevenZipArgs.Add($exclusion)
-            }
-        }
-    }
-
-    # Add password related switches if a password is in use
-    if ($EffectiveConfig.PasswordInUseFor7Zip) {
-        $sevenZipArgs.Add("-mhe=on") # Encrypt archive headers
-        if (-not [string]::IsNullOrWhiteSpace($TempPasswordFile)) {
-            $sevenZipArgs.Add("-spf`"$TempPasswordFile`"") # Read password from temp file
-        } else {
-            Write-LogMessage "[WARNING] PasswordInUseFor7Zip is true but no temporary password file was provided to 7-Zip; the archive might not be password-protected as intended." -Level WARNING
-        }
-    }
-
-    if ([string]::IsNullOrWhiteSpace($FinalArchivePath)) {
-        Write-LogMessage "[CRITICAL] Final Archive Path is NULL or EMPTY in Get-PoShBackup7ZipArgument. 7-Zip command will likely fail or use an unexpected name." -Level ERROR
-        # This situation should ideally be caught earlier, but it's a critical check here.
-    }
-    $sevenZipArgs.Add($FinalArchivePath) # The target archive path/name
-
-    # Add source paths to be archived
-    if ($CurrentJobSourcePathFor7Zip -is [array]) {
-        $CurrentJobSourcePathFor7Zip | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) {$sevenZipArgs.Add($_)} }
-    } elseif (-not [string]::IsNullOrWhiteSpace($CurrentJobSourcePathFor7Zip)) {
-        $sevenZipArgs.Add($CurrentJobSourcePathFor7Zip)
-    }
-    return $sevenZipArgs.ToArray()
-}
+#region --- Removed 7-Zip Argument Builder ---
+# Get-PoShBackup7ZipArgument has been moved to Modules\7ZipManager.psm1
 #endregion
 
 #region --- Main Job Processing Function ---
@@ -466,13 +403,15 @@ function Invoke-PoShBackupJob {
                                      -VBAssemblyLoaded $vbLoaded `
                                      -IsSimulateMode:$IsSimulateMode
 
-        # Step 8 & 9: Construct 7-Zip arguments and execute 7-Zip
+        # Step 8 & 9: Construct 7-Zip arguments (from 7ZipManager.psm1) and execute 7-Zip (from 7ZipManager.psm1)
+        if (-not (Get-Command Get-PoShBackup7ZipArgument -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Get-PoShBackup7ZipArgument' from 7ZipManager.psm1 is not available." }
         $sevenZipArgsArray = Get-PoShBackup7ZipArgument -EffectiveConfig $effectiveJobConfig `
                                                         -FinalArchivePath $FinalArchivePath `
                                                         -CurrentJobSourcePathFor7Zip $currentJobSourcePathFor7Zip `
                                                         -TempPasswordFile $tempPasswordFilePath
 
         $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath' # Already validated by main script
+        if (-not (Get-Command Invoke-7ZipOperation -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Invoke-7ZipOperation' from 7ZipManager.psm1 is not available." }
         $zipOpParams = @{
             SevenZipPathExe = $sevenZipPathGlobal
             SevenZipArguments = $sevenZipArgsArray
@@ -508,9 +447,10 @@ function Invoke-PoShBackupJob {
             $currentJobStatus = "FAILURE"
         }
 
-        # Step 10: Optionally test the archive
+        # Step 10: Optionally test the archive (using Test-7ZipArchive from 7ZipManager.psm1)
         $reportData.ArchiveTested = $effectiveJobConfig.JobTestArchiveAfterCreation # Record if testing was configured
         if ($effectiveJobConfig.JobTestArchiveAfterCreation -and ($currentJobStatus -ne "FAILURE") -and (-not $IsSimulateMode.IsPresent) -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
+            if (-not (Get-Command Test-7ZipArchive -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Test-7ZipArchive' from 7ZipManager.psm1 is not available." }
             $testArchiveParams = @{
                 SevenZipPathExe = $sevenZipPathGlobal
                 ArchivePath = $FinalArchivePath
@@ -865,175 +805,9 @@ function Remove-VSSShadowCopy {
 }
 #endregion
 
-#region --- 7-Zip Operations ---
-# Invokes a 7-Zip command (archive or test) with support for retries.
-function Invoke-7ZipOperation {
-    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')] # Archiving can be medium impact
-    param(
-        [string]$SevenZipPathExe,
-        [array]$SevenZipArguments,
-        [string]$ProcessPriority = "Normal",
-        [switch]$HideOutput,
-        [switch]$IsSimulateMode,
-        [int]$MaxRetries = 1, # Default to 1 attempt (no retries) if EnableRetries is false
-        [int]$RetryDelaySeconds = 60,
-        [bool]$EnableRetries = $false
-    )
-
-    $currentTry = 0
-    $actualMaxTries = if ($EnableRetries) { [math]::Max(1, $MaxRetries) } else { 1 } # Ensure at least 1 try
-    $actualDelaySeconds = if ($EnableRetries -and $actualMaxTries -gt 1) { $RetryDelaySeconds } else { 0 }
-    $operationExitCode = -1 # Default to an error state
-    $operationElapsedTime = New-TimeSpan -Seconds 0
-    $attemptsMade = 0
-
-    # Prepare argument string for display and process execution, ensuring paths with spaces are quoted
-    $argumentStringForProcess = ""
-    foreach ($argItem in $SevenZipArguments) {
-        if ($argItem -match "\s" -and -not (($argItem.StartsWith('"') -and $argItem.EndsWith('"')) -or ($argItem.StartsWith("'") -and $argItem.EndsWith("'")))) {
-            $argumentStringForProcess += """$argItem"" " # Add quotes if space and not already quoted
-        } else {
-            $argumentStringForProcess += "$argItem "
-        }
-    }
-    $argumentStringForProcess = $argumentStringForProcess.TrimEnd()
-
-    while ($currentTry -lt $actualMaxTries) {
-        $currentTry++; $attemptsMade = $currentTry
-
-        if ($IsSimulateMode.IsPresent) {
-            Write-LogMessage "SIMULATE: 7-Zip Operation (Attempt $currentTry/$actualMaxTries would be): `"$SevenZipPathExe`" $argumentStringForProcess" -Level SIMULATE
-            $operationExitCode = 0 # Simulate success for 7-Zip command itself
-            $operationElapsedTime = New-TimeSpan -Seconds 0 # Simulate no time taken
-            break # Exit loop in simulate mode after logging
-        }
-
-        if (-not $PSCmdlet.ShouldProcess("Target: $($SevenZipArguments | Where-Object {$_ -notlike '-*'} | Select-Object -Last 1)", "Execute 7-Zip ($($SevenZipArguments[0]))")) { # MODIFIED HERE
-             Write-LogMessage "   - 7-Zip execution (Attempt $currentTry/$actualMaxTries) skipped by user (ShouldProcess)." -Level WARNING
-             $operationExitCode = -1000 # Indicate user skip
-             break
-        }
-
-        Write-LogMessage "   - Attempting 7-Zip execution (Attempt $currentTry/$actualMaxTries)..."
-        Write-LogMessage "     Command: `"$SevenZipPathExe`" $argumentStringForProcess" -Level DEBUG
-
-        $validPriorities = "Idle", "BelowNormal", "Normal", "AboveNormal", "High"
-        if ([string]::IsNullOrWhiteSpace($ProcessPriority) -or $ProcessPriority -notin $validPriorities) {
-            Write-LogMessage "[WARNING] Invalid or empty 7-Zip process priority '$ProcessPriority' specified. Defaulting to 'Normal'." -Level WARNING; $ProcessPriority = "Normal"
-        }
-
-        $stopwatch = [System.Diagnostics.Stopwatch]::StartNew(); $process = $null
-        try {
-            $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-            $startInfo.FileName = $SevenZipPathExe
-            $startInfo.Arguments = $argumentStringForProcess
-            $startInfo.UseShellExecute = $false # Required for stream redirection
-            $startInfo.CreateNoWindow = $HideOutput.IsPresent
-            $startInfo.WindowStyle = if($HideOutput.IsPresent) { [System.Diagnostics.ProcessWindowStyle]::Hidden } else { [System.Diagnostics.ProcessWindowStyle]::Normal }
-
-            if ($HideOutput.IsPresent) {
-                $startInfo.RedirectStandardOutput = $true
-                $startInfo.RedirectStandardError = $true
-            }
-
-            Write-LogMessage "  - Starting 7-Zip process with priority: $ProcessPriority" -Level DEBUG
-            $process = New-Object System.Diagnostics.Process
-            $process.StartInfo = $startInfo
-            $process.Start() | Out-Null
-            try { $process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]$ProcessPriority }
-            catch { Write-LogMessage "[WARNING] Failed to set 7-Zip process priority to '$ProcessPriority'. Error: $($_.Exception.Message)" -Level WARNING }
-
-            $stdOutput = ""
-            $stdError = ""
-            $outputTask = $null
-            $errorTask = $null
-
-            if ($HideOutput.IsPresent) { # Asynchronously read output streams if hidden
-                $outputTask = $process.StandardOutput.ReadToEndAsync()
-                $errorTask = $process.StandardError.ReadToEndAsync()
-            }
-
-            $process.WaitForExit() # Wait for the 7-Zip process to complete
-
-            if ($HideOutput.IsPresent) { # Process captured output
-                if ($null -ne $outputTask) {
-                    try { $stdOutput = $outputTask.GetAwaiter().GetResult() } catch { try { $stdOutput = $process.StandardOutput.ReadToEnd() } catch { Write-LogMessage "    - DEBUG: Fallback ReadToEnd STDOUT for 7-Zip failed: $($_.Exception.Message)" -Level DEBUG } }
-                }
-                 if ($null -ne $errorTask) {
-                    try { $stdError = $errorTask.GetAwaiter().GetResult() } catch { try { $stdError = $process.StandardError.ReadToEnd() } catch { Write-LogMessage "    - DEBUG: Fallback ReadToEnd STDERR for 7-Zip failed: $($_.Exception.Message)" -Level DEBUG } }
-                 }
-
-                if (-not [string]::IsNullOrWhiteSpace($stdOutput)) {
-                    Write-LogMessage "  - 7-Zip STDOUT (captured as HideSevenZipOutput is true):" -Level DEBUG
-                    $stdOutput.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "    | $_" -Level DEBUG -NoTimestampToLogFile }
-                }
-                # Always log STDERR if present, as it usually indicates issues.
-                if (-not [string]::IsNullOrWhiteSpace($stdError)) {
-                    Write-LogMessage "  - 7-Zip STDERR:" -Level ERROR
-                    $stdError.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "    | $_" -Level ERROR -NoTimestampToLogFile }
-                }
-            }
-            $operationExitCode = $process.ExitCode
-        } catch {
-            Write-LogMessage "[ERROR] Failed to start or manage the 7-Zip process. Error: $($_.Exception.ToString())" -Level ERROR
-            $operationExitCode = -999 # Arbitrary code for script-level failure to launch 7-Zip
-        } finally {
-            $stopwatch.Stop()
-            $operationElapsedTime = $stopwatch.Elapsed
-            if ($null -ne $process) { $process.Dispose() }
-        }
-
-        Write-LogMessage "   - 7-Zip attempt $currentTry finished. Exit Code: $operationExitCode. Elapsed Time: $operationElapsedTime"
-        # 7-Zip Exit Codes: 0=No error, 1=Warning (e.g., locked files not archived), 2=Fatal error
-        if ($operationExitCode -in @(0,1)) { break } # Success or Warning, stop retrying
-        elseif ($currentTry -lt $actualMaxTries) {
-            Write-LogMessage "[WARNING] 7-Zip operation failed (Exit Code: $operationExitCode). Retrying in $actualDelaySeconds seconds..." -Level WARNING
-            Start-Sleep -Seconds $actualDelaySeconds
-        } else {
-            Write-LogMessage "[ERROR] 7-Zip operation failed after $actualMaxTries attempt(s) (Final Exit Code: $operationExitCode)." -Level ERROR
-        }
-    }
-    return @{ ExitCode = $operationExitCode; ElapsedTime = $operationElapsedTime; AttemptsMade = $attemptsMade }
-}
-
-# Tests a 7-Zip archive for integrity.
-function Test-7ZipArchive {
-    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Low')] # Testing is low impact
-    param(
-        [string]$SevenZipPathExe,
-        [string]$ArchivePath,
-        [Parameter(Mandatory=$false)]
-        [string]$TempPasswordFile = $null,
-        [string]$ProcessPriority = "Normal",
-        [switch]$HideOutput,
-        [int]$MaxRetries = 1,
-        [int]$RetryDelaySeconds = 60,
-        [bool]$EnableRetries = $false
-    )
-    Write-LogMessage "`n[INFO] Performing archive integrity test for '$ArchivePath'..."
-    $testArguments = [System.Collections.Generic.List[string]]::new()
-    $testArguments.Add("t") # Test command
-    $testArguments.Add($ArchivePath) # Archive to test
-
-    if (-not [string]::IsNullOrWhiteSpace($TempPasswordFile) -and (Test-Path -LiteralPath $TempPasswordFile)) {
-        $testArguments.Add("-spf`"$TempPasswordFile`"") # Add password file if provided
-    }
-    Write-LogMessage "   - Test Command (raw args before Invoke-7ZipOperation internal quoting): `"$SevenZipPathExe`" $($testArguments -join ' ')" -Level DEBUG
-
-    $invokeParams = @{
-        SevenZipPathExe = $SevenZipPathExe; SevenZipArguments = $testArguments.ToArray()
-        ProcessPriority = $ProcessPriority; HideOutput = $HideOutput.IsPresent
-        MaxRetries = $MaxRetries; RetryDelaySeconds = $RetryDelaySeconds; EnableRetries = $EnableRetries
-        IsSimulateMode = $false # Testing is never simulated in this function
-    }
-    # Invoke-7ZipOperation handles ShouldProcess for the actual 7-Zip execution
-    $result = Invoke-7ZipOperation @invokeParams
-
-    $msg = if ($result.ExitCode -eq 0) { "PASSED" } else { "FAILED (7-Zip Test Exit Code: $($result.ExitCode))" }
-    $levelForResult = if ($result.ExitCode -eq 0) { "SUCCESS" } else { "ERROR" }
-    Write-LogMessage "  - Archive Test Result for '$ArchivePath': $msg" -Level $levelForResult
-    return $result
-}
+#region --- Removed 7-Zip Operations Functions ---
+# Invoke-7ZipOperation has been moved to Modules\7ZipManager.psm1
+# Test-7ZipArchive has been moved to Modules\7ZipManager.psm1
 #endregion
 
 #region --- Private Helper: Invoke-VisualBasicFileOperation ---
@@ -1196,5 +970,5 @@ function Test-DestinationFreeSpace {
 #endregion
 
 #region --- Exported Functions ---
-Export-ModuleMember -Function New-VSSShadowCopy, Remove-VSSShadowCopy, Invoke-7ZipOperation, Test-7ZipArchive, Invoke-BackupRetentionPolicy, Test-DestinationFreeSpace, Invoke-PoShBackupJob
+Export-ModuleMember -Function New-VSSShadowCopy, Remove-VSSShadowCopy, Invoke-BackupRetentionPolicy, Test-DestinationFreeSpace, Invoke-PoShBackupJob
 #endregion
