@@ -66,6 +66,8 @@
     - Configurable Exit Pause: The script can pause before exiting based on configuration settings
       (Always, Never, OnFailure, OnWarning, OnFailureOrWarning) or a command-line override,
       allowing time to review console output.
+    - Skip User Config Creation: The -SkipUserConfigCreation switch allows bypassing the prompt
+      to create 'Config\User.psd1' if it's missing, proceeding directly with 'Config\Default.psd1'.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process. This name must
@@ -139,6 +141,13 @@
     Backup Sets and the job names they contain, and then exits.
     Takes precedence over normal backup operations, -RunSet, and -BackupLocationName.
 
+.PARAMETER SkipUserConfigCreation
+    Optional. A switch parameter. If present, and if 'Config\User.psd1' is not found, the script
+    will bypass the interactive prompt to create 'User.psd1' by copying 'Default.psd1'.
+    Instead, it will proceed to use 'Config\Default.psd1' directly for that session.
+    This is useful for automated scenarios where no user interaction is possible and the intent
+    is to use the default settings if no user-specific configuration exists.
+
 .PARAMETER PauseBehaviourCLI
     Optional. Controls the script's pause behaviour (displaying "Press any key to continue...") before exiting.
     This command-line parameter overrides the 'PauseBeforeExit' setting from the configuration file(s).
@@ -173,14 +182,20 @@
     Lists all backup sets defined in the loaded configuration and then exits.
 
 .EXAMPLE
+    .\PoSh-Backup.ps1 -SkipUserConfigCreation
+    Runs the script. If 'Config\User.psd1' is not found, the script will not prompt to create it
+    and will proceed using 'Config\Default.psd1' for settings. If 'Config\User.psd1' *does* exist,
+    it will be loaded as usual.
+
+.EXAMPLE
     .\PoSh-Backup.ps1 "MyImportantDocs" -GenerateHtmlReportCLI -SevenZipPriorityCLI "Idle"
     Runs the "MyImportantDocs" backup job, ensuring an HTML report is generated for this run,
     and sets the 7-Zip process priority to Idle, overriding any configured priority.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.4
-    Date:           16-May-2025
+    Version:        1.9.5
+    Date:           17-May-2025
     Requires:       PowerShell 5.1 or higher.
                     7-Zip (7z.exe) must be installed and its path correctly specified in the
                     configuration file or auto-detectable by the script.
@@ -237,6 +252,9 @@ param (
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. List defined Backup Sets and exit.")]
     [switch]$ListBackupSets,
+
+    [Parameter(Mandatory=$false, HelpMessage="Switch. If present, skips the prompt to create 'User.psd1' if it's missing, and uses 'Default.psd1' directly.")]
+    [switch]$SkipUserConfigCreation,
 
     [Parameter(Mandatory=$false, HelpMessage="Control script pause behaviour before exiting. Valid values: 'True', 'False', 'Always', 'Never', 'OnFailure', 'OnWarning', 'OnFailureOrWarning'. Overrides config.")]
     [ValidateSet("True", "False", "Always", "Never", "OnFailure", "OnWarning", "OnFailureOrWarning", IgnoreCase=$true)]
@@ -304,11 +322,12 @@ try {
 Write-LogMessage "---------------------------------" -Level "NONE"
 Write-LogMessage " Starting PoSh Backup Script     " -Level "HEADING"
 # Version in this log message is static and reflects the PoSh-Backup.ps1 script version, not the bundler's.
-Write-LogMessage " Script Version: v1.9.4 (PSSA: Fixed empty catch blocks, removed trailing whitespace)" -Level "HEADING"
+Write-LogMessage " Script Version: v1.9.5 (Added -SkipUserConfigCreation switch)" -Level "HEADING"
 if ($IsSimulateMode) { Write-LogMessage " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { Write-LogMessage " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { Write-LogMessage " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupSets.IsPresent) { Write-LogMessage " ***** LIST BACKUP SETS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
+if ($SkipUserConfigCreation.IsPresent) { Write-LogMessage " ***** SKIP USER CONFIG CREATION ACTIVE ***** " -Level "INFO" }
 Write-LogMessage "---------------------------------" -Level "NONE"
 #endregion
 
@@ -324,8 +343,12 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
     if (-not (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf)) {
         if (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf) {
             Write-LogMessage "[INFO] User configuration file ('$defaultUserConfigPath') not found." -Level "INFO"
-            if ($Host.Name -eq "ConsoleHost" -and -not $TestConfig.IsPresent -and -not $IsSimulateMode `
-                -and -not $ListBackupLocations.IsPresent -and -not $ListBackupSets.IsPresent) {
+            if ($Host.Name -eq "ConsoleHost" -and `
+                -not $TestConfig.IsPresent -and `
+                -not $IsSimulateMode -and `
+                -not $ListBackupLocations.IsPresent -and `
+                -not $ListBackupSets.IsPresent -and `
+                -not $SkipUserConfigCreation.IsPresent) { # Check for the new switch here
                 $choiceTitle = "Create User Configuration?"
                 $choiceMessage = "The user-specific configuration file '$($defaultUserConfigFileName)' was not found in '$($defaultConfigDir)'.`nIt is recommended to create this file as it allows you to customise settings without modifying`nthe default file, ensuring your settings are not overwritten by script upgrades.`n`nWould you like to create '$($defaultUserConfigFileName)' now by copying the contents of '$($defaultBaseConfigFileName)'?"
                 $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Create '$($defaultUserConfigFileName)' from '$($defaultBaseConfigFileName)'."
@@ -350,8 +373,12 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
                 } else {
                     Write-LogMessage "[INFO] User chose not to create '$defaultUserConfigFileName'. '$defaultBaseConfigFileName' will be used for this run." -Level "INFO"
                 }
-            } else {
-                 Write-LogMessage "[INFO] Not prompting to create '$defaultUserConfigFileName' (Non-interactive, TestConfig, Simulate, or List mode)." -Level "INFO"
+            } else { # Conditions for prompting were not met
+                 if ($SkipUserConfigCreation.IsPresent) {
+                     Write-LogMessage "[INFO] Skipping User.psd1 creation prompt as -SkipUserConfigCreation was specified. '$defaultBaseConfigFileName' will be used if '$defaultUserConfigFileName' is not found." -Level "INFO"
+                 } elseif ($Host.Name -ne "ConsoleHost" -or $TestConfig.IsPresent -or $IsSimulateMode -or $ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent) {
+                     Write-LogMessage "[INFO] Not prompting to create '$defaultUserConfigFileName' (Non-interactive, TestConfig, Simulate, or List mode)." -Level "INFO"
+                 }
                  Write-LogMessage "       If you wish to have user-specific overrides, please manually copy '$defaultBaseConfigPath' to '$defaultUserConfigPath' and edit it." -Level "INFO"
             }
         } else {
