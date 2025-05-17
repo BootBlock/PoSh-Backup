@@ -37,9 +37,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.7.0 # Enhanced CBH for module and Invoke-PoShBackupJob.
+    Version:        1.7.1 # Corrected PSSA Select alias.
     DateCreated:    10-May-2025
-    LastModified:   16-May-2025
+    LastModified:   17-May-2025 # Corrected PSSA warning for Select alias.
     Purpose:        Handles the execution logic for individual backup jobs.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed and configured/auto-detectable.
                     Core PoSh-Backup modules: Utils.psm1, PasswordManager.psm1.
@@ -155,7 +155,7 @@ function Get-PoShBackup7ZipArgument {
         [Parameter(Mandatory)] [string]$FinalArchivePath,
         [Parameter(Mandatory)] [object]$CurrentJobSourcePathFor7Zip, # Can be string or array of strings
         [Parameter(Mandatory=$false)]
-        [string]$TempPasswordFile = $null 
+        [string]$TempPasswordFile = $null
     )
     $sevenZipArgs = [System.Collections.Generic.List[string]]::new()
     $sevenZipArgs.Add("a") # Add (archive) command
@@ -566,7 +566,7 @@ function Invoke-PoShBackupJob {
         }
         if (-not [string]::IsNullOrWhiteSpace($tempPasswordFilePath) -and (Test-Path -LiteralPath $tempPasswordFilePath -PathType Leaf) `
             -and -not ($IsSimulateMode.IsPresent -and $tempPasswordFilePath.EndsWith("simulated_poshbackup_pass.tmp")) ) { # Don't delete the "simulated" named file
-            
+
             if ($PSCmdlet.ShouldProcess($tempPasswordFilePath, "Delete Temporary Password File")) {
                 try {
                     Remove-Item -LiteralPath $tempPasswordFilePath -Force -ErrorAction Stop
@@ -905,12 +905,12 @@ function Invoke-7ZipOperation {
             break # Exit loop in simulate mode after logging
         }
 
-        if (-not $PSCmdlet.ShouldProcess("Target: $($SevenZipArguments | Where-Object {$_ -notlike '-*'} | Select -Last 1)", "Execute 7-Zip ($($SevenZipArguments[0]))")) {
+        if (-not $PSCmdlet.ShouldProcess("Target: $($SevenZipArguments | Where-Object {$_ -notlike '-*'} | Select-Object -Last 1)", "Execute 7-Zip ($($SevenZipArguments[0]))")) { # MODIFIED HERE
              Write-LogMessage "   - 7-Zip execution (Attempt $currentTry/$actualMaxTries) skipped by user (ShouldProcess)." -Level WARNING
              $operationExitCode = -1000 # Indicate user skip
              break
         }
-        
+
         Write-LogMessage "   - Attempting 7-Zip execution (Attempt $currentTry/$actualMaxTries)..."
         Write-LogMessage "     Command: `"$SevenZipPathExe`" $argumentStringForProcess" -Level DEBUG
 
@@ -1000,7 +1000,7 @@ function Test-7ZipArchive {
         [string]$SevenZipPathExe,
         [string]$ArchivePath,
         [Parameter(Mandatory=$false)]
-        [string]$TempPasswordFile = $null, 
+        [string]$TempPasswordFile = $null,
         [string]$ProcessPriority = "Normal",
         [switch]$HideOutput,
         [int]$MaxRetries = 1,
@@ -1024,7 +1024,7 @@ function Test-7ZipArchive {
         IsSimulateMode = $false # Testing is never simulated in this function
     }
     # Invoke-7ZipOperation handles ShouldProcess for the actual 7-Zip execution
-    $result = Invoke-7ZipOperation @invokeParams 
+    $result = Invoke-7ZipOperation @invokeParams
 
     $msg = if ($result.ExitCode -eq 0) { "PASSED" } else { "FAILED (7-Zip Test Exit Code: $($result.ExitCode))" }
     $levelForResult = if ($result.ExitCode -eq 0) { "SUCCESS" } else { "ERROR" }
@@ -1078,7 +1078,7 @@ function Invoke-BackupRetentionPolicy {
     Write-LogMessage "`n[INFO] Applying Backup Retention Policy for archives matching base name '$ArchiveBaseFileName' and extension '$ArchiveExtension'..."
     Write-LogMessage "   - Destination Directory: $DestinationDirectory"
     Write-LogMessage "   - Configured Total Retention Count (target after current backup completes): $RetentionCountToKeep"
-    
+
     $effectiveSendToRecycleBin = $SendToRecycleBin
     if ($SendToRecycleBin -and -not $VBAssemblyLoaded) {
         Write-LogMessage "[WARNING] Deletion to Recycle Bin was requested, but the Microsoft.VisualBasic assembly could not be loaded. Falling back to PERMANENT deletion for retention policy." -Level WARNING
@@ -1104,13 +1104,13 @@ function Invoke-BackupRetentionPolicy {
         }
 
         # The number of *old* backups to preserve. The new one being created will make up the 'RetentionCountToKeep'.
-        $numberOfOldBackupsToPreserve = $RetentionCountToKeep - 1 
+        $numberOfOldBackupsToPreserve = $RetentionCountToKeep - 1
         if ($numberOfOldBackupsToPreserve -lt 0) { $numberOfOldBackupsToPreserve = 0 } # Cannot preserve a negative number of old backups
 
         if (($null -ne $existingBackups) -and ($existingBackups.Count -gt $numberOfOldBackupsToPreserve)) {
             $backupsToDelete = $existingBackups | Select-Object -Skip $numberOfOldBackupsToPreserve
             Write-LogMessage "[INFO] Found $($existingBackups.Count) existing backups matching pattern. Will attempt to delete $($backupsToDelete.Count) older backup(s) to meet retention count of $RetentionCountToKeep (preserving $numberOfOldBackupsToPreserve oldest + current)." -Level INFO
-            
+
             foreach ($backupFile in $backupsToDelete) {
                 $deleteActionMessage = if ($effectiveSendToRecycleBin) {"Send to Recycle Bin"} else {"Permanently Delete"}
                 if (-not $IsSimulateMode.IsPresent) {
@@ -1175,7 +1175,7 @@ function Test-DestinationFreeSpace {
         $destDrive = Get-PSDrive -Name $driveLetter -ErrorAction Stop
         $freeSpaceGB = [math]::Round($destDrive.Free / 1GB, 2)
         Write-LogMessage "   - Available free space on drive $($destDrive.Name) (hosting '$DestDir'): $freeSpaceGB GB"
-        
+
         if ($freeSpaceGB -lt $MinRequiredGB) {
             Write-LogMessage "[WARNING] Low disk space on destination. Available: $freeSpaceGB GB, Required: $MinRequiredGB GB." -Level WARNING
             if ($ExitOnLow) {

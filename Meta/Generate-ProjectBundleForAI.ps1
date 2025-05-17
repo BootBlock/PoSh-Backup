@@ -494,10 +494,10 @@ finally {
                 Write-Host "Running PSScriptAnalyzer (this may take a moment)..." -ForegroundColor Yellow
                 $scriptFilesToAnalyze = Get-ChildItem -Path $ProjectRoot_FullPath -Recurse -Include *.ps1, *.psm1 |
                     Where-Object {
-                        if ($_.FullName -eq $outputFilePath) { return $false } 
+                        if ($_.FullName -eq $outputFilePath) { return $false } # Skip the bundle output file
 
                         $isExcluded = $false
-                        foreach($excludedDirName in $ExcludedFolders) { 
+                        foreach($excludedDirName in $ExcludedFolders) { # $ExcludedFolders is the param
                             $fullExcludedPath = Join-Path -Path $ProjectRoot_FullPath -ChildPath $excludedDirName
                             if ($_.FullName.StartsWith($fullExcludedPath, [System.StringComparison]::OrdinalIgnoreCase)) { $isExcluded = $true; break }
                         }

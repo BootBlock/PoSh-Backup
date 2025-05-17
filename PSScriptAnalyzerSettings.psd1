@@ -8,7 +8,8 @@
         'PSUseApprovedVerbs',                  # For Validate-AgainstSchemaRecursiveInternal & other potential internal helpers
         'PSUseDeclaredVarsMoreThanAssignments',# For $Logger params & other potential false positives if attribute/comment fails
         'PSAvoidUsingInvokeExpression',        # For the bundler's -TestConfig capture method
-        'PSAvoidUsingWriteHost'                # For utility scripts' direct console feedback & specific PoSh-Backup.ps1 uses
+        'PSAvoidUsingWriteHost',               # For utility scripts' direct console feedback & specific PoSh-Backup.ps1 uses
+        'PSAvoidGlobalVars'                    # For intentional global variable usage (e.g., $Global:ColourInfo, $Global:StatusToColourMap)
     )
 
     # Severity level to report. Default is Warning.

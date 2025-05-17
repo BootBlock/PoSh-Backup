@@ -24,9 +24,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.7.1 # Changed 'Select' alias to 'Select-Object' for PSSA compliance.
+    Version:        1.7.2 # Changed 'Select' alias to 'Select-Object' for PSSA compliance.
     DateCreated:    10-May-2025
-    LastModified:   16-May-2025
+    LastModified:   17-May-2025 # Corrected PSSA warning for Select alias.
     Purpose:        Core utility functions for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+. Some functions may have dependencies on specific global
                     variables (e.g., $Global:StatusToColourMap) being set by the main script.
@@ -35,7 +35,7 @@
 #region --- Private Helper Functions ---
 # Merges two hashtables deeply. If a key exists in both and its values are hashtables,
 # they are recursively merged. Otherwise, the override value takes precedence.
-function Merge-DeepHashtable { 
+function Merge-DeepHashtable {
     param(
         [Parameter(Mandatory)]
         [hashtable]$Base,
@@ -48,7 +48,7 @@ function Merge-DeepHashtable {
     foreach ($key in $Override.Keys) {
         if ($merged.ContainsKey($key) -and $merged[$key] -is [hashtable] -and $Override[$key] -is [hashtable]) {
             # If key exists in both and both values are hashtables, recurse
-            $merged[$key] = Merge-DeepHashtable -Base $merged[$key] -Override $Override[$key] 
+            $merged[$key] = Merge-DeepHashtable -Base $merged[$key] -Override $Override[$key]
         }
         else {
             # Otherwise, the override value replaces or adds the key
@@ -66,7 +66,7 @@ function Find-SevenZipExecutable {
     Write-LogMessage "  - Attempting to auto-detect 7z.exe..." -Level "DEBUG"
     $commonPaths = @(
         (Join-Path -Path $env:ProgramFiles -ChildPath "7-Zip\7z.exe"),
-        (Join-Path -Path ${env:ProgramFiles(x86)} -ChildPath "7-Zip\7z.exe") 
+        (Join-Path -Path ${env:ProgramFiles(x86)} -ChildPath "7-Zip\7z.exe")
     )
 
     foreach ($pathAttempt in $commonPaths) {
@@ -87,7 +87,7 @@ function Find-SevenZipExecutable {
     catch {
         Write-LogMessage "    - 7z.exe not found in system PATH (Get-Command error: $($_.Exception.Message))." -Level "DEBUG"
     }
-    
+
     Write-LogMessage "    - Auto-detection failed to find 7z.exe in common locations or system PATH. Please ensure 'SevenZipPath' is set in the configuration." -Level "DEBUG"
     return $null # Return null if not found
 }
@@ -129,7 +129,7 @@ function Write-LogMessage {
     #>
     param (
         [string]$Message,
-        [string]$ForegroundColour = $Global:ColourInfo, 
+        [string]$ForegroundColour = $Global:ColourInfo,
         [switch]$NoNewLine,
         [string]$Level = "INFO",
         [switch]$NoTimestampToLogFile = $false
@@ -138,7 +138,7 @@ function Write-LogMessage {
     $consoleMessage = $Message
     $logMessage = if ($NoTimestampToLogFile) { $Message } else { "$timestamp [$Level] $Message" }
 
-    $effectiveConsoleColour = $ForegroundColour 
+    $effectiveConsoleColour = $ForegroundColour
 
     if ($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
         $effectiveConsoleColour = $Global:StatusToColourMap[$Level.ToUpperInvariant()]
@@ -157,7 +157,7 @@ function Write-LogMessage {
         $Global:GlobalJobLogEntries.Add([PSCustomObject]@{
             Timestamp = if($NoTimestampToLogFile -and $Global:GlobalJobLogEntries.Count -gt 0) { "" } else { $timestamp } # Avoid repeating timestamp for continued lines
             Level     = $Level
-            Message   = $Message 
+            Message   = $Message
         })
     }
 
@@ -214,7 +214,7 @@ function Get-ConfigValue {
 #endregion
 
 #region --- Helper Function Test-AdminPrivilege ---
-function Test-AdminPrivilege { 
+function Test-AdminPrivilege {
     [CmdletBinding()]
     <#
     .SYNOPSIS
@@ -234,7 +234,7 @@ function Test-AdminPrivilege {
     $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
     $isAdmin = $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($isAdmin) {
-        Write-LogMessage "  - Script is running with Administrator privileges." -Level "SUCCESS" 
+        Write-LogMessage "  - Script is running with Administrator privileges." -Level "SUCCESS"
     } else {
         Write-LogMessage "  - Script is NOT running with Administrator privileges. VSS functionality will be unavailable." -Level "WARNING"
     }
@@ -327,7 +327,7 @@ function Invoke-HookScript {
 
             if (-not [string]::IsNullOrWhiteSpace($stdOutContent)) {
                 Write-LogMessage "    $HookType Script STDOUT:" -Level "HOOK"
-                $stdOutContent.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "      | $_" -Level "HOOK" -NoTimestampToLogFile; $outputLog.Add("OUTPUT: $_") } 
+                $stdOutContent.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "      | $_" -Level "HOOK" -NoTimestampToLogFile; $outputLog.Add("OUTPUT: $_") }
             }
             if ($proc.ExitCode -ne 0) {
                 Write-LogMessage "[ERROR] $HookType script '$ScriptPath' exited with error code $($proc.ExitCode)." -Level "ERROR"
@@ -336,7 +336,7 @@ function Invoke-HookScript {
                     Write-LogMessage "    $HookType Script STDERR:" -Level "ERROR"
                     $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "      | $_" -Level "ERROR" -NoTimestampToLogFile; $outputLog.Add("ERROR: $_") }
                 }
-            } elseif (-not [string]::IsNullOrWhiteSpace($stdErrContent)) { 
+            } elseif (-not [string]::IsNullOrWhiteSpace($stdErrContent)) {
                  Write-LogMessage "[WARNING] $HookType script '$ScriptPath' wrote to STDERR despite exiting successfully (Code 0)." -Level "WARNING"
                  Write-LogMessage "    $HookType Script STDERR (Warning):" -Level "WARNING"
                  $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "      | $_" -Level "WARNING" -NoTimestampToLogFile; $outputLog.Add("STDERR_WARN: $_") }
@@ -438,16 +438,16 @@ function Import-AppConfiguration {
     param (
         [string]$UserSpecifiedPath,
         [switch]$IsTestConfigMode,
-        [string]$MainScriptPSScriptRoot 
+        [string]$MainScriptPSScriptRoot
     )
 
     $finalConfiguration = $null
     $userConfigLoadedSuccessfully = $false
-    $primaryConfigPathForReturn = $null 
+    $primaryConfigPathForReturn = $null
 
     $defaultConfigDir = Join-Path -Path $MainScriptPSScriptRoot -ChildPath "Config"
     $defaultBaseConfigFileName = "Default.psd1"
-    $defaultUserConfigFileName = "User.psd1" 
+    $defaultUserConfigFileName = "User.psd1"
 
     $defaultBaseConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultBaseConfigFileName
     $defaultUserConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultUserConfigFileName
@@ -467,7 +467,7 @@ function Import-AppConfiguration {
             return @{ IsValid = $false; ErrorMessage = "Failed to parse configuration file '$UserSpecifiedPath': $($_.Exception.Message)" }
         }
     } else {
-        $primaryConfigPathForReturn = $defaultBaseConfigPath 
+        $primaryConfigPathForReturn = $defaultBaseConfigPath
         Write-LogMessage "`n[INFO] No -ConfigFile specified by user. Loading base configuration from: '$($defaultBaseConfigPath)'" -Level "INFO"
         if (-not (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf)) {
             Write-LogMessage "FATAL: Base configuration file '$defaultBaseConfigPath' not found. This file is required for default operation." -Level "ERROR"
@@ -481,7 +481,7 @@ function Import-AppConfiguration {
             Write-LogMessage "FATAL: Could not load or parse base configuration file '$defaultBaseConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR"
             return @{ IsValid = $false; ErrorMessage = "Failed to parse base configuration file '$defaultBaseConfigPath': $($_.Exception.Message)" }
         }
-        
+
         Write-LogMessage "[INFO] Checking for user override configuration at: '$($defaultUserConfigPath)'" -Level "INFO"
         if (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf) {
             try {
@@ -489,7 +489,7 @@ function Import-AppConfiguration {
                 if ($null -ne $loadedUserConfiguration -and $loadedUserConfiguration -is [hashtable]) {
                     Write-LogMessage "  - User override configuration '$defaultUserConfigPath' found and loaded successfully." -Level "SUCCESS"
                     Write-LogMessage "  - Merging user configuration over base configuration..." -Level "DEBUG"
-                    $finalConfiguration = Merge-DeepHashtable -Base $finalConfiguration -Override $loadedUserConfiguration 
+                    $finalConfiguration = Merge-DeepHashtable -Base $finalConfiguration -Override $loadedUserConfiguration
                     $userConfigLoadedSuccessfully = $true
                     Write-LogMessage "  - User configuration merged successfully." -Level "SUCCESS"
                 } else {
@@ -507,7 +507,7 @@ function Import-AppConfiguration {
         Write-LogMessage "FATAL: Final configuration object is null or not a valid hashtable after loading/merging attempts." -Level "ERROR"
         return @{ IsValid = $false; ErrorMessage = "Final configuration is not a valid hashtable." }
     }
-    
+
     $validationMessages = [System.Collections.Generic.List[string]]::new()
 
     $enableAdvancedValidation = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'EnableAdvancedSchemaValidation' -DefaultValue $false
@@ -518,7 +518,7 @@ function Import-AppConfiguration {
             Write-LogMessage "  - PoShBackupValidator module loaded successfully. Performing schema validation against loaded configuration..." -Level "DEBUG"
             Invoke-PoShBackupConfigValidation -ConfigurationToValidate $finalConfiguration -ValidationMessagesListRef ([ref]$validationMessages)
             if ($IsTestConfigMode.IsPresent -and $validationMessages.Count -eq 0) {
-                 Write-LogMessage "[SUCCESS] Advanced schema validation completed (no schema errors found)." -Level "CONFIG_TEST" 
+                 Write-LogMessage "[SUCCESS] Advanced schema validation completed (no schema errors found)." -Level "CONFIG_TEST"
             } elseif ($validationMessages.Count -gt 0) {
                  Write-LogMessage "[WARNING] Advanced schema validation found issues (see detailed errors below)." -Level "WARNING"
             }
@@ -526,18 +526,18 @@ function Import-AppConfiguration {
             Write-LogMessage "[WARNING] Could not load or execute PoShBackupValidator module for advanced schema validation. This validation step will be skipped. Error: $($_.Exception.Message)" -Level "WARNING"
         }
     } else {
-        if ($IsTestConfigMode.IsPresent) { 
-            Write-LogMessage "[INFO] Advanced Schema Validation is disabled in the configuration ('EnableAdvancedSchemaValidation' is `$false or missing)." -Level "INFO" 
+        if ($IsTestConfigMode.IsPresent) {
+            Write-LogMessage "[INFO] Advanced Schema Validation is disabled in the configuration ('EnableAdvancedSchemaValidation' is `$false or missing)." -Level "INFO"
         }
     }
 
-    $vssCachePath = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab" 
+    $vssCachePath = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab"
     try {
-        $expandedVssCachePath = [System.Environment]::ExpandEnvironmentVariables($vssCachePath) 
-        $null = [System.IO.Path]::GetFullPath($expandedVssCachePath) 
+        $expandedVssCachePath = [System.Environment]::ExpandEnvironmentVariables($vssCachePath)
+        $null = [System.IO.Path]::GetFullPath($expandedVssCachePath)
         $parentDir = Split-Path -Path $expandedVssCachePath
         if ( ($null -ne $parentDir) -and (-not ([string]::IsNullOrEmpty($parentDir))) -and (-not (Test-Path -Path $parentDir -PathType Container)) ) {
-             if ($IsTestConfigMode.IsPresent) { 
+             if ($IsTestConfigMode.IsPresent) {
                  Write-LogMessage "[INFO] Note: The parent directory ('$parentDir') for the configured 'VSSMetadataCachePath' ('$expandedVssCachePath') does not currently exist. Diskshadow may attempt to create it." -Level "INFO"
             }
         }
@@ -546,23 +546,23 @@ function Import-AppConfiguration {
     }
 
     $sevenZipPathFromConfigOriginal = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'SevenZipPath' -DefaultValue $null
-    $sevenZipPathSource = "configuration" 
+    $sevenZipPathSource = "configuration"
 
     if (-not ([string]::IsNullOrWhiteSpace($finalConfiguration.SevenZipPath)) -and (Test-Path -LiteralPath $finalConfiguration.SevenZipPath -PathType Leaf)) {
-        if ($IsTestConfigMode.IsPresent) { 
+        if ($IsTestConfigMode.IsPresent) {
              Write-LogMessage "  - Effective 7-Zip Path set to: '$($finalConfiguration.SevenZipPath)' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
         }
-    } else { 
+    } else {
         $initialPathIsEmpty = [string]::IsNullOrWhiteSpace($sevenZipPathFromConfigOriginal)
         if (-not $initialPathIsEmpty) {
             Write-LogMessage "[WARNING] Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') is invalid or not found. Attempting auto-detection..." -Level "WARNING"
         } else {
             Write-LogMessage "[INFO] 'SevenZipPath' is empty or not set in configuration. Attempting auto-detection..." -Level "INFO"
         }
-        
-        $foundPath = Find-SevenZipExecutable 
+
+        $foundPath = Find-SevenZipExecutable
         if ($null -ne $foundPath) {
-            $finalConfiguration.SevenZipPath = $foundPath 
+            $finalConfiguration.SevenZipPath = $foundPath
             $sevenZipPathSource = if ($initialPathIsEmpty) { "auto-detected (config was empty)" } else { "auto-detected (configured path was invalid)" }
             Write-LogMessage "[INFO] Successfully auto-detected and using 7-Zip Path: '$foundPath'." -Level "INFO"
             if ($IsTestConfigMode.IsPresent) {
@@ -587,16 +587,16 @@ function Import-AppConfiguration {
     }
 
     $defaultDateFormat = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd"
-    if ($finalConfiguration.ContainsKey('DefaultArchiveDateFormat')) { 
-        if (-not ([string]$defaultDateFormat).Trim()) { 
+    if ($finalConfiguration.ContainsKey('DefaultArchiveDateFormat')) {
+        if (-not ([string]$defaultDateFormat).Trim()) {
             $validationMessages.Add("Global setting 'DefaultArchiveDateFormat' is defined but empty. Please provide a valid .NET date format string or remove the key to use the script's internal default.")
         } else {
             try { Get-Date -Format $defaultDateFormat -ErrorAction Stop | Out-Null }
             catch { $validationMessages.Add("Global setting 'DefaultArchiveDateFormat' ('$defaultDateFormat') is not a valid .NET date format string. Error: $($_.Exception.Message)") }
         }
     }
- 
-    $pauseSetting = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'PauseBeforeExit' -DefaultValue "OnFailureOrWarning" 
+
+    $pauseSetting = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'PauseBeforeExit' -DefaultValue "OnFailureOrWarning"
     if ($finalConfiguration.ContainsKey('PauseBeforeExit')) {
         $validPauseOptions = @('true', 'false', 'always', 'never', 'onfailure', 'onwarning', 'onfailureorwarning')
         if (!($pauseSetting -is [bool] -or ($pauseSetting -is [string] -and $pauseSetting.ToString().ToLowerInvariant() -in $validPauseOptions))) {
@@ -612,9 +612,9 @@ function Import-AppConfiguration {
         if ($null -ne $finalConfiguration.BackupLocations -and $finalConfiguration.BackupLocations -is [hashtable]) {
             foreach ($jobKey in $finalConfiguration.BackupLocations.Keys) {
                 $jobConfig = $finalConfiguration.BackupLocations[$jobKey]
-                if ($null -ne $jobConfig -and $jobConfig.ContainsKey('ArchiveExtension')) { 
+                if ($null -ne $jobConfig -and $jobConfig.ContainsKey('ArchiveExtension')) {
                     $userArchiveExt = $jobConfig['ArchiveExtension']
-                     if (-not ($userArchiveExt -match "^\.[a-zA-Z0-9]+([a-zA-Z0-9\.]*[a-zA-Z0-9]+)?$")) { 
+                     if (-not ($userArchiveExt -match "^\.[a-zA-Z0-9]+([a-zA-Z0-9\.]*[a-zA-Z0-9]+)?$")) {
                         $validationMessages.Add("BackupLocation '$jobKey': 'ArchiveExtension' ('$userArchiveExt') is invalid. It must start with a dot '.' and contain valid file extension characters (e.g., '.zip', '.7z', '.tar.gz').")
                     }
                 }
@@ -641,14 +641,14 @@ function Import-AppConfiguration {
     if ($finalConfiguration.ContainsKey('BackupSets') -and $finalConfiguration.BackupSets -is [hashtable]) {
         foreach ($setKey in $finalConfiguration.BackupSets.Keys) {
             $setConfig = $finalConfiguration.BackupSets[$setKey]
-            if ($setConfig -is [hashtable]) { 
-                $jobNamesInSetArray = @(Get-ConfigValue -ConfigObject $setConfig -Key 'JobNames' -DefaultValue @()) 
-                if ($jobNamesInSetArray.Count -gt 0) { 
+            if ($setConfig -is [hashtable]) {
+                $jobNamesInSetArray = @(Get-ConfigValue -ConfigObject $setConfig -Key 'JobNames' -DefaultValue @())
+                if ($jobNamesInSetArray.Count -gt 0) {
                     foreach ($jobNameInSetCandidate in $jobNamesInSetArray) {
                         if ([string]::IsNullOrWhiteSpace($jobNameInSetCandidate)) {
                             $validationMessages.Add("BackupSet '$setKey': Contains an empty or whitespace-only job name in its 'JobNames' list.")
-                            continue 
-                        } 
+                            continue
+                        }
                         $jobNameInSet = $jobNameInSetCandidate.Trim()
                         if ($finalConfiguration.ContainsKey('BackupLocations') -and $finalConfiguration.BackupLocations -is [hashtable] -and -not $finalConfiguration.BackupLocations.ContainsKey($jobNameInSet)) {
                             $validationMessages.Add("BackupSet '$setKey': Job '$jobNameInSet' listed in 'JobNames' is not defined in the 'BackupLocations' section.")
@@ -656,23 +656,23 @@ function Import-AppConfiguration {
                             $validationMessages.Add("BackupSet '$setKey': Cannot validate Job '$jobNameInSet' because 'BackupLocations' section is missing or not a valid Hashtable in the configuration.")
                         }
                     }
-                } 
+                }
             }
         }
     }
-    
+
     if ($validationMessages.Count -gt 0) {
         Write-LogMessage "Configuration validation failed with the following errors/warnings:" -Level "ERROR"
-        ($validationMessages | Select-Object -Unique) | ForEach-Object { Write-LogMessage "  - $_" -Level "ERROR" } 
+        ($validationMessages | Select-Object -Unique) | ForEach-Object { Write-LogMessage "  - $_" -Level "ERROR" }
         return @{ IsValid = $false; ErrorMessage = "Configuration validation failed. See logs for details." }
     }
 
     return @{
         IsValid = $true;
         Configuration = $finalConfiguration;
-        ActualPath = $primaryConfigPathForReturn; 
+        ActualPath = $primaryConfigPathForReturn;
         UserConfigLoaded = $userConfigLoadedSuccessfully;
-        UserConfigPath = if($userConfigLoadedSuccessfully -or (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf)) {$defaultUserConfigPath} else {$null} 
+        UserConfigPath = if($userConfigLoadedSuccessfully -or (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf)) {$defaultUserConfigPath} else {$null}
     }
 }
 #endregion
@@ -715,31 +715,31 @@ function Get-JobsToProcess {
         [string]$SpecifiedSetName
     )
     $jobsToRun = [System.Collections.Generic.List[string]]::new()
-    $setName = $null 
-    $stopSetOnErrorPolicy = $true 
+    $setName = $null
+    $stopSetOnErrorPolicy = $true
 
     if (-not [string]::IsNullOrWhiteSpace($SpecifiedSetName)) {
         Write-LogMessage "`n[INFO] Backup Set specified by user: '$SpecifiedSetName'" -Level "INFO"
         if ($Config.ContainsKey('BackupSets') -and $Config['BackupSets'] -is [hashtable] -and $Config['BackupSets'].ContainsKey($SpecifiedSetName)) {
             $setDefinition = $Config['BackupSets'][$SpecifiedSetName]
-            $setName = $SpecifiedSetName 
-            $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @()) 
+            $setName = $SpecifiedSetName
+            $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @())
 
             if ($jobNamesInSet.Count -gt 0) {
                 $jobNamesInSet | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) {$jobsToRun.Add($_.Trim())} }
-                if ($jobsToRun.Count -eq 0) { 
+                if ($jobsToRun.Count -eq 0) {
                      return @{ Success = $false; ErrorMessage = "Backup Set '$setName' is defined but its 'JobNames' list contains no valid (non-empty) job names." }
                 }
                 $stopSetOnErrorPolicy = if (((Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue "StopSet") -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
                 Write-LogMessage "  - Jobs to process in set '$setName': $($jobsToRun -join ', ')" -Level "INFO"
                 Write-LogMessage "  - Policy for this set if a job fails: $(if($stopSetOnErrorPolicy){'StopSet'}else{'ContinueSet'})" -Level "INFO"
-            } else { 
+            } else {
                 return @{ Success = $false; ErrorMessage = "Backup Set '$setName' is defined but has no 'JobNames' listed. Cannot process an empty set." }
             }
-        } else { 
+        } else {
             $availableSetsMessage = "No Backup Sets are currently defined in the configuration."
             if ($Config.ContainsKey('BackupSets') -and $Config['BackupSets'] -is [hashtable] -and $Config['BackupSets'].Keys.Count -gt 0) {
-                $setNameList = $Config['BackupSets'].Keys | Sort-Object | ForEach-Object { "`"$_`"" } 
+                $setNameList = $Config['BackupSets'].Keys | Sort-Object | ForEach-Object { "`"$_`"" }
                 $availableSetsMessage = "Available Backup Sets in configuration: $($setNameList -join ', ')."
             }
             return @{ Success = $false; ErrorMessage = "Specified Backup Set '$SpecifiedSetName' was not found in the configuration. $availableSetsMessage" }
@@ -748,36 +748,36 @@ function Get-JobsToProcess {
         if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable] -and $Config['BackupLocations'].ContainsKey($SpecifiedJobName)) {
             $jobsToRun.Add($SpecifiedJobName)
             Write-LogMessage "`n[INFO] Single Backup Location specified by user: '$SpecifiedJobName'" -Level "INFO"
-        } else { 
+        } else {
             $availableJobsMessage = "No Backup Locations are currently defined in the configuration."
             if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable] -and $Config['BackupLocations'].Keys.Count -gt 0) {
-                $jobNameList = $Config['BackupLocations'].Keys | Sort-Object | ForEach-Object { "`"$_`"" } 
+                $jobNameList = $Config['BackupLocations'].Keys | Sort-Object | ForEach-Object { "`"$_`"" }
                 $availableJobsMessage = "Available Backup Locations in configuration: $($jobNameList -join ', ')."
             }
             return @{ Success = $false; ErrorMessage = "Specified BackupLocationName '$SpecifiedJobName' was not found in the configuration. $availableJobsMessage" }
         }
-    } else { 
+    } else {
         $jobCount = 0
         if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable]) {
             $jobCount = $Config['BackupLocations'].Count
         }
 
-        if ($jobCount -eq 1) { 
-            $singleJobKey = ($Config['BackupLocations'].Keys | Select-Object -First 1) 
+        if ($jobCount -eq 1) {
+            $singleJobKey = ($Config['BackupLocations'].Keys | Select-Object -First 1) # MODIFIED: Select to Select-Object
             $jobsToRun.Add($singleJobKey)
-            Write-LogMessage "`n[INFO] No job or set specified by user. Automatically selected the single defined Backup Location: '$singleJobKey'" -Level "INFO" 
-        } elseif ($jobCount -eq 0) { 
+            Write-LogMessage "`n[INFO] No job or set specified by user. Automatically selected the single defined Backup Location: '$singleJobKey'" -Level "INFO"
+        } elseif ($jobCount -eq 0) {
             return @{ Success = $false; ErrorMessage = "No BackupLocationName or RunSet specified, and no Backup Locations are defined in the configuration. Nothing to back up." }
-        } else { 
+        } else {
             $errorMessage = "No BackupLocationName or RunSet specified. Multiple Backup Locations are defined. Please choose one of the following:"
-            $availableJobsMessage = "`n  Available Backup Locations (use -BackupLocationName ""Job Name""):" 
+            $availableJobsMessage = "`n  Available Backup Locations (use -BackupLocationName ""Job Name""):"
             if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable] -and $Config['BackupLocations'].Keys.Count -gt 0) {
                 $Config['BackupLocations'].Keys | Sort-Object | ForEach-Object { $availableJobsMessage += "`n    - $_" }
-            } else { 
+            } else {
                 $availableJobsMessage += "`n    (Error: No jobs found despite jobCount > 1)"
             }
-            
-            $availableSetsMessage = "`n  Available Backup Sets (use -RunSet ""Set Name""):" 
+
+            $availableSetsMessage = "`n  Available Backup Sets (use -RunSet ""Set Name""):"
             if ($Config.ContainsKey('BackupSets') -and $Config['BackupSets'] -is [hashtable] -and $Config['BackupSets'].Keys.Count -gt 0) {
                 $Config['BackupSets'].Keys | Sort-Object | ForEach-Object { $availableSetsMessage += "`n    - $_" }
             } else {
@@ -791,11 +791,11 @@ function Get-JobsToProcess {
         return @{ Success = $false; ErrorMessage = "No valid backup jobs could be determined to process after parsing parameters and configuration." }
     }
 
-    return @{ 
-        Success = $true; 
-        JobsToRun = $jobsToRun; 
-        SetName = $setName; 
-        StopSetOnErrorPolicy = $stopSetOnErrorPolicy 
+    return @{
+        Success = $true;
+        JobsToRun = $jobsToRun;
+        SetName = $setName;
+        StopSetOnErrorPolicy = $stopSetOnErrorPolicy
     }
 }
 #endregion
