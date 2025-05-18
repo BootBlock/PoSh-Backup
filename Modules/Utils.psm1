@@ -2,27 +2,27 @@
 .SYNOPSIS
     Provides a collection of essential utility functions for the PoSh-Backup script.
     These include capabilities for logging, configuration value retrieval, administrative
-    privilege checks, external hook script execution, archive size formatting, and
-    destination free space checking.
+    privilege checks, archive size formatting, and destination free space checking.
     Configuration loading and job resolution are handled by ConfigManager.psm1.
+    Hook script execution is handled by HookManager.psm1.
 
 .DESCRIPTION
     This module centralises common helper functions used throughout the PoSh-Backup solution,
     promoting code reusability, consistency, and maintainability. It handles tasks that are
-    not specific to the core backup operations, configuration management, or report generation
-    but are essential for the overall script's robust functionality and user experience.
+    not specific to the core backup operations, configuration management, report generation,
+    or hook script execution, but are essential for the overall script's robust
+    functionality and user experience.
 
     Key exported functions include:
     - Write-LogMessage: For standardised console and file logging with colour-coding.
     - Get-ConfigValue: Safely retrieves values from configuration hashtables with default fallbacks.
     - Test-AdminPrivilege: Checks if the script is running with administrator privileges.
-    - Invoke-HookScript: Executes user-defined PowerShell scripts at various hook points.
     - Get-ArchiveSizeFormatted: Converts byte sizes to human-readable formats (KB, MB, GB).
     - Test-DestinationFreeSpace: Checks if the destination directory has enough free space.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.10.2 # PSSA: Use direct $Logger call for initial debug messages.
+    Version:        1.11.1 # Added safety net for ForegroundColor in Write-LogMessage.
     DateCreated:    10-May-2025
     LastModified:   18-May-2025
     Purpose:        Core utility functions for the PoSh-Backup solution.
@@ -44,13 +44,25 @@ function Write-LogMessage {
     $consoleMessage = $Message
     $logMessage = if ($NoTimestampToLogFile) { $Message } else { "$timestamp [$Level] $Message" }
 
-    $effectiveConsoleColour = $ForegroundColour
+    $effectiveConsoleColour = $ForegroundColour 
 
     if ($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
         $effectiveConsoleColour = $Global:StatusToColourMap[$Level.ToUpperInvariant()]
-    } elseif ($Level.ToUpperInvariant() -eq 'NONE') {
+    } 
+    elseif ($Level.ToUpperInvariant() -eq 'NONE') {
         $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
     }
+
+    # Safety check: If $effectiveConsoleColour somehow became an empty string (and is not a ConsoleColor object), default it.
+    if (($effectiveConsoleColour -is [string]) -and ([string]::IsNullOrWhiteSpace($effectiveConsoleColour))) {
+        Write-Warning "Write-LogMessage: Resolved foreground colour was empty or whitespace for Level '$Level', Message: '$Message'. Defaulting to Host's current colour."
+        $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
+    } elseif (($null -eq $effectiveConsoleColour) -and ($Level.ToUpperInvariant() -ne 'NONE')) {
+        # This case should be rare if defaults are working, but protects against $ForegroundColour being null and no map entry
+        Write-Warning "Write-LogMessage: Resolved foreground colour was null for Level '$Level', Message: '$Message'. Defaulting to Host's current colour."
+        $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
+    }
+
 
     if ($NoNewLine) {
         Write-Host $consoleMessage -ForegroundColor $effectiveConsoleColour -NoNewline
@@ -123,111 +135,6 @@ function Test-AdminPrivilege {
         & $LocalWriteLog -Message "  - Script is NOT running with Administrator privileges. VSS functionality will be unavailable." -Level "WARNING"
     }
     return $isAdmin
-}
-#endregion
-
-#region --- Helper Function Invoke-HookScript ---
-function Invoke-HookScript {
-    [CmdletBinding()]
-    param(
-        [string]$ScriptPath,
-        [string]$HookType,
-        [hashtable]$HookParameters,
-        [switch]$IsSimulateMode,
-        [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger
-    )
-    # Defensive PSSA appeasement line by directly calling the logger for this initial message
-    & $Logger -Message "Invoke-HookScript: Logger parameter active for hook '$HookType'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    # Internal helper to use the passed-in logger consistently for other messages
-    $LocalWriteLog = {
-        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
-            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
-            & $Logger -Message $Message -Level $Level
-        }
-    }
-
-    if ([string]::IsNullOrWhiteSpace($ScriptPath)) { return } 
-
-    & $LocalWriteLog -Message "`n[INFO] Attempting to execute $HookType script: $ScriptPath" -Level "HOOK"
-    if (-not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) {
-        & $LocalWriteLog -Message "[WARNING] $HookType script not found at '$ScriptPath'. Skipping execution." -Level "WARNING"
-        if ($Global:GlobalJobHookScriptData -is [System.Collections.Generic.List[object]]) {
-            $Global:GlobalJobHookScriptData.Add([PSCustomObject]@{ Name = $HookType; Path = $ScriptPath; Status = "Not Found"; Output = "Script file not found at specified path."})
-        }
-        return
-    }
-
-    $outputLog = [System.Collections.Generic.List[string]]::new()
-    $status = "Success" 
-    try {
-        if ($IsSimulateMode.IsPresent) {
-            & $LocalWriteLog -Message "SIMULATE: Would execute $HookType script '$ScriptPath' with parameters: $($HookParameters | Out-String | ForEach-Object {$_.TrimEnd()})" -Level "SIMULATE"
-            $outputLog.Add("SIMULATE: Script execution skipped due to simulation mode.")
-            $status = "Simulated"
-        } else {
-            & $LocalWriteLog -Message "  - Executing $HookType script: '$ScriptPath'" -Level "HOOK"
-            $processArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
-            $paramString = ""
-
-            foreach ($key in $HookParameters.Keys) {
-                $value = $HookParameters[$key]
-                if ($value -is [bool] -or $value -is [switch]) {
-                    if ($value) { 
-                        $paramString += " -$key"
-                    }
-                } elseif ($value -is [string] -and ($value.Contains(" ") -or $value.Contains("'") -or $value.Contains('"')) ) {
-                    $escapedValueForCmd = $value -replace '"', '""' 
-                    $paramString += " -$key " + '"' + $escapedValueForCmd + '"'
-                } elseif ($null -ne $value) {
-                    $paramString += " -$key $value"
-                }
-            }
-            $processArgs += $paramString
-
-            $tempStdOut = New-TemporaryFile
-            $tempStdErr = New-TemporaryFile
-
-            & $LocalWriteLog -Message "    - PowerShell arguments for hook script: $processArgs" -Level "DEBUG"
-            $proc = Start-Process powershell.exe -ArgumentList $processArgs -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $tempStdOut.FullName -RedirectStandardError $tempStdErr.FullName
-
-            $stdOutContent = Get-Content $tempStdOut.FullName -Raw -ErrorAction SilentlyContinue
-            $stdErrContent = Get-Content $tempStdErr.FullName -Raw -ErrorAction SilentlyContinue
-
-            Remove-Item $tempStdOut.FullName -Force -ErrorAction SilentlyContinue
-            Remove-Item $tempStdErr.FullName -Force -ErrorAction SilentlyContinue
-
-            if (-not [string]::IsNullOrWhiteSpace($stdOutContent)) {
-                & $LocalWriteLog -Message "    $HookType Script STDOUT:" -Level "HOOK"
-                $stdOutContent.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "      | $_" -Level "HOOK" -NoTimestampToLogFile; $outputLog.Add("OUTPUT: $_") }
-            }
-            if ($proc.ExitCode -ne 0) {
-                & $LocalWriteLog -Message "[ERROR] $HookType script '$ScriptPath' exited with error code $($proc.ExitCode)." -Level "ERROR"
-                $status = "Failure (ExitCode $($proc.ExitCode))"
-                if (-not [string]::IsNullOrWhiteSpace($stdErrContent)) {
-                    & $LocalWriteLog -Message "    $HookType Script STDERR:" -Level "ERROR"
-                    $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "      | $_" -Level "ERROR" -NoTimestampToLogFile; $outputLog.Add("ERROR: $_") }
-                }
-            } elseif (-not [string]::IsNullOrWhiteSpace($stdErrContent)) {
-                 & $LocalWriteLog -Message "[WARNING] $HookType script '$ScriptPath' wrote to STDERR despite exiting successfully (Code 0)." -Level "WARNING"
-                 & $LocalWriteLog -Message "    $HookType Script STDERR (Warning):" -Level "WARNING"
-                 $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "      | $_" -Level "WARNING" -NoTimestampToLogFile; $outputLog.Add("STDERR_WARN: $_") }
-            }
-            $statusLevelForLog = if($status -like "Failure*"){"ERROR"}elseif($status -eq "Simulated"){"SIMULATE"}else{"SUCCESS"}
-            & $LocalWriteLog -Message "  - $HookType script execution finished. Status: $status" -Level $statusLevelForLog
-        }
-    } catch {
-        & $LocalWriteLog -Message "[ERROR] Exception occurred while trying to execute $HookType script '$ScriptPath': $($_.Exception.ToString())" -Level "ERROR"
-        $outputLog.Add("EXCEPTION: $($_.Exception.Message)")
-        $status = "Exception"
-    }
-
-    if ($Global:GlobalJobHookScriptData -is [System.Collections.Generic.List[object]]) {
-        $Global:GlobalJobHookScriptData.Add([PSCustomObject]@{ Name = $HookType; Path = $ScriptPath; Status = $status; Output = ($outputLog -join [System.Environment]::NewLine) })
-    }
 }
 #endregion
 
@@ -367,5 +274,5 @@ function Test-DestinationFreeSpace {
 #endregion
 
 #region --- Exported Functions ---
-Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Invoke-HookScript, Get-ArchiveSizeFormatted, Test-DestinationFreeSpace
+Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Get-ArchiveSizeFormatted, Test-DestinationFreeSpace
 #endregion

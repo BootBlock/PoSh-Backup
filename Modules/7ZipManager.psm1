@@ -19,7 +19,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.3 # PSSA: Use direct $Logger call for initial debug message.
+    Version:        1.0.4 # Added explicit Import-Module for Utils.psm1.
     DateCreated:    17-May-2025
     LastModified:   18-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
@@ -28,6 +28,16 @@
                     Core PoSh-Backup module Utils.psm1 (for Write-LogMessage, Get-ConfigValue)
                     should be loaded by the parent script, or logger passed explicitly.
 #>
+
+# Explicitly import Utils.psm1 to ensure its functions are available, especially Get-ConfigValue.
+# $PSScriptRoot here refers to the directory of 7ZipManager.psm1 (Modules).
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "Utils.psm1") -Force -ErrorAction Stop
+} catch {
+    # If this fails, the module cannot function. Write-Error is appropriate.
+    Write-Error "7ZipManager.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw 
+}
 
 #region --- 7-Zip Executable Finder ---
 function Find-SevenZipExecutable {
@@ -166,6 +176,7 @@ function Get-PoShBackup7ZipArgument {
     if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.ThreadsSetting)) {$sevenZipArgs.Add($EffectiveConfig.ThreadsSetting) } # -mmt or -mmt=N
 
     # Add default global exclusions (Recycle Bin, System Volume Information)
+    # Get-ConfigValue is now available due to Import-Module Utils.psm1 at the top of this module.
     $sevenZipArgs.Add((Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultScriptExcludeRecycleBin' -DefaultValue '-x!$RECYCLE.BIN'))
     $sevenZipArgs.Add((Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultScriptExcludeSysVolInfo' -DefaultValue '-x!System Volume Information'))
 

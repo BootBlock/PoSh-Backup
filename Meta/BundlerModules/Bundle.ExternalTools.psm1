@@ -1,19 +1,18 @@
 <#
 .SYNOPSIS
-    Handles the execution of external tools like PSScriptAnalyzer and the
-    PoSh-Backup script's -TestConfig mode for the AI project bundler.
+    Handles the execution of external tools like PSScriptAnalyzer for the AI project bundler.
 
 .DESCRIPTION
-    This module encapsulates the logic for invoking external tools or specific
-    modes of the main project script, capturing their output for inclusion in the
-    AI bundle. This keeps the main bundler script cleaner and more focused on
-    orchestration.
+    This module encapsulates the logic for invoking PSScriptAnalyzer, capturing its output
+    for inclusion in the AI bundle. This keeps the main bundler script cleaner and
+    more focused on orchestration.
+    The PoSh-Backup -TestConfig output capture has been removed due to reliability issues.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Removed Get-BundlerTestConfigOutput function.
     DateCreated:    17-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        External tool execution utilities for the AI project bundler.
 #>
 
@@ -52,11 +51,10 @@ function Invoke-BundlerScriptAnalyzer {
                 foreach($excludedDirName in $ExcludedFoldersForPSSA) {
                     $fullExcludedPath = Join-Path -Path $ProjectRoot_FullPath -ChildPath $excludedDirName
                     if ($_.FullName.StartsWith($fullExcludedPath, [System.StringComparison]::OrdinalIgnoreCase)) {
-                        # If the excluded folder is "Meta", ensure we are not accidentally excluding bundler modules if they are meant to be analyzed
-                        # (though typically Meta itself is excluded from general project analysis)
                         if ($excludedDirName -eq "Meta" -and ($null -ne $BundlerPSScriptRoot) -and $_.DirectoryName -eq (Join-Path -Path $BundlerPSScriptRoot -ChildPath "BundlerModules")) {
-                             # Do not exclude bundler modules if Meta is in ExcludedFoldersForPSSA but we still want them analyzed
-                             # This scenario might need refinement based on how PSSA is called for the bundler itself vs the project
+                             # Bundler modules are typically in Meta\BundlerModules. If "Meta" is excluded from PSSA for the main project,
+                             # but we are running PSSA for the bundler itself, this logic might need care.
+                             # However, Invoke-BundlerScriptAnalyzer is usually called for the main project, where excluding all of Meta is common.
                         } else {
                             $isExcluded = $true; break
                         }
@@ -107,65 +105,6 @@ function Invoke-BundlerScriptAnalyzer {
     return $pssaOutputBuilder.ToString()
 }
 
+# Get-BundlerTestConfigOutput function has been removed.
 
-function Get-BundlerTestConfigOutput {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$ProjectRoot_FullPath
-    )
-    $testConfigOutputBuilder = [System.Text.StringBuilder]::new()
-    $fullPathToPoShBackupScript = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PoSh-Backup.ps1"
-
-    if (-not (Test-Path -LiteralPath $fullPathToPoShBackupScript -PathType Leaf)) {
-        $null = $testConfigOutputBuilder.AppendLine("(PoSh-Backup.ps1 not found at '$fullPathToPoShBackupScript'. Cannot run -TestConfig.)")
-        return $testConfigOutputBuilder.ToString()
-    }
-
-    try {
-        Write-Host "Running 'PoSh-Backup.ps1 -TestConfig' (this may take a moment)..." -ForegroundColor Yellow
-
-        $oldErrorActionPreference = $ErrorActionPreference
-        $ErrorActionPreference = "Continue" # Important for Invoke-Expression to not halt the bundler on script errors
-        $testConfigOutput = ""
-        $LASTEXITCODE = 0 # Reset before call
-
-        Push-Location (Split-Path -Path $fullPathToPoShBackupScript -Parent)
-        try {
-            # Use *>&1 to capture all streams.
-            $invokeCommand = ". `"$fullPathToPoShBackupScript`" -TestConfig *>&1"
-            $testConfigOutput = Invoke-Expression $invokeCommand | Out-String
-        }
-        catch {
-            # Capture exception from Invoke-Expression itself
-            $testConfigOutput = "INVOKE-EXPRESSION FAILED: $($_.Exception.ToString())`n$($_.ScriptStackTrace)"
-            if ($Error.Count -gt 0) { # Check for script-level errors that Invoke-Expression might have swallowed
-                $testConfigOutput += "`nLAST SCRIPT ERROR: $($Error[0].ToString())`n$($Error[0].ScriptStackTrace)"
-            }
-        }
-        finally {
-            Pop-Location
-            $ErrorActionPreference = $oldErrorActionPreference
-        }
-
-        # Check LASTEXITCODE after Invoke-Expression.
-        # Some script errors inside the invoked script might not set LASTEXITCODE if not explicitly exiting with a code.
-        if ($LASTEXITCODE -ne 0 -and -not ([string]::IsNullOrWhiteSpace($testConfigOutput))) {
-             $null = $testConfigOutputBuilder.AppendLine("(PoSh-Backup.ps1 -TestConfig exited with code $LASTEXITCODE. Output/Error follows.)")
-        } elseif ($LASTEXITCODE -ne 0) {
-             $null = $testConfigOutputBuilder.AppendLine("(PoSh-Backup.ps1 -TestConfig exited with code $LASTEXITCODE. No specific output captured.)")
-        }
-        # Handle case where TestConfig might run "successfully" (exit 0) but still produce no output.
-        if ([string]::IsNullOrWhiteSpace($testConfigOutput) -and $LASTEXITCODE -eq 0){
-            $null = $testConfigOutputBuilder.AppendLine("(PoSh-Backup.ps1 -TestConfig ran successfully but produced no console output.)")
-        } else {
-            $null = $testConfigOutputBuilder.AppendLine($testConfigOutput.TrimEnd())
-        }
-
-    } catch {
-        $null = $testConfigOutputBuilder.AppendLine("(Bundler.ExternalTools error trying to run PoSh-Backup.ps1 -TestConfig: $($_.Exception.ToString()))")
-    }
-    return $testConfigOutputBuilder.ToString()
-}
-
-Export-ModuleMember -Function Invoke-BundlerScriptAnalyzer, Get-BundlerTestConfigOutput
+Export-ModuleMember -Function Invoke-BundlerScriptAnalyzer

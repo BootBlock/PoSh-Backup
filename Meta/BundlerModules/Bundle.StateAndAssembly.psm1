@@ -13,9 +13,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.4 # Changed AutoDetectedPsDependencies param type to [object] for Get-BundlerAIState.
+    Version:        1.0.5 # Removed TestConfigOutputContent parameter from Format-AIBundleContent.
     DateCreated:    17-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        AI State generation and final bundle assembly for the AI project bundler.
 #>
 
@@ -35,20 +35,6 @@ function Get-BundlerAIState {
         [Parameter(Mandatory)]
         [object]$AutoDetectedPsDependencies # Changed type to object for more flexible binding
     )
-
-    # This is the definition of the AI State block.
-    # It's placed here to keep the main bundler script cleaner.
-    
-    $psModulesForState = @() # Default to an empty array
-    if ($null -ne $AutoDetectedPsDependencies) {
-        try {
-            # Attempt to treat it as a collection and sort
-            $psModulesForState = @($AutoDetectedPsDependencies | Sort-Object -Unique)
-        } catch {
-            Write-Warning "Bundler StateAndAssembly: Could not process AutoDetectedPsDependencies. Defaulting to empty list for AI State. Type was: $($AutoDetectedPsDependencies.GetType().FullName)"
-            # $psModulesForState remains an empty array
-        }
-    }
 
     # This is the definition of the AI State block.
     # It's placed here to keep the main bundler script cleaner.
@@ -96,14 +82,14 @@ function Get-BundlerAIState {
             "  - Moved 'Find-SevenZipExecutable', 'Get-PoShBackup7ZipArgument', 'Invoke-7ZipOperation', and 'Test-7ZipArchive' to 7ZipManager.psm1.",
             "  - Updated Utils.psm1 (v1.8.0) and Operations.psm1 (v1.8.0) to reflect moved 7-Zip functions.",
             "Bundler Script (Generate-ProjectBundleForAI.ps1) Modularization:",
-            "  - Version updated to 1.24.0 to reflect its own modularization.",
+            "  - Version updated to 1.24.0 to reflect its own modularization.", # This is the version of the main bundler script
             "  - Created 'Meta\BundlerModules\Bundle.Utils.psm1' (v1.0.0): For version extraction & project structure overview.",
-            "  - Created 'Meta\BundlerModules\Bundle.FileProcessor.psm1' (v1.0.0): For individual file processing, language hinting, synopsis/dependency extraction.",
-            "  - Created 'Meta\BundlerModules\Bundle.ExternalTools.psm1' (v1.0.0): For PSScriptAnalyzer & PoSh-Backup -TestConfig execution.",
-            "  - Created 'Meta\BundlerModules\Bundle.StateAndAssembly.psm1' (v1.0.4): For AI State generation & final bundle assembly. Corrected parameter binding issues.",
+            "  - Created 'Meta\BundlerModules\Bundle.FileProcessor.psm1' (v1.0.1): For individual file processing, added synopsis placeholder.",
+            "  - Created 'Meta\BundlerModules\Bundle.ExternalTools.psm1' (v1.0.1): For PSScriptAnalyzer execution; -TestConfig capture removed.",
+            "  - Created 'Meta\BundlerModules\Bundle.StateAndAssembly.psm1' (v1.0.5): For AI State generation & final bundle assembly.", # This module's version
             "  - Created 'Meta\BundlerModules\Bundle.ProjectScanner.psm1' (v1.0.0): For main project file scanning loop and exclusion logic.",
             "  - Main bundler script now primarily orchestrates calls to these sub-modules.",
-            "General project status: Reporting, VSS, Retries, Hooks, Password Management are key features. PSSA clean. Pester tests non-functional."
+            "General project status: Reporting, Hooks, Password Management are key features. PSSA clean. Pester tests non-functional."
         );
         project_root_folder_name = $ProjectRoot_DisplayName;
         bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss");
@@ -144,14 +130,13 @@ function Format-AIBundleContent {
         This function takes various pre-generated content strings (header, AI state, project structure, etc.)
         and concatenates them in the correct order using a StringBuilder to produce the final, complete
         content for the AI bundle file.
+        The PoSh-Backup -TestConfig output has been removed from the bundle.
     .PARAMETER HeaderContent
         The introductory header string for the bundle.
     .PARAMETER AIStateHashtable
         The AI State data, which will be converted to JSON within this function.
     .PARAMETER ProjectStructureContent
         A string representing the project's directory structure.
-    .PARAMETER TestConfigOutputContent
-        Optional. The captured output from 'PoSh-Backup.ps1 -TestConfig'.
     .PARAMETER AnalyzerSettingsFileContent
         Optional. The content of the PSScriptAnalyzerSettings.psd1 file.
     .PARAMETER PSSASummaryOutputContent
@@ -172,8 +157,7 @@ function Format-AIBundleContent {
         [hashtable]$AIStateHashtable,
         [Parameter(Mandatory)]
         [string]$ProjectStructureContent,
-        [Parameter(Mandatory=$false)] # Optional sections
-        [string]$TestConfigOutputContent,
+        # TestConfigOutputContent parameter removed
         [Parameter(Mandatory=$false)]
         [string]$AnalyzerSettingsFileContent, # Content of PSScriptAnalyzerSettings.psd1
         [Parameter(Mandatory=$false)]
@@ -205,13 +189,13 @@ function Format-AIBundleContent {
     $null = $finalOutputBuilder.AppendLine("--- END_PROJECT_STRUCTURE_OVERVIEW ---")
     $null = $finalOutputBuilder.AppendLine("")
 
-    # 4. PoSh-Backup -TestConfig Output (if provided)
-    if (-not [string]::IsNullOrWhiteSpace($TestConfigOutputContent)) {
-        $null = $finalOutputBuilder.AppendLine("--- POSH_BACKUP_TESTCONFIG_OUTPUT_START ---")
-        $null = $finalOutputBuilder.AppendLine($TestConfigOutputContent) 
-        $null = $finalOutputBuilder.AppendLine("--- POSH_BACKUP_TESTCONFIG_OUTPUT_END ---")
-        $null = $finalOutputBuilder.AppendLine("")
-    }
+    # 4. PoSh-Backup -TestConfig Output (SECTION REMOVED)
+    # if (-not [string]::IsNullOrWhiteSpace($TestConfigOutputContent)) {
+    #     $null = $finalOutputBuilder.AppendLine("--- POSH_BACKUP_TESTCONFIG_OUTPUT_START ---")
+    #     $null = $finalOutputBuilder.AppendLine($TestConfigOutputContent) 
+    #     $null = $finalOutputBuilder.AppendLine("--- POSH_BACKUP_TESTCONFIG_OUTPUT_END ---")
+    #     $null = $finalOutputBuilder.AppendLine("")
+    # }
 
     # 5. PSScriptAnalyzerSettings.psd1 content (if provided)
     if (-not [string]::IsNullOrWhiteSpace($AnalyzerSettingsFileContent)) {

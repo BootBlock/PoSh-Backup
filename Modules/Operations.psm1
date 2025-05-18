@@ -3,8 +3,8 @@
     Manages the core backup operations for a single backup job within the PoSh-Backup solution.
     This includes gathering effective job configurations (via ConfigManager.psm1), handling VSS
     (via VssManager.psm1), executing 7-Zip (via 7ZipManager.psm1), applying retention policies
-    (via RetentionManager.psm1), and checking destination free space (via Utils.psm1).
-    It also orchestrates password retrieval and hook script execution.
+    (via RetentionManager.psm1), checking destination free space (via Utils.psm1), and orchestrating
+    hook script execution (via HookManager.psm1).
 
 .DESCRIPTION
     The Operations module encapsulates the entire lifecycle of processing a single, defined backup job.
@@ -15,7 +15,7 @@
     1.  Gathers effective configuration (ConfigManager.psm1).
     2.  Validates/creates destination directory.
     3.  Retrieves archive password (PasswordManager.psm1).
-    4.  Executes pre-backup hook scripts.
+    4.  Executes pre-backup hook scripts (HookManager.psm1).
     5.  Handles VSS shadow copy creation if enabled (VssManager.psm1).
     6.  Checks destination free space (Utils.psm1).
     7.  Applies retention policy (RetentionManager.psm1).
@@ -24,16 +24,16 @@
     10. Optionally tests archive integrity (7ZipManager.psm1).
     11. Cleans up VSS shadow copies (VssManager.psm1).
     12. Securely disposes of temporary password files.
-    13. Executes post-backup hook scripts.
+    13. Executes post-backup hook scripts (HookManager.psm1).
     14. Returns job status.
 
     This module relies on other PoSh-Backup modules like Utils.psm1, PasswordManager.psm1,
-    7ZipManager.psm1, VssManager.psm1, RetentionManager.psm1, and ConfigManager.psm1.
+    7ZipManager.psm1, VssManager.psm1, RetentionManager.psm1, ConfigManager.psm1, and HookManager.psm1.
     Functions within this module requiring logging accept a -Logger parameter.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.12.1 # Pass logger to 7ZipManager functions, use local logger.
+    Version:        1.13.1 # Added explicit Import-Module for Utils.psm1.
     DateCreated:    10-May-2025
     LastModified:   18-May-2025
     Purpose:        Handles the execution logic for individual backup jobs.
@@ -41,6 +41,16 @@
                     All core PoSh-Backup modules.
                     Administrator privileges for VSS.
 #>
+
+# Explicitly import Utils.psm1 to ensure its functions are available.
+# $PSScriptRoot here refers to the directory of Operations.psm1 (Modules).
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "Utils.psm1") -Force -ErrorAction Stop
+} catch {
+    # If this fails, the module cannot function. Write-Error is appropriate.
+    Write-Error "Operations.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw 
+}
 
 #region --- Main Job Processing Function ---
 function Invoke-PoShBackupJob {
@@ -93,6 +103,25 @@ function Invoke-PoShBackupJob {
     $plainTextPasswordForJob = $null 
 
     try {
+        # Ensure HookManager.psm1 is available if not already loaded by main script
+        if (-not (Get-Command Invoke-PoShBackupHook -ErrorAction SilentlyContinue)) {
+            $hookManagerPath = Join-Path -Path $PSScriptRootForPaths -ChildPath "Modules\HookManager.psm1"
+            if (Test-Path -LiteralPath $hookManagerPath -PathType Leaf) {
+                try {
+                    Import-Module -Name $hookManagerPath -Force -ErrorAction Stop
+                    & $LocalWriteLog -Message "[DEBUG] Operations: Dynamically imported HookManager.psm1." -Level "DEBUG"
+                } catch {
+                    throw "CRITICAL: Operations: Could not load dependent module HookManager.psm1 from '$hookManagerPath'. Error: $($_.Exception.Message)"
+                }
+            } else {
+                throw "CRITICAL: Operations: HookManager.psm1 not found at '$hookManagerPath'. This module is now required for hook script execution."
+            }
+        }
+        if (-not (Get-Command Invoke-PoShBackupHook -ErrorAction SilentlyContinue)) {
+            throw "CRITICAL: Operations: Function 'Invoke-PoShBackupHook' from HookManager.psm1 is definitively not available even after import attempt."
+        }
+
+
         if (-not (Get-Command Get-PoShBackupJobEffectiveConfiguration -ErrorAction SilentlyContinue)) {
             throw "CRITICAL: Function 'Get-PoShBackupJobEffectiveConfiguration' from ConfigManager.psm1 is not available."
         }
@@ -165,16 +194,15 @@ function Invoke-PoShBackupJob {
             $reportData.PasswordSource = "None (Explicitly Configured)"
         }
 
-        # Invoke-HookScript uses Write-LogMessage internally, ensure it's from Utils.psm1 global scope or pass logger
-        Invoke-HookScript -ScriptPath $effectiveJobConfig.PreBackupScriptPath -HookType "PreBackup" `
-                          -HookParameters @{ JobName = $JobName; Status = "PreBackup"; ConfigFile = $ActualConfigFile; SimulateMode = $IsSimulateMode.IsPresent } `
-                          -IsSimulateMode:$IsSimulateMode -Logger $Logger
+        Invoke-PoShBackupHook -ScriptPath $effectiveJobConfig.PreBackupScriptPath -HookType "PreBackup" `
+                              -HookParameters @{ JobName = $JobName; Status = "PreBackup"; ConfigFile = $ActualConfigFile; SimulateMode = $IsSimulateMode.IsPresent } `
+                              -IsSimulateMode:$IsSimulateMode -Logger $Logger
 
 
         $currentJobSourcePathFor7Zip = $effectiveJobConfig.OriginalSourcePath 
         if ($effectiveJobConfig.JobEnableVSS) {
             & $LocalWriteLog -Message "`n[INFO] VSS (Volume Shadow Copy Service) is enabled for job '$JobName'." -Level "VSS"
-            if (-not (Test-AdminPrivilege -Logger $Logger)) { # Pass logger to Test-AdminPrivilege
+            if (-not (Test-AdminPrivilege -Logger $Logger)) { # Test-AdminPrivilege is from Utils.psm1
                 & $LocalWriteLog -Message "FATAL: VSS requires Administrator privileges for job '$JobName', but script is not running as Admin." -Level ERROR
                 throw "VSS requires Administrator privileges for job '$JobName'."
             }
@@ -187,7 +215,7 @@ function Invoke-PoShBackupJob {
                 PollingTimeoutSeconds = $effectiveJobConfig.VSSPollingTimeoutSeconds
                 PollingIntervalSeconds = $effectiveJobConfig.VSSPollingIntervalSeconds
                 IsSimulateMode = $IsSimulateMode.IsPresent
-                Logger = $Logger # Pass logger to New-VSSShadowCopy
+                Logger = $Logger 
             }
             $VSSPathsInUse = New-VSSShadowCopy @vssParams 
 
@@ -221,7 +249,7 @@ function Invoke-PoShBackupJob {
         & $LocalWriteLog -Message "   - Using source(s) for 7-Zip: $(if ($currentJobSourcePathFor7Zip -is [array]) {($currentJobSourcePathFor7Zip | Where-Object {$_}) -join '; '} else {$currentJobSourcePathFor7Zip})"
 
         if (-not (Get-Command Test-DestinationFreeSpace -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Test-DestinationFreeSpace' from Utils.psm1 is not available."}
-        if (-not (Test-DestinationFreeSpace -DestDir $effectiveJobConfig.DestinationDir -MinRequiredGB $effectiveJobConfig.JobMinimumRequiredFreeSpaceGB -ExitOnLow $effectiveJobConfig.JobExitOnLowSpace -IsSimulateMode:$IsSimulateMode -Logger $Logger)) { # Pass logger
+        if (-not (Test-DestinationFreeSpace -DestDir $effectiveJobConfig.DestinationDir -MinRequiredGB $effectiveJobConfig.JobMinimumRequiredFreeSpaceGB -ExitOnLow $effectiveJobConfig.JobExitOnLowSpace -IsSimulateMode:$IsSimulateMode -Logger $Logger)) { 
             throw "Low disk space condition met and configured to halt job '$JobName'." 
         }
 
@@ -245,16 +273,16 @@ function Invoke-PoShBackupJob {
                                      -SendToRecycleBin $effectiveJobConfig.DeleteToRecycleBin `
                                      -VBAssemblyLoaded $vbLoaded `
                                      -IsSimulateMode:$IsSimulateMode `
-                                     -Logger $Logger # Pass logger
+                                     -Logger $Logger 
 
         if (-not (Get-Command Get-PoShBackup7ZipArgument -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Get-PoShBackup7ZipArgument' from 7ZipManager.psm1 is not available." }
         $sevenZipArgsArray = Get-PoShBackup7ZipArgument -EffectiveConfig $effectiveJobConfig `
                                                         -FinalArchivePath $FinalArchivePath `
                                                         -CurrentJobSourcePathFor7Zip $currentJobSourcePathFor7Zip `
                                                         -TempPasswordFile $tempPasswordFilePath `
-                                                        -Logger $Logger # Pass logger
+                                                        -Logger $Logger 
 
-        $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath' 
+        $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath' # Get-ConfigValue from Utils.psm1
         if (-not (Get-Command Invoke-7ZipOperation -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Invoke-7ZipOperation' from 7ZipManager.psm1 is not available." }
         $zipOpParams = @{
             SevenZipPathExe = $sevenZipPathGlobal
@@ -265,7 +293,7 @@ function Invoke-PoShBackupJob {
             RetryDelaySeconds = $effectiveJobConfig.JobRetryDelaySeconds
             EnableRetries = $effectiveJobConfig.JobEnableRetries
             IsSimulateMode = $IsSimulateMode.IsPresent
-            Logger = $Logger # Pass logger
+            Logger = $Logger 
         }
         $sevenZipResult = Invoke-7ZipOperation @zipOpParams
 
@@ -275,7 +303,7 @@ function Invoke-PoShBackupJob {
 
         $archiveSize = "N/A (Simulated)"
         if (-not $IsSimulateMode.IsPresent -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
-             $archiveSize = Get-ArchiveSizeFormatted -PathToArchive $FinalArchivePath -Logger $Logger # Pass logger
+             $archiveSize = Get-ArchiveSizeFormatted -PathToArchive $FinalArchivePath -Logger $Logger # Get-ArchiveSizeFormatted from Utils.psm1
         } elseif ($IsSimulateMode.IsPresent) {
             $archiveSize = "0 Bytes (Simulated)" 
         }
@@ -300,7 +328,7 @@ function Invoke-PoShBackupJob {
                 MaxRetries = $effectiveJobConfig.JobMaxRetryAttempts
                 RetryDelaySeconds = $effectiveJobConfig.JobRetryDelaySeconds
                 EnableRetries = $effectiveJobConfig.JobEnableRetries
-                Logger = $Logger # Pass logger
+                Logger = $Logger 
             }
             $testResult = Test-7ZipArchive @testArchiveParams
 
@@ -326,7 +354,7 @@ function Invoke-PoShBackupJob {
             if (-not (Get-Command Remove-VSSShadowCopy -ErrorAction SilentlyContinue)) {
                 & $LocalWriteLog -Message "CRITICAL: Function 'Remove-VSSShadowCopy' from VssManager.psm1 is not available. VSS Shadows may not be cleaned up." -Level ERROR
             } else {
-                Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger # Pass logger
+                Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger 
             }
         }
 
@@ -373,11 +401,11 @@ function Invoke-PoShBackupJob {
         }
 
         if ($reportData.OverallStatus -in @("SUCCESS", "WARNINGS", "SIMULATED_COMPLETE") ) {
-            Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptOnSuccessPath -HookType "PostBackupOnSuccess" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
+            Invoke-PoShBackupHook -ScriptPath $effectiveJobConfig.PostBackupScriptOnSuccessPath -HookType "PostBackupOnSuccess" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
         } else { 
-            Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptOnFailurePath -HookType "PostBackupOnFailure" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
+            Invoke-PoShBackupHook -ScriptPath $effectiveJobConfig.PostBackupScriptOnFailurePath -HookType "PostBackupOnFailure" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
         }
-        Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptAlwaysPath -HookType "PostBackupAlways" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
+        Invoke-PoShBackupHook -ScriptPath $effectiveJobConfig.PostBackupScriptAlwaysPath -HookType "PostBackupAlways" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
     }
 
     return @{ Status = $currentJobStatus } 
