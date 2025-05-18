@@ -6,19 +6,20 @@
     It leverages several sub-modules located in 'Meta\BundlerModules\' for specific tasks:
     - 'Bundle.Utils.psm1': Handles version extraction and project structure overview.
     - 'Bundle.FileProcessor.psm1': Handles individual file reading, language hinting, synopsis/dependency extraction.
-    - 'Bundle.ExternalTools.psm1': Handles PSScriptAnalyzer execution. (PoSh-Backup -TestConfig output capture has been removed).
-    - 'Bundle.StateAndAssembly.psm1': Handles AI State block generation and final assembly of all bundle content.
+    - 'Bundle.ExternalTools.psm1': Handles PSScriptAnalyzer execution.
+    - 'Bundle.StateAndAssembly.psm1': Handles AI State block generation (loading from 'Meta\AIState.template.psd1')
+                                     and final assembly of all bundle content.
     - 'Bundle.ProjectScanner.psm1': Handles the main iteration over project files, applying exclusions.
 
-    The script first adds itself and its sub-modules to the bundle. Then, it invokes
-    'Bundle.ProjectScanner.psm1' to process the main project files. Finally, it assembles
-    all collected information and generated content into 'PoSh-Backup-AI-Bundle.txt'.
+    The script first adds itself, its sub-modules, and 'Meta\AIState.template.psd1' to the bundle.
+    Then, it invokes 'Bundle.ProjectScanner.psm1' to process the main project files.
+    Finally, it assembles all collected information and generated content into 'PoSh-Backup-AI-Bundle.txt'.
 .PARAMETER ProjectRoot
     The root directory of the project to bundle. Defaults to the parent directory of this script's location.
     Must be a valid, existing directory.
 .PARAMETER ExcludedFolders
     An array of folder names (relative to ProjectRoot) to exclude from bundling by the ProjectScanner module.
-    Note: 'Meta\BundlerModules' is always included by this main script.
+    Note: 'Meta\BundlerModules' and 'Meta\AIState.template.psd1' are always included by this main script.
 .PARAMETER ExcludedFileExtensions
     An array of file extensions (including the dot, e.g., ".log") to exclude by the ProjectScanner module.
 .PARAMETER NoRunScriptAnalyzer
@@ -26,7 +27,6 @@
 .EXAMPLE
     .\Meta\Generate-ProjectBundleForAI.ps1
     Generates 'PoSh-Backup-AI-Bundle.txt', including PSScriptAnalyzer output by default.
-    (PoSh-Backup -TestConfig output is no longer included in the bundle by this script).
 
 .EXAMPLE
     .\Meta\Generate-ProjectBundleForAI.ps1 -NoRunScriptAnalyzer
@@ -34,7 +34,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.25.0 # Removed PoSh-Backup -TestConfig output capture.
+    Version:        1.25.1 # Add Meta\AIState.template.psd1 to bundle. AI State loaded from this file.
     DateCreated:    15-May-2025
     LastModified:   18-May-2025
 #>
@@ -64,7 +64,7 @@ try {
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.Utils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.FileProcessor.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.ExternalTools.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.StateAndAssembly.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.StateAndAssembly.psm1") -Force -ErrorAction Stop # Version 1.0.7
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.ProjectScanner.psm1") -Force -ErrorAction Stop
     Write-Verbose "Bundler utility modules loaded."
 } catch {
@@ -128,6 +128,7 @@ try {
         }
     }
 
+    # Add this script (Generate-ProjectBundleForAI.ps1)
     $thisScriptFileObject = Get-Item -LiteralPath $PSCommandPath
     Write-Verbose "Explicitly adding bundler script itself to bundle: $($thisScriptFileObject.FullName)"
     $bundlerScriptProcessingResult = Add-FileToBundle -FileObject $thisScriptFileObject `
@@ -135,6 +136,21 @@ try {
                                                       -BundleBuilder $fileContentBuilder
     & $UpdateMetadataFromProcessingResult -FileObjectParam $thisScriptFileObject -ProcessingResult $bundlerScriptProcessingResult
 
+    # Add AIState.template.psd1 from Meta folder
+    $aiStateTemplateFile = Join-Path -Path $PSScriptRoot -ChildPath "AIState.template.psd1"
+    if (Test-Path -LiteralPath $aiStateTemplateFile -PathType Leaf) {
+        $aiStateTemplateFileObject = Get-Item -LiteralPath $aiStateTemplateFile
+        Write-Verbose "Explicitly adding AI State template to bundle: $($aiStateTemplateFileObject.FullName)"
+        $aiStateTemplateProcessingResult = Add-FileToBundle -FileObject $aiStateTemplateFileObject `
+                                                            -RootPathForRelativeCalculations $normalizedProjectRootForCalculations `
+                                                            -BundleBuilder $fileContentBuilder
+        & $UpdateMetadataFromProcessingResult -FileObjectParam $aiStateTemplateFileObject -ProcessingResult $aiStateTemplateProcessingResult
+    } else {
+        Write-Warning "AI State template file 'Meta\AIState.template.psd1' not found. It will not be included in the bundle."
+    }
+
+
+    # Add Bundler Modules
     $bundlerModulesDir = Join-Path -Path $PSScriptRoot -ChildPath "BundlerModules"
     if (Test-Path -LiteralPath $bundlerModulesDir -PathType Container) {
         Write-Verbose "Adding bundler's own modules from '$bundlerModulesDir'..."
@@ -150,6 +166,7 @@ try {
         Write-Warning "Bundler modules directory '$bundlerModulesDir' not found. Bundler's own modules will not be included in the bundle."
     }
 
+    # Scan and add main project files
     $projectScanResult = Invoke-BundlerProjectScan -ProjectRoot_FullPath $ProjectRoot_FullPath `
                                                    -NormalizedProjectRootForCalculations $normalizedProjectRootForCalculations `
                                                    -OutputFilePath $outputFilePath `
@@ -157,7 +174,8 @@ try {
                                                    -BundlerModulesDir $bundlerModulesDir `
                                                    -ExcludedFolders $ExcludedFolders `
                                                    -ExcludedFileExtensions $ExcludedFileExtensions `
-                                                   -FileContentBuilder $fileContentBuilder
+                                                   -FileContentBuilder $fileContentBuilder `
+                                                   -MetaFilesToExcludeExplicitly @($aiStateTemplateFile) # Exclude AIState.template.psd1 from general scan of Meta (if Meta wasn't excluded)
     
     if ($null -ne $projectScanResult) {
         if ($null -ne $projectScanResult.ModuleDescriptions) {
@@ -191,7 +209,7 @@ finally {
 
     Write-Verbose "Reading bundler script for its own version information..."
     $thisBundlerScriptFileObjectForVersion = Get-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue 
-    $bundlerScriptVersionForState = "1.25.0" 
+    $bundlerScriptVersionForState = "1.25.1" # New version for this change
     if ($thisBundlerScriptFileObjectForVersion) {
         $readBundlerVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content -LiteralPath $thisBundlerScriptFileObjectForVersion.FullName -Raw -ErrorAction SilentlyContinue) -ScriptNameForWarning $thisBundlerScriptFileObjectForVersion.Name
         if ($readBundlerVersion -ne $bundlerScriptVersionForState -and $readBundlerVersion -ne "N/A" -and $readBundlerVersion -notlike "N/A (*" ) {
@@ -200,19 +218,12 @@ finally {
     } else {
          Write-Warning "Bundler: Could not get bundler script file object ('$($PSCommandPath)') for version extraction. Using manually set version '$bundlerScriptVersionForState' for AI State."
     }
-
-    # The conversation summary is now fully generated within Get-BundlerAIState
-    # and passed via $aiStateHashtable.conversation_summary.
-    # The $updatedConversationSummary block previously here has been removed.
-
+                                           
     $aiStateHashtable = Get-BundlerAIState -ProjectRoot_DisplayName $ProjectRoot_DisplayName `
                                            -PoShBackupVersion $poShBackupVersion `
                                            -BundlerScriptVersion $bundlerScriptVersionForState `
                                            -AutoDetectedModuleDescriptions $script:autoDetectedModuleDescriptions `
                                            -AutoDetectedPsDependencies $script:autoDetectedPsDependencies 
-    
-    # The line $aiStateHashtable.conversation_summary = $updatedConversationSummary has been removed.
-    # The conversation summary is now set directly by Get-BundlerAIState.
                                            
     $projectStructureContentString = Get-ProjectStructureOverviewContent -ProjectRoot_FullPath $ProjectRoot_FullPath `
                                                                          -ProjectRoot_DisplayName $ProjectRoot_DisplayName `
@@ -238,7 +249,6 @@ finally {
     }
     
     Write-Verbose "Assembling final output bundle (via Bundle.StateAndAssembly.psm1)..."
-    # Corrected call to Format-AIBundleContent, removing TestConfigOutputContent parameter
     $finalBundleString = Format-AIBundleContent -HeaderContent $headerContentBuilder.ToString() `
                                                   -AIStateHashtable $aiStateHashtable `
                                                   -ProjectStructureContent $projectStructureContentString `

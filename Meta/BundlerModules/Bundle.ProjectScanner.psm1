@@ -14,9 +14,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Added MetaFilesToExcludeExplicitly parameter.
     DateCreated:    17-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        Project file scanning and processing orchestration for the AI project bundler.
     DependsOn:      Bundle.FileProcessor.psm1 (for Add-FileToBundle)
 #>
@@ -41,7 +41,9 @@ function Invoke-BundlerProjectScan {
         [Parameter(Mandatory)]
         [string[]]$ExcludedFileExtensions,
         [Parameter(Mandatory)]
-        [System.Text.StringBuilder]$FileContentBuilder # Used by Add-FileToBundle
+        [System.Text.StringBuilder]$FileContentBuilder, # Used by Add-FileToBundle
+        [Parameter(Mandatory=$false)]
+        [string[]]$MetaFilesToExcludeExplicitly = @() # New parameter
     )
 
     $collectedModuleDescriptions = @{}
@@ -60,6 +62,15 @@ function Invoke-BundlerProjectScan {
         }
         if ($file.FullName -eq $OutputFilePath) {
             Write-Verbose "Bundler ProjectScanner: Skipping previous output bundle file: $($file.FullName)"; return
+        }
+
+        # Skip other explicitly provided meta files (like AIState.template.psd1)
+        if ($null -ne $MetaFilesToExcludeExplicitly -and $MetaFilesToExcludeExplicitly.Count -gt 0) {
+            foreach ($metaFileToSkipPath in $MetaFilesToExcludeExplicitly) {
+                if ($file.FullName -eq $metaFileToSkipPath) {
+                    Write-Verbose "Bundler ProjectScanner: Skipping explicitly provided meta file (already added): $($file.FullName)"; return
+                }
+            }
         }
 
         $currentRelativePath = $file.FullName.Substring($NormalizedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
@@ -81,8 +92,6 @@ function Invoke-BundlerProjectScan {
 
         Write-Verbose "Bundler ProjectScanner: Adding file to bundle: $currentRelativePath"
         
-        # Call Add-FileToBundle from Bundle.FileProcessor.psm1 (expected to be imported in main script)
-        # Add-FileToBundle will append to $FileContentBuilder and return metadata
         $fileProcessingResult = Add-FileToBundle -FileObject $file `
                                                  -RootPathForRelativeCalculations $NormalizedProjectRootForCalculations `
                                                  -BundleBuilder $FileContentBuilder
