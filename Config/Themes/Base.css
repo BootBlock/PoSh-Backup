@@ -115,7 +115,7 @@ body {
     border: 1px solid var(--border-color-light);
 }
 
-/* ====== SIMULATION BANNER STYLING (NEW) ====== */
+/* ====== SIMULATION BANNER STYLING ====== */
 .simulation-banner {
     background-color: var(--status-simulated-text-color, #6f42c1); 
     color: var(--container-bg-color, #ffffff); 
@@ -123,7 +123,7 @@ body {
     text-align: center;
     font-weight: bold;
     border-radius: var(--border-radius-sm);
-    margin-bottom: var(--spacing-lg); /* Ensure it's above the header if .container has padding */
+    margin-bottom: var(--spacing-lg); 
     border: 2px dashed var(--container-bg-color, #ffffff); 
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
@@ -206,8 +206,72 @@ tr:hover td {
     padding: var(--spacing-md); 
     border-radius: var(--border-radius); 
     border: 1px solid var(--border-color-light); 
-    background-color: var(--container-bg-color);
+    background-color: var(--container-bg-color); 
 }
+
+/* ====== DETAILS & SUMMARY FOR COLLAPSIBLE SECTIONS ====== */
+details {
+    border-radius: var(--border-radius);
+}
+
+details summary {
+    cursor: pointer;
+    font-weight: 500; 
+    list-style: none; 
+    padding: var(--spacing-sm) 0; 
+    position: relative; 
+}
+
+details summary:hover,
+details summary:focus {
+    background-color: var(--table-row-even-bg); 
+}
+
+details summary::-webkit-details-marker,
+details summary::marker { 
+    display: none;
+}
+
+details summary h2 { 
+    display: inline; 
+    margin: 0;
+    padding: 0;
+    border-bottom: none; 
+    font-size: 1.6em; 
+}
+
+details summary::before {
+    content: '▶'; 
+    font-size: 0.8em; 
+    margin-right: var(--spacing-sm);
+    display: inline-block;
+    transition: transform 0.2s ease-in-out;
+    color: var(--accent-color-primary); 
+}
+
+details[open] > summary::before {
+    content: '▼'; 
+    transform: rotate(0deg); 
+}
+
+details > *:not(summary) {
+    margin-top: var(--spacing-md); 
+}
+
+.details-section > details {
+    border: none; 
+    padding: 0; 
+    margin-bottom: 0; 
+    background-color: transparent; 
+}
+
+.details-section > details > summary {
+    margin-left: 0; 
+    margin-right: 0;
+    padding-left: 0; 
+    padding-right: 0;
+}
+
 
 /* ====== LOG ENTRIES ====== */
 .log-entry { 
@@ -344,20 +408,27 @@ a:hover, a:focus {
     /* Adjust log filter layout for smaller screens */
     .log-filters {
         flex-direction: column;
-        align-items: stretch; /* Make search input full width */
+        align-items: stretch; 
     }
-    .log-filters > div { /* Target direct children of .log-filters */
-        width: 100% !important; /* Ensure search input container takes full width */
+    .log-filters > div { 
+        width: 100% !important; 
     }
     .log-filters input[type="text"] {
-        width: 100% !important; /* Ensure search input field takes full width of its container */
+        width: 100% !important; 
     }
     .log-level-filters-container {
-        justify-content: flex-start; /* Align checkboxes to the start */
+        justify-content: flex-start; 
+    }
+    /* Responsive adjustments for the toggle buttons */
+    .log-filters .log-level-toggle-buttons {
+        margin-left: 0; 
+        margin-top: 0.5em; 
+        width: 100%; 
+        justify-content: flex-start; 
     }
 }
 
-/* ====== LOG FILTER CONTROLS STYLING (NEW) ====== */
+/* ====== LOG FILTER CONTROLS STYLING ====== */
 .log-filters {
     margin-bottom: 1em;
     padding: 0.75em;
@@ -374,8 +445,8 @@ a:hover, a:focus {
     margin-right: 0.5em;
     font-weight: normal; 
 }
-/* Give search input container ability to grow */
-.log-filters > div:first-child { 
+
+.log-filters > div:first-child { /* Search input container */
     flex-grow: 1;
 }
 
@@ -383,8 +454,8 @@ a:hover, a:focus {
     padding: 0.5em;
     border: 1px solid var(--border-color-medium);
     border-radius: var(--border-radius-sm);
-    width: 100%; /* Make input take full width of its container */
-    min-width: 180px; /* Prevent it from becoming too small */
+    width: 100%; 
+    min-width: 180px; 
     box-sizing: border-box; 
 }
 .log-filters .log-level-filters-container {
@@ -400,4 +471,30 @@ a:hover, a:focus {
 .log-filters .log-level-filters-container input[type="checkbox"] {
     margin-right: 0.3em;
     vertical-align: middle;
+}
+
+/* Styling for Select All / Deselect All buttons (NEW) */
+.log-filters .log-level-toggle-buttons {
+    display: flex;
+    gap: 0.5em; 
+    margin-left: 1em; 
+    align-items: center; 
+}
+
+.log-filters .log-level-toggle-buttons button {
+    padding: 0.3em 0.8em;
+    border: 1px solid var(--border-color-medium);
+    border-radius: var(--border-radius-sm);
+    background-color: var(--container-bg-color); 
+    color: var(--primary-text-color);
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
+
+.log-filters .log-level-toggle-buttons button:hover,
+.log-filters .log-level-toggle-buttons button:focus {
+    border-color: var(--accent-color-primary);
+    background-color: var(--table-row-even-bg); 
+    outline: none;
 }

@@ -26,7 +26,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.3.2 # Added explicit Import-Module for Utils.psm1.
+    Version:        2.3.2 # Added explicit Import-Module for Utils.psm1. (Diagnostic: Modified catch block for Utils import)
     DateCreated:    10-May-2025
     LastModified:   18-May-2025
     Purpose:        Manages and dispatches report generation to format-specific reporting sub-modules.
@@ -45,8 +45,9 @@ try {
 } catch {
     # If this fails, the module cannot function. Write-Error is appropriate as Write-LogMessage might not be available
     # if Utils.psm1 didn't load for the main script either.
-    Write-Error "Reporting.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
-    throw 
+    # This catch block should ideally not be hit if PoSh-Backup.ps1 loads Utils.psm1 first.
+    Write-Warning "Reporting.psm1 CRITICAL: Could not import dependent module Utils.psm1 during its own import. Error: $($_.Exception.Message). Reporting functions may fail."
+    # throw # DIAGNOSTIC: Removing the throw to ensure Export-ModuleMember is reached
 }
 
 

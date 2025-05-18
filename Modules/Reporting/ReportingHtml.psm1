@@ -11,7 +11,7 @@
 
     Key features of the generated HTML reports:
     - Structured Sections: Includes clear sections for Summary, Configuration Used,
-      Hook Scripts Executed, and Detailed Logs.
+      Hook Scripts Executed, and Detailed Logs. Configuration and Hook sections are collapsible.
     - Customisable Appearance:
         - Themes: Supports themes via external CSS files located in 'Config\Themes\'. A 'Base.css'
           provides foundational styles, and specific theme files (e.g., 'Dark.css', 'Light.css')
@@ -22,7 +22,8 @@
           styling control.
     - Embedded Logo: Optionally embeds a company or project logo into the report header.
     - Interactive Log Filtering: Includes client-side JavaScript to allow users to filter
-      the detailed log entries by keyword and log level directly in their browser.
+      the detailed log entries by keyword and log level directly in their browser. Includes
+      "Select All" / "Deselect All" buttons for log levels.
     - Simulation Banner: Clearly indicates if the report pertains to a simulation run.
     - Security: Employs robust HTML encoding for all dynamic data to prevent Cross-Site
       Scripting (XSS) vulnerabilities. It attempts to use 'System.Web.HttpUtility.HtmlEncode'
@@ -30,9 +31,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.1 # Added defensive logger call for PSSA.
+    Version:        1.5.0 # Added Select All/Deselect All buttons for log level filters.
     DateCreated:    14-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        Interactive HTML report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -302,6 +303,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const keywordSearchInput = document.getElementById('logKeywordSearch');
     const levelFilterCheckboxes = document.querySelectorAll('.log-level-filter');
     const logEntriesContainer = document.getElementById('detailedLogEntries');
+    const selectAllButton = document.getElementById('logFilterSelectAll');
+    const deselectAllButton = document.getElementById('logFilterDeselectAll');
 
     if (!logEntriesContainer) {
         console.warn('Log entries container "detailedLogEntries" not found. Log filtering disabled.');
@@ -309,42 +312,35 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     const logEntries = Array.from(logEntriesContainer.getElementsByClassName('log-entry'));
     if (logEntries.length === 0 && (keywordSearchInput || levelFilterCheckboxes.length > 0)) {
-        // If there are no log entries but filter controls exist, hide the filter controls area.
         const filterControlsArea = document.querySelector('.log-filters');
         if(filterControlsArea) filterControlsArea.style.display = 'none';
         return;
     }
 
-
     function filterLogs() {
         const keyword = keywordSearchInput ? keywordSearchInput.value.toLowerCase().trim() : '';
         const activeLevelFilters = new Set();
-        let allLevelsUnchecked = true; // Assume all unchecked initially
+        let allLevelsUnchecked = true; 
 
         if (levelFilterCheckboxes.length > 0) {
             levelFilterCheckboxes.forEach(checkbox => {
                 if (checkbox.checked) {
                     activeLevelFilters.add(checkbox.value.toUpperCase());
-                    allLevelsUnchecked = false; // At least one is checked
+                    allLevelsUnchecked = false; 
                 }
             });
         } else {
-            allLevelsUnchecked = false; // No checkboxes means effectively no level filtering by checkbox
+            allLevelsUnchecked = false; 
         }
-
 
         logEntries.forEach(entry => {
             const entryText = entry.textContent ? entry.textContent.toLowerCase() : '';
-            // data-level attribute is preferred for robustness over parsing from text
             const entryLevel = entry.dataset.level ? entry.dataset.level.toUpperCase() : '';
-
             const keywordMatch = (keyword === '') || entryText.includes(keyword);
-            // If all level checkboxes are unchecked, or if no level checkboxes exist, treat as "show all levels" for this part of the filter.
-            // If some are checked, then the entry's level must be in the active set.
             const levelMatch = allLevelsUnchecked || activeLevelFilters.size === 0 || activeLevelFilters.has(entryLevel);
 
             if (keywordMatch && levelMatch) {
-                entry.style.display = 'flex'; // Assuming 'flex' is the default display style from CSS
+                entry.style.display = 'flex'; 
             } else {
                 entry.style.display = 'none';
             }
@@ -352,14 +348,27 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     if (keywordSearchInput) {
-        keywordSearchInput.addEventListener('input', filterLogs); // 'input' for more responsive filtering
+        keywordSearchInput.addEventListener('input', filterLogs);
     }
     if (levelFilterCheckboxes.length > 0) {
         levelFilterCheckboxes.forEach(checkbox => {
             checkbox.addEventListener('change', filterLogs);
         });
-        // Initial filter call in case some checkboxes start unchecked or keyword field has a default (though unlikely here)
-        filterLogs();
+        filterLogs(); // Initial filter
+    }
+
+    if (selectAllButton) {
+        selectAllButton.addEventListener('click', function() {
+            levelFilterCheckboxes.forEach(checkbox => checkbox.checked = true);
+            filterLogs(); 
+        });
+    }
+
+    if (deselectAllButton) {
+        deselectAllButton.addEventListener('click', function() {
+            levelFilterCheckboxes.forEach(checkbox => checkbox.checked = false);
+            filterLogs(); 
+        });
     }
 });
 </script>
@@ -439,7 +448,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     # Configuration Section
     if ($reportShowConfiguration -and ($ReportData.Keys -contains 'JobConfiguration') -and ($null -ne $ReportData.JobConfiguration)) {
-        $htmlBodyLocal += "<div class='details-section config-section'><h2>Configuration Used for Job '$(ConvertTo-SafeHtml $JobName)'</h2><table>"
+        # MODIFICATION: Wrap Configuration section in <details> for collapsibility
+        $htmlBodyLocal += "<div class='details-section config-section'><details>"
+        $htmlBodyLocal += "<summary><h2>Configuration Used for Job '$(ConvertTo-SafeHtml $JobName)'</h2></summary>"
+        $htmlBodyLocal += "<table>" # Table remains inside <details>
         $htmlBodyLocal += "<thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>"
         # Sort configuration keys for consistent order
         foreach ($key in $ReportData.JobConfiguration.Keys | Sort-Object) {
@@ -447,12 +459,15 @@ document.addEventListener('DOMContentLoaded', function () {
             $displayValue = if ($value -is [array]) { ($value | ForEach-Object { ConvertTo-SafeHtml ([string]$_) }) -join ", " } else { ConvertTo-SafeHtml ([string]$value) }
             $htmlBodyLocal += "<tr><td data-label='Setting'>$(ConvertTo-SafeHtml $key)</td><td data-label='Value'>$($displayValue)</td></tr>"
         }
-        $htmlBodyLocal += "</tbody></table></div>"
+        $htmlBodyLocal += "</tbody></table></details></div>" # Close <details> then <div>
     }
 
     # Hook Scripts Section
     if ($reportShowHooks -and ($ReportData.Keys -contains 'HookScripts') -and ($null -ne $ReportData.HookScripts) -and $ReportData.HookScripts.Count -gt 0) {
-        $htmlBodyLocal += "<div class='details-section hooks-section'><h2>Hook Scripts Executed</h2><table>"
+        # MODIFICATION: Wrap Hook Scripts section in <details> for collapsibility
+        $htmlBodyLocal += "<div class='details-section hooks-section'><details>"
+        $htmlBodyLocal += "<summary><h2>Hook Scripts Executed</h2></summary>"
+        $htmlBodyLocal += "<table>" # Table remains inside <details>
         $htmlBodyLocal += "<thead><tr><th>Type</th><th>Path</th><th>Status</th><th>Output/Error</th></tr></thead><tbody>"
         $ReportData.HookScripts | ForEach-Object {
             $sanitizedStatusValue = ([string]$_.Status -replace ' ','_') -replace '\(','_' -replace '\)','_' -replace ':','' -replace '/','_' -replace '\+','plus'
@@ -461,14 +476,14 @@ document.addEventListener('DOMContentLoaded', function () {
             $hookOutputHtml = if ([string]::IsNullOrWhiteSpace($_.Output)) { "<No output>" } else { "<pre>$(ConvertTo-SafeHtml $_.Output)</pre>" }
             $htmlBodyLocal += "<tr><td data-label='Hook Type'>$(ConvertTo-SafeHtml $_.Name)</td><td data-label='Path'>$(ConvertTo-SafeHtml $_.Path)</td><td data-label='Status' class='$($statusClass)'>$(ConvertTo-SafeHtml $_.Status)</td><td data-label='Output/Error'>$($hookOutputHtml)</td></tr>"
         }
-        $htmlBodyLocal += "</tbody></table></div>"
+        $htmlBodyLocal += "</tbody></table></details></div>" # Close <details> then <div>
     }
 
     # Detailed Log Entries Section (with filter controls)
     if ($reportShowLogEntries -and ($ReportData.Keys -contains 'LogEntries') -and ($null -ne $ReportData.LogEntries) -and $ReportData.LogEntries.Count -gt 0) {
         $htmlBodyLocal += "<div class='details-section log-section'><h2>Detailed Log</h2>"
         # Filter controls HTML structure
-        $htmlBodyLocal += "<div class='log-filters'>" # Style this container via CSS
+        $htmlBodyLocal += "<div class='log-filters'>" 
         $htmlBodyLocal += "<div><label for='logKeywordSearch'>Search Logs:</label><input type='text' id='logKeywordSearch' placeholder='Enter keyword...'></div>"
 
         $logLevelsInReport = ($ReportData.LogEntries.Level | Select-Object -Unique | Sort-Object | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
@@ -478,6 +493,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 $safeLevel = ConvertTo-SafeHtml $level
                 $htmlBodyLocal += "<label><input type='checkbox' class='log-level-filter' value='$safeLevel' checked> $safeLevel</label>"
             }
+            # Add Select All / Deselect All buttons
+            $htmlBodyLocal += "<div class='log-level-toggle-buttons'>" 
+            $htmlBodyLocal += "<button type='button' id='logFilterSelectAll'>Select All</button>"
+            $htmlBodyLocal += "<button type='button' id='logFilterDeselectAll'>Deselect All</button>"
+            $htmlBodyLocal += "</div>" # Close log-level-toggle-buttons
             $htmlBodyLocal += "</div>" # Close log-level-filters-container
         }
         $htmlBodyLocal += "</div>" # Close log-filters
