@@ -30,9 +30,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Enhanced CBH for module and Invoke-PoShBackupConfigValidation.
+    Version:        1.2.1 # Added TreatSevenZipWarningsAsSuccess to schema.
     DateCreated:    14-May-2025
-    LastModified:   16-May-2025
+    LastModified:   18-May-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     This module is typically invoked by 'Utils.psm1' if schema validation is
@@ -49,6 +49,7 @@ $Script:PoShBackup_ConfigSchema = @{
     HideSevenZipOutput              = @{ Type = 'boolean'; Required = $false }
     PauseBeforeExit                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Always", "Never", "OnFailure", "OnWarning", "OnFailureOrWarning", "True", "False") } # Case-insensitive check for these values
     EnableAdvancedSchemaValidation  = @{ Type = 'boolean'; Required = $false } # Controls if this validator module is used
+    TreatSevenZipWarningsAsSuccess  = @{ Type = 'boolean'; Required = $false } # New global setting
     EnableFileLogging               = @{ Type = 'boolean'; Required = $false }
     LogDirectory                    = @{ Type = 'string'; Required = $false } 
     ReportGeneratorType             = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } # Can be single string or array of these
@@ -138,6 +139,7 @@ $Script:PoShBackup_ConfigSchema = @{
             VSSContextOption        = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
             SevenZipProcessPriority = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
             ReportGeneratorType     = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } 
+            TreatSevenZipWarningsAsSuccess = @{ Type = 'boolean'; Required = $false } # New job-level setting
             
             # Job-specific report directory overrides
             HtmlReportDirectory     = @{ Type = 'string'; Required = $false }

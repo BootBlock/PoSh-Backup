@@ -23,6 +23,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`) before execution. Optional advanced schema validation available.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created archives to ensure backup reliability.
+*   **Flexible 7-Zip Warning Handling:** Option to treat 7-Zip warnings (exit code 1, e.g., from skipped open files) as a success for job status reporting, configurable globally, per-job, or via CLI.
 *   **Exit Pause Control:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
 
 ## Getting Started
@@ -65,6 +66,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   **`DefaultDestinationDir`**:
         *   Set your primary backup destination directory. Example: `'D:\Backups'`.
         *   Ensure this directory exists, or the script has permissions to create it.
+    *   **`TreatSevenZipWarningsAsSuccess`**: (Global Setting)
+        *   Defaults to `$false`. If set to `$true`, 7-Zip warnings (like skipped files) will still result in a "SUCCESS" job status.
     *   **`BackupLocations`**:
         *   This is the most important section for defining what to back up. It's a hashtable where each entry is a backup job.
         *   `User.psd1` (copied from `Default.psd1`) will contain example job definitions. Modify or replace these with your actual requirements.
@@ -72,7 +75,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             ```powershell
             # Inside User.psd1
             @{
-                # ... other global settings ...
+                # ... other global settings like SevenZipPath, DefaultDestinationDir, TreatSevenZipWarningsAsSuccess ...
 
                 BackupLocations = @{
                     "MyImportantDocs" = @{
@@ -83,6 +86,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                         Name           = "ImportantDocumentsArchive" # Base name for the archive file (date stamp will be added)
                         DestinationDir = "D:\MyBackups\Documents"    # Optional: overrides DefaultDestinationDir for this job
                         RetentionCount = 7                          # Number of old archive versions to keep (e.g., 7 for one week of dailies)
+                        # Optional: Treat 7-Zip warnings as success specifically for this job
+                        # TreatSevenZipWarningsAsSuccess = $true 
                         # Add other job-specific settings here, like EnableVSS, ArchivePasswordMethod, etc.
                     }
                     "MyPhotos" = @{
@@ -119,6 +124,11 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     .\PoSh-Backup.ps1 -BackupLocationName "MyImportantDocs" -Simulate
     ```
 
+*   **Run a job and treat 7-Zip warnings as success for status reporting:**
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "MyFrequentlySkippedFilesJob" -TreatSevenZipWarningsAsSuccessCLI
+    ```
+
 *   **Test your configuration file for errors and view a summary of loaded settings:**
     ```powershell
     .\PoSh-Backup.ps1 -TestConfig
@@ -141,6 +151,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (requires Administrator privileges).
 *   `-TestArchive`: Forces an integrity test of newly created archives for all processed jobs.
 *   `-Simulate`: Runs in simulation mode, as described above.
+*   `-TreatSevenZipWarningsAsSuccessCLI`: Forces 7-Zip exit code 1 (Warning) to be treated as a success for the job status, overriding any configuration settings.
 *   `-PauseBehaviourCLI <Always|Never|OnFailure|OnWarning|OnFailureOrWarning>`: Controls if the script pauses with a "Press any key to continue" message before exiting. Overrides the `PauseBeforeExit` setting in the configuration file.
 
 For a full list of all command-line parameters and their descriptions, use PowerShell's built-in help:

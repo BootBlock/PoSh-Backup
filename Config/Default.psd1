@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.2.1: Minor comment clarifications and formatting.
+# Version 1.2.2: Added TreatSevenZipWarningsAsSuccess setting.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -50,7 +50,7 @@
                                                                       # Ensure this path exists, or the script has permissions to create it.
     HideSevenZipOutput              = $true                           # $true (default) to hide 7-Zip's console window during compression and testing operations.
                                                                       # $false to show the 7-Zip console window (can be useful for diagnosing 7-Zip specific issues).
-                                                                      # Note: Even if hidden, 7-Zip's STDOUT/STDERR are captured and logged by PoSh-Backup if issues occur or for debug purposes.
+                                                                      # Note: Even if hidden, 7-Zip's STDERR is captured and logged by PoSh-Backup if issues occur. STDOUT is not logged by default when hidden.
     PauseBeforeExit                 = "OnFailureOrWarning"            # Controls if the script pauses with a "Press any key to continue..." message before exiting.
                                                                       # Useful for reviewing console output, especially after errors or warnings.
                                                                       # Valid string values (case-insensitive), or boolean $true/$false:
@@ -62,6 +62,10 @@
     EnableAdvancedSchemaValidation  = $false                          # $true to enable detailed schema-based validation of this configuration file's structure and values.
                                                                       # If $true, the 'PoShBackupValidator.psm1' module must be present in the '.\Modules' folder.
                                                                       # Recommended for advanced users or when troubleshooting configuration issues.
+    TreatSevenZipWarningsAsSuccess  = $false                          # Global default. $true to treat 7-Zip exit code 1 (Warning) as a success for the job's status.
+                                                                      # If $false (default), 7-Zip warnings will result in the job status being "WARNINGS".
+                                                                      # Useful if backups commonly encounter benign warnings (e.g., files in use that are skipped).
+                                                                      # Can be overridden per job or by the -TreatSevenZipWarningsAsSuccessCLI command-line parameter.
     #endregion
 
     #region --- Logging Settings ---
@@ -143,8 +147,8 @@
     #region --- Destination Free Space Check Settings (Global Defaults) ---
     MinimumRequiredFreeSpaceGB      = 5                               # Minimum free Gigabytes (GB) required on the destination drive before starting a backup.
                                                                       # Set to 0 or a negative value to disable this check.
-    ExitOnLowSpaceIfBelowMinimum    = $false                          # $true to abort the job if free space is below the specified minimum.
-                                                                      # $false (default) to only issue a warning and continue with the backup attempt.
+    ExitOnLowSpaceIfBelowMinimum    = $false                          # $false (default) to only issue a warning and continue with the backup attempt.
+                                                                      # $true to abort the job if free space is below the specified minimum.
     #endregion
 
     #region --- Archive Integrity Test Settings (Global Default) ---
@@ -198,9 +202,10 @@
 
             # UsePassword             = $false                          # Legacy. If ArchivePasswordMethod is "None" and this is $true, "Interactive" is used.
 
-            EnableVSS               = $false                             # $true to use VSS for this job (requires Admin). Overrides global EnableVSS.
-            SevenZipProcessPriority = "Normal"                           # Override global 7-Zip priority for this specific job.
-            ReportGeneratorType     = @("HTML")                          # Report type(s) for this job. Overrides global ReportGeneratorType.
+            EnableVSS               = $false                          # $true to use VSS for this job (requires Admin). Overrides global EnableVSS.
+            SevenZipProcessPriority = "Normal"                        # Override global 7-Zip priority for this specific job.
+            ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
+            TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
         }
         "AnExample" = @{
             Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
@@ -216,6 +221,7 @@
 
             MinimumRequiredFreeSpaceGB = 2                               # Custom free space check for this job. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"                 # Use a specific HTML report theme for this job.
+            TreatSevenZipWarningsAsSuccess = $true                      # Example: For this job, 7-Zip warnings are considered success.
         }
 
         #region --- Comprehensive Example (Commented Out for Reference) ---
@@ -258,6 +264,7 @@
             "MinimumRequiredFreeSpaceGB"    = 50
             "ExitOnLowSpaceIfBelowMinimum"  = $true
             "TestArchiveAfterCreation"      = $true                     # Always test this critical backup.
+            "TreatSevenZipWarningsAsSuccess" = $false                   # Explicitly keep default behavior for this critical job.
 
             "ReportGeneratorType"           = @("HTML", "JSON")         # Generate both HTML and JSON reports.
             "HtmlReportTheme"               = "Dark"

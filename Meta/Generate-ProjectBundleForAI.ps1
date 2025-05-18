@@ -201,21 +201,9 @@ finally {
          Write-Warning "Bundler: Could not get bundler script file object ('$($PSCommandPath)') for version extraction. Using manually set version '$bundlerScriptVersionForState' for AI State."
     }
 
-    $updatedConversationSummary = @( 
-        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($poShBackupVersion)).",
-        "Modular design: Core modules (Utils, ConfigManager, Operations, Reporting, 7ZipManager, VssManager, RetentionManager, HookManager), Reporting sub-modules, Config files, and Meta/ (bundler).",
-        "PoSh-Backup Core Features Refactoring:",
-        "  - Created 'Modules\HookManager.psm1' (v1.0.0) to centralize hook script execution.",
-        "  - Updated Utils.psm1 (v1.11.1) to remove hook logic and add logging safety.",
-        "  - Updated Operations.psm1 (v1.13.1) to use HookManager and ensure Utils.psm1 is imported.",
-        "  - Updated Reporting.psm1 (v2.3.2) and 7ZipManager.psm1 (v1.0.4) to explicitly import Utils.psm1.",
-        "  - Updated PoSh-Backup.ps1 (v1.9.12) for correct module import order and to fix -TestConfig direct Get-ConfigValue calls.",
-        "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($bundlerScriptVersionForState)) Enhancements & Fixes:",
-        "  - Bundle.FileProcessor.psm1 (v1.0.1) now flags missing PowerShell synopses in AI State.",
-        "  - Bundle.ExternalTools.psm1 (v1.0.1) changed -TestConfig capture to Start-Process.",
-        "  - PoSh-Backup -TestConfig output capture was removed from the bundler (this script and sub-modules) due to persistent reliability issues with Invoke-Expression and Start-Process in capturing its output correctly.",
-        "General project status: Refactoring complete. All modules explicitly import dependencies. PSSA clean. Pester tests non-functional."
-    )
+    # The conversation summary is now fully generated within Get-BundlerAIState
+    # and passed via $aiStateHashtable.conversation_summary.
+    # The $updatedConversationSummary block previously here has been removed.
 
     $aiStateHashtable = Get-BundlerAIState -ProjectRoot_DisplayName $ProjectRoot_DisplayName `
                                            -PoShBackupVersion $poShBackupVersion `
@@ -223,7 +211,8 @@ finally {
                                            -AutoDetectedModuleDescriptions $script:autoDetectedModuleDescriptions `
                                            -AutoDetectedPsDependencies $script:autoDetectedPsDependencies 
     
-    $aiStateHashtable.conversation_summary = $updatedConversationSummary
+    # The line $aiStateHashtable.conversation_summary = $updatedConversationSummary has been removed.
+    # The conversation summary is now set directly by Get-BundlerAIState.
                                            
     $projectStructureContentString = Get-ProjectStructureOverviewContent -ProjectRoot_FullPath $ProjectRoot_FullPath `
                                                                          -ProjectRoot_DisplayName $ProjectRoot_DisplayName `

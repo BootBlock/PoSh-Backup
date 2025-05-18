@@ -27,7 +27,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.3 # PSSA: Use direct $Logger call for initial debug messages.
+    Version:        1.0.4 # Process TreatSevenZipWarningsAsSuccess in Get-PoShBackupJobEffectiveConfiguration.
     DateCreated:    17-May-2025
     LastModified:   18-May-2025
     Purpose:        Centralised configuration management for PoSh-Backup.
@@ -614,6 +614,14 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.JobEnableRetries = if ($CliOverrides.EnableRetries) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableRetries' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableRetries' -DefaultValue $true) }
     $effectiveConfig.JobMaxRetryAttempts = Get-ConfigValue -ConfigObject $JobConfig -Key 'MaxRetryAttempts' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MaxRetryAttempts' -DefaultValue 3)
     $effectiveConfig.JobRetryDelaySeconds = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetryDelaySeconds' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetryDelaySeconds' -DefaultValue 60)
+
+    # Determine effective TreatSevenZipWarningsAsSuccess setting
+    if ($null -ne $CliOverrides.TreatSevenZipWarningsAsSuccess) { # CLI switch has highest precedence
+        $effectiveConfig.TreatSevenZipWarningsAsSuccess = $CliOverrides.TreatSevenZipWarningsAsSuccess
+    } else {
+        $effectiveConfig.TreatSevenZipWarningsAsSuccess = Get-ConfigValue -ConfigObject $JobConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue $false)
+    }
+    $reportData.TreatSevenZipWarningsAsSuccess = $effectiveConfig.TreatSevenZipWarningsAsSuccess # Add to report data
 
     $effectiveConfig.JobSevenZipProcessPriority = if (-not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipPriority)) {
         $CliOverrides.SevenZipPriority

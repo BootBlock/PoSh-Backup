@@ -13,7 +13,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.5 # Removed TestConfigOutputContent parameter from Format-AIBundleContent.
+    Version:        1.0.6 # Fixed unused variable $psModulesForState in Get-BundlerAIState.
     DateCreated:    17-May-2025
     LastModified:   18-May-2025
     Purpose:        AI State generation and final bundle assembly for the AI project bundler.
@@ -50,9 +50,40 @@ function Get-BundlerAIState {
         }
     }
 
+    # Construct the conversation summary dynamically
+    # Version of PoShBackupValidator.psm1: v1.2.1
+    # Version of ConfigManager.psm1: v1.0.4
+    # Version of Operations.psm1: v1.13.2
+    # Version of 7ZipManager.psm1: v1.0.5
+    # Version of this file (Bundle.StateAndAssembly.psm1): v1.0.6
+    # Version of PoSh-Backup.ps1 is $PoShBackupVersion
+    # Version of Config\Default.psd1: v1.2.2
+    # Version of Meta\BundlerModules\Bundle.FileProcessor.psm1: v1.0.1
+    # Version of Meta\BundlerModules\Bundle.ExternalTools.psm1: v1.1.0
+
+    $currentConversationSummary = @(
+        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).",
+        "Modular design: Core modules (Utils, ConfigManager, Operations, Reporting, 7ZipManager, VssManager, RetentionManager, HookManager), Reporting sub-modules, Config files, and Meta/ (bundler).",
+        "New Feature: Treat 7-Zip Warnings as Success (PoSh-Backup v$($PoShBackupVersion)):",
+        "  - Added 'TreatSevenZipWarningsAsSuccess' setting (global, per-job) to Config\\Default.psd1 (v1.2.2).",
+        "  - Added '-TreatSevenZipWarningsAsSuccessCLI' switch to PoSh-Backup.ps1 (v$($PoShBackupVersion)).",
+        "  - Updated PoShBackupValidator.psm1 (v1.2.1) schema.",
+        "  - Updated ConfigManager.psm1 (v1.0.4) to process the effective setting.",
+        "  - Updated Operations.psm1 (v1.13.2) to adjust job status based on this setting.",
+        "  - Updated 7ZipManager.psm1 (v1.0.5) to adjust logging and retry logic.",
+        "Logging Enhancement: 7ZipManager.psm1 (v1.0.5) now hides 7-Zip STDOUT when 'HideSevenZipOutput' is true (STDERR is still logged).",
+        "Previous Refactoring (PoSh-Backup v1.9.12): Centralized hook script execution into HookManager.psm1 and ensured explicit module dependency imports (Utils.psm1 for logging) across core modules.",
+        "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) Modularization & Fixes:",
+        "  - Bundle.FileProcessor.psm1 (v1.0.1) now flags missing PowerShell synopses in AI State.",
+        "  - Bundle.ExternalTools.psm1 (v1.1.0) PoSh-Backup -TestConfig capture removed.",
+        "  - Bundle.StateAndAssembly.psm1 (v1.0.6) fixed unused variable warning.", # This module's version
+        "  - PoSh-Backup -TestConfig output capture was removed from the bundler due to reliability issues.",
+        "General project status: Core functionality stable. PSSA clean. Pester tests non-functional."
+    )
+
     $aiState = @{
         project_name = "PoSh Backup Solution";
-        main_script_poSh_backup_version = $PoShBackupVersion; # Version of PoSh-Backup.ps1
+        main_script_poSh_backup_version = $PoShBackupVersion; 
         ai_bundler_update_instructions = @{
             purpose = "Instructions for AI on how to regenerate the content of this `$aiState hashtable within the Generate-ProjectBundleForAI.ps1 script when requested by the user.";
             example_of_ai_provided_block_start = "`$aiState = @{"; 
@@ -72,33 +103,16 @@ function Get-BundlerAIState {
             when_to_update = "Only when the user explicitly asks to 'update the bundler script's AI state'.";
             example_of_ai_provided_block_end = "}"
         };
-        bundler_script_version = $BundlerScriptVersion; # Version of Generate-ProjectBundleForAI.ps1
-        conversation_summary = @( 
-            "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1).",
-            "Modular design: PoSh-Backup core modules (Utils, Operations, PasswordManager, Reporting orchestrator, 7ZipManager), Reporting sub-modules, Config files, and Meta/ (bundler).",
-            "PoSh-Backup Core Features:",
-            "  - Added -SkipUserConfigCreation switch to PoSh-Backup.ps1 (v1.9.5).",
-            "  - Created 'Modules\7ZipManager.psm1' (v1.0.0) to centralize 7-Zip interactions (PoSh-Backup v1.9.6).",
-            "  - Moved 'Find-SevenZipExecutable', 'Get-PoShBackup7ZipArgument', 'Invoke-7ZipOperation', and 'Test-7ZipArchive' to 7ZipManager.psm1.",
-            "  - Updated Utils.psm1 (v1.8.0) and Operations.psm1 (v1.8.0) to reflect moved 7-Zip functions.",
-            "Bundler Script (Generate-ProjectBundleForAI.ps1) Modularization:",
-            "  - Version updated to 1.24.0 to reflect its own modularization.", # This is the version of the main bundler script
-            "  - Created 'Meta\BundlerModules\Bundle.Utils.psm1' (v1.0.0): For version extraction & project structure overview.",
-            "  - Created 'Meta\BundlerModules\Bundle.FileProcessor.psm1' (v1.0.1): For individual file processing, added synopsis placeholder.",
-            "  - Created 'Meta\BundlerModules\Bundle.ExternalTools.psm1' (v1.0.1): For PSScriptAnalyzer execution; -TestConfig capture removed.",
-            "  - Created 'Meta\BundlerModules\Bundle.StateAndAssembly.psm1' (v1.0.5): For AI State generation & final bundle assembly.", # This module's version
-            "  - Created 'Meta\BundlerModules\Bundle.ProjectScanner.psm1' (v1.0.0): For main project file scanning loop and exclusion logic.",
-            "  - Main bundler script now primarily orchestrates calls to these sub-modules.",
-            "General project status: Reporting, Hooks, Password Management are key features. PSSA clean. Pester tests non-functional."
-        );
+        bundler_script_version = $BundlerScriptVersion; 
+        conversation_summary = $currentConversationSummary; # Use the dynamically constructed summary
         project_root_folder_name = $ProjectRoot_DisplayName;
         bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss");
-        module_descriptions = $AutoDetectedModuleDescriptions; # Populated by bundler based on .SYNOPSIS
+        module_descriptions = $AutoDetectedModuleDescriptions; 
         external_dependencies = @{
             executables = @(
                 "7z.exe (7-Zip command-line tool - path configurable or auto-detected)"
             );
-            powershell_modules = $psModulesForState # Populated by bundler based on #Requires -Module
+            powershell_modules = $psModulesForState 
         };
         ai_development_watch_list = @(
             "CRITICAL (AI): Ensure full, untruncated files are provided when requested by the user. AI has made this mistake multiple times.",

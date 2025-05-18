@@ -19,7 +19,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.4 # Added explicit Import-Module for Utils.psm1.
+    Version:        1.0.5 # Implement TreatSevenZipWarningsAsSuccess logic and hide STDOUT when HideSevenZipOutput is true.
     DateCreated:    17-May-2025
     LastModified:   18-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
@@ -228,8 +228,9 @@ function Invoke-7ZipOperation {
     .DESCRIPTION
         This function executes the 7z.exe command-line tool with the provided arguments.
         It supports configuring the process priority for 7-Zip, optionally hiding its console output
-        (while still capturing STDOUT/STDERR for logging if issues occur), and implementing a
+        (while still capturing STDERR for logging if issues occur), and implementing a
         retry mechanism for transient failures.
+        It also considers whether 7-Zip warnings (exit code 1) should be treated as success or trigger retries.
     .PARAMETER SevenZipPathExe
         The full path to the 7z.exe executable.
     .PARAMETER SevenZipArguments
@@ -238,7 +239,7 @@ function Invoke-7ZipOperation {
         The Windows process priority for 7z.exe. Valid values: "Idle", "BelowNormal", "Normal", "AboveNormal", "High".
         Defaults to "Normal".
     .PARAMETER HideOutput
-        A switch. If present, 7-Zip's console window will be hidden. Output streams are still captured for logging.
+        A switch. If present, 7-Zip's console window will be hidden. STDERR stream is still captured and logged. STDOUT is not logged if hidden.
     .PARAMETER IsSimulateMode
         A switch. If present, the 7-Zip command will be logged as if it were run, but not actually executed.
         A success (exit code 0) is simulated.
@@ -250,6 +251,9 @@ function Invoke-7ZipOperation {
     .PARAMETER EnableRetries
         A boolean. $true to enable the retry mechanism, $false to perform only one attempt.
         Defaults to $false.
+    .PARAMETER TreatWarningsAsSuccess
+        A boolean. If $true, a 7-Zip exit code of 1 (Warning) will be considered a success and will not trigger a retry.
+        If $false (default), exit code 1 will trigger a retry if retries are enabled.
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
@@ -259,7 +263,7 @@ function Invoke-7ZipOperation {
         - ElapsedTime (System.TimeSpan): The time taken for the 7-Zip operation.
         - AttemptsMade (int): The number of attempts made to execute the command.
     .EXAMPLE
-        # $result = Invoke-7ZipOperation -SevenZipPathExe "C:\7z\7z.exe" -SevenZipArguments "a archive.7z C:\data" -EnableRetries $true -MaxRetries 3 -Logger ${function:Write-LogMessage}
+        # $result = Invoke-7ZipOperation -SevenZipPathExe "C:\7z\7z.exe" -SevenZipArguments "a archive.7z C:\data" -EnableRetries $true -MaxRetries 3 -TreatWarningsAsSuccess $true -Logger ${function:Write-LogMessage}
         # if ($result.ExitCode -ne 0) { Write-Error "7-Zip failed!" }
     #>
     param(
@@ -271,12 +275,13 @@ function Invoke-7ZipOperation {
         [int]$MaxRetries = 1, # Default to 1 attempt (no retries) if EnableRetries is false
         [int]$RetryDelaySeconds = 60,
         [bool]$EnableRetries = $false,
+        [bool]$TreatWarningsAsSuccess = $false, # New parameter
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
 
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
-    & $Logger -Message "Invoke-7ZipOperation: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "Invoke-7ZipOperation: Logger parameter active. TreatWarningsAsSuccess: $TreatWarningsAsSuccess" -Level "DEBUG" -ErrorAction SilentlyContinue
 
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
@@ -339,10 +344,13 @@ function Invoke-7ZipOperation {
             $startInfo.CreateNoWindow = $HideOutput.IsPresent
             $startInfo.WindowStyle = if($HideOutput.IsPresent) { [System.Diagnostics.ProcessWindowStyle]::Hidden } else { [System.Diagnostics.ProcessWindowStyle]::Normal }
 
+            # Always redirect STDERR. Redirect STDOUT only if window is hidden AND we intend to capture/log it.
+            # Based on new requirement, STDOUT is not logged if HideOutput is true.
+            $startInfo.RedirectStandardError = $true
             if ($HideOutput.IsPresent) {
-                $startInfo.RedirectStandardOutput = $true
-                $startInfo.RedirectStandardError = $true
+                $startInfo.RedirectStandardOutput = $true # Still need to redirect to read it, even if not logged
             }
+
 
             & $LocalWriteLog -Message "  - Starting 7-Zip process with priority: $ProcessPriority" -Level DEBUG
             $process = New-Object System.Diagnostics.Process
@@ -351,34 +359,27 @@ function Invoke-7ZipOperation {
             try { $process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]$ProcessPriority }
             catch { & $LocalWriteLog -Message "[WARNING] Failed to set 7-Zip process priority to '$ProcessPriority'. Error: $($_.Exception.Message)" -Level WARNING }
 
-            $stdOutput = ""
+            # $stdOutput = "" # No longer needed if STDOUT isn't logged when hidden
             $stdError = ""
-            $outputTask = $null
+            # $outputTask = $null # No longer needed
             $errorTask = $null
 
-            if ($HideOutput.IsPresent) { # Asynchronously read output streams if hidden
-                $outputTask = $process.StandardOutput.ReadToEndAsync()
+            if ($HideOutput.IsPresent) {
+                # $outputTask = $process.StandardOutput.ReadToEndAsync() # Don't need to capture STDOUT for logging if hidden
                 $errorTask = $process.StandardError.ReadToEndAsync()
             }
 
             $process.WaitForExit() # Wait for the 7-Zip process to complete
 
-            if ($HideOutput.IsPresent) { # Process captured output
-                if ($null -ne $outputTask) {
-                    try { $stdOutput = $outputTask.GetAwaiter().GetResult() } catch { try { $stdOutput = $process.StandardOutput.ReadToEnd() } catch { & $LocalWriteLog -Message "    - DEBUG: Fallback ReadToEnd STDOUT for 7-Zip failed: $($_.Exception.Message)" -Level DEBUG } }
-                }
+            if ($HideOutput.IsPresent) {
+                # STDERR is always logged if present and output is hidden
                  if ($null -ne $errorTask) {
                     try { $stdError = $errorTask.GetAwaiter().GetResult() } catch { try { $stdError = $process.StandardError.ReadToEnd() } catch { & $LocalWriteLog -Message "    - DEBUG: Fallback ReadToEnd STDERR for 7-Zip failed: $($_.Exception.Message)" -Level DEBUG } }
                  }
-
-                if (-not [string]::IsNullOrWhiteSpace($stdOutput)) {
-                    & $LocalWriteLog -Message "  - 7-Zip STDOUT (captured as HideSevenZipOutput is true):" -Level DEBUG
-                    $stdOutput.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "    | $_" -Level DEBUG -NoTimestampToLogFile }
-                }
-                # Always log STDERR if present, as it usually indicates issues.
                 if (-not [string]::IsNullOrWhiteSpace($stdError)) {
-                    & $LocalWriteLog -Message "  - 7-Zip STDERR:" -Level ERROR
-                    $stdError.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "    | $_" -Level ERROR -NoTimestampToLogFile }
+                    $logLevelForStdErr = if ($process.ExitCode -eq 0 -or ($process.ExitCode -eq 1 -and $TreatWarningsAsSuccess)) { "WARNING" } else { "ERROR" }
+                    & $LocalWriteLog -Message "  - 7-Zip STDERR (captured as HideSevenZipOutput is true):" -Level $logLevelForStdErr
+                    $stdError.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "    | $_" -Level $logLevelForStdErr -NoTimestampToLogFile }
                 }
             }
             $operationExitCode = $process.ExitCode
@@ -392,13 +393,26 @@ function Invoke-7ZipOperation {
         }
 
         & $LocalWriteLog -Message "   - 7-Zip attempt $currentTry finished. Exit Code: $operationExitCode. Elapsed Time: $operationElapsedTime"
+        
         # 7-Zip Exit Codes: 0=No error, 1=Warning (e.g., locked files not archived), 2=Fatal error
-        if ($operationExitCode -in @(0,1)) { break } # Success or Warning, stop retrying
-        elseif ($currentTry -lt $actualMaxTries) {
-            & $LocalWriteLog -Message "[WARNING] 7-Zip operation failed (Exit Code: $operationExitCode). Retrying in $actualDelaySeconds seconds..." -Level WARNING
-            Start-Sleep -Seconds $actualDelaySeconds
-        } else {
-            & $LocalWriteLog -Message "[ERROR] 7-Zip operation failed after $actualMaxTries attempt(s) (Final Exit Code: $operationExitCode)." -Level ERROR
+        if ($operationExitCode -eq 0) { break } # Success, stop retrying
+        if ($operationExitCode -eq 1) {
+            if ($TreatWarningsAsSuccess) {
+                & $LocalWriteLog -Message "   - 7-Zip Warning (Exit Code 1) occurred but is being treated as success for this job." -Level INFO
+                break # Treat warning as success, stop retrying
+            } else {
+                # Warning, and not treating as success. This will fall through to retry logic if retries enabled.
+            }
+        }
+        
+        # Retry logic for actual errors or warnings not treated as success
+        if ($operationExitCode -ne 0 -and ($operationExitCode -ne 1 -or ($operationExitCode -eq 1 -and -not $TreatWarningsAsSuccess))) {
+            if ($currentTry -lt $actualMaxTries) {
+                & $LocalWriteLog -Message "[WARNING] 7-Zip operation indicated an issue (Exit Code: $operationExitCode). Retrying in $actualDelaySeconds seconds..." -Level WARNING
+                Start-Sleep -Seconds $actualDelaySeconds
+            } else {
+                & $LocalWriteLog -Message "[ERROR] 7-Zip operation failed after $actualMaxTries attempt(s) (Final Exit Code: $operationExitCode)." -Level ERROR
+            }
         }
     }
     return @{ ExitCode = $operationExitCode; ElapsedTime = $operationElapsedTime; AttemptsMade = $attemptsMade }
@@ -415,6 +429,8 @@ function Test-7ZipArchive {
         This function invokes 7z.exe to perform an integrity test on a specified archive file.
         It supports passing a temporary password file if the archive is encrypted and includes
         options for process priority, output hiding, and retries similar to Invoke-7ZipOperation.
+        It also considers the TreatWarningsAsSuccess setting, although 7-Zip test operations
+        typically result in exit code 0 (success) or 2 (error), not 1 (warning).
     .PARAMETER SevenZipPathExe
         The full path to the 7z.exe executable.
     .PARAMETER ArchivePath
@@ -431,6 +447,8 @@ function Test-7ZipArchive {
         Delay in seconds between retry attempts. Defaults to 60.
     .PARAMETER EnableRetries
         A boolean. $true to enable retries, $false for a single attempt. Defaults to $false.
+    .PARAMETER TreatWarningsAsSuccess
+        A boolean. If $true, a 7-Zip exit code of 1 (Warning, though rare for 'test') will be considered success.
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
@@ -440,7 +458,7 @@ function Test-7ZipArchive {
         - ElapsedTime (System.TimeSpan): The time taken for the test operation.
         - AttemptsMade (int): The number of attempts made.
     .EXAMPLE
-        # $testResult = Test-7ZipArchive -SevenZipPathExe "C:\7z\7z.exe" -ArchivePath "D:\backup.7z" -Logger ${function:Write-LogMessage}
+        # $testResult = Test-7ZipArchive -SevenZipPathExe "C:\7z\7z.exe" -ArchivePath "D:\backup.7z" -TreatWarningsAsSuccess $true -Logger ${function:Write-LogMessage}
         # if ($testResult.ExitCode -ne 0) { Write-Warning "Archive test failed!" }
     #>
     param(
@@ -453,12 +471,13 @@ function Test-7ZipArchive {
         [int]$MaxRetries = 1,
         [int]$RetryDelaySeconds = 60,
         [bool]$EnableRetries = $false,
+        [bool]$TreatWarningsAsSuccess = $false, # New parameter
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
 
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
-    & $Logger -Message "Test-7ZipArchive: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "Test-7ZipArchive: Logger parameter active. TreatWarningsAsSuccess: $TreatWarningsAsSuccess" -Level "DEBUG" -ErrorAction SilentlyContinue
 
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
@@ -484,14 +503,22 @@ function Test-7ZipArchive {
         SevenZipPathExe = $SevenZipPathExe; SevenZipArguments = $testArguments.ToArray()
         ProcessPriority = $ProcessPriority; HideOutput = $HideOutput.IsPresent
         MaxRetries = $MaxRetries; RetryDelaySeconds = $RetryDelaySeconds; EnableRetries = $EnableRetries
+        TreatWarningsAsSuccess = $TreatWarningsAsSuccess # Pass through the setting
         IsSimulateMode = $false # Testing is never simulated in this function
         Logger = $Logger # Pass the logger down
     }
     # Invoke-7ZipOperation handles ShouldProcess for the actual 7-Zip execution
     $result = Invoke-7ZipOperation @invokeParams
 
-    $msg = if ($result.ExitCode -eq 0) { "PASSED" } else { "FAILED (7-Zip Test Exit Code: $($result.ExitCode))" }
-    $levelForResult = if ($result.ExitCode -eq 0) { "SUCCESS" } else { "ERROR" }
+    $msg = if ($result.ExitCode -eq 0) { 
+        "PASSED" 
+    } elseif ($result.ExitCode -eq 1 -and $TreatWarningsAsSuccess) {
+        "PASSED (7-Zip Test Warning Exit Code: 1, treated as success)"
+    } else { 
+        "FAILED (7-Zip Test Exit Code: $($result.ExitCode))" 
+    }
+    
+    $levelForResult = if ($result.ExitCode -eq 0 -or ($result.ExitCode -eq 1 -and $TreatWarningsAsSuccess)) { "SUCCESS" } else { "ERROR" }
     & $LocalWriteLog -Message "  - Archive Test Result for '$ArchivePath': $msg" -Level $levelForResult
     return $result
 }

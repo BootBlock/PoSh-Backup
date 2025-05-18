@@ -30,6 +30,7 @@
     - Simulation Mode (-Simulate), Configuration Test Mode (-TestConfig), List Configured Items.
     - Free Space Check, Archive Integrity Test, Configurable Exit Pause.
     - Skip User Config Creation: Bypass prompt to create 'User.psd1'.
+    - Treat 7-Zip Warnings as Success: Option to consider 7-Zip exit code 1 as a success.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -54,6 +55,10 @@
 
 .PARAMETER GenerateHtmlReportCLI
     Optional. A switch parameter. If present, this forces the generation of an HTML report.
+
+.PARAMETER TreatSevenZipWarningsAsSuccessCLI
+    Optional. A switch parameter. If present, this forces 7-Zip exit code 1 (Warning) to be treated as a success for the job status.
+    Overrides the 'TreatSevenZipWarningsAsSuccess' setting in the configuration file.
 
 .PARAMETER SevenZipPriorityCLI
     Optional. Allows specifying the 7-Zip process priority.
@@ -83,9 +88,13 @@
     .\PoSh-Backup.ps1 -BackupLocationName "WebAppLogs" -UseVSS -Simulate
     Simulates backing up "WebAppLogs", forcing VSS.
 
+.EXAMPLE
+    .\PoSh-Backup.ps1 -BackupLocationName "OpenFilesBackup" -TreatSevenZipWarningsAsSuccessCLI
+    Runs the "OpenFilesBackup" job and treats any 7-Zip warnings (like skipped open files) as a successful operation for status reporting.
+
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.12 # Corrected module import order for Write-LogMessage availability.
+    Version:        1.9.13 # Added TreatSevenZipWarningsAsSuccessCLI parameter and related logic.
     Date:           18-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS.
     Modules:        Located in '.\Modules\': Utils.psm1, ConfigManager.psm1, Operations.psm1,
@@ -122,6 +131,9 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Switch. Forces HTML report generation for processed jobs, or adds HTML if ReportGeneratorType is an array.")]
     [switch]$GenerateHtmlReportCLI,
 
+    [Parameter(Mandatory=$false, HelpMessage="Switch. If present, forces 7-Zip exit code 1 (Warning) to be treated as success for job status.")]
+    [switch]$TreatSevenZipWarningsAsSuccessCLI,
+
     [Parameter(Mandatory=$false, HelpMessage="Optional. Set 7-Zip process priority (Idle, BelowNormal, Normal, AboveNormal, High).")]
     [ValidateSet("Idle", "BelowNormal", "Normal", "AboveNormal", "High")]
     [string]$SevenZipPriorityCLI,
@@ -149,12 +161,13 @@ $ScriptStartTime                            = Get-Date
 $IsSimulateMode                             = $Simulate.IsPresent
 
 $cliOverrideSettings = @{
-    UseVSS                  = $UseVSS.IsPresent
-    EnableRetries           = $EnableRetriesCLI.IsPresent
-    TestArchive             = $TestArchive.IsPresent
-    GenerateHtmlReport      = $GenerateHtmlReportCLI.IsPresent
-    SevenZipPriority        = if (-not [string]::IsNullOrWhiteSpace($SevenZipPriorityCLI)) { $SevenZipPriorityCLI } else { $null }
-    PauseBehaviour          = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
+    UseVSS                             = $UseVSS.IsPresent
+    EnableRetries                      = $EnableRetriesCLI.IsPresent
+    TestArchive                        = $TestArchive.IsPresent
+    GenerateHtmlReport                 = $GenerateHtmlReportCLI.IsPresent
+    TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null } # Store switch state or $null if not passed
+    SevenZipPriority                   = if (-not [string]::IsNullOrWhiteSpace($SevenZipPriorityCLI)) { $SevenZipPriorityCLI } else { $null }
+    PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
 }
 
 $Global:ColourInfo                          = "Cyan"
@@ -222,12 +235,13 @@ try {
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.9.12 (Corrected module import order for Write-LogMessage availability.)" -Level "HEADING" 
+& $LoggerScriptBlock -Message " Script Version: v1.9.13 (Added TreatSevenZipWarningsAsSuccessCLI parameter and related logic.)" -Level "HEADING" 
 if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupSets.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP SETS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($SkipUserConfigCreation.IsPresent) { & $LoggerScriptBlock -Message " ***** SKIP USER CONFIG CREATION ACTIVE ***** " -Level "INFO" }
+if ($TreatSevenZipWarningsAsSuccessCLI.IsPresent) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Treating 7-Zip warnings as success. ***** " -Level "INFO" }
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 #endregion
 
@@ -428,6 +442,9 @@ if ($TestConfig.IsPresent) {
 
     $retriesEnabledDisplayGlobal = if($Configuration.ContainsKey('EnableRetries')){ $Configuration.EnableRetries } else { $false }
     & $LoggerScriptBlock -Message ("    Default Retries Enabled : {0}" -f $retriesEnabledDisplayGlobal) -Level "CONFIG_TEST"
+    
+    $treatWarningsAsSuccessDisplayGlobal = if($Configuration.ContainsKey('TreatSevenZipWarningsAsSuccess')){ $Configuration.TreatSevenZipWarningsAsSuccess } else { $false }
+    & $LoggerScriptBlock -Message ("    Treat 7-Zip Warns as OK : {0}" -f $treatWarningsAsSuccessDisplayGlobal) -Level "CONFIG_TEST"
 
     $pauseExitDisplayGlobal = if($Configuration.ContainsKey('PauseBeforeExit')){ $Configuration.PauseBeforeExit } else { 'OnFailureOrWarning' }
     & $LoggerScriptBlock -Message ("    Pause Before Exit       : {0}" -f $pauseExitDisplayGlobal) -Level "CONFIG_TEST"
@@ -450,6 +467,9 @@ if ($TestConfig.IsPresent) {
             $vssEnabledDisplayJob = if ($jobConf.ContainsKey('EnableVSS')) { $jobConf.EnableVSS } elseif ($Configuration.ContainsKey('EnableVSS')) { $Configuration.EnableVSS } else { $false }
             & $LoggerScriptBlock -Message ("      VSS Enabled  : {0}" -f $vssEnabledDisplayJob) -Level "CONFIG_TEST"
             
+            $treatWarnDisplayJob = if ($jobConf.ContainsKey('TreatSevenZipWarningsAsSuccess')) { $jobConf.TreatSevenZipWarningsAsSuccess } elseif ($Configuration.ContainsKey('TreatSevenZipWarningsAsSuccess')) { $Configuration.TreatSevenZipWarningsAsSuccess } else { $false }
+            & $LoggerScriptBlock -Message ("      Treat Warn OK: {0}" -f $treatWarnDisplayJob) -Level "CONFIG_TEST"
+
             $retentionDisplayJob = if ($jobConf.ContainsKey('RetentionCount')) { $jobConf.RetentionCount } else { 'N/A' }
             & $LoggerScriptBlock -Message ("      Retention    : {0}" -f $retentionDisplayJob) -Level "CONFIG_TEST"
         }

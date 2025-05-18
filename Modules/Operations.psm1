@@ -33,7 +33,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.13.1 # Added explicit Import-Module for Utils.psm1.
+    Version:        1.13.2 # Integrate TreatSevenZipWarningsAsSuccess logic.
     DateCreated:    10-May-2025
     LastModified:   18-May-2025
     Purpose:        Handles the execution logic for individual backup jobs.
@@ -133,6 +133,8 @@ function Invoke-PoShBackupJob {
         & $LocalWriteLog -Message "   - Destination Directory  : $($effectiveJobConfig.DestinationDir)"
         & $LocalWriteLog -Message "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)"
         & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod)"
+        & $LocalWriteLog -Message "   - Treat 7-Zip Warnings as Success: $($effectiveJobConfig.TreatSevenZipWarningsAsSuccess)"
+
 
         if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.DestinationDir)) {
             & $LocalWriteLog -Message "FATAL: Destination directory for job '$JobName' is not defined. Cannot proceed." -Level ERROR; throw "DestinationDir missing for job '$JobName'."
@@ -292,6 +294,7 @@ function Invoke-PoShBackupJob {
             MaxRetries = $effectiveJobConfig.JobMaxRetryAttempts
             RetryDelaySeconds = $effectiveJobConfig.JobRetryDelaySeconds
             EnableRetries = $effectiveJobConfig.JobEnableRetries
+            TreatWarningsAsSuccess = $effectiveJobConfig.TreatSevenZipWarningsAsSuccess # Pass this new setting
             IsSimulateMode = $IsSimulateMode.IsPresent
             Logger = $Logger 
         }
@@ -309,9 +312,16 @@ function Invoke-PoShBackupJob {
         }
         $reportData.ArchiveSizeFormatted = $archiveSize
 
-        if ($sevenZipResult.ExitCode -eq 0) { # Success
+        # Determine job status based on 7-Zip exit code and TreatSevenZipWarningsAsSuccess
+        if ($sevenZipResult.ExitCode -eq 0) { 
+            # $currentJobStatus remains "SUCCESS"
         } elseif ($sevenZipResult.ExitCode -eq 1) { # Warning
-            $currentJobStatus = "WARNINGS"
+            if ($effectiveJobConfig.TreatSevenZipWarningsAsSuccess) {
+                & $LocalWriteLog -Message "[INFO] 7-Zip returned warning (Exit Code 1) but 'TreatSevenZipWarningsAsSuccess' is true. Job status remains SUCCESS." -Level "INFO"
+                # $currentJobStatus remains "SUCCESS"
+            } else {
+                $currentJobStatus = "WARNINGS"
+            }
         } else { # Failure
             $currentJobStatus = "FAILURE"
         }
@@ -328,12 +338,15 @@ function Invoke-PoShBackupJob {
                 MaxRetries = $effectiveJobConfig.JobMaxRetryAttempts
                 RetryDelaySeconds = $effectiveJobConfig.JobRetryDelaySeconds
                 EnableRetries = $effectiveJobConfig.JobEnableRetries
+                TreatWarningsAsSuccess = $effectiveJobConfig.TreatSevenZipWarningsAsSuccess # Pass this new setting
                 Logger = $Logger 
             }
             $testResult = Test-7ZipArchive @testArchiveParams
 
             if ($testResult.ExitCode -eq 0) {
                 $reportData.ArchiveTestResult = "PASSED"
+            } elseif ($testResult.ExitCode -eq 1 -and $effectiveJobConfig.TreatSevenZipWarningsAsSuccess) {
+                $reportData.ArchiveTestResult = "PASSED (7-Zip Test Warning Exit Code: 1, treated as success)"
             } else {
                 $reportData.ArchiveTestResult = "FAILED (7-Zip Test Exit Code: $($testResult.ExitCode))"
                 if ($currentJobStatus -ne "FAILURE") {$currentJobStatus = "WARNINGS"} 
