@@ -25,43 +25,47 @@
     --header-logo-max-width: 200px;
 
     /* ====== DEFAULT (LIGHT THEME) COLOUR PALETTE ====== */
-    /* These are the default values. Specific theme files will override these. */
+    --body-bg-color: #f8f9fa;                  
+    --container-bg-color: #ffffff;             
+    --primary-text-color: #212529;             
+    --secondary-text-color: #6c757d;           
+    --border-color-light: #dee2e6;             
+    --border-color-medium: #ced4da;            
+    --accent-color-primary: #007bff;           
+    --accent-color-primary-text: #ffffff;      
+    --accent-color-secondary: #6c757d;         
+    --accent-color-secondary-text: #ffffff;    
+    --highlight-bg-color: yellow; /* For search keyword highlight */
+    --highlight-text-color: black;  /* For search keyword highlight */
 
-    /* --- Core Palette --- */
-    --body-bg-color: #f8f9fa;                   /* Page background */
-    --container-bg-color: #ffffff;             /* Main content area background */
-    --primary-text-color: #212529;             /* Main text colour */
-    --secondary-text-color: #6c757d;           /* Subdued text colour */
-    --border-color-light: #dee2e6;             /* Standard light border */
-    --border-color-medium: #ced4da;            /* Slightly darker border */
-    --accent-color-primary: #007bff;           /* Primary accent (e.g., links) */
-    --accent-color-primary-text: #ffffff;      /* Text on primary accent backgrounds */
-    --accent-color-secondary: #6c757d;         /* Secondary accent */
-    --accent-color-secondary-text: #ffffff;    /* Text on secondary accent backgrounds */
 
     /* --- Component-Specific Colours --- */
-    /* Header & Footer */
     --header-border-color: var(--accent-color-primary);
     --footer-text-color: var(--secondary-text-color);
     --footer-border-color: var(--border-color-light);
 
-    /* Tables */
     --table-header-bg: #e9ecef;
     --table-header-text-color: var(--primary-text-color);
     --table-row-even-bg: #f8f9fa;
     --table-row-hover-bg: #ddeafd;
     --table-border-color: var(--border-color-light);
+    --table-sort-arrow-color: var(--accent-color-primary);
 
-    /* Code Blocks & Preformatted Text */
     --code-bg-color: #e9ecef;
     --code-text-color: #212529;
     --code-border-color: var(--border-color-medium);
+    --button-bg-color: #e9ecef;
+    --button-text-color: var(--primary-text-color);
+    --button-border-color: var(--border-color-medium);
+    --button-hover-bg-color: #d8dce0;
+    --button-hover-border-color: var(--accent-color-primary);
 
-    /* Status Message Text Colours (used in summary table, hook status, etc.) */
-    --status-success-text-color: #198754;      /* Dark, accessible green */
-    --status-warning-text-color: #ffc107;      /* Amber/Yellow (ensure contrast with its bg if any) */
-    --status-failure-text-color: #dc3545;      /* Red */
-    --status-simulated-text-color: #6f42c1;    /* Purple */
+
+    /* Status Message Text Colours */
+    --status-success-text-color: #198754;      
+    --status-warning-text-color: #ffc107;      
+    --status-failure-text-color: #dc3545;      
+    --status-simulated-text-color: #6f42c1;    
     --status-notfound-text-color: var(--secondary-text-color);
     --status-info-text-color: var(--accent-color-primary); 
     --status-default-text-color: var(--primary-text-color);
@@ -78,22 +82,22 @@
     --log-success-bg: #d1e7dd;  --log-success-border: #a3cfbb;
     --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
 
-    /* Log Entry Text Colours (for the message part of the log entry) */
-    --log-info-text-color: #004085;            /* Dark Blue for text on light blue bg */
-    --log-warning-text-color: #856404;         /* Dark Yellow/Brown for text on light yellow bg */
-    --log-error-text-color: #721c24;           /* Dark Red for text on light red bg */
-    --log-debug-text-color: #383d41;           /* Darker Gray for text on light gray bg */
-    --log-success-text-color: #155724;         /* Dark Green for text on light green bg */
-    --log-vss-text-color: #854C00;             /* Dark Orange for text on light orange bg */
-    --log-hook-text-color: #0c5460;            /* Dark Teal for text on light teal bg */
-    --log-simulate-text-color: #581c87;        /* Dark Purple for text on light purple bg */
+    /* Log Entry Text Colours */
+    --log-info-text-color: #004085;            
+    --log-warning-text-color: #856404;         
+    --log-error-text-color: #721c24;           
+    --log-debug-text-color: #383d41;           
+    --log-success-text-color: #155724;         
+    --log-vss-text-color: #854C00;             
+    --log-hook-text-color: #0c5460;            
+    --log-simulate-text-color: #581c87;        
     --log-configtest-text-color: var(--log-simulate-text-color);
-    --log-none-text-color: var(--primary-text-color);  /* Default if level has no specific text color */
+    --log-none-text-color: var(--primary-text-color);  
 }
 
 /* ====== GENERAL PAGE STYLES ====== */
 html {
-    scroll-behavior: smooth; /* For smooth scroll-to-top */
+    scroll-behavior: smooth; 
 }
 body { 
     font-family: var(--font-family-sans-serif); 
@@ -196,6 +200,19 @@ th {
     background-color: var(--table-header-bg);
     color: var(--table-header-text-color);
 }
+th[data-sortable-column='true'] { /* Style for sortable headers */
+    cursor: pointer;
+}
+th[data-sortable-column='true']:hover {
+    background-color: var(--table-row-hover-bg);
+}
+.sort-arrow { /* For sort direction indicator */
+    display: inline-block;
+    margin-left: var(--spacing-xs);
+    color: var(--table-sort-arrow-color);
+    font-size: 0.9em;
+}
+
 tr:nth-child(even) td { 
     background-color: var(--table-row-even-bg); 
 }
@@ -213,7 +230,7 @@ tr:hover td {
 }
 
 /* ====== DETAILS & SUMMARY FOR COLLAPSIBLE SECTIONS ====== */
-details {
+details { /* Applies to all <details> elements now */
     border-radius: var(--border-radius);
 }
 
@@ -261,7 +278,7 @@ details > *:not(summary) {
     margin-top: var(--spacing-md); 
 }
 
-.details-section > details {
+.details-section > details { /* If details is directly inside .details-section */
     border: none; 
     padding: 0; 
     margin-bottom: 0; 
@@ -298,6 +315,15 @@ details > *:not(summary) {
 } 
 .log-entry span { 
     flex-grow: 1; 
+}
+
+/* Search keyword highlight */
+.search-highlight {
+    background-color: var(--highlight-bg-color);
+    color: var(--highlight-text-color);
+    font-weight: bold;
+    padding: 0 0.1em;
+    border-radius: var(--border-radius-sm);
 }
 
 /* Log Level Specific Backgrounds & Borders */
@@ -357,6 +383,35 @@ pre {
     color: var(--code-text-color);
     border: 1px solid var(--code-border-color);
 }
+/* Container for <pre> to position copy button */
+.pre-container {
+    position: relative;
+}
+.copy-hook-output-btn {
+    position: absolute;
+    top: var(--spacing-xs);
+    right: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: 0.8em;
+    background-color: var(--button-bg-color);
+    color: var(--button-text-color);
+    border: 1px solid var(--button-border-color);
+    border-radius: var(--border-radius-sm);
+    cursor: pointer;
+    opacity: 0.7; /* Slightly transparent until hover */
+    transition: opacity 0.2s, background-color 0.2s;
+}
+.copy-hook-output-btn:hover,
+.copy-hook-output-btn:focus {
+    opacity: 1;
+    background-color: var(--button-hover-bg-color);
+    border-color: var(--button-hover-border-color);
+}
+.copy-hook-output-btn:disabled {
+    cursor: default;
+    opacity: 0.8;
+}
+
 
 /* ====== LINKS ====== */
 a {
@@ -373,7 +428,7 @@ a:hover, a:focus {
     padding: 0.75em;
     border: 1px solid var(--border-color-light);
     border-radius: var(--border-radius-sm);
-    background-color: var(--table-row-even-bg); /* Light background for the filter area */
+    background-color: var(--table-row-even-bg); 
     display: flex;
     flex-wrap: wrap; 
     gap: 1em; 
@@ -382,29 +437,29 @@ a:hover, a:focus {
 
 .log-filters label, .log-filters strong {
     margin-right: 0.5em;
-    font-weight: normal; /* Keep labels normal weight */
+    font-weight: normal; 
 }
 
-.log-filters > div:first-child { /* Search input container */
-    flex-grow: 1; /* Allow search input to take available space */
+.log-filters > div:first-child { 
+    flex-grow: 1;
 }
 
 .log-filters input[type="text"] {
     padding: 0.5em;
     border: 1px solid var(--border-color-medium);
     border-radius: var(--border-radius-sm);
-    width: 100%; /* Make input take full width of its container */
-    min-width: 180px; /* Prevent it from becoming too small */
-    box-sizing: border-box; /* Include padding and border in the element's total width and height */
+    width: 100%; 
+    min-width: 180px; 
+    box-sizing: border-box; 
 }
 .log-filters .log-level-filters-container {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5em 1em; /* Vertical and horizontal gap for checkboxes */
+    gap: 0.5em 1em; 
     align-items: center;
 }
 .log-filters .log-level-filters-container label {
-    white-space: nowrap; /* Prevent checkbox labels from wrapping */
+    white-space: nowrap; 
     cursor: pointer;
 }
 .log-filters .log-level-filters-container input[type="checkbox"] {
@@ -412,7 +467,6 @@ a:hover, a:focus {
     vertical-align: middle;
 }
 
-/* Styling for Select All / Deselect All buttons */
 .log-filters .log-level-toggle-buttons {
     display: flex;
     gap: 0.5em; 
@@ -422,10 +476,10 @@ a:hover, a:focus {
 
 .log-filters .log-level-toggle-buttons button {
     padding: 0.3em 0.8em;
-    border: 1px solid var(--border-color-medium);
+    border: 1px solid var(--button-border-color);
     border-radius: var(--border-radius-sm);
-    background-color: var(--container-bg-color); 
-    color: var(--primary-text-color);
+    background-color: var(--button-bg-color); 
+    color: var(--button-text-color);
     cursor: pointer;
     font-size: 0.9em;
     transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
@@ -433,28 +487,27 @@ a:hover, a:focus {
 
 .log-filters .log-level-toggle-buttons button:hover,
 .log-filters .log-level-toggle-buttons button:focus {
-    border-color: var(--accent-color-primary);
-    background-color: var(--table-row-even-bg); 
+    border-color: var(--button-hover-border-color);
+    background-color: var(--button-hover-bg-color); 
     outline: none;
 }
 
-/* Styling for Filter Active Indicator */
 .filter-active-indicator {
     font-size: 0.8em;
     font-weight: normal;
-    color: var(--accent-color-secondary); /* Or a distinct color like orange/red */
+    color: var(--status-warning-text-color); 
     margin-left: var(--spacing-sm);
     padding: var(--spacing-xs) var(--spacing-sm);
-    background-color: var(--log-warning-bg); /* Use a light warning-like background */
+    background-color: var(--log-warning-bg); 
     border: 1px solid var(--log-warning-border);
     border-radius: var(--border-radius-sm);
-    display: inline-block; /* To allow padding and hiding */
+    display: inline-block; 
 }
 
 
 /* ====== SCROLL TO TOP BUTTON ====== */
 #scrollToTopBtn {
-    display: none; /* Hidden by default */
+    display: none; 
     position: fixed; 
     bottom: 20px; 
     right: 30px; 
@@ -472,7 +525,7 @@ a:hover, a:focus {
 }
 
 #scrollToTopBtn:hover {
-    background-color: var(--accent-color-secondary); /* Or a darker shade of primary */
+    background-color: var(--accent-color-secondary); 
 }
 
 
@@ -517,7 +570,6 @@ a:hover, a:focus {
         min-width: unset; 
         margin-bottom: var(--spacing-xs); 
     }
-    /* Adjust log filter layout for smaller screens */
     .log-filters {
         flex-direction: column;
         align-items: stretch; 
@@ -531,7 +583,6 @@ a:hover, a:focus {
     .log-level-filters-container {
         justify-content: flex-start; 
     }
-    /* Responsive adjustments for the toggle buttons */
     .log-filters .log-level-toggle-buttons {
         margin-left: 0; 
         margin-top: 0.5em; 
@@ -544,88 +595,116 @@ a:hover, a:focus {
         right: 15px;
         bottom: 15px;
     }
+    .copy-hook-output-btn { /* Make copy button slightly larger on mobile */
+        padding: var(--spacing-sm) var(--spacing-md);
+        font-size: 0.9em;
+    }
 }
 
 /* ====== PRINT STYLES ====== */
 @media print {
+    html {
+        scroll-behavior: auto !important; /* Disable smooth scroll for print */
+    }
     body {
-        font-size: 10pt;
+        font-size: 10pt !important;
         color: #000000 !important;
         background-color: #ffffff !important;
+        -webkit-print-color-adjust: exact !important; /* Ensure colors print if specified */
+        print-color-adjust: exact !important;
     }
     .container {
-        width: 100%;
-        max-width: none;
-        margin: 0;
-        padding: 0;
-        border: none;
-        box-shadow: none;
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
     }
     .simulation-banner, 
     .log-filters, 
     #scrollToTopBtn,
-    .report-logo { /* Logos might not print well or use too much ink */
+    .report-logo,
+    .copy-hook-output-btn,
+    .sort-arrow,
+    .filter-active-indicator {
         display: none !important;
     }
     .report-header h1 {
-        font-size: 1.5em;
+        font-size: 1.5em !important;
     }
     h2 {
-        font-size: 1.2em;
-        border-bottom: 1px solid #666666;
-        margin-top: var(--spacing-md);
-        padding-bottom: var(--spacing-xs);
+        font-size: 1.2em !important;
+        border-bottom: 1px solid #666666 !important;
+        margin-top: var(--spacing-md) !important;
+        padding-bottom: var(--spacing-xs) !important;
     }
     table, th, td {
         border: 1px solid #cccccc !important;
-        page-break-inside: auto; /* Allow tables to break across pages if necessary */
+        page-break-inside: auto; 
     }
     tr {
-        page-break-inside: avoid; /* Try to keep rows from splitting */
-        page-break-after: auto;
+        page-break-inside: avoid !important; 
+        page-break-after: auto !important;
     }
     thead {
-        display: table-header-group; /* Repeat table headers on each page */
+        display: table-header-group !important; 
+    }
+    tbody {
+        display: table-row-group !important;
     }
     pre {
-        max-height: none; /* Allow pre to expand fully */
-        overflow: visible;
-        white-space: pre-wrap;
-        word-wrap: break-word;
-        border: 1px solid #dddddd;
-        background-color: #f9f9f9;
-    }
-    a {
-        text-decoration: none;
+        max-height: none !important; 
+        overflow: visible !important;
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+        border: 1px solid #dddddd !important;
+        background-color: #f9f9f9 !important;
         color: #000000 !important;
     }
-    a[href]:after { /* Show URLs for links in print */
-        content: " (" attr(href) ")";
-        font-size: 0.9em;
-        color: #555555;
+    a {
+        text-decoration: none !important;
+        color: #000000 !important;
     }
-    details { /* Ensure collapsible sections are open for printing */
-        display: block !important; /* Override any script-based hiding */
+    a[href]:after { 
+        content: " (" attr(href) ")" !important;
+        font-size: 0.9em !important;
+        color: #555555 !important;
+    }
+    details { 
+        display: block !important; 
+        page-break-inside: avoid !important; /* Try to keep details content together */
     }
     details[open] {
          display: block !important;
     }
-    details > summary { /* Hide the summary toggle marker */
-        list-style: none;
+    details > summary { 
+        list-style: none !important;
+        padding: var(--spacing-xs) 0 !important; /* Reduce summary padding for print */
     }
     details > summary::before,
     details > summary::marker {
         display: none !important;
     }
+    details > summary h2 {
+        border-bottom: none !important; /* Remove border from h2 in summary for print */
+        margin-bottom: var(--spacing-xs) !important;
+    }
     .log-entry {
-        page-break-inside: avoid;
-        border-left-color: #cccccc !important; /* Neutral border for logs */
-        background-color: #ffffff !important; /* Ensure clean background for logs */
+        page-break-inside: avoid !important;
+        border-left-color: #cccccc !important; 
+        background-color: #ffffff !important; 
+        color: #000000 !important; /* Ensure text is black */
     }
     .log-entry span {
-        color: #000000 !important; /* Ensure log text is black */
+        color: #000000 !important; 
     }
-    .filter-active-indicator {
-        display: none !important; /* Hide filter indicator in print */
+    .log-entry strong {
+        color: #333333 !important; /* Darker grey for timestamps */
+    }
+    .search-highlight { /* Remove search highlight for print */
+        background-color: transparent !important;
+        color: inherit !important;
+        font-weight: normal !important;
     }
 }

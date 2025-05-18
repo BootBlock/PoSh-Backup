@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.2.2: Added TreatSevenZipWarningsAsSuccess setting.
+# Version 1.2.3: Added HtmlReportFaviconPath setting.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -95,6 +95,8 @@
     HtmlReportTitlePrefix           = "PoSh Backup Status Report"     # Prefix for the HTML report's browser title and main H1 heading. The job name is appended.
     HtmlReportLogoPath              = ""                              # Optional: Full UNC or local path to a logo image (e.g., PNG, JPG, GIF, SVG).
                                                                       # If provided and the image is valid, it will be embedded in the report header.
+    HtmlReportFaviconPath           = ""                              # Optional: Full UNC or local path to a favicon file (e.g., .ico, .png, .svg).
+                                                                      # If provided, it will be embedded as the report's browser tab icon.
     HtmlReportCustomCssPath         = ""                              # Optional: Full path to a user-provided .css file for additional or overriding report styling.
                                                                       # This CSS is loaded *after* the selected theme's CSS and any specific CSS variable overrides from this config.
     HtmlReportCompanyName           = "PoSh Backup Solutions"         # Company name, your name, or any desired text displayed in the report footer.
@@ -222,6 +224,7 @@
             MinimumRequiredFreeSpaceGB = 2                               # Custom free space check for this job. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"                 # Use a specific HTML report theme for this job.
             TreatSevenZipWarningsAsSuccess = $true                      # Example: For this job, 7-Zip warnings are considered success.
+            # HtmlReportFaviconPath    = "C:\Path\To\JobSpecificFavicon.ico" # Job-specific favicon
         }
 
         #region --- Comprehensive Example (Commented Out for Reference) ---
@@ -271,6 +274,7 @@
             "HtmlReportDirectory"           = "\\SHARE\AdminReports\PoShBackup\WebApp" # Custom directory for this job's HTML reports.
             "HtmlReportTitlePrefix"         = "Web Application Backup Status"
             "HtmlReportLogoPath"            = "\\SHARE\Branding\WebAppLogo.png"
+            "HtmlReportFaviconPath"         = "\\SHARE\Branding\WebAppFavicon.ico" # Example job-specific favicon
             "HtmlReportCustomCssPath"       = "\\SHARE\Branding\WebAppReportOverrides.css"
             "HtmlReportCompanyName"         = "Production Services Ltd."
             "HtmlReportOverrideCssVariables" = @{

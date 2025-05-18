@@ -17,7 +17,7 @@
 
     This module is intended to be optionally enabled via the 'EnableAdvancedSchemaValidation' setting
     within the main PoSh-Backup configuration file. If enabled, the 'Import-AppConfiguration' function
-    in 'Utils.psm1' will invoke the validation process.
+    in 'ConfigManager.psm1' will invoke the validation process.
 
     The schema itself ($Script:PoShBackup_ConfigSchema) defines properties for each configuration key, including:
     - 'Type': Expected data type (e.g., 'string', 'boolean', 'int', 'hashtable', 'array', 'string_or_array').
@@ -30,12 +30,12 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.1 # Added TreatSevenZipWarningsAsSuccess to schema.
+    Version:        1.2.2 # Added HtmlReportFaviconPath to schema.
     DateCreated:    14-May-2025
     LastModified:   18-May-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
-                    This module is typically invoked by 'Utils.psm1' if schema validation is
+                    This module is typically invoked by 'ConfigManager.psm1' if schema validation is
                     enabled in the main PoSh-Backup configuration.
 #>
 
@@ -65,6 +65,7 @@ $Script:PoShBackup_ConfigSchema = @{
     # HTML report specific settings (global defaults)
     HtmlReportTitlePrefix           = @{ Type = 'string'; Required = $false }
     HtmlReportLogoPath              = @{ Type = 'string'; Required = $false } # Path to a logo file
+    HtmlReportFaviconPath           = @{ Type = 'string'; Required = $false } # New schema entry for favicon path
     HtmlReportCustomCssPath         = @{ Type = 'string'; Required = $false } # Path to a custom CSS file
     HtmlReportCompanyName           = @{ Type = 'string'; Required = $false }
     HtmlReportTheme                 = @{ Type = 'string'; Required = $false } # Name of a theme CSS file (e.g., "Dark", "Light")
@@ -144,7 +145,6 @@ $Script:PoShBackup_ConfigSchema = @{
             # Job-specific report directory overrides
             HtmlReportDirectory     = @{ Type = 'string'; Required = $false }
             CsvReportDirectory      = @{ Type = 'string'; Required = $false }
-            # ... (other report dir settings for JSON, XML, TXT, MD follow the same pattern) ...
             JsonReportDirectory             = @{ Type = 'string'; Required = $false }
             XmlReportDirectory              = @{ Type = 'string'; Required = $false }
             TxtReportDirectory              = @{ Type = 'string'; Required = $false }
@@ -172,6 +172,7 @@ $Script:PoShBackup_ConfigSchema = @{
             HtmlReportTheme              = @{ Type = 'string'; Required = $false }
             HtmlReportTitlePrefix        = @{ Type = 'string'; Required = $false }
             HtmlReportLogoPath           = @{ Type = 'string'; Required = $false }
+            HtmlReportFaviconPath        = @{ Type = 'string'; Required = $false } # New schema entry for job-specific favicon
             HtmlReportCustomCssPath      = @{ Type = 'string'; Required = $false }
             HtmlReportCompanyName        = @{ Type = 'string'; Required = $false }
             HtmlReportOverrideCssVariables = @{ Type = 'hashtable'; Required = $false }
