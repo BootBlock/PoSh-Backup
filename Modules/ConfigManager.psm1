@@ -27,7 +27,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2 # Explicitly import Utils.psm1. Use Logger in Get-JobsToProcess & Get-PoShBackupJobEffectiveConfiguration.
+    Version:        1.0.3 # PSSA: Use direct $Logger call for initial debug messages.
     DateCreated:    17-May-2025
     LastModified:   18-May-2025
     Purpose:        Centralised configuration management for PoSh-Backup.
@@ -119,7 +119,10 @@ function Import-AppConfiguration {
         [scriptblock]$Logger
     )
 
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Import-AppConfiguration: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -128,9 +131,7 @@ function Import-AppConfiguration {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Import-AppConfiguration: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
+    
     $finalConfiguration = $null
     $userConfigLoadedSuccessfully = $false
     $primaryConfigPathForReturn = $null
@@ -251,10 +252,6 @@ function Import-AppConfiguration {
             & $LocalWriteLog -Message "[INFO] ConfigManager: 'SevenZipPath' empty/not set. Attempting auto-detection..." -Level "INFO"
         }
 
-        # Ensure 7ZipManager.psm1 is loaded to make Find-SevenZipExecutable available.
-        # This is a bit of a chicken-and-egg if ConfigManager is loaded before 7ZipManager by the main script,
-        # but PoSh-Backup.ps1 loads 7ZipManager before ConfigManager's Import-AppConfiguration is called.
-        # However, for direct calls or testing of ConfigManager, this ensures dependency.
         if (-not (Get-Command Find-SevenZipExecutable -ErrorAction SilentlyContinue)) {
             try {
                  Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager.psm1") -Force -ErrorAction Stop
@@ -263,12 +260,10 @@ function Import-AppConfiguration {
                 $criticalErrorMsg = "CRITICAL: ConfigManager: Function 'Find-SevenZipExecutable' not available and could not load 7ZipManager.psm1. Error: $($_.Exception.Message)"
                 & $LocalWriteLog -Message $criticalErrorMsg -Level ERROR
                 if (-not $validationMessages.Contains($criticalErrorMsg)) { $validationMessages.Add($criticalErrorMsg) }
-                # Fall through, next check for $foundPath will handle it.
             }
         }
         
         if (Get-Command Find-SevenZipExecutable -ErrorAction SilentlyContinue) {
-            # Pass the logger to Find-SevenZipExecutable
             $foundPath = Find-SevenZipExecutable -Logger $Logger
             if ($null -ne $foundPath) {
                 $finalConfiguration.SevenZipPath = $foundPath
@@ -286,7 +281,6 @@ function Import-AppConfiguration {
                 if (-not $validationMessages.Contains($errorMsg)) { $validationMessages.Add($errorMsg) }
             }
         } else {
-            # This case should have been caught by the explicit check above, but defensive.
              $criticalErrorMsg = "CRITICAL: ConfigManager: Function 'Find-SevenZipExecutable' (from 7ZipManager.psm1) is definitively not available. Cannot auto-detect 7-Zip path."
             & $LocalWriteLog -Message $criticalErrorMsg -Level ERROR
             if (-not $validationMessages.Contains($criticalErrorMsg)) { $validationMessages.Add($criticalErrorMsg) }
@@ -427,7 +421,10 @@ function Get-JobsToProcess {
         [scriptblock]$Logger
     )
 
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Get-JobsToProcess: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -436,9 +433,7 @@ function Get-JobsToProcess {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Get-JobsToProcess: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
+    
     $jobsToRun = [System.Collections.Generic.List[string]]::new()
     $setName = $null
     $stopSetOnErrorPolicy = $true # Default for StopSetOnError is "StopSet", hence $true
@@ -556,19 +551,19 @@ function Get-PoShBackupJobEffectiveConfiguration {
         [scriptblock]$Logger
     )
 
-    # Internal helper to use the passed-in logger consistently
-    $LocalWriteLog = {
-        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
-            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
-            & $Logger -Message $Message -Level $Level
-        }
-    }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Get-PoShBackupJobEffectiveConfiguration: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Get-PoShBackupJobEffectiveConfiguration: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
 
-
+    # Internal helper to use the passed-in logger consistently for other messages
+    # $LocalWriteLog = { # This helper is not strictly needed if no other logging calls are made directly by this function
+    #     param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+    #     if ($null -ne $ForegroundColour) {
+    #         & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+    #     } else {
+    #         & $Logger -Message $Message -Level $Level
+    #     }
+    # }
+    
     $effectiveConfig = @{}
     $reportData = $JobReportDataRef.Value 
 

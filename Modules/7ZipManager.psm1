@@ -19,7 +19,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2 # All functions now accept and use -Logger.
+    Version:        1.0.3 # PSSA: Use direct $Logger call for initial debug message.
     DateCreated:    17-May-2025
     LastModified:   18-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
@@ -54,7 +54,10 @@ function Find-SevenZipExecutable {
         [scriptblock]$Logger
     )
 
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Find-SevenZipExecutable: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue 
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -63,9 +66,6 @@ function Find-SevenZipExecutable {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Find-SevenZipExecutable: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
 
     & $LocalWriteLog -Message "  - Attempting to auto-detect 7z.exe..." -Level "DEBUG"
     $commonPaths = @(
@@ -139,7 +139,10 @@ function Get-PoShBackup7ZipArgument {
         [scriptblock]$Logger
     )
 
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Get-PoShBackup7ZipArgument: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -148,9 +151,7 @@ function Get-PoShBackup7ZipArgument {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Get-PoShBackup7ZipArgument: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
+    
     $sevenZipArgs = [System.Collections.Generic.List[string]]::new()
     $sevenZipArgs.Add("a") # Add (archive) command
 
@@ -263,7 +264,10 @@ function Invoke-7ZipOperation {
         [scriptblock]$Logger
     )
 
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Invoke-7ZipOperation: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -272,8 +276,6 @@ function Invoke-7ZipOperation {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Invoke-7ZipOperation: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     $currentTry = 0
     $actualMaxTries = if ($EnableRetries) { [math]::Max(1, $MaxRetries) } else { 1 } # Ensure at least 1 try
@@ -444,7 +446,10 @@ function Test-7ZipArchive {
         [scriptblock]$Logger
     )
 
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Test-7ZipArchive: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -453,8 +458,6 @@ function Test-7ZipArchive {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Test-7ZipArchive: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     & $LocalWriteLog -Message "`n[INFO] Performing archive integrity test for '$ArchivePath'..."
     $testArguments = [System.Collections.Generic.List[string]]::new()

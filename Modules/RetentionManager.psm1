@@ -23,7 +23,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Functions now accept and use -Logger.
+    Version:        1.0.2 # PSSA: Use direct $Logger call for initial debug messages.
     DateCreated:    17-May-2025
     LastModified:   18-May-2025
     Purpose:        Centralised backup retention policy management for PoSh-Backup.
@@ -50,7 +50,10 @@ function Invoke-VisualBasicFileOperation {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Invoke-VisualBasicFileOperation: Logger parameter active for path '$Path'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -59,9 +62,7 @@ function Invoke-VisualBasicFileOperation {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Invoke-VisualBasicFileOperation: Logger parameter active for path '$Path'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
+    
     try {
         Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop
     } catch {
@@ -124,7 +125,10 @@ function Invoke-BackupRetentionPolicy {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Invoke-BackupRetentionPolicy: Logger parameter active for base name '$ArchiveBaseFileName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -133,9 +137,7 @@ function Invoke-BackupRetentionPolicy {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Invoke-BackupRetentionPolicy: Logger parameter active for base name '$ArchiveBaseFileName'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
+    
     & $LocalWriteLog -Message "`n[INFO] RetentionManager: Applying Backup Retention Policy for archives matching base name '$ArchiveBaseFileName' and extension '$ArchiveExtension'..."
     & $LocalWriteLog -Message "   - Destination Directory: $DestinationDirectory"
     & $LocalWriteLog -Message "   - Configured Total Retention Count (target after current backup completes): $RetentionCountToKeep"

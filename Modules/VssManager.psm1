@@ -22,7 +22,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Functions now accept and use -Logger.
+    Version:        1.0.2 # PSSA: Use direct $Logger call for initial debug messages.
     DateCreated:    17-May-2025
     LastModified:   18-May-2025
     Purpose:        Centralised VSS management for PoSh-Backup.
@@ -48,7 +48,10 @@ function Remove-VssManagerShadowCopyByIdInternal {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Remove-VssManagerShadowCopyByIdInternal: Logger parameter active for ShadowID '$ShadowID'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -57,9 +60,6 @@ function Remove-VssManagerShadowCopyByIdInternal {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Remove-VssManagerShadowCopyByIdInternal: Logger parameter active for ShadowID '$ShadowID'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
 
     if (-not $PSCmdlet.ShouldProcess("VSS Shadow ID $ShadowID", "Delete using diskshadow.exe")) {
         & $LocalWriteLog -Message "  - VSS shadow ID $ShadowID deletion skipped by user (ShouldProcess)." -Level WARNING
@@ -131,7 +131,10 @@ function New-VSSShadowCopy {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "New-VSSShadowCopy: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -140,9 +143,7 @@ function New-VSSShadowCopy {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "New-VSSShadowCopy: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
+    
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey)) {
         $Script:VssManager_ScriptRunVSSShadowIDs[$runKey] = @{}
@@ -300,7 +301,10 @@ function Remove-VSSShadowCopy {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Remove-VSSShadowCopy: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -309,9 +313,7 @@ function Remove-VSSShadowCopy {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Remove-VSSShadowCopy: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
+    
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey) -or $Script:VssManager_ScriptRunVSSShadowIDs[$runKey].Count -eq 0) {
         & $LocalWriteLog -Message "`n[INFO] VssManager: No VSS Shadow IDs recorded for current run (PID $runKey) to remove, or already cleared." -Level VSS

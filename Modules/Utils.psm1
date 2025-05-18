@@ -22,7 +22,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.10.1 # Functions now accept and use -Logger where applicable.
+    Version:        1.10.2 # PSSA: Use direct $Logger call for initial debug messages.
     DateCreated:    10-May-2025
     LastModified:   18-May-2025
     Purpose:        Core utility functions for the PoSh-Backup solution.
@@ -101,7 +101,10 @@ function Test-AdminPrivilege {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Test-AdminPrivilege: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -110,8 +113,6 @@ function Test-AdminPrivilege {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Test-AdminPrivilege: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     & $LocalWriteLog -Message "[INFO] Checking for Administrator privileges..." -Level "DEBUG"
     $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -136,7 +137,10 @@ function Invoke-HookScript {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Invoke-HookScript: Logger parameter active for hook '$HookType'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -145,8 +149,6 @@ function Invoke-HookScript {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Invoke-HookScript: Logger parameter active for hook '$HookType'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     if ([string]::IsNullOrWhiteSpace($ScriptPath)) { return } 
 
@@ -237,7 +239,10 @@ function Get-ArchiveSizeFormatted {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Get-ArchiveSizeFormatted: Logger parameter active for path '$PathToArchive'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -246,8 +251,6 @@ function Get-ArchiveSizeFormatted {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Get-ArchiveSizeFormatted: Logger parameter active for path '$PathToArchive'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     $FormattedSize = "N/A"
     try {
@@ -314,7 +317,10 @@ function Test-DestinationFreeSpace {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
-    # Internal helper to use the passed-in logger consistently
+    # Defensive PSSA appeasement line by directly calling the logger for this initial message
+    & $Logger -Message "Test-DestinationFreeSpace: Logger parameter active for path '$DestDir'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
@@ -323,8 +329,6 @@ function Test-DestinationFreeSpace {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # Defensive PSSA appeasement line
-    & $LocalWriteLog -Message "Test-DestinationFreeSpace: Logger parameter active for path '$DestDir'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     if ($MinRequiredGB -le 0) { return $true } 
 
