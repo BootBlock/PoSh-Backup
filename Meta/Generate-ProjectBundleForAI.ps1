@@ -1,45 +1,43 @@
 <#
 .SYNOPSIS
-    Consolidates project files, including itself, into a single text bundle file for AI ingestion.
+    Consolidates project files, including itself and its own modules, into a single text bundle file for AI ingestion.
 .DESCRIPTION
-    This script iterates through files in the project root and its subdirectories (excluding specified folders and file types),
-    and outputs their relative paths and contents into a text file named 'PoSh-Backup-AI-Bundle.txt' in the project root directory.
-    The script ensures this output file is overwritten on each run and does not bundle its own previous output.
-    It also explicitly includes its own source code in the bundle.
-    The bundle includes a project structure overview, AI-readable state with auto-detected module descriptions,
-    PowerShell dependencies, and by default includes both PSScriptAnalyzer summary (can be disabled with -NoRunScriptAnalyzer)
-    and the output of PoSh-Backup.ps1 -TestConfig (can be disabled with -DoNotIncludeTestConfigOutput).
-    It will use a PSScriptAnalyzerSettings.psd1 file from the project root if present, and include its content in the bundle.
-    The displayed project root path in the bundle is an anonymized version (just the root folder name).
+    This script orchestrates the bundling of project files for AI ingestion.
+    It leverages several sub-modules located in 'Meta\BundlerModules\' for specific tasks:
+    - 'Bundle.Utils.psm1': Handles version extraction and project structure overview.
+    - 'Bundle.FileProcessor.psm1': Handles individual file reading, language hinting, synopsis/dependency extraction.
+    - 'Bundle.ExternalTools.psm1': Handles PSScriptAnalyzer execution and PoSh-Backup -TestConfig output.
+    - 'Bundle.StateAndAssembly.psm1': Handles AI State block generation and final assembly of all bundle content.
+    - 'Bundle.ProjectScanner.psm1': Handles the main iteration over project files, applying exclusions.
+
+    The script first adds itself and its sub-modules to the bundle. Then, it invokes
+    'Bundle.ProjectScanner.psm1' to process the main project files. Finally, it assembles
+    all collected information and generated content into 'PoSh-Backup-AI-Bundle.txt'.
 .PARAMETER ProjectRoot
     The root directory of the project to bundle. Defaults to the parent directory of this script's location.
     Must be a valid, existing directory.
 .PARAMETER ExcludedFolders
-    An array of folder names (relative to ProjectRoot) to exclude from bundling.
+    An array of folder names (relative to ProjectRoot) to exclude from bundling by the ProjectScanner module.
+    Note: 'Meta\BundlerModules' is always included by this main script.
 .PARAMETER ExcludedFileExtensions
-    An array of file extensions (including the dot, e.g., ".log") to exclude.
+    An array of file extensions (including the dot, e.g., ".log") to exclude by the ProjectScanner module.
 .PARAMETER NoRunScriptAnalyzer
-    A switch parameter. If present, PSScriptAnalyzer will NOT be run, and its summary will be excluded from the bundle.
-    By default (if this switch is omitted), the script attempts to run PSScriptAnalyzer.
+    A switch parameter. If present, PSScriptAnalyzer will NOT be run.
 .PARAMETER DoNotIncludeTestConfigOutput
-    A switch parameter. If present, the script will NOT run 'PoSh-Backup.ps1 -TestConfig'
-    and its output will be excluded from the bundle. By default, the TestConfig output is included.
+    A switch parameter. If present, 'PoSh-Backup.ps1 -TestConfig' will NOT be run.
 .EXAMPLE
     .\Meta\Generate-ProjectBundleForAI.ps1
-    Generates 'PoSh-Backup-AI-Bundle.txt' in the project root folder, overwriting any existing file and ensuring
-    it doesn't include its own previous output. Shows progress messages.
-    Includes PSScriptAnalyzer results (using PSScriptAnalyzerSettings.psd1 if found, and including its content)
-    AND PoSh-Backup.ps1 -TestConfig output by default.
+    Generates 'PoSh-Backup-AI-Bundle.txt', including PSScriptAnalyzer and -TestConfig output by default.
 
 .EXAMPLE
     .\Meta\Generate-ProjectBundleForAI.ps1 -NoRunScriptAnalyzer -DoNotIncludeTestConfigOutput
-    Generates 'PoSh-Backup-AI-Bundle.txt', overwriting any existing file. Shows progress, but skips PSScriptAnalyzer AND PoSh-Backup.ps1 -TestConfig output.
+    Generates 'PoSh-Backup-AI-Bundle.txt', skipping PSScriptAnalyzer and -TestConfig output.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.19.2 # Updated PSSA summary Out-String width to 250. Updated AI state.
+    Version:        1.24.0 # Modularized project file scanning logic.
     DateCreated:    15-May-2025
-    LastModified:   17-May-2025 # Increased PSSA Out-String width.
+    LastModified:   17-May-2025
 #>
 
 param (
@@ -60,138 +58,22 @@ param (
 # --- Script-Scoped Variables ---
 $script:autoDetectedModuleDescriptions = @{}
 $script:autoDetectedPsDependencies = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-
-$script:fileExtensionToLanguageMap = @{
-    ".ps1"    = "powershell"; ".psm1"   = "powershell"; ".psd1"   = "powershell"
-    ".css"    = "css";        ".html"   = "html";       ".js"     = "javascript"
-    ".json"   = "json";       ".xml"    = "xml";        ".md"     = "markdown"
-    ".txt"    = "text";       ".yml"    = "yaml";       ".yaml"   = "yaml"
-    ".ini"    = "ini";        ".conf"   = "plaintext";  ".config" = "xml"
-    ".sh"     = "shell";      ".bash"   = "bash";       ".py"     = "python"
-    ".cs"     = "csharp";     ".c"      = "c";          ".cpp"    = "cpp"; ".h" = "c"
-    ".java"   = "java";       ".rb"     = "ruby";       ".php"    = "php"
-    ".go"     = "go";         ".swift"  = "swift";      ".kt"     = "kotlin"
-    ".sql"    = "sql"
-}
 # --- End Script-Scoped Variables ---
 
-
-# --- Helper Functions ---
-function Get-ScriptVersionFromContent {
-    param([string]$ScriptContent, [string]$ScriptNameForWarning = "script")
-    $versionString = "N/A"
-    try {
-        if ([string]::IsNullOrWhiteSpace($ScriptContent)) {
-            Write-Warning "Bundler: Script content provided to Get-ScriptVersionFromContent for '$ScriptNameForWarning' is empty."
-            return "N/A (Empty Content)"
-        }
-        $regexV1 = '(?s)\.NOTES(?:.|\s)*?Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:\.[0-9]+)?.*?)(?:\r?\n|\s*\(|<#)'
-        $regexV2 = '(?im)^\s*Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:\.[0-9]+)?.*?)(\s*\(|$)'
-        $regexV3 = '(?im)Script Version:\s*v?([0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?.*?)\b'
-
-        $match = [regex]::Match($ScriptContent, $regexV2)
-        if ($match.Success) {
-            $versionString = $match.Groups[1].Value.Trim()
-        } else {
-            $match = [regex]::Match($ScriptContent, $regexV1)
-            if ($match.Success) {
-                $versionString = $match.Groups[1].Value.Trim()
-            } else {
-                $match = [regex]::Match($ScriptContent, $regexV3)
-                if ($match.Success) {
-                    $versionString = "v" + $match.Groups[1].Value.Trim()
-                } else {
-                    Write-Warning "Bundler: Could not automatically determine version for '$ScriptNameForWarning' using any regex."
-                }
-            }
-        }
-    } catch { Write-Warning "Bundler: Error parsing version for '$ScriptNameForWarning': $($_.Exception.Message)" }
-    return $versionString
+# --- Bundler Module Imports ---
+try {
+    $bundlerModulesPath = Join-Path -Path $PSScriptRoot -ChildPath "BundlerModules"
+    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.FileProcessor.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.ExternalTools.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.StateAndAssembly.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.ProjectScanner.psm1") -Force -ErrorAction Stop
+    Write-Verbose "Bundler utility modules loaded."
+} catch {
+    Write-Error "FATAL: Failed to import required bundler script modules from '$bundlerModulesPath'. Error: $($_.Exception.Message)"
+    exit 11
 }
-
-function Add-FileToBundle {
-    param(
-        [Parameter(Mandatory)]
-        [System.IO.FileInfo]$FileObject,
-        [Parameter(Mandatory)]
-        [string]$RootPathForRelativeCalculations,
-        [Parameter(Mandatory)]
-        [System.Text.StringBuilder]$BundleBuilder
-    )
-
-    $currentRelativePath = $FileObject.FullName.Substring($RootPathForRelativeCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-
-    $fileExtLower = $FileObject.Extension.ToLowerInvariant()
-    $currentLanguageHint = if ($script:fileExtensionToLanguageMap.ContainsKey($fileExtLower)) {
-        $script:fileExtensionToLanguageMap[$fileExtLower]
-    } else {
-        "text"
-    }
-
-    $null = $BundleBuilder.AppendLine("--- FILE_START ---")
-    $null = $BundleBuilder.AppendLine("Path: $currentRelativePath")
-    $null = $BundleBuilder.AppendLine("Language: $currentLanguageHint")
-    $null = $BundleBuilder.AppendLine("Last Modified: $($FileObject.LastWriteTime)")
-    $null = $BundleBuilder.AppendLine("Size: $($FileObject.Length) bytes")
-    $null = $BundleBuilder.AppendLine("--- FILE_CONTENT ---")
-
-    $fileContent = ""
-    try {
-        $fileContent = Get-Content -LiteralPath $FileObject.FullName -Raw -Encoding UTF8 -ErrorAction Stop
-        if ($null -eq $fileContent -and $LASTEXITCODE -ne 0) {
-            $fileContent = Get-Content -LiteralPath $FileObject.FullName -Raw -ErrorAction SilentlyContinue
-        }
-
-        if ([string]::IsNullOrWhiteSpace($fileContent) -and $FileObject.Length -gt 0 -and $LASTEXITCODE -ne 0) {
-             $null = $BundleBuilder.AppendLine("(Could not read content as text or file is binary. Size: $($FileObject.Length) bytes)")
-        } elseif ([string]::IsNullOrWhiteSpace($fileContent)) {
-            $null = $BundleBuilder.AppendLine("(This file is empty or contains only whitespace)")
-        } else {
-            $null = $BundleBuilder.AppendLine(('```' + $currentLanguageHint))
-            $null = $BundleBuilder.AppendLine($fileContent)
-            $null = $BundleBuilder.AppendLine('```')
-        }
-    } catch {
-        $null = $BundleBuilder.AppendLine("(Error reading file '$($FileObject.FullName)': $($_.Exception.Message))")
-    }
-
-    if ($FileObject.Extension -in ".ps1", ".psm1" -and -not [string]::IsNullOrEmpty($fileContent)) {
-        try {
-            $synopsisMatch = [regex]::Match($fileContent, '(?s)\.SYNOPSIS\s*(.*?)(?=\r?\n\s*\.(?:DESCRIPTION|EXAMPLE|PARAMETER|NOTES|LINK)|<#|$)')
-            if ($synopsisMatch.Success) {
-                $synopsisText = $synopsisMatch.Groups[1].Value.Trim() -replace '\s*\r?\n\s*', ' ' -replace '\s{2,}', ' '
-                if ($synopsisText.Length -gt 200) { $synopsisText = $synopsisText.Substring(0, 197) + "..." }
-                if (-not [string]::IsNullOrWhiteSpace($synopsisText)) {
-                    $script:autoDetectedModuleDescriptions[$currentRelativePath] = $synopsisText
-                }
-            }
-        } catch {
-            Write-Warning "Error parsing synopsis for '$currentRelativePath': $($_.Exception.Message)"
-        }
-
-        try {
-            $regexPatternForRequires = '(?im)^\s*#Requires\s+-Module\s+(?:@{ModuleName\s*=\s*)?["'']?([a-zA-Z0-9._-]+)["'']?'
-            $requiresMatches = [regex]::Matches($fileContent, $regexPatternForRequires)
-
-            if ($requiresMatches.Count -gt 0) {
-                Write-Verbose "Found #Requires -Module in $($FileObject.Name):"
-                foreach ($reqMatch in $requiresMatches) {
-                    if ($reqMatch.Groups[1].Success) {
-                        $moduleName = $reqMatch.Groups[1].Value
-                        Write-Verbose "  - Adding '$moduleName' to PowerShell dependencies."
-                        $null = $script:autoDetectedPsDependencies.Add($moduleName)
-                    }
-                }
-            }
-        } catch {
-            Write-Warning "Error parsing #Requires for '$currentRelativePath': $($_.Exception.Message)"
-        }
-    }
-
-    $null = $BundleBuilder.AppendLine("--- FILE_END ---")
-    $null = $BundleBuilder.AppendLine("")
-}
-# --- End Helper Functions ---
+# --- End Bundler Module Imports ---
 
 
 # --- Main Script Setup ---
@@ -221,7 +103,7 @@ $null = $headerContentBuilder.AppendLine("Please review the AI State, Project St
 $null = $headerContentBuilder.AppendLine("After you've processed this, the user will provide specific instructions, context for what we last worked on, and outline the next task for our current session.")
 $null = $headerContentBuilder.AppendLine("")
 
-$fileContentBuilder = [System.Text.StringBuilder]::new()
+$fileContentBuilder = [System.Text.StringBuilder]::new() # Populated by Add-FileToBundle calls
 # --- End Main Script Setup ---
 
 
@@ -230,48 +112,85 @@ try {
     if (-not (Test-Path -LiteralPath $ProjectRoot_FullPath -PathType Container)) {
         $errorMessage = "Project root '$ProjectRoot_FullPath' not found or is not a directory (post-parameter validation check)."
         Write-Error $errorMessage
-        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue # Attempt to clear partial bundle
         ($headerContentBuilder.ToString() + $fileContentBuilder.ToString()) | Set-Content -Path $outputFilePath -Encoding UTF8 -Force -ErrorAction SilentlyContinue
         exit 1
     }
 
-    $thisScriptFileObject = Get-Item -LiteralPath $PSCommandPath
-    Write-Verbose "Explicitly adding bundler script itself to bundle: $($thisScriptFileObject.FullName)"
-    Add-FileToBundle -FileObject $thisScriptFileObject `
-                     -RootPathForRelativeCalculations $normalizedProjectRootForCalculations `
-                     -BundleBuilder $fileContentBuilder
-
-    Write-Verbose "Starting scan of project files in '$ProjectRoot_FullPath'..."
-    Get-ChildItem -Path $ProjectRoot_FullPath -Recurse -File -Depth 10 -ErrorAction SilentlyContinue | ForEach-Object {
-        $file = $_
-        if ($file.FullName -eq $thisScriptFileObject.FullName) { Write-Verbose "Skipping bundler script (already added): $($file.FullName)"; return }
-        if ($file.FullName -eq $outputFilePath) { Write-Verbose "Skipping previous output bundle file to prevent self-inclusion: $($file.FullName)"; return }
-
-        $currentRelativePath = $file.FullName.Substring($normalizedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-
-        $isExcludedFolder = $false
-        foreach ($excludedDir in $ExcludedFolders) {
-            $normalizedExcludedDir = $excludedDir.TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-            if ($currentRelativePath -like "$normalizedExcludedDir\*" -or $currentRelativePath -eq $normalizedExcludedDir) {
-                $isExcludedFolder = $true; break
+    # Local helper to process a single file (typically bundler & its modules) and update script-scoped collections
+    $UpdateMetadataFromProcessingResult = {
+        param($FileObjectParam, $ProcessingResult)
+        if ($null -ne $ProcessingResult) {
+            if (-not [string]::IsNullOrWhiteSpace($ProcessingResult.Synopsis)) {
+                $currentRelPath = $FileObjectParam.FullName.Substring($normalizedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+                $script:autoDetectedModuleDescriptions[$currentRelPath] = $ProcessingResult.Synopsis
+            }
+            if ($null -ne $ProcessingResult.Dependencies -and $ProcessingResult.Dependencies.Count -gt 0) {
+                foreach ($dep in $ProcessingResult.Dependencies) {
+                    $null = $script:autoDetectedPsDependencies.Add($dep)
+                }
             }
         }
-        if ($isExcludedFolder) { Write-Verbose "Skipping file in excluded folder '$($file.Directory.Name)': $currentRelativePath"; return }
-        if ($ExcludedFileExtensions -contains $file.Extension.ToLowerInvariant()) { Write-Verbose "Skipping file due to excluded extension ('$($file.Extension)'): $currentRelativePath"; return }
-
-        Write-Verbose "Adding file to bundle: $currentRelativePath"
-        Add-FileToBundle -FileObject $file `
-                         -RootPathForRelativeCalculations $normalizedProjectRootForCalculations `
-                         -BundleBuilder $fileContentBuilder
     }
-    Write-Verbose "Finished scanning project files."
+
+    # 1. Add the bundler script itself
+    $thisScriptFileObject = Get-Item -LiteralPath $PSCommandPath
+    Write-Verbose "Explicitly adding bundler script itself to bundle: $($thisScriptFileObject.FullName)"
+    $bundlerScriptProcessingResult = Add-FileToBundle -FileObject $thisScriptFileObject `
+                                                      -RootPathForRelativeCalculations $normalizedProjectRootForCalculations `
+                                                      -BundleBuilder $fileContentBuilder
+    & $UpdateMetadataFromProcessingResult -FileObjectParam $thisScriptFileObject -ProcessingResult $bundlerScriptProcessingResult
+
+
+    # 2. Add the bundler's own modules from Meta\BundlerModules
+    $bundlerModulesDir = Join-Path -Path $PSScriptRoot -ChildPath "BundlerModules"
+    if (Test-Path -LiteralPath $bundlerModulesDir -PathType Container) {
+        Write-Verbose "Adding bundler's own modules from '$bundlerModulesDir'..."
+        Get-ChildItem -Path $bundlerModulesDir -Filter *.psm1 -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $bundlerModuleFile = $_
+            Write-Verbose "Adding bundler module to bundle: $($bundlerModuleFile.Name)"
+            $moduleProcessingResult = Add-FileToBundle -FileObject $bundlerModuleFile `
+                                                       -RootPathForRelativeCalculations $normalizedProjectRootForCalculations `
+                                                       -BundleBuilder $fileContentBuilder
+            & $UpdateMetadataFromProcessingResult -FileObjectParam $bundlerModuleFile -ProcessingResult $moduleProcessingResult
+        }
+    } else {
+        Write-Warning "Bundler modules directory '$bundlerModulesDir' not found. Bundler's own modules will not be included in the bundle."
+    }
+
+    # 3. Scan and add project files using Bundle.ProjectScanner.psm1
+    # This is where the main loop over project files happens.
+    $projectScanResult = Invoke-BundlerProjectScan -ProjectRoot_FullPath $ProjectRoot_FullPath `
+                                                   -NormalizedProjectRootForCalculations $normalizedProjectRootForCalculations `
+                                                   -OutputFilePath $outputFilePath `
+                                                   -ThisScriptFileObject $thisScriptFileObject `
+                                                   -BundlerModulesDir $bundlerModulesDir `
+                                                   -ExcludedFolders $ExcludedFolders `
+                                                   -ExcludedFileExtensions $ExcludedFileExtensions `
+                                                   -FileContentBuilder $fileContentBuilder
+    
+    # Merge metadata collected by ProjectScanner into the script-scoped collections
+    if ($null -ne $projectScanResult) {
+        if ($null -ne $projectScanResult.ModuleDescriptions) {
+            $projectScanResult.ModuleDescriptions.GetEnumerator() | ForEach-Object {
+                $script:autoDetectedModuleDescriptions[$_.Name] = $_.Value
+            }
+        }
+        if ($null -ne $projectScanResult.PsDependencies) {
+            $projectScanResult.PsDependencies | ForEach-Object { # HashSet is enumerable
+                $null = $script:autoDetectedPsDependencies.Add($_)
+            }
+        }
+    }
+    Write-Verbose "Finished all file processing and metadata collection."
 }
 catch {
     $errorMessage = "An unexpected error occurred during file processing: $($_.Exception.ToString())"
     Write-Error $errorMessage
-    $null = $fileContentBuilder.AppendLine("ERROR: $errorMessage")
+    $null = $fileContentBuilder.AppendLine("ERROR: $errorMessage") # Add error to the content builder just in case
 }
 finally {
+    # --- Retrieve Versions ---
     Write-Verbose "Reading PoSh-Backup.ps1 for version information..."
     $mainPoShBackupScriptPath = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PoSh-Backup.ps1"
     $mainPoShBackupScriptFileObject = Get-Item -LiteralPath $mainPoShBackupScriptPath -ErrorAction SilentlyContinue
@@ -283,301 +202,69 @@ finally {
     }
 
     Write-Verbose "Reading bundler script for its own version information..."
-    $thisBundlerScriptFileObject = Get-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue
-    $bundlerScriptVersion = "1.19.2" # Manually set desired version for this generation
-    if ($thisBundlerScriptFileObject) {
-        $readBundlerVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content -LiteralPath $thisBundlerScriptFileObject.FullName -Raw -ErrorAction SilentlyContinue) -ScriptNameForWarning $thisBundlerScriptFileObject.Name
-        if ($readBundlerVersion -ne $bundlerScriptVersion -and $readBundlerVersion -ne "N/A" -and $readBundlerVersion -notlike "N/A (*" ) {
-             # If the version hardcoded in this AI State block ($bundlerScriptVersion) differs from what Get-ScriptVersionFromContent reads from the .NOTES
-             # of the currently executing file on disk, prefer the hardcoded one for the AI State generation to ensure it reflects what the AI is being *told* the version is.
-             # The user should ensure the .NOTES section matches the hardcoded version when they save the script provided by the AI.
-             Write-Verbose "Bundler: Read version '$readBundlerVersion' from current disk file's CBH ($($thisBundlerScriptFileObject.Name)), but AI State will use hardcoded version '$bundlerScriptVersion' for this generation. Ensure CBH is updated to '$bundlerScriptVersion'."
+    $thisBundlerScriptFileObjectForVersion = Get-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue
+    $bundlerScriptVersionForState = "1.24.0" # Version of THIS script, to be embedded in AI State
+    if ($thisBundlerScriptFileObjectForVersion) {
+        $readBundlerVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content -LiteralPath $thisBundlerScriptFileObjectForVersion.FullName -Raw -ErrorAction SilentlyContinue) -ScriptNameForWarning $thisBundlerScriptFileObjectForVersion.Name
+        if ($readBundlerVersion -ne $bundlerScriptVersionForState -and $readBundlerVersion -ne "N/A" -and $readBundlerVersion -notlike "N/A (*" ) {
+             Write-Verbose "Bundler: Read version '$readBundlerVersion' from current disk file's CBH ($($thisBundlerScriptFileObjectForVersion.Name)), but AI State will use hardcoded version '$bundlerScriptVersionForState' for this generation. Ensure CBH is updated to '$bundlerScriptVersionForState'."
         }
     } else {
-         Write-Warning "Bundler: Could not get bundler script file object ('$($PSCommandPath)') for version extraction. Using manually set version '$bundlerScriptVersion' for AI State."
+         Write-Warning "Bundler: Could not get bundler script file object ('$($PSCommandPath)') for version extraction. Using manually set version '$bundlerScriptVersionForState' for AI State."
     }
 
-    # AI STATE BLOCK - Updated by AI as requested
-$aiState = @{
-    project_name = "PoSh Backup Solution";
-    main_script_poSh_backup_version = $poShBackupVersion; # Auto-read by bundler
-    ai_bundler_update_instructions = @{
-        purpose = "Instructions for AI on how to regenerate the content of this `$aiState hashtable within the Generate-ProjectBundleForAI.ps1 script when requested by the user.";
-        example_of_ai_provided_block_start = "`$aiState = @{";
-        output_format_for_ai = "Provide the updated `$aiState block as a complete PowerShell hashtable string, ready for copy-pasting directly into Generate-ProjectBundleForAI.ps1, replacing the existing `$aiState = @{ ... }` block. Ensure strings are correctly quoted and arrays use PowerShell syntax, e.g., `@('item1', 'item2')`.";
-        reminder_for_ai = "When asked to update this state, proactively consider if any recent challenges or frequent corrections should be added to the 'ai_development_watch_list'.";
-        fields_to_be_updated_by_user = @(
-            "external_dependencies.executables (if new external tools are added - AI cannot auto-detect this reliably)"
-        );
-        fields_to_update_by_ai = @(
-            "conversation_summary: Refine based on newly implemented and stable features reflected in the code. Focus on *what is currently in the code*.",
-            "module_descriptions: AI should verify/update this based on current file synopses if major changes occur to files or new modules are added/removed (auto-detected by bundler).",
-            "external_dependencies.powershell_modules: AI should verify this list if new #Requires statements are added/removed from scripts (auto-detected by bundler).",
-            "main_script_poSh_backup_version: AI should update this if it modifies PoSh-Backup.ps1's version information (auto-read by this bundler).",
-            "bundler_script_version: AI should update this if it modifies this bundler script's version information (auto-read by this bundler).",
-            "ai_development_watch_list: AI should review this list. If new persistent common errors or important reminders have emerged during the session, AI should suggest or include updates to this list when asked to update the bundler state."
-        );
-        when_to_update = "Only when the user explicitly asks to 'update the bundler script's AI state'.";
-        example_of_ai_provided_block_end = "}"
-    };
-    bundler_script_version = "1.19.2"; # Version of Generate-ProjectBundleForAI.ps1
-    conversation_summary = @(
-        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1).",
-        "Modular design: Modules/ (Utils, Operations, PasswordManager, Reporting orchestrator, 7ZipManager), Modules/Reporting/ (format-specific), Config/ (Default.psd1, User.psd1, Themes/), Meta/ (bundler).",
-        "Reporting: Multi-format (HTML, CSV, JSON, XML, TXT, MD). HTML reports feature theming, log filtering, sim banner. Reporting.psm1 orchestrator intelligently passes parameters to sub-modules.",
-        "Core Features: Early 7-Zip check (auto-detection), VSS, retries, hooks, flexible password management.",
-        "PoSh-Backup.ps1: Added -SkipUserConfigCreation switch to bypass interactive prompt for creating User.psd1.",
-        "Validation: Optional schema-based configuration validation (PoShBackupValidator.psm1).",
-        "PSScriptAnalyzer (PSSA) Refinements:",
-        "  - Fixed 'Select' alias to 'Select-Object' in Utils.psm1 and Operations.psm1, resolving PSSA warnings.",
-        "  - Modernized VSS polling in Operations.psm1 from Get-WmiObject to Get-CimInstance, resolving a PSSA warning.",
-        "  - Addressed an 'unused parameter' PSSA warning for PollingIntervalSeconds in Operations.psm1 that arose from the CIM change.",
-        "  - Added defensive/explicit calls to the `$Logger` parameter in all 7 affected modules (ReportingCsv, ReportingHtml, ReportingJson, ReportingMd, ReportingTxt, ReportingXml, and PasswordManager) to resolve PSSA warnings about unused parameters. This was necessary as PSSA's analysis via the bundler did not consistently recognize indirect usage within closures.",
-        "  - Updated PSScriptAnalyzerSettings.psd1: Added 'PSAvoidGlobalVars' to exclusions. Removed 'PSUseCIMToolingForWin32Namespace' and 'PSUseDeclaredVarsMoreThanAssignments' as underlying code issues or PSSA recognition issues were addressed by direct code changes/workarounds.",
-        "  - PSSA summary in the bundle is now clean (0 warnings/errors).",
-        "Bundler Improvements:",
-        "  - Regex for version extraction refined; PoSh-Backup.ps1 -TestConfig output included by default; PSSA uses settings file; bundler's own PSSA warnings addressed (Write-Host to Write-Verbose/Output, Invoke-Expression suppression); Bundle file moved to root with static name 'PoSh-Backup-AI-Bundle.txt', ensures it overwrites existing bundle, and skips bundling its own previous output. Language hint detection refactored to use hashtable. Project root path resolution optimized. Added ProjectRoot parameter validation and more verbose output messages.",
-        "  - Bundler's PSSA output display width for Invoke-ScriptAnalyzer results increased to 250 characters to prevent truncation of ScriptName/Line/Column information.",
-        "Modular Refactoring (Stage 1 - 7ZipManager):",
-        "  - Created new module 'Modules\7ZipManager.psm1' (v1.0.0) to centralise 7-Zip interactions.",
-        "  - Moved 'Find-SevenZipExecutable' from 'Utils.psm1' to '7ZipManager.psm1'.",
-        "  - Moved 'Get-PoShBackup7ZipArgument', 'Invoke-7ZipOperation', and 'Test-7ZipArchive' from 'Operations.psm1' to '7ZipManager.psm1'.",
-        "  - Updated 'PoSh-Backup.ps1' to import '7ZipManager.psm1'.",
-        "  - Updated 'Utils.psm1' (v1.8.0) and 'Operations.psm1' (v1.8.0) to reflect moved functions.",
-        "Utils.psm1: Write-LogMessage color logic simplified to prioritize `$Global:StatusToColourMap`.",
-        "Documentation: Extensive review and enhancement of README.md and Comment-Based Help (CBH) for PoSh-Backup.ps1, Config/Default.psd1 (comments), and all modules.",
-        "Pester Tests: Attempted to create/debug Pester tests for Utils.psm1 and PasswordManager.psm1. Encountered significant and persistent issues with Pester environment setup, cmdlet availability (Get-Mock, Remove-Mock), mock scoping, and test logic. These tests are currently non-functional and were excluded from the initial bundle generation."
-    );
-    project_root_folder_name = $ProjectRoot_DisplayName; # Auto-set by bundler
-    bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); # Auto-set by bundler
-    module_descriptions = $script:autoDetectedModuleDescriptions; # Auto-populated by bundler
-    external_dependencies = @{
-        executables = @(
-            "7z.exe (7-Zip command-line tool - path configurable or auto-detected)"
-        );
-        powershell_modules = ($script:autoDetectedPsDependencies | Sort-Object -Unique) # Auto-populated by bundler
-    };
-    ai_development_watch_list = @(
-        "CRITICAL (AI): Ensure full, untruncated files are provided when requested by the user. AI has made this mistake multiple times.",
-        "CRITICAL (AI): Verify line counts and comment integrity when AI provides full script updates; inadvertent removal/truncation has occurred (e.g., missing comments, fewer lines than expected).",
-        "CRITICAL (AI): Ensure no extraneous trailing whitespace is introduced on any lines, including apparently blank ones when providing code.",
-        "CRITICAL (SYNTAX): For literal triple backticks (```) in PowerShell strings meant for Markdown code fences, use single quotes: `'```' (e.g., `$sb.AppendLine('```')`). Double quotes will cause parsing errors or misinterpretation.",
-        "SYNTAX: PowerShell ordered dictionaries (`[ordered]@{}`) use `(\$dict.PSObject.Properties.Name -contains 'Key')`, NOT `\$dict.ContainsKey('Key')`.",
-        "REGEX: Be cautious with string interpolation vs. literal characters in regex patterns. Test regex patterns carefully. Ensure PowerShell string parsing is correct before regex engine sees it (e.g., use single-quoted strings for regex patterns, ensure proper escaping of special characters within the pattern if needed).",
-        "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting.",
-        "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`) is correctly set in the `\$ReportData` ref object *before* report generation functions are called.",
-        "SCOPE: Double-check variable scopes when helper functions modify collections intended for wider use (prefer passing by ref or using script scope explicitly and carefully, e.g., `$script:varName`).",
-        "STRUCTURE: Respect the modular design (Utils, Operations, PasswordManager, Reporting orchestrator, Reporting sub-modules, 7ZipManager).",
-        "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code, especially in complex `if/try/catch/finally` blocks and `param()` blocks.",
-        "PSSA (BUNDLER): Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions from `PSScriptAnalyzerSettings.psd1`, even if VS Code (with the settings file) shows no issues. This was observed with unused parameters in closures, requiring defensive code changes.",
-        "PSSA (CLOSURES): PSScriptAnalyzer may not always detect parameter/variable usage within scriptblock closures assigned to local variables, potentially leading to false 'unused' warnings that require defensive/explicit calls for PSSA appeasement.",
-        "PESTER (SESSION): Current Pester tests are non-functional. Significant issues encountered with Pester v5 environment, cmdlet availability (Get-Mock/Remove-Mock were not exported by Pester 5.7.1), mock scoping, and test logic that could not be resolved during the session. Further Pester work will require a reset or a different diagnostic approach."
-    )
-}
-    # END AI STATE BLOCK
-
-    # Assemble the final output in order
-    Write-Verbose "Assembling final output bundle..."
-    $finalOutputBuilder = [System.Text.StringBuilder]::new()
-    $null = $finalOutputBuilder.Append($headerContentBuilder.ToString())
-
-    $null = $finalOutputBuilder.AppendLine("--- AI_STATE_START ---")
-    $null = $finalOutputBuilder.AppendLine('```json')
-    $null = $finalOutputBuilder.AppendLine(($aiState | ConvertTo-Json -Depth 10))
-    $null = $finalOutputBuilder.AppendLine('```')
-    $null = $finalOutputBuilder.AppendLine("--- AI_STATE_END ---")
-    $null = $finalOutputBuilder.AppendLine("")
-
-    Write-Verbose "Generating project structure overview..."
-    $null = $finalOutputBuilder.AppendLine("--- PROJECT_STRUCTURE_OVERVIEW ---")
-    $null = $finalOutputBuilder.AppendLine("Location: $ProjectRoot_DisplayName (Root of the project)")
-    $null = $finalOutputBuilder.AppendLine("(Note: Log files in 'Logs/' and specific report file types in 'Reports/' are excluded from this overview section.)")
-    $null = $finalOutputBuilder.AppendLine("")
-    try {
-        Get-ChildItem -Path $ProjectRoot_FullPath -Depth 0 | Sort-Object PSIsContainer -Descending | ForEach-Object {
-            $item = $_
-            if ($item.PSIsContainer) {
-                $null = $finalOutputBuilder.AppendLine("  |- $($item.Name)/")
-
-                $childItems = Get-ChildItem -Path $item.FullName -Depth 0 -ErrorAction SilentlyContinue
-
-                if ($item.Name -eq "Logs") {
-                    $childItems = $childItems | Where-Object { $_.PSIsContainer -or ($_.Name -notlike "*.log") }
-                } elseif ($item.Name -eq "Reports") {
-                    $reportFileExtensionsToExcludeInOverview = @(".html", ".csv", ".json", ".xml", ".txt", ".md")
-                    $childItems = $childItems | Where-Object { $_.PSIsContainer -or ($_.Extension.ToLowerInvariant() -notin $reportFileExtensionsToExcludeInOverview) }
-                } elseif ($item.Name -eq "Meta" -and $item.FullName -eq $PSScriptRoot) {
-                     $childItems = $childItems | Where-Object { $_.Name -eq "Generate-ProjectBundleForAI.ps1" -or $_.PSIsContainer}
-                } elseif ($item.Name -eq "Tests") {
-                    $null = $finalOutputBuilder.AppendLine("  |  |- ... (Content excluded by bundler settings)")
-                    $childItems = @()
-                }
-
-
-                $childItems | Sort-Object PSIsContainer -Descending | ForEach-Object {
-                    $childItem = $_
-                    if ($childItem.PSIsContainer) {
-                        $null = $finalOutputBuilder.AppendLine("  |  |- $($childItem.Name)/ ...")
-                    } else {
-                        $null = $finalOutputBuilder.AppendLine("  |  |- $($childItem.Name)")
-                    }
-                }
-            } else {
-                if ($item.FullName -ne $outputFilePath) {
-                    $null = $finalOutputBuilder.AppendLine("  |- $($item.Name)")
-                }
-            }
-        }
-    } catch {
-        $null = $finalOutputBuilder.AppendLine("  (Error generating structure overview: $($_.Exception.Message))")
-    }
-    $null = $finalOutputBuilder.AppendLine("--- END_PROJECT_STRUCTURE_OVERVIEW ---")
-    $null = $finalOutputBuilder.AppendLine("")
-
+    # --- Generate AI State ---
+    $aiStateHashtable = Get-BundlerAIState -ProjectRoot_DisplayName $ProjectRoot_DisplayName `
+                                           -PoShBackupVersion $poShBackupVersion `
+                                           -BundlerScriptVersion $bundlerScriptVersionForState `
+                                           -AutoDetectedModuleDescriptions $script:autoDetectedModuleDescriptions `
+                                           -AutoDetectedPsDependencies $script:autoDetectedPsDependencies # Pass the HashSet directly
+    
+    # --- Get Project Structure Overview ---
+    $projectStructureContentString = Get-ProjectStructureOverviewContent -ProjectRoot_FullPath $ProjectRoot_FullPath `
+                                                                         -ProjectRoot_DisplayName $ProjectRoot_DisplayName `
+                                                                         -BundlerOutputFilePath $outputFilePath
+    
+    # --- Get TestConfig Output ---
+    $testConfigResultOutputString = ""
     if ($shouldIncludeTestConfigOutput) {
-        Write-Verbose "Running PoSh-Backup.ps1 -TestConfig to include output..."
-        $null = $finalOutputBuilder.AppendLine("--- POSH_BACKUP_TESTCONFIG_OUTPUT_START ---")
-        $fullPathToPoShBackupScript = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PoSh-Backup.ps1"
-        if (Test-Path -LiteralPath $fullPathToPoShBackupScript -PathType Leaf) {
-            try {
-                Write-Host "Running 'PoSh-Backup.ps1 -TestConfig' (this may take a moment)..." -ForegroundColor Yellow
-
-                $oldErrorActionPreference = $ErrorActionPreference
-                $ErrorActionPreference = "Continue"
-                $testConfigOutput = ""
-                $LASTEXITCODE = 0
-
-                Push-Location (Split-Path -Path $fullPathToPoShBackupScript -Parent)
-                try {
-                    $invokeCommand = ". `"$fullPathToPoShBackupScript`" -TestConfig *>&1"
-                    $testConfigOutput = Invoke-Expression $invokeCommand | Out-String
-                }
-                catch {
-                    $testConfigOutput = "INVOKE-EXPRESSION FAILED: $($_.Exception.ToString())`n$($_.ScriptStackTrace)"
-                    if ($Error.Count -gt 0) {
-                        $testConfigOutput += "`nLAST SCRIPT ERROR: $($Error[0].ToString())`n$($Error[0].ScriptStackTrace)"
-                    }
-                }
-                finally {
-                    Pop-Location
-                    $ErrorActionPreference = $oldErrorActionPreference
-                }
-
-                if ($LASTEXITCODE -ne 0 -and -not ([string]::IsNullOrWhiteSpace($testConfigOutput))) {
-                     $null = $finalOutputBuilder.AppendLine("(PoSh-Backup.ps1 -TestConfig exited with code $LASTEXITCODE. Output/Error follows.)")
-                } elseif ($LASTEXITCODE -ne 0) {
-                     $null = $finalOutputBuilder.AppendLine("(PoSh-Backup.ps1 -TestConfig exited with code $LASTEXITCODE. No specific output captured.)")
-                }
-
-                if ([string]::IsNullOrWhiteSpace($testConfigOutput) -and $LASTEXITCODE -eq 0){
-                    $null = $finalOutputBuilder.AppendLine("(PoSh-Backup.ps1 -TestConfig ran successfully but produced no console output.)")
-                } else {
-                    $null = $finalOutputBuilder.AppendLine($testConfigOutput.TrimEnd())
-                }
-
-            } catch {
-                $null = $finalOutputBuilder.AppendLine("(Bundler error trying to run PoSh-Backup.ps1 -TestConfig: $($_.Exception.ToString()))")
-            }
-        } else {
-            $null = $finalOutputBuilder.AppendLine("(PoSh-Backup.ps1 not found at '$fullPathToPoShBackupScript'. Cannot run -TestConfig.)")
-        }
-        $null = $finalOutputBuilder.AppendLine("--- POSH_BACKUP_TESTCONFIG_OUTPUT_END ---")
-        $null = $finalOutputBuilder.AppendLine("")
+        $testConfigResultOutputString = Get-BundlerTestConfigOutput -ProjectRoot_FullPath $ProjectRoot_FullPath
     }
 
+    # --- Get PSScriptAnalyzerSettings.psd1 Content ---
     $analyzerSettingsPath = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PSScriptAnalyzerSettings.psd1"
+    $analyzerSettingsFileContentString = ""
     if ($shouldRunScriptAnalyzer -and (Test-Path -LiteralPath $analyzerSettingsPath -PathType Leaf)) {
-        Write-Verbose "Including PSScriptAnalyzerSettings.psd1 content..."
-        $null = $finalOutputBuilder.AppendLine("--- PSSCRIPTANALYZER_SETTINGS_FILE_CONTENT_START ---")
-        $null = $finalOutputBuilder.AppendLine("Path: PSScriptAnalyzerSettings.psd1 (Project Root)")
-        $null = $finalOutputBuilder.AppendLine("--- FILE_CONTENT ---")
-        $null = $finalOutputBuilder.AppendLine('```powershell')
         try {
-            $settingsContent = Get-Content -LiteralPath $analyzerSettingsPath -Raw -ErrorAction Stop
-            $null = $finalOutputBuilder.AppendLine($settingsContent)
+            $analyzerSettingsFileContentString = Get-Content -LiteralPath $analyzerSettingsPath -Raw -ErrorAction Stop
         } catch {
-            $null = $finalOutputBuilder.AppendLine("(Error reading PSScriptAnalyzerSettings.psd1: $($_.Exception.Message))")
+            $analyzerSettingsFileContentString = "(Bundler Main: Error reading PSScriptAnalyzerSettings.psd1: $($_.Exception.Message))"
         }
-        $null = $finalOutputBuilder.AppendLine('```')
-        $null = $finalOutputBuilder.AppendLine("--- PSSCRIPTANALYZER_SETTINGS_FILE_CONTENT_END ---")
-        $null = $finalOutputBuilder.AppendLine("")
     }
 
+    # --- Get PSScriptAnalyzer Summary ---
+    $pssaResultOutputString = ""
     if ($shouldRunScriptAnalyzer) {
-        Write-Verbose "Starting PSScriptAnalyzer scan..."
-        $null = $finalOutputBuilder.AppendLine("--- PS_SCRIPT_ANALYZER_SUMMARY ---")
-        if (Get-Command Invoke-ScriptAnalyzer -ErrorAction SilentlyContinue) {
-            try {
-                Write-Host "Running PSScriptAnalyzer (this may take a moment)..." -ForegroundColor Yellow
-                $scriptFilesToAnalyze = Get-ChildItem -Path $ProjectRoot_FullPath -Recurse -Include *.ps1, *.psm1 |
-                    Where-Object {
-                        if ($_.FullName -eq $outputFilePath) { return $false } # Skip the bundle output file
-                        # NOTE: Bundler script ($PSCommandPath) is excluded by $ExcludedFolders containing "Meta" by default
-                        # if ($_.FullName -eq $PSCommandPath) { return $false } # Explicitly skip the bundler script itself
-
-                        $isExcluded = $false
-                        foreach($excludedDirName in $ExcludedFolders) { # $ExcludedFolders is the param
-                            $fullExcludedPath = Join-Path -Path $ProjectRoot_FullPath -ChildPath $excludedDirName
-                            if ($_.FullName.StartsWith($fullExcludedPath, [System.StringComparison]::OrdinalIgnoreCase)) { $isExcluded = $true; break }
-                        }
-                        -not $isExcluded
-                    }
-
-                if ($scriptFilesToAnalyze.Count -gt 0) {
-                    $allAnalyzerResultsList = [System.Collections.Generic.List[object]]::new()
-                    foreach ($scriptFile in $scriptFilesToAnalyze) {
-                        Write-Verbose "Analyzing $($scriptFile.FullName)..."
-                        $invokeAnalyzerParams = @{
-                            Path = $scriptFile.FullName
-                            Severity = @('Error', 'Warning')
-                            ErrorAction = 'SilentlyContinue'
-                        }
-                        if (Test-Path -LiteralPath $analyzerSettingsPath -PathType Leaf) {
-                            $invokeAnalyzerParams.Settings = $analyzerSettingsPath
-                            Write-Verbose "   (Using PSScriptAnalyzer settings from: $analyzerSettingsPath)"
-                        } else {
-                            Write-Verbose "   (PSScriptAnalyzerSettings.psd1 not found at project root. Using default PSSA rules.)"
-                        }
-                        $analyzerResultsForFile = Invoke-ScriptAnalyzer @invokeAnalyzerParams
-
-                        if ($null -ne $analyzerResultsForFile) {
-                            if ($analyzerResultsForFile -is [System.Array] -or $analyzerResultsForFile -is [System.Collections.ICollection]) {
-                                $allAnalyzerResultsList.AddRange($analyzerResultsForFile)
-                            } else {
-                                $allAnalyzerResultsList.Add($analyzerResultsForFile)
-                            }
-                        }
-                    }
-
-                    if ($allAnalyzerResultsList.Count -gt 0) {
-                        $null = $finalOutputBuilder.AppendLine("Found $($allAnalyzerResultsList.Count) issues (Errors/Warnings):")
-                        $formattedResults = $allAnalyzerResultsList | Select-Object Severity, Message, ScriptName, Line, Column | Format-Table -AutoSize | Out-String -Width 250 # MODIFIED: Width increased
-                        $null = $finalOutputBuilder.AppendLine($formattedResults)
-                    } else {
-                        $null = $finalOutputBuilder.AppendLine("(No PSScriptAnalyzer errors or warnings found in .ps1/.psm1 files after applying settings.)")
-                    }
-                } else {
-                    $null = $finalOutputBuilder.AppendLine("(No .ps1 or .psm1 files found to analyze in project scope after exclusions.)")
-                }
-            } catch {
-                $null = $finalOutputBuilder.AppendLine("(Error running PSScriptAnalyzer: $($_.Exception.Message))")
-            }
-        } else {
-            $null = $finalOutputBuilder.AppendLine("(PSScriptAnalyzer module not found. To use this feature, install it: Install-Module PSScriptAnalyzer)")
-        }
-        $null = $finalOutputBuilder.AppendLine("--- END_PS_SCRIPT_ANALYZER_SUMMARY ---")
-        $null = $finalOutputBuilder.AppendLine("")
+        $pssaResultOutputString = Invoke-BundlerScriptAnalyzer -ProjectRoot_FullPath $ProjectRoot_FullPath `
+                                                               -ExcludedFoldersForPSSA $ExcludedFolders `
+                                                               -AnalyzerSettingsPath $analyzerSettingsPath `
+                                                               -BundlerOutputFilePath $outputFilePath `
+                                                               -BundlerPSScriptRoot $PSScriptRoot
     }
-
-    $null = $finalOutputBuilder.Append($fileContentBuilder.ToString())
-
-    $null = $finalOutputBuilder.AppendLine("-----------------------------------")
-    $null = $finalOutputBuilder.AppendLine("--- END OF PROJECT FILE BUNDLE ---")
-
+    
+    # --- Assemble Final Bundle ---
+    Write-Verbose "Assembling final output bundle (via Bundle.StateAndAssembly.psm1)..."
+    $finalBundleString = Format-AIBundleContent -HeaderContent $headerContentBuilder.ToString() `
+                                                  -AIStateHashtable $aiStateHashtable `
+                                                  -ProjectStructureContent $projectStructureContentString `
+                                                  -TestConfigOutputContent $testConfigResultOutputString `
+                                                  -AnalyzerSettingsFileContent $analyzerSettingsFileContentString `
+                                                  -PSSASummaryOutputContent $pssaResultOutputString `
+                                                  -BundledFilesContent $fileContentBuilder.ToString()
     try {
         Write-Verbose "Writing final bundle to: $outputFilePath"
-        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue
-        $finalOutputBuilder.ToString() | Set-Content -Path $outputFilePath -Encoding UTF8 -Force
+        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue # Ensure overwrite
+        $finalBundleString | Set-Content -Path $outputFilePath -Encoding UTF8 -Force
         Write-Output "Project bundle successfully written to: $outputFilePath"
     } catch {
         Write-Error "Failed to write project bundle to file '$outputFilePath'. Error: $($_.Exception.Message)"
