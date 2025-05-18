@@ -15,56 +15,89 @@
     --accent-color-primary-text: #1a202c;      /* Dark text on light blue accent bg */
     --accent-color-secondary: #4a5568;         /* Muted accent */
     --accent-color-secondary-text: #e2e8f0;    /* Light text on muted accent */
+    --highlight-bg-color: #f6e05e;             /* Bright yellow for search highlight (good contrast on dark) */
+    --highlight-text-color: #1a202c;           /* Dark text for search highlight */
 
     /* --- Component-Specific Colours --- */
     /* Header & Footer */
-    --header-border-color: var(--accent-color-primary); /* Light blue header border */
+    --header-border-color: var(--accent-color-primary); 
     --footer-text-color: var(--secondary-text-color);
     --footer-border-color: var(--border-color-light);
 
     /* Tables */
-    --table-header-bg: #374151;                /* Darker grey for table headers in dark mode */
-    --table-header-text-color: #f3f4f6;        /* Light grey text for headers */
-    --table-row-even-bg: #374355;              /* Slightly different dark for even rows */
-    --table-row-hover-bg: #425166;             /* Hover color for rows */
+    --table-header-bg: #374151;                
+    --table-header-text-color: #f3f4f6;        
+    --table-row-even-bg: #374355;              
+    --table-row-hover-bg: #425166;             
     --table-border-color: var(--border-color-light);
+    --table-sort-arrow-color: var(--accent-color-primary); /* Light blue arrows, should be visible */
 
     /* Code Blocks & Preformatted Text */
-    --code-bg-color: #1e293b;                  /* Even darker than container for code */
-    --code-text-color: #cbd5e0;                /* Light grey for code text */
+    --code-bg-color: #1e293b;                  
+    --code-text-color: #cbd5e0;                
     --code-border-color: var(--border-color-light);
 
+    /* Button variables for copy button, log filter toggles */
+    --button-bg-color: #374151;                 /* Darker grey, similar to table header */
+    --button-text-color: var(--primary-text-color); /* Light text */
+    --button-border-color: var(--border-color-medium);
+    --button-hover-bg-color: #4a5568;           /* Slightly lighter on hover */
+    --button-hover-border-color: var(--accent-color-primary);
+
     /* Status Message Text Colours */
-    --status-success-text-color: #68d391;      /* Brighter Green */
-    --status-warning-text-color: #f6ad55;      /* Amber */
-    --status-failure-text-color: #fc8181;      /* Brighter Red */
-    --status-simulated-text-color: #b794f4;    /* Lavender/Purple */
+    --status-success-text-color: #68d391;      
+    --status-warning-text-color: #f6ad55;      
+    --status-failure-text-color: #fc8181;      
+    --status-simulated-text-color: #b794f4;    
     --status-notfound-text-color: var(--secondary-text-color);
-    --status-info-text-color: var(--accent-color-primary); /* Light Blue */
+    --status-info-text-color: var(--accent-color-primary); 
     --status-default-text-color: var(--primary-text-color);
 
     /* Log Entry Backgrounds & Borders */
-    --log-info-bg: #2c5282;     --log-info-border: #63b3ed; /* Dark blue bg, light blue border */
-    --log-warning-bg: #5f4d11;  --log-warning-border: #ecc94b; /* Dark yellow bg, yellow border */
-    --log-error-bg: #742a2a;    --log-error-border: #f56565; /* Dark red bg, light red border */
-    --log-simulate-bg: #553c7b; --log-simulate-border: #b794f4; /* Dark purple bg, light purple border */
+    --log-info-bg: #2c5282;     --log-info-border: #63b3ed; 
+    --log-warning-bg: #5f4d11;  --log-warning-border: #ecc94b; 
+    --log-error-bg: #742a2a;    --log-error-border: #f56565; 
+    --log-simulate-bg: #553c7b; --log-simulate-border: #b794f4; 
     --log-configtest-bg: var(--log-simulate-bg); --log-configtest-border: var(--log-simulate-border);
-    --log-debug-bg: #4a5568;    --log-debug-border: #718096; /* Dark grey bg, medium grey border */
-    --log-vss-bg: #7b341e;      --log-vss-border: #f6ad55;     /* Dark orange bg, amber border */
-    --log-hook-bg: #2c523b;     --log-hook-border: #68d391;    /* Dark green bg, light green border */
-    --log-success-bg: #2f5552;  --log-success-border: #68d391; /* Dark teal/green bg, light green border */
+    --log-debug-bg: #4a5568;    --log-debug-border: #718096; 
+    --log-vss-bg: #7b341e;      --log-vss-border: #f6ad55;     
+    --log-hook-bg: #2c523b;     --log-hook-border: #68d391;    
+    --log-success-bg: #2f5552;  --log-success-border: #68d391; 
     --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
 
 
     /* Log Entry Text Colours (for the message part of the log entry) */
-    --log-info-text-color: #bee3f8;            /* Light Blue text */
-    --log-warning-text-color: #fefcbf;         /* Light Yellow text */
-    --log-error-text-color: #fed7d7;           /* Light Red text */
-    --log-debug-text-color: #e2e8f0;           /* Light Gray text (same as primary text) */
-    --log-success-text-color: #c6f6d5;         /* Light Green text */
-    --log-vss-text-color: #fbd38d;             /* Light Orange text */
-    --log-hook-text-color: #b2f5ea;            /* Light Teal text */
-    --log-simulate-text-color: #e9d8fd;        /* Light Purple text */
+    --log-info-text-color: #bee3f8;            
+    --log-warning-text-color: #fefcbf;         
+    --log-error-text-color: #fed7d7;           
+    --log-debug-text-color: #e2e8f0;           
+    --log-success-text-color: #c6f6d5;         
+    --log-vss-text-color: #fbd38d;             
+    --log-hook-text-color: #b2f5ea;            
+    --log-simulate-text-color: #e9d8fd;        
     --log-configtest-text-color: var(--log-simulate-text-color);
     --log-none-text-color: var(--primary-text-color);  
+}
+
+/* Specific overrides if CSS variables aren't sufficient */
+/* Example: Ensure copy button on dark pre background is styled correctly */
+/* .pre-container .copy-hook-output-btn { */
+    /* These will use the --button-* variables defined above for dark theme */
+/* } */
+
+/* Scroll to top button specific styling for dark theme */
+#scrollToTopBtn {
+    background-color: var(--accent-color-secondary); /* Muted dark accent */
+    color: var(--accent-color-secondary-text); /* Light text */
+}
+#scrollToTopBtn:hover {
+    background-color: var(--accent-color-primary); /* Brighter accent on hover */
+    color: var(--accent-color-primary-text); /* Darker text on brighter hover */
+}
+
+/* Filter active indicator for dark theme */
+.filter-active-indicator {
+    color: var(--status-warning-text-color); /* Amber text */
+    background-color: var(--log-warning-bg); /* Dark yellow bg */
+    border-color: var(--log-warning-border); /* Yellow border */
 }

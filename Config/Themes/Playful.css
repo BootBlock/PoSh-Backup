@@ -5,16 +5,19 @@
     /* ====== PLAYFUL THEME COLOUR PALETTE OVERRIDES ====== */
 
     /* --- Core Palette --- */
-    --body-bg-color: #f0f7fa;                   /* Light sky blue background */
-    --container-bg-color: #ffffff;             /* Clean white cards */
-    --primary-text-color: #333333;             /* Dark grey for readability */
-    --secondary-text-color: #5c677d;           /* Softer grey for secondary text */
-    --border-color-light: #e0e9f0;             /* Light, soft border */
+    --body-bg-color: #f0f7fa;                   
+    --container-bg-color: #ffffff;             
+    --primary-text-color: #333333;             
+    --secondary-text-color: #5c677d;           
+    --border-color-light: #e0e9f0;             
     --border-color-medium: #c0d0e0;            
     --accent-color-primary: #ff6b6b;           /* Playful Coral/Red */
     --accent-color-primary-text: #ffffff;      
     --accent-color-secondary: #48dbfb;         /* Bright Cyan/Aqua */
-    --accent-color-secondary-text: #13214d;    /* Dark blue for contrast on cyan */
+    --accent-color-secondary-text: #13214d;    
+    --highlight-bg-color: #fffa65;             /* Sunny yellow for highlight */
+    --highlight-text-color: #533B00;           /* Dark brown text on highlight */
+
 
     /* --- Component-Specific Colours --- */
     --header-border-color: var(--accent-color-primary);
@@ -27,11 +30,20 @@
     --table-row-even-bg: #fdf9f3;              /* Very light cream */
     --table-row-hover-bg: #ffeaa7;             /* Light orange/yellow hover */
     --table-border-color: var(--border-color-light);
+    --table-sort-arrow-color: var(--accent-color-primary); /* Coral arrows */
 
     /* Code Blocks & Preformatted Text */
     --code-bg-color: #e6f9ff;                  /* Very light cyan */
     --code-text-color: #07475C;                /* Dark teal */
     --code-border-color: #b3e0f2;
+
+    /* Button variables for copy button, log filter toggles */
+    --button-bg-color: #c7ecee;                 /* Light teal/aqua */
+    --button-text-color: #130f40;               /* Dark indigo */
+    --button-border-color: #7ed6df;             /* Slightly darker teal border */
+    --button-hover-bg-color: var(--accent-color-secondary); /* Bright Cyan/Aqua on hover */
+    --button-hover-border-color: var(--accent-color-secondary);
+
 
     /* Status Message Text Colours */
     --status-success-text-color: #1dd1a1;      /* Mint Green */
@@ -43,14 +55,14 @@
     --status-default-text-color: var(--primary-text-color);
 
     /* Log Entry Backgrounds & Borders - Using pastel/brights */
-    --log-info-bg: #e0f2fe;     --log-info-border: var(--accent-color-secondary); /* Light Aqua bg, Aqua border */
-    --log-warning-bg: #fff9db;  --log-warning-border: #ffda77; /* Light Yellow bg, Yellow border */
-    --log-error-bg: #ffe8e8;    --log-error-border: #ffb3b3; /* Light Pink/Red bg, Pink/Red border */
-    --log-simulate-bg: #f3e8ff; --log-simulate-border: #d8b4fe; /* Light Purple */
+    --log-info-bg: #e0f2fe;     --log-info-border: var(--accent-color-secondary); 
+    --log-warning-bg: #fff9db;  --log-warning-border: #ffda77; 
+    --log-error-bg: #ffe8e8;    --log-error-border: #ffb3b3; 
+    --log-simulate-bg: #f3e8ff; --log-simulate-border: #d8b4fe; 
     --log-configtest-bg: var(--log-simulate-bg); --log-configtest-border: var(--log-simulate-border);
     --log-debug-bg: #f0f0f0;    --log-debug-border: #cccccc;
-    --log-vss-bg: #ffeedb;      --log-vss-border: #ffc999;     /* Light Peach */
-    --log-hook-bg: #e6fff0;     --log-hook-border: #99f0c1;    /* Light Mint */
+    --log-vss-bg: #ffeedb;      --log-vss-border: #ffc999;     
+    --log-hook-bg: #e6fff0;     --log-hook-border: #99f0c1;    
     --log-success-bg: var(--log-hook-bg);  --log-success-border: var(--log-hook-border);
     --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
 
@@ -68,34 +80,25 @@
 
     /* Font (Optional - use web safe or common system fonts) */
     /* --font-family-sans-serif: "Comic Sans MS", "Chalkboard SE", " cursive", var(--font-family-sans-serif); */
-    /* Using a slightly more rounded, modern sans-serif for a playful feel: */
     --font-family-sans-serif: "Nunito", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 /* Additional Playful Theme Styles (beyond variable overrides) */
-/* body { */
-    /* Could add a very subtle repeating pattern or gradient if desired */
-/* } */
 
 .container {
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08), 0 3px 8px rgba(0,0,0,0.05); /* Softer, more diffused shadow */
-    border-radius: var(--border-radius-lg); /* Already quite rounded */
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08), 0 3px 8px rgba(0,0,0,0.05); 
+    border-radius: var(--border-radius-lg); 
 }
 
 h1, h2 {
-    /* Example: Slightly different font weight or a fun text-shadow */
-    text-shadow: 1px 1px 0px rgba(0,0,0,0.1);
+    text-shadow: 1px 1px 0px rgba(0,0,0,0.05); /* Softer shadow */
 }
 
-/* Make tables a bit more bubbly */
-table, th, td {
-    border-radius: 0; /* Override individual cell radius if Base.css adds it */
-}
 table {
     border-spacing: 0;
-    border-collapse: separate; /* Needed for border-radius on table itself */
+    border-collapse: separate; 
     border-radius: var(--border-radius);
-    overflow: hidden; /* To make border-radius clip inner elements */
+    overflow: hidden; 
 }
 th:first-child {
     border-top-left-radius: var(--border-radius-sm);
@@ -103,30 +106,75 @@ th:first-child {
 th:last-child {
     border-top-right-radius: var(--border-radius-sm);
 }
-/* If you want rounded corners on the last row as well, it's trickier without JS or complex selectors */
 
-
-/* Log entry specific playful touch */
 .log-entry {
     border-left-width: 6px;
-    border-radius: var(--border-radius); /* More rounded log entries */
+    border-radius: var(--border-radius); 
     box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
 }
 
-/* Playful element with ::before or ::after for specific log levels */
-.log-SUCCESS::before {
-    content: "🎉";
-    margin-right: var(--spacing-sm);
+.log-SUCCESS::before { /* Example emoji prefix - consider if it fits all contexts */
+    content: "🎉 "; /* Added space */
+    margin-right: var(--spacing-xs);
     font-size: 1.2em;
+    vertical-align: middle;
 }
 .log-ERROR::before {
-    content: "💥";
-    margin-right: var(--spacing-sm);
+    content: "💥 "; /* Added space */
+    margin-right: var(--spacing-xs);
     font-size: 1.2em;
+    vertical-align: middle;
 }
 
-/* Links could have a more bubbly hover effect */
+
 a:hover, a:focus {
-    transform: scale(1.05); /* Subtle zoom - use with care for performance */
-    transition: transform 0.2s ease-out;
+    transform: translateY(-1px); /* Subtle lift effect */
+    transition: transform 0.15s ease-out;
+}
+
+/* Playful theme for copy button */
+.copy-hook-output-btn {
+    background-color: var(--accent-color-secondary); /* Bright Cyan/Aqua */
+    color: var(--accent-color-secondary-text); /* Dark blue for contrast */
+    border: 1px solid var(--accent-color-secondary);
+    box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+}
+.copy-hook-output-btn:hover,
+.copy-hook-output-btn:focus {
+    background-color: #34c8e8; /* Slightly darker cyan */
+    border-color: #34c8e8;
+}
+
+/* Playful Scroll to Top Button */
+#scrollToTopBtn {
+    background-color: var(--accent-color-primary); /* Coral */
+    color: var(--accent-color-primary-text); /* White */
+    border: 2px solid var(--accent-color-primary-text);
+    border-radius: 50%; /* Make it round */
+    width: 45px;
+    height: 45px;
+    padding: 0;
+    line-height: 40px; /* Adjust for icon centering */
+    text-align: center;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+#scrollToTopBtn:hover {
+    background-color: #ff5252; /* Brighter coral */
+    transform: scale(1.1);
+    transition: transform 0.2s ease-out, background-color 0.2s ease-out;
+}
+
+/* Playful Filter Active Indicator */
+.filter-active-indicator {
+    color: #533B00; /* Dark brown text */
+    background-color: var(--highlight-bg-color); /* Sunny yellow background */
+    border: 1px solid #e5c500; /* Darker yellow border */
+    padding: 3px 8px;
+    font-weight: bold;
+    text-shadow: none; /* Remove main h2 text shadow if it inherits */
+}
+
+/* Ensure sort arrows use a playful color if not the main accent */
+.sort-arrow {
+    color: var(--accent-color-primary); /* Coral arrows */
 }

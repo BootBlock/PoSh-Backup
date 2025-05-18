@@ -13,11 +13,13 @@
     --crt-phosphor-mono-bright: #ffffff; /* Monochrome (White/Grey) */
     --crt-phosphor-mono-dim: #bbbbbb;
     --crt-phosphor-mono-darker: #888888;
+    --crt-phosphor-cyan-bright: #00eeee; /* For things like filter active, simulated status */
+    --crt-phosphor-cyan-dim: #00aaaa;
 
 
     /* --- ACTIVE PHOSPHOR CHOICE (AMBER BY DEFAULT) --- */
-    --body-bg-color: #100c00; /* Dark brown/black for amber theme */
-    --container-bg-color: #000000; /* True Black for the "screen" */
+    --body-bg-color: #100c00; 
+    --container-bg-color: #000000; 
     --primary-text-color: var(--crt-phosphor-amber);
     --secondary-text-color: var(--crt-phosphor-amber-dim);
     --border-color-light: #443300;
@@ -28,7 +30,9 @@
     --accent-color-secondary-text: #ffffff;
     --scanline-intensity: rgba(0,0,0,0.25); 
     --text-glow-color: var(--crt-phosphor-amber);
-    --text-glow-intensity: rgba(255, 176, 0, 0.3); /* Amber glow */
+    --text-glow-intensity: rgba(255, 176, 0, 0.3); 
+    --highlight-bg-color: var(--crt-phosphor-amber); /* Inverse video: phosphor bg */
+    --highlight-text-color: #000000;                /* Inverse video: black text */
 
 
     /* --- GREEN PHOSPHOR (Commented Out - Uncomment to use) --- */
@@ -46,6 +50,8 @@
     --scanline-intensity: rgba(0,0,0,0.25); 
     --text-glow-color: var(--crt-phosphor-green);
     --text-glow-intensity: rgba(50, 255, 50, 0.3); 
+    --highlight-bg-color: var(--crt-phosphor-green); 
+    --highlight-text-color: #000000; 
     */
 
     /* --- MONOCHROME (GREYSCALE) PHOSPHOR (Commented Out - Uncomment to use) --- */
@@ -63,6 +69,8 @@
     --scanline-intensity: rgba(0,0,0,0.2); 
     --text-glow-color: var(--crt-phosphor-mono-bright);
     --text-glow-intensity: rgba(200, 200, 200, 0.2); 
+    --highlight-bg-color: var(--crt-phosphor-mono-bright); 
+    --highlight-text-color: #000000; 
     */
 
 
@@ -76,30 +84,36 @@
     --footer-border-color: var(--border-color-light);
 
     /* Tables */
-    --table-header-bg: #110d00; /* Darker shade of body for amber */
-    /* For Green: --table-header-bg: #001a00; */
-    /* For Mono: --table-header-bg: #101010; */
+    --table-header-bg: #110d00; 
+    /* Green: --table-header-bg: #001a00; Mono: --table-header-bg: #101010; */
     --table-header-text-color: var(--primary-text-color);
-    --table-row-even-bg: #0a0700; /* Even darker for amber */
-    /* For Green: --table-row-even-bg: #000a00; */
-    /* For Mono: --table-row-even-bg: #050505; */
-    --table-row-hover-bg: #221a00; /* Hover for amber */
-    /* For Green: --table-row-hover-bg: #002a00; */
-    /* For Mono: --table-row-hover-bg: #1f1f1f; */
+    --table-row-even-bg: #0a0700; 
+    /* Green: --table-row-even-bg: #000a00; Mono: --table-row-even-bg: #050505; */
+    --table-row-hover-bg: #221a00; 
+    /* Green: --table-row-hover-bg: #002a00; Mono: --table-row-hover-bg: #1f1f1f; */
     --table-border-color: var(--border-color-light);
+    --table-sort-arrow-color: var(--primary-text-color); /* Phosphor color for arrows */
 
     /* Code Blocks & Preformatted Text */
-    --code-bg-color: #030200; /* Very dark amber/black */
-    /* For Green: --code-bg-color: #030300; */
-    /* For Mono: --code-bg-color: #030303; */
+    --code-bg-color: #030200; 
+    /* Green: --code-bg-color: #030300; Mono: --code-bg-color: #030303; */
     --code-text-color: var(--primary-text-color);                
     --code-border-color: var(--border-color-light);
 
+    /* Button variables for copy button, log filter toggles */
+    --button-bg-color: #000000;                 
+    --button-text-color: var(--primary-text-color);               
+    --button-border-color: var(--secondary-text-color);            
+    --button-hover-bg-color: var(--secondary-text-color);         
+    --button-hover-border-color: var(--secondary-text-color);
+    /* Text color on hover will be primary text color on secondary-text-color bg */
+
+
     /* Status Message Text Colours */
-    --status-success-text-color: var(--primary-text-color); /* Main phosphor for success */
-    --status-warning-text-color: #ffee00;                   /* Bright Yellow (contrasts well with amber/green) */
+    --status-success-text-color: var(--primary-text-color); 
+    --status-warning-text-color: #ffee00;                   /* Bright Yellow (contrasts well) */
     --status-failure-text-color: #ff6666;                   /* Bright Reddish */
-    --status-simulated-text-color: #00eeee;                 /* Bright Cyan */
+    --status-simulated-text-color: var(--crt-phosphor-cyan-bright); /* Bright Cyan for simulated */
     --status-notfound-text-color: var(--secondary-text-color);
     --status-info-text-color: var(--primary-text-color);
     --status-default-text-color: var(--primary-text-color);
@@ -109,12 +123,12 @@
     --log-warning-bg: var(--container-bg-color);  --log-warning-border: var(--status-warning-text-color);
     --log-error-bg: var(--container-bg-color);    --log-error-border: var(--status-failure-text-color);
     --log-simulate-bg: var(--container-bg-color); --log-simulate-border: var(--status-simulated-text-color); 
-    --log-configtest-bg: var(--log-simulate-bg); --log-configtest-border: var(--log-simulate-border);
+    --log-configtest-bg: var(--log-simulate-bg);  --log-configtest-border: var(--log-simulate-border);
     --log-debug-bg: var(--container-bg-color);    --log-debug-border: var(--secondary-text-color); 
-    --log-vss-bg: var(--container-bg-color);      --log-vss-border: #ff8800;  /* A different shade of orange for VSS */
+    --log-vss-bg: var(--container-bg-color);      --log-vss-border: #ff8800;  
     --log-hook-bg: var(--container-bg-color);     --log-hook-border: var(--secondary-text-color);    
     --log-success-bg: var(--container-bg-color);  --log-success-border: var(--primary-text-color);
-    --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
+    --log-none-bg: var(--container-bg-color);     --log-none-border: var(--border-color-light);
 
     /* Log Entry Text Colours */
     --log-info-text-color: var(--primary-text-color);            
@@ -133,7 +147,6 @@
     --font-family-monospace: "Consolas", "Lucida Console", "Courier New", monospace;
     --base-font-size: 15px; 
 
-    /* Override radii for blocky feel */
     --border-radius-sm: 0; 
     --border-radius: 0; 
     --border-radius-lg: 0;
@@ -145,7 +158,7 @@ body {
     text-shadow: 0 0 3px var(--text-glow-color), 0 0 5px var(--text-glow-intensity); 
     position: relative; 
     overflow-x: hidden; 
-    animation: crt-flicker 0.1s infinite alternate; /* Enabled flicker, slightly stronger */
+    animation: crt-flicker 0.1s infinite alternate; 
 }
 
 /* Scanline Effect using a pseudo-element */
@@ -169,8 +182,8 @@ body::after {
     background-size: 100% calc(var(--scanline-height) + var(--scanline-gap)); 
     z-index: 9999; 
     pointer-events: none; 
-    opacity: 0.35; /* Slightly more visible scanlines */
-    animation: scanline-scroll 30s linear infinite; /* Enabled scanline scrolling */
+    opacity: 0.35; 
+    animation: scanline-scroll 30s linear infinite; 
 }
 
 @keyframes scanline-scroll {
@@ -199,28 +212,33 @@ h1, h2 {
 
 h1 .blinking-cursor::after { 
     content: '_';
-    opacity: 1; /* Start visible */
-    animation: blink-animation 1.06s step-end infinite; /* Classic ~530ms on, 530ms off */
+    opacity: 1; 
+    animation: blink-animation 1.06s step-end infinite; 
     margin-left: 3px; 
     font-weight: normal; 
-    position: relative; /* To allow fine-tuning position if needed */
-    /* top: 0.05em; */ /* Example to adjust vertical alignment */
+    position: relative; 
 }
 
 @keyframes blink-animation {
-    0%, 100% { opacity: 1; } /* Visible */
-    50% { opacity: 0; }      /* Invisible */
+    0%, 100% { opacity: 1; } 
+    50% { opacity: 0; }      
 }
 
 
-table, th, td, .details-section, pre {
-    border-style: solid; 
-    border-width: 1px;
-    box-shadow: none; 
+table, th, td, .details-section, pre, details, summary {
+    border-style: solid !important; 
+    border-width: 1px !important;
+    box-shadow: none !important; 
+    border-color: var(--border-color-light) !important; /* Apply to all relevant elements */
 }
-.details-section {
-    border-color: var(--border-color-light);
+.details-section > details, 
+.details-section > details > summary { /* Prevent double borders when details is inside details-section */
+    border: none !important;
 }
+details[open] > summary { /* Add bottom border to open summary to separate from content */
+    border-bottom: 1px solid var(--border-color-light) !important;
+}
+
 
 th {
     text-transform: uppercase;
@@ -249,20 +267,9 @@ a:hover, a:focus {
     color: var(--secondary-text-color) !important; 
 }
 
-/* Adjust padding for a more compact terminal look */
-.container {
-    padding: var(--spacing-md) var(--spacing-lg);
-}
-.log-entry {
-    padding: var(--spacing-xs) var(--spacing-sm);
-}
-th, td {
-    padding: var(--spacing-xs) var(--spacing-sm);
-}
-
 /* Optional: CRT Screen curvature effect - This is complex and might look odd without more work. */
-
 .container {
+    padding: var(--spacing-md) var(--spacing-lg); /* Restore padding for content inside curvature */
     border: 30px solid var(--body-bg-color); 
     border-image: radial-gradient(ellipse at center, transparent 0%, var(--body-bg-color) 70%) 30; 
     box-shadow: 0 0 100px var(--text-glow-intensity) inset, 0 0 30px var(--text-glow-color);
@@ -278,3 +285,140 @@ th, td {
     pointer-events: none; 
 }
 
+.log-filters input[type="text"] {
+    background-color: var(--container-bg-color) !important; /* Black background */
+    color: var(--primary-text-color) !important; /* Phosphor text */
+    border: 1px solid var(--secondary-text-color) !important; /* Dim Phosphor border */
+    padding: 5px !important; /* A bit of padding */
+    font-family: var(--font-family-monospace) !important; /* Monospace font */
+    font-size: 0.9em; /* Match button font size or adjust as needed */
+    border-radius: 0 !important; /* Blocky */
+    box-shadow: none !important; /* No modern shadow */
+    text-shadow: none !important; /* Input text usually doesn't have glow */
+}
+
+.log-filters input[type="text"]::placeholder {
+    color: var(--secondary-text-color) !important; /* Dim phosphor for placeholder */
+    opacity: 0.7; /* Make placeholder slightly less prominent */
+}
+
+.log-filters input[type="text"]:focus {
+    outline: none !important; /* Remove default browser focus outline */
+    border-color: var(--primary-text-color) !important; /* Bright phosphor border on focus */
+    box-shadow: 0 0 5px var(--text-glow-intensity) !important; /* Subtle glow on focus, similar to container */
+}
+
+/* Ensure labels also fit the theme if not already covered */
+.log-filters label, 
+.log-filters strong { /* For "Filter by Level:" */
+    color: var(--primary-text-color) !important;
+    text-shadow: 0 0 3px var(--text-glow-color), 0 0 5px var(--text-glow-intensity);
+    font-family: var(--font-family-monospace) !important;
+}
+
+/* Checkbox styling for retro theme - might need more work for full custom appearance */
+/* This is a basic attempt to make them blend slightly better */
+.log-filters .log-level-filters-container input[type="checkbox"] {
+    appearance: none; /* Basic step to allow custom styling, but browser support varies */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: var(--container-bg-color); /* Black */
+    border: 1px solid var(--secondary-text-color); /* Dim phosphor border */
+    width: 12px;
+    height: 12px;
+    vertical-align: middle;
+    margin-right: 5px;
+    position: relative; /* For custom checkmark */
+    cursor: pointer;
+}
+
+.log-filters .log-level-filters-container input[type="checkbox"]:checked {
+    background-color: var(--primary-text-color); /* Phosphor color when checked */
+    border-color: var(--primary-text-color);
+}
+
+/* A very simple text-based checkmark for browsers that support 'appearance: none' fully */
+/* This might not render perfectly everywhere and is a compromise for a full retro checkbox */
+.log-filters .log-level-filters-container input[type="checkbox"]:checked::after {
+    content: 'X'; /* Or another character like ✔ */
+    color: var(--container-bg-color); /* Black 'X' on phosphor background */
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 10px; /* Adjust size of 'X' */
+    font-weight: bold;
+    line-height: 1; /* Ensure it's centered */
+}
+
+/* Retro button styles for filter toggles and copy button */
+.log-filters .log-level-toggle-buttons button,
+.copy-hook-output-btn {
+    background-color: var(--button-bg-color) !important; /* Black */
+    color: var(--button-text-color) !important; /* Phosphor */
+    border: 1px solid var(--button-border-color) !important; /* Dim Phosphor */
+    padding: 2px 5px !important;
+    font-family: var(--font-family-monospace) !important;
+    text-transform: uppercase;
+    font-size: 0.9em;
+    box-shadow: none !important;
+    text-shadow: none !important; /* Buttons usually don't have text glow */
+    border-radius: 0 !important; /* Blocky */
+}
+.log-filters .log-level-toggle-buttons button:hover,
+.log-filters .log-level-toggle-buttons button:focus,
+.copy-hook-output-btn:hover,
+.copy-hook-output-btn:focus {
+    background-color: var(--button-hover-bg-color) !important; /* Dim Phosphor bg */
+    color: var(--container-bg-color) !important; /* Black text (or body-bg if container is black) */
+    border-color: var(--button-hover-border-color) !important; /* Dim Phosphor border */
+}
+.copy-hook-output-btn:disabled {
+    background-color: #111 !important; /* Very dark grey */
+    color: #555 !important; /* Dimmer phosphor */
+    border-color: #555 !important;
+}
+
+/* Scroll to top button for retro theme */
+#scrollToTopBtn {
+    background-color: var(--container-bg-color) !important; /* Black background */
+    color: var(--primary-text-color) !important; /* Phosphor arrow */
+    border: 1px solid var(--primary-text-color) !important; /* Phosphor border */
+    padding: 5px 8px !important;
+    font-size: 1.1em !important;
+    text-shadow: none !important; /* No glow for UI element */
+    border-radius: 0 !important; /* Blocky */
+}
+#scrollToTopBtn:hover {
+    background-color: var(--primary-text-color) !important; /* Phosphor background */
+    color: var(--container-bg-color) !important; /* Black arrow */
+}
+
+/* Filter active indicator for retro theme */
+.filter-active-indicator {
+    color: var(--primary-text-color) !important; /* Main phosphor text color */
+    background-color: var(--container-bg-color) !important; /* Black background, like other elements */
+    border: 1px solid var(--secondary-text-color) !important; /* Dim phosphor border */
+    padding: 1px 4px !important;
+    font-size: 0.8em;
+    text-shadow: none !important; /* No glow on this small UI element */
+    text-transform: uppercase;
+    border-radius: 0 !important; /* Blocky */
+    font-weight: normal !important; /* Keep it from being overly bold if h2 inherits */
+}
+
+/* Search highlight for retro theme (inverse video) */
+.search-highlight { 
+    background-color: var(--highlight-bg-color) !important; /* Phosphor color */
+    color: var(--highlight-text-color) !important; /* Black */
+    text-shadow: none !important; /* Remove main text glow from highlighted part */
+    padding: 0 !important; 
+    font-weight: normal !important; 
+}
+
+/* Collapsible marker for retro theme */
+details summary::before { 
+    text-shadow: none !important; 
+    font-weight: bold;
+    color: var(--primary-text-color) !important; /* Phosphor color */
+}

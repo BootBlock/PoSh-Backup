@@ -6,34 +6,46 @@
     /* ====== HIGH CONTRAST THEME COLOUR PALETTE OVERRIDES ====== */
 
     /* --- Core Palette --- */
-    --body-bg-color: #000000;                   /* Black page background */
-    --container-bg-color: #000000;             /* Black for main content area */
-    --primary-text-color: #ffffff;             /* White for main text */
-    --secondary-text-color: #dddddd;           /* Very light grey for secondary text */
-    --border-color-light: #888888;             /* Medium grey for borders for visibility */
-    --border-color-medium: #bbbbbb;            /* Lighter Grey border for more emphasis */
-    --accent-color-primary: #ffff00;           /* Bright Yellow for accents (links, etc.) */
-    --accent-color-primary-text: #000000;      /* Black text on yellow accent backgrounds */
-    --accent-color-secondary: #00ffff;         /* Bright Cyan for secondary accents */
-    --accent-color-secondary-text: #000000;    /* Black text on cyan accent */
+    --body-bg-color: #000000;                   
+    --container-bg-color: #000000;             
+    --primary-text-color: #ffffff;             
+    --secondary-text-color: #dddddd;           
+    --border-color-light: #888888;             
+    --border-color-medium: #bbbbbb;            
+    --accent-color-primary: #ffff00;           /* Bright Yellow */
+    --accent-color-primary-text: #000000;      /* Black text on yellow */
+    --accent-color-secondary: #00ffff;         /* Bright Cyan */
+    --accent-color-secondary-text: #000000;    /* Black text on cyan */
+    --highlight-bg-color: #ffff00;             /* Yellow for search highlight */
+    --highlight-text-color: #000000;           /* Black text for search highlight */
 
     /* --- Component-Specific Colours --- */
-    /* Header & Footer */
-    --header-border-color: var(--accent-color-primary); /* Yellow header border */
+    --header-border-color: var(--accent-color-primary); 
     --footer-text-color: var(--secondary-text-color);
     --footer-border-color: var(--border-color-medium);
 
     /* Tables */
-    --table-header-bg: #1a1a1a;                /* Very dark grey for table headers */
-    --table-header-text-color: var(--accent-color-primary); /* Yellow text for headers */
-    --table-row-even-bg: #0d0d0d;              /* Slightly off-black for even rows */
-    --table-row-hover-bg: #2a2a2a;             /* Hover color for rows */
+    --table-header-bg: #1a1a1a;                
+    --table-header-text-color: var(--accent-color-primary); 
+    --table-row-even-bg: #0d0d0d;              
+    --table-row-hover-bg: #2a2a2a;             
     --table-border-color: var(--border-color-light);
+    --table-sort-arrow-color: #ffffff; /* White arrows for max contrast on dark header */
 
     /* Code Blocks & Preformatted Text */
-    --code-bg-color: #101010;                  /* Very dark grey for code */
-    --code-text-color: #f0f0f0;                /* Off-white for code text */
+    --code-bg-color: #101010;                  
+    --code-text-color: #f0f0f0;                
     --code-border-color: var(--border-color-medium);
+
+    /* Button variables for copy button, log filter toggles */
+    --button-bg-color: #000000;                 /* Black background */
+    --button-text-color: #ffffff;               /* White text */
+    --button-border-color: #ffffff;             /* White border */
+    --button-hover-bg-color: #ffffff;           /* White background on hover */
+    --button-hover-border-color: #ffffff;
+    /* Text color on hover will be defined by specific button class if needed, or use a general one */
+    /* For example, copy button might need black text on white hover bg */
+
 
     /* Status Message Text Colours - Using very bright, distinct colours */
     --status-success-text-color: #00ff00;      /* Bright Green */
@@ -45,53 +57,99 @@
     --status-default-text-color: var(--primary-text-color); /* White */
 
     /* Log Entry Backgrounds & Borders - Aim for max contrast with text */
-    /* Backgrounds will be dark, borders will be bright version of text, or white/yellow */
-    --log-info-bg: #000000;     --log-info-border: #00ffff; /* Black bg, cyan border */
-    --log-warning-bg: #000000;  --log-warning-border: #ffff00; /* Black bg, yellow border */
-    --log-error-bg: #000000;    --log-error-border: #ff0000; /* Black bg, red border */
-    --log-simulate-bg: #000000; --log-simulate-border: #ff00ff; /* Black bg, magenta border */
+    --log-info-bg: #000000;     --log-info-border: #00ffff; 
+    --log-warning-bg: #000000;  --log-warning-border: #ffff00; 
+    --log-error-bg: #000000;    --log-error-border: #ff0000; 
+    --log-simulate-bg: #000000; --log-simulate-border: #ff00ff; 
     --log-configtest-bg: var(--log-simulate-bg); --log-configtest-border: var(--log-simulate-border);
-    --log-debug-bg: #000000;    --log-debug-border: #aaaaaa; /* Black bg, grey border */
-    --log-vss-bg: #000000;      --log-vss-border: #ffaa00;     /* Black bg, orange border */
-    --log-hook-bg: #000000;     --log-hook-border: #00ff88;    /* Black bg, bright mint border */
-    --log-success-bg: #000000;  --log-success-border: #00ff00; /* Black bg, green border */
+    --log-debug-bg: #000000;    --log-debug-border: #aaaaaa; 
+    --log-vss-bg: #000000;      --log-vss-border: #ffaa00;     
+    --log-hook-bg: #000000;     --log-hook-border: #00ff88;    
+    --log-success-bg: #000000;  --log-success-border: #00ff00; 
     --log-none-bg: var(--container-bg-color); --log-none-border: var(--border-color-light);
 
 
     /* Log Entry Text Colours - Max contrast with black background */
-    --log-info-text-color: #00ffff;            /* Bright Cyan */
-    --log-warning-text-color: #ffff00;         /* Bright Yellow */
-    --log-error-text-color: #ff4d4d;           /* Bright Red (slightly less harsh than pure #ff0000) */
-    --log-debug-text-color: #cccccc;           /* Light Gray */
-    --log-success-text-color: #00ff00;         /* Bright Green */
-    --log-vss-text-color: #ffaa00;             /* Bright Orange */
-    --log-hook-text-color: #00ff88;            /* Bright Mint */
-    --log-simulate-text-color: #ff00ff;        /* Bright Magenta */
+    --log-info-text-color: #00ffff;            
+    --log-warning-text-color: #ffff00;         
+    --log-error-text-color: #ff4d4d;           
+    --log-debug-text-color: #cccccc;           
+    --log-success-text-color: #00ff00;         
+    --log-vss-text-color: #ffaa00;             
+    --log-hook-text-color: #00ff88;            
+    --log-simulate-text-color: #ff00ff;        
     --log-configtest-text-color: var(--log-simulate-text-color);
-    --log-none-text-color: var(--primary-text-color); /* White */
+    --log-none-text-color: var(--primary-text-color); 
 }
 
-/* Additional high-contrast specific overrides if needed beyond variables. */
-/* For example, ensuring all borders are very visible and thicker if needed. */
-h1, h2, table, th, td, .details-section, pre, .log-entry {
-    border-width: 1px !important; /* Make sure borders are clearly visible */
-    /* For even higher contrast, you might consider making borders white, */
-    /* but this can sometimes look too busy. The variable approach is preferred. */
-    /* Example: border-color: #FFFFFF !important; */
+/* Additional high-contrast specific overrides */
+h1, h2, table, th, td, .details-section, pre, .log-entry, details summary {
+    border-width: 1px !important; 
+    border-color: var(--border-color-medium) !important; /* Ensure borders are visible */
+}
+details[open] > summary { /* Ensure border remains on open summary */
+    border-bottom: 1px solid var(--border-color-medium) !important;
 }
 
-/* Ensure links are clearly distinguishable */
+
 a, a:visited {
-    color: var(--accent-color-primary) !important; /* Yellow */
-    text-decoration: underline !important; /* Always underline links for HC */
+    color: var(--accent-color-primary) !important; 
+    text-decoration: underline !important; 
+    font-weight: bold !important; /* Make links bolder */
 }
 a:hover, a:focus {
-    background-color: var(--accent-color-primary) !important; /* Yellow background on hover */
-    color: var(--accent-color-primary-text) !important; /* Black text on hover */
+    background-color: var(--accent-color-primary) !important; 
+    color: var(--accent-color-primary-text) !important; 
     text-decoration: none !important;
 }
 
-/* Ensure text in specific elements has enough contrast if variables aren't enough */
 .log-entry strong {
-    color: var(--accent-color-secondary) !important; /* Bright Cyan for timestamp/level headers */
+    color: var(--accent-color-secondary) !important; 
+}
+
+/* High contrast for buttons */
+.log-filters .log-level-toggle-buttons button,
+.copy-hook-output-btn {
+    background-color: #000000 !important;
+    color: #ffffff !important;
+    border: 2px solid #ffffff !important; /* Thicker border */
+    font-weight: bold;
+}
+.log-filters .log-level-toggle-buttons button:hover,
+.log-filters .log-level-toggle-buttons button:focus,
+.copy-hook-output-btn:hover,
+.copy-hook-output-btn:focus {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    border-color: #ffffff !important;
+}
+.copy-hook-output-btn:disabled {
+    background-color: #333333 !important;
+    color: #888888 !important;
+    border-color: #888888 !important;
+}
+
+
+#scrollToTopBtn {
+    background-color: var(--accent-color-primary) !important; /* Bright Yellow */
+    color: var(--accent-color-primary-text) !important; /* Black arrow */
+    border: 2px solid var(--accent-color-primary-text) !important; /* Black border */
+    font-weight: bold;
+}
+#scrollToTopBtn:hover {
+    background-color: var(--accent-color-primary-text) !important; /* Black button */
+    color: var(--accent-color-primary) !important; /* Yellow arrow */
+    border-color: var(--accent-color-primary) !important; /* Yellow border */
+}
+
+.filter-active-indicator {
+    color: #000000 !important; /* Black text */
+    background-color: var(--status-warning-text-color) !important; /* Bright yellow background */
+    border: 2px solid #000000 !important; /* Black border */
+    font-weight: bold;
+    padding: 2px 6px !important;
+}
+
+details summary::before { /* Marker for collapsible sections */
+    color: var(--primary-text-color) !important; /* White marker */
 }

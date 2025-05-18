@@ -16,8 +16,17 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **CPU Priority Control:** Manage system resource impact by setting the 7-Zip process priority (e.g., Idle, BelowNormal, Normal, High).
 *   **Extensible Script Hooks:** Execute your own custom PowerShell scripts at various stages of a backup job for ultimate operational flexibility.
 *   **Multi-Format Reporting:** Generate comprehensive reports for each job.
-    *   **HTML Reports:** Highly customisable with titles, logos, company info, themes (via external CSS), client-side log filtering/searching, and simulation banners.
-    *   **Other Formats:** CSV, JSON, XML (CliXml), Plain Text (TXT), and Markdown (MD) also supported.
+    *   **Interactive HTML Reports:** Highly customisable with titles, logos, and themes (via external CSS).
+        *   **Collapsible Sections:** Summary, Configuration, Hooks, and Detailed Log sections are collapsible for easier navigation, with their open/closed state remembered in the browser (via `localStorage`).
+        *   **Advanced Log Filtering:** Client-side keyword search and per-level checkbox filtering for log entries. Includes "Select All" / "Deselect All" buttons for log levels and a visual indicator when filters are active.
+        *   **Keyword Highlighting:** Searched keywords are automatically highlighted within the log entries.
+        *   **Dynamic Table Sorting:** Key data tables (Summary, Configuration, Hooks) can be sorted by clicking column headers.
+        *   **Copy to Clipboard:** Easily copy the output of executed hook scripts using a dedicated button.
+        *   **Scroll to Top Button:** Appears on long reports for quick navigation back to the top of the page.
+        *   **Configurable Favicon:** Display a custom icon in the browser tab for the report.
+        *   **Print-Optimized:** Includes basic print-specific CSS for better paper output (e.g., hides interactive elements, ensures content is visible).
+        *   **Simulation Banner:** Clearly distinguishes reports generated from simulation runs.
+    *   **Other Formats:** CSV, JSON, XML (CliXml), Plain Text (TXT), and Markdown (MD) also supported for data export and integration.
 *   **Comprehensive Logging:** Get detailed, colour-coded console output and optional per-job text file logs for easy monitoring and troubleshooting.
 *   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview backup operations without making any actual changes.
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`) before execution. Optional advanced schema validation available.
@@ -98,11 +107,11 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                     # Add more jobs as needed
                 }
 
-                # ... other settings like BackupSets ...
+                # ... other settings like BackupSets, HtmlReportFaviconPath ...
             }
             ```
 3.  **Explore `Config\Default.psd1` for All Options:**
-    *   Open `Config\Default.psd1` (but don't edit it for your settings). This file serves as a comprehensive reference. It contains detailed comments explaining every available global and job-specific setting, including VSS options, retry mechanisms, 7-Zip parameters, reporting customisations, and more.
+    *   Open `Config\Default.psd1` (but don't edit it for your settings). This file serves as a comprehensive reference. It contains detailed comments explaining every available global and job-specific setting, including VSS options, retry mechanisms, 7-Zip parameters, reporting customisations (like `HtmlReportFaviconPath`), and more.
 
 ### 4. Basic Usage Examples
 Once your `Config\User.psd1` is configured with at least one backup job, you can run PoSh-Backup from a PowerShell console located in the script's root directory:

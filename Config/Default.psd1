@@ -100,7 +100,7 @@
     HtmlReportCustomCssPath         = ""                              # Optional: Full path to a user-provided .css file for additional or overriding report styling.
                                                                       # This CSS is loaded *after* the selected theme's CSS and any specific CSS variable overrides from this config.
     HtmlReportCompanyName           = "PoSh Backup Solutions"         # Company name, your name, or any desired text displayed in the report footer.
-    HtmlReportTheme                 = "Light"                         # Name of the theme CSS file (without the .css extension) located in the 'Config\Themes' directory
+    HtmlReportTheme                 = "RetroTerminal"                         # Name of the theme CSS file (without the .css extension) located in the 'Config\Themes' directory
                                                                       # (relative to PoSh-Backup.ps1).
                                                                       # Built-in themes: "Light", "Dark", "HighContrast", "Playful", "RetroTerminal".
                                                                       # A 'Base.css' file in 'Config\Themes' is always loaded first, providing foundational styles.

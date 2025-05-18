@@ -318,7 +318,7 @@ function Invoke-HtmlReport {
 document.addEventListener('DOMContentLoaded', function () {
     // Persistent Collapsible Sections Logic
     const DETAILS_LS_PREFIX = 'poshBackupReport_detailsState_';
-    const collapsibleDetailsElements = document.querySelectorAll('details[id^=""details-""]');
+    const collapsibleDetailsElements = document.querySelectorAll('details[id^="details-"]');
 
     collapsibleDetailsElements.forEach(details => {
         const storedState = localStorage.getItem(DETAILS_LS_PREFIX + details.id);
