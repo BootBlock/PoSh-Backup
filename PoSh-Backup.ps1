@@ -10,25 +10,20 @@
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
     It is designed for robustness, extensive configurability, and detailed operational feedback.
     Core logic is managed by the main script, which orchestrates operations performed by dedicated
-    PowerShell modules for utility functions, backup operations, password management, 7-Zip interaction,
-    VSS management, retention policy management, and reporting.
+    PowerShell modules for utility functions, configuration management, backup operations,
+    password management, 7-Zip interaction, VSS management, retention policy management, and reporting.
 
     Key Features:
     - Modular Design: Facilitates maintainability and clarity by separating concerns into modules
-      (e.g., Utils.psm1, Operations.psm1, Reporting.psm1, PasswordManager.psm1, 7ZipManager.psm1,
-      VssManager.psm1, RetentionManager.psm1, and specific report format modules).
-    - External Configuration: All backup jobs, global settings (e.g., 7-Zip path, default VSS state),
-      and backup sets are defined in an external '.psd1' configuration file. The script loads
-      'Config\Default.psd1' and merges 'Config\User.psd1' (if present) for user-specific overrides.
-    - Early 7-Zip Path Validation: Checks for a valid 7-Zip executable path immediately after
-      configuration loading and will exit if it cannot be found or auto-detected.
-    - Backup Jobs: Define specific source paths, destination directories, archive base names,
-      retention policies, 7-Zip parameters, VSS usage, password protection, reporting options, etc.
-    - Backup Sets: Group multiple backup jobs to run sequentially.
-    - Volume Shadow Copy Service (VSS): Optionally allows backing up open/locked files (managed by VssManager.psm1).
-    - 7-Zip Integration: Leverages 7-Zip for efficient compression (managed by 7ZipManager.psm1).
-    - Secure Password Handling: Multiple secure methods for password retrieval.
-    - Configurable Archive Naming & Retention: Managed by RetentionManager.psm1.
+      (e.g., Utils.psm1, ConfigManager.psm1, Operations.psm1, Reporting.psm1, PasswordManager.psm1,
+      7ZipManager.psm1, VssManager.psm1, RetentionManager.psm1, and specific report format modules).
+    - External Configuration: All backup jobs, global settings, and backup sets are defined in an
+      external '.psd1' configuration file (managed by ConfigManager.psm1).
+    - Early 7-Zip Path Validation, Backup Jobs, Backup Sets.
+    - Volume Shadow Copy Service (VSS): Managed by VssManager.psm1.
+    - 7-Zip Integration: Managed by 7ZipManager.psm1.
+    - Secure Password Handling, Configurable Archive Naming.
+    - Retention Policies: Managed by RetentionManager.psm1.
     - Retry Mechanism, 7-Zip Process Priority, Script Hooks.
     - Detailed Multi-Format Reports, Extensive Logging.
     - Simulation Mode (-Simulate), Configuration Test Mode (-TestConfig), List Configured Items.
@@ -89,12 +84,12 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.8
+    Version:        1.9.9 
     Date:           17-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS.
-    Modules:        Located in '.\Modules\': Utils.psm1, Operations.psm1, Reporting.psm1,
-                    PasswordManager.psm1, 7ZipManager.psm1, VssManager.psm1, RetentionManager.psm1,
-                    and reporting sub-modules in '.\Modules\Reporting\'.
+    Modules:        Located in '.\Modules\': Utils.psm1, ConfigManager.psm1, Operations.psm1,
+                    Reporting.psm1, PasswordManager.psm1, 7ZipManager.psm1, VssManager.psm1,
+                    RetentionManager.psm1, and reporting sub-modules in '.\Modules\Reporting\'.
                     Optional: 'PoShBackupValidator.psm1'.
     Configuration:  Via '.\Config\Default.psd1' and '.\Config\User.psd1'.
     Script Name:    PoSh-Backup.ps1
@@ -192,14 +187,16 @@ $Global:GlobalLogDirectory                  = $null
 $Global:GlobalJobLogEntries                 = $null
 $Global:GlobalJobHookScriptData             = $null
 
+# CRITICAL: Import ALL modules first so their functions are available.
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ConfigManager.psm1") -Force -ErrorAction Stop 
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Operations.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Reporting.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\7ZipManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\VssManager.psm1") -Force -ErrorAction Stop 
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\RetentionManager.psm1") -Force -ErrorAction Stop # NEW: Import RetentionManager
-    Write-Host "[INFO] Core modules Utils, Operations, Reporting, 7ZipManager, VssManager, and RetentionManager loaded." -ForegroundColour $Global:ColourInfo
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\RetentionManager.psm1") -Force -ErrorAction Stop 
+    Write-Host "[INFO] Core modules Utils, ConfigManager, Operations, Reporting, 7ZipManager, VssManager, and RetentionManager loaded." -ForegroundColour $Global:ColourInfo
 
 } catch {
     Write-Host "[FATAL] Failed to import required script modules." -ForegroundColour $Global:ColourError
@@ -210,7 +207,7 @@ try {
 
 Write-LogMessage "---------------------------------" -Level "NONE"
 Write-LogMessage " Starting PoSh Backup Script     " -Level "HEADING"
-Write-LogMessage " Script Version: v1.9.8 (Added RetentionManager module)" -Level "HEADING"
+Write-LogMessage " Script Version: v1.9.9 (Added ConfigManager module, fixed import order)" -Level "HEADING"
 if ($IsSimulateMode) { Write-LogMessage " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { Write-LogMessage " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { Write-LogMessage " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
@@ -227,6 +224,7 @@ $defaultUserConfigFileName = "User.psd1"
 $defaultBaseConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultBaseConfigFileName
 $defaultUserConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultUserConfigFileName
 
+# User.psd1 creation prompt logic (depends on Utils.psm1 for Get-ConfigValue, which is loaded above)
 if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
     if (-not (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf)) {
         if (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf) {
@@ -275,6 +273,7 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
     }
 }
 
+# Now that all modules (including ConfigManager) are loaded, call Import-AppConfiguration
 $configResult = Import-AppConfiguration -UserSpecifiedPath $ConfigFile -IsTestConfigMode:(($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) -MainScriptPSScriptRoot $PSScriptRoot
 if (-not $configResult.IsValid) {
     Write-LogMessage "FATAL: Configuration loading or validation failed. Exiting." -Level "ERROR"
@@ -298,6 +297,7 @@ if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
     exit 1
 }
 
+# Early 7-Zip path check (after full config load and potential auto-detection by Import-AppConfiguration)
 if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent -or $TestConfig.IsPresent)) {
     $sevenZipPathFromFinalConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'SevenZipPath' -DefaultValue $null
     if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
@@ -328,6 +328,7 @@ if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent -or $Test
     }
 }
 
+# Global File Logging Setup
 if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent)) {
     $Global:GlobalEnableFileLogging = Get-ConfigValue -ConfigObject $Configuration -Key 'EnableFileLogging' -DefaultValue $false
     if ($Global:GlobalEnableFileLogging) {
@@ -346,6 +347,7 @@ if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent)) {
     }
 }
 
+# Handle -ListBackupLocations, -ListBackupSets, -TestConfig modes (which depend on loaded configuration)
 if ($ListBackupLocations.IsPresent) {
     Write-LogMessage "`n--- Defined Backup Locations (Jobs) from '$($ActualConfigFile)' ---" -Level "HEADING"
     if ($configResult.UserConfigLoaded) {
@@ -473,8 +475,8 @@ foreach ($currentJobName in $jobsToProcess) {
     try {
         $invokePoShBackupJobParams = @{
             JobName             = $currentJobName
-            JobConfig           = $jobConfig
-            GlobalConfig        = $Configuration
+            JobConfig           = $jobConfig 
+            GlobalConfig        = $Configuration 
             CliOverrides        = $cliOverrideSettings
             PSScriptRootForPaths = $PSScriptRoot
             ActualConfigFile    = $ActualConfigFile

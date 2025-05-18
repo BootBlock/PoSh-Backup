@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
     Manages the core backup operations for a single backup job within the PoSh-Backup solution.
-    This includes gathering effective job configurations, handling VSS (via VssManager.psm1),
-    executing 7-Zip for archiving and testing (via 7ZipManager.psm1), applying retention policies
-    (via RetentionManager.psm1), and checking destination free space. It also orchestrates
-    password retrieval and hook script execution.
+    This includes gathering effective job configurations (via ConfigManager.psm1), handling VSS
+    (via VssManager.psm1), executing 7-Zip (via 7ZipManager.psm1), applying retention policies
+    (via RetentionManager.psm1), and checking destination free space (via Utils.psm1).
+    It also orchestrates password retrieval and hook script execution.
 
 .DESCRIPTION
     The Operations module encapsulates the entire lifecycle of processing a single, defined backup job.
@@ -12,12 +12,12 @@
     necessary steps to create an archive.
 
     The primary exported function, Invoke-PoShBackupJob, performs the following sequence:
-    1.  Gathers effective configuration.
+    1.  Gathers effective configuration (ConfigManager.psm1).
     2.  Validates/creates destination directory.
     3.  Retrieves archive password (PasswordManager.psm1).
     4.  Executes pre-backup hook scripts.
     5.  Handles VSS shadow copy creation if enabled (VssManager.psm1).
-    6.  Checks destination free space.
+    6.  Checks destination free space (Utils.psm1).
     7.  Applies retention policy (RetentionManager.psm1).
     8.  Constructs 7-Zip arguments (7ZipManager.psm1).
     9.  Executes 7-Zip for archiving (7ZipManager.psm1).
@@ -28,108 +28,18 @@
     14. Returns job status.
 
     This module relies on other PoSh-Backup modules like Utils.psm1, PasswordManager.psm1,
-    7ZipManager.psm1, VssManager.psm1, and RetentionManager.psm1.
+    7ZipManager.psm1, VssManager.psm1, RetentionManager.psm1, and ConfigManager.psm1.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.10.0 # Moved retention policy functions to RetentionManager.psm1.
+    Version:        1.12.0 # Moved Test-DestinationFreeSpace to Utils.psm1.
     DateCreated:    10-May-2025
     LastModified:   17-May-2025
     Purpose:        Handles the execution logic for individual backup jobs.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
-                    Core PoSh-Backup modules: Utils.psm1, PasswordManager.psm1,
-                    7ZipManager.psm1, VssManager.psm1, RetentionManager.psm1.
+                    All core PoSh-Backup modules.
                     Administrator privileges for VSS.
 #>
-
-#region --- Private Helper: Gather Job Configuration ---
-# Not exported
-function Get-PoShBackupJobEffectiveConfiguration {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [hashtable]$JobConfig,
-        [Parameter(Mandatory)] [hashtable]$GlobalConfig,
-        [Parameter(Mandatory)] [hashtable]$CliOverrides,
-        [Parameter(Mandatory)] [ref]$JobReportDataRef
-    )
-
-    $effectiveConfig = @{}
-    $reportData = $JobReportDataRef.Value
-
-    $effectiveConfig.OriginalSourcePath = $JobConfig.Path
-    $effectiveConfig.BaseFileName       = $JobConfig.Name
-    $reportData.JobConfiguration        = $JobConfig 
-
-    $effectiveConfig.DestinationDir = Get-ConfigValue -ConfigObject $JobConfig -Key 'DestinationDir' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDestinationDir' -DefaultValue $null)
-    $effectiveConfig.RetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3)
-    if ($effectiveConfig.RetentionCount -lt 0) { $effectiveConfig.RetentionCount = 0 } 
-    $effectiveConfig.DeleteToRecycleBin = Get-ConfigValue -ConfigObject $JobConfig -Key 'DeleteToRecycleBin' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDeleteToRecycleBin' -DefaultValue $false)
-
-    $effectiveConfig.ArchivePasswordMethod = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordMethod' -DefaultValue "None"
-    $effectiveConfig.CredentialUserNameHint = Get-ConfigValue -ConfigObject $JobConfig -Key 'CredentialUserNameHint' -DefaultValue "BackupUser"
-    $effectiveConfig.ArchivePasswordSecretName = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordSecretName' -DefaultValue $null
-    $effectiveConfig.ArchivePasswordVaultName = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordVaultName' -DefaultValue $null
-    $effectiveConfig.ArchivePasswordSecureStringPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordSecureStringPath' -DefaultValue $null
-    $effectiveConfig.ArchivePasswordPlainText = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordPlainText' -DefaultValue $null
-    $effectiveConfig.UsePassword = Get-ConfigValue -ConfigObject $JobConfig -Key 'UsePassword' -DefaultValue $false
-
-    $effectiveConfig.HideSevenZipOutput = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'HideSevenZipOutput' -DefaultValue $true
-
-    $effectiveConfig.JobArchiveType = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveType' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveType' -DefaultValue "-t7z")
-    $effectiveConfig.JobArchiveExtension = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveExtension' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveExtension' -DefaultValue ".7z")
-    $effectiveConfig.JobArchiveDateFormat = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveDateFormat' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd")
-
-    $effectiveConfig.JobCompressionLevel = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressionLevel' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressionLevel' -DefaultValue "-mx=7")
-    $effectiveConfig.JobCompressionMethod = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressionMethod' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressionMethod' -DefaultValue "-m0=LZMA2")
-    $effectiveConfig.JobDictionarySize = Get-ConfigValue -ConfigObject $JobConfig -Key 'DictionarySize' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDictionarySize' -DefaultValue "-md=128m")
-    $effectiveConfig.JobWordSize = Get-ConfigValue -ConfigObject $JobConfig -Key 'WordSize' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultWordSize' -DefaultValue "-mfb=64")
-    $effectiveConfig.JobSolidBlockSize = Get-ConfigValue -ConfigObject $JobConfig -Key 'SolidBlockSize' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSolidBlockSize' -DefaultValue "-ms=16g")
-    $effectiveConfig.JobCompressOpenFiles = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressOpenFiles' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressOpenFiles' -DefaultValue $true)
-    $effectiveConfig.JobAdditionalExclusions = @(Get-ConfigValue -ConfigObject $JobConfig -Key 'AdditionalExclusions' -DefaultValue @())
-
-    $_globalConfigThreads  = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultThreadCount' -DefaultValue 0
-    $_jobSpecificThreadsToUse = Get-ConfigValue -ConfigObject $JobConfig -Key 'ThreadsToUse' -DefaultValue 0
-    $_threadsFor7Zip = if ($_jobSpecificThreadsToUse -gt 0) { $_jobSpecificThreadsToUse } elseif ($_globalConfigThreads -gt 0) { $_globalConfigThreads } else { 0 } 
-    $effectiveConfig.ThreadsSetting = if ($_threadsFor7Zip -gt 0) { "-mmt=$($_threadsFor7Zip)"} else {"-mmt"} 
-
-    $effectiveConfig.JobEnableVSS = if ($CliOverrides.UseVSS) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableVSS' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableVSS' -DefaultValue $false) }
-    $effectiveConfig.JobVSSContextOption = Get-ConfigValue -ConfigObject $JobConfig -Key 'VSSContextOption' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVSSContextOption' -DefaultValue "Persistent NoWriters")
-    $_vssCachePathFromConfig = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab"
-    $effectiveConfig.VSSMetadataCachePath = [System.Environment]::ExpandEnvironmentVariables($_vssCachePathFromConfig) 
-    $effectiveConfig.VSSPollingTimeoutSeconds = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSPollingTimeoutSeconds' -DefaultValue 120
-    $effectiveConfig.VSSPollingIntervalSeconds = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSPollingIntervalSeconds' -DefaultValue 5
-
-    $effectiveConfig.JobEnableRetries = if ($CliOverrides.EnableRetries) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableRetries' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableRetries' -DefaultValue $true) }
-    $effectiveConfig.JobMaxRetryAttempts = Get-ConfigValue -ConfigObject $JobConfig -Key 'MaxRetryAttempts' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MaxRetryAttempts' -DefaultValue 3)
-    $effectiveConfig.JobRetryDelaySeconds = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetryDelaySeconds' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetryDelaySeconds' -DefaultValue 60)
-
-    $effectiveConfig.JobSevenZipProcessPriority = if (-not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipPriority)) {
-        $CliOverrides.SevenZipPriority
-    } else {
-        Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipProcessPriority' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipProcessPriority' -DefaultValue "Normal")
-    }
-
-    $effectiveConfig.JobTestArchiveAfterCreation = if ($CliOverrides.TestArchive) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'TestArchiveAfterCreation' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultTestArchiveAfterCreation' -DefaultValue $false) }
-
-    $effectiveConfig.JobMinimumRequiredFreeSpaceGB = Get-ConfigValue -ConfigObject $JobConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue 0)
-    $effectiveConfig.JobExitOnLowSpace = Get-ConfigValue -ConfigObject $JobConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue $false)
-
-    $effectiveConfig.PreBackupScriptPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PreBackupScriptPath' -DefaultValue $null
-    $effectiveConfig.PostBackupScriptOnSuccessPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptOnSuccessPath' -DefaultValue $null
-    $effectiveConfig.PostBackupScriptOnFailurePath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptOnFailurePath' -DefaultValue $null
-    $effectiveConfig.PostBackupScriptAlwaysPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptAlwaysPath' -DefaultValue $null
-
-    $reportData.SourcePath = if ($effectiveConfig.OriginalSourcePath -is [array]) {$effectiveConfig.OriginalSourcePath} else {@($effectiveConfig.OriginalSourcePath)}
-    $reportData.VSSUsed = $effectiveConfig.JobEnableVSS
-    $reportData.RetriesEnabled = $effectiveConfig.JobEnableRetries
-    $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation 
-    $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority
-
-    $effectiveConfig.GlobalConfigRef = $GlobalConfig 
-
-    return $effectiveConfig
-}
-#endregion
 
 #region --- Main Job Processing Function ---
 function Invoke-PoShBackupJob {
@@ -138,9 +48,9 @@ function Invoke-PoShBackupJob {
         [Parameter(Mandatory=$true)]
         [string]$JobName,
         [Parameter(Mandatory=$true)]
-        [hashtable]$JobConfig,
+        [hashtable]$JobConfig, 
         [Parameter(Mandatory=$true)]
-        [hashtable]$GlobalConfig,
+        [hashtable]$GlobalConfig, 
         [Parameter(Mandatory=$true)]
         [hashtable]$CliOverrides,
         [Parameter(Mandatory=$true)]
@@ -167,6 +77,9 @@ function Invoke-PoShBackupJob {
     $plainTextPasswordForJob = $null 
 
     try {
+        if (-not (Get-Command Get-PoShBackupJobEffectiveConfiguration -ErrorAction SilentlyContinue)) {
+            throw "CRITICAL: Function 'Get-PoShBackupJobEffectiveConfiguration' from ConfigManager.psm1 is not available."
+        }
         $effectiveJobConfig = Get-PoShBackupJobEffectiveConfiguration -JobConfig $JobConfig -GlobalConfig $GlobalConfig -CliOverrides $CliOverrides -JobReportDataRef $JobReportDataRef
 
         Write-LogMessage " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
@@ -287,6 +200,8 @@ function Invoke-PoShBackupJob {
         Write-LogMessage "`n[INFO] Performing Pre-Backup Operations for job '$JobName'..."
         Write-LogMessage "   - Using source(s) for 7-Zip: $(if ($currentJobSourcePathFor7Zip -is [array]) {($currentJobSourcePathFor7Zip | Where-Object {$_}) -join '; '} else {$currentJobSourcePathFor7Zip})"
 
+        # Test-DestinationFreeSpace is now in Utils.psm1
+        if (-not (Get-Command Test-DestinationFreeSpace -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Test-DestinationFreeSpace' from Utils.psm1 is not available."}
         if (-not (Test-DestinationFreeSpace -DestDir $effectiveJobConfig.DestinationDir -MinRequiredGB $effectiveJobConfig.JobMinimumRequiredFreeSpaceGB -ExitOnLow $effectiveJobConfig.JobExitOnLowSpace -IsSimulateMode:$IsSimulateMode)) {
             throw "Low disk space condition met and configured to halt job '$JobName'." 
         }
@@ -446,60 +361,10 @@ function Invoke-PoShBackupJob {
 }
 #endregion
 
-#region --- Removed VSS Functions ---
-# New-VSSShadowCopy, Remove-VSSShadowCopyById, Remove-VSSShadowCopy have been moved to Modules\VssManager.psm1
-#endregion
-
-#region --- Removed Retention Policy Functions ---
-# Invoke-VisualBasicFileOperation and Invoke-BackupRetentionPolicy have been moved to Modules\RetentionManager.psm1
-#endregion
-
-#region --- Free Space Check ---
-function Test-DestinationFreeSpace {
-    [CmdletBinding()]
-    param(
-        [string]$DestDir,
-        [int]$MinRequiredGB,
-        [bool]$ExitOnLow, 
-        [switch]$IsSimulateMode
-    )
-    if ($MinRequiredGB -le 0) { return $true } 
-
-    Write-LogMessage "`n[INFO] Checking destination free space for '$DestDir'..."
-    Write-LogMessage "   - Minimum free space required: $MinRequiredGB GB"
-
-    if ($IsSimulateMode.IsPresent) {
-        Write-LogMessage "SIMULATE: Would check free space on '$DestDir'. Assuming sufficient space for simulation purposes." -Level SIMULATE
-        return $true
-    }
-
-    try {
-        if (-not (Test-Path -LiteralPath $DestDir -PathType Container)) {
-            Write-LogMessage "[WARNING] Destination directory '$DestDir' for free space check not found. Skipping this check." -Level WARNING
-            return $true 
-        }
-        $driveLetter = (Get-Item -LiteralPath $DestDir).PSDrive.Name
-        $destDrive = Get-PSDrive -Name $driveLetter -ErrorAction Stop
-        $freeSpaceGB = [math]::Round($destDrive.Free / 1GB, 2)
-        Write-LogMessage "   - Available free space on drive $($destDrive.Name) (hosting '$DestDir'): $freeSpaceGB GB"
-
-        if ($freeSpaceGB -lt $MinRequiredGB) {
-            Write-LogMessage "[WARNING] Low disk space on destination. Available: $freeSpaceGB GB, Required: $MinRequiredGB GB." -Level WARNING
-            if ($ExitOnLow) {
-                Write-LogMessage "FATAL: Exiting job due to insufficient free disk space (ExitOnLowSpaceIfBelowMinimum is true)." -Level ERROR
-                return $false 
-            }
-        } else {
-            Write-LogMessage "   - Free space check: OK (Available: $freeSpaceGB GB, Required: $MinRequiredGB GB)" -Level SUCCESS
-        }
-    } catch {
-        Write-LogMessage "[WARNING] Could not determine free space for destination '$DestDir'. Check skipped. Error: $($_.Exception.Message)" -Level WARNING
-    }
-    return $true 
-}
+#region --- Removed Functions ---
+# Test-DestinationFreeSpace has been moved to Modules\Utils.psm1
 #endregion
 
 #region --- Exported Functions ---
-# Invoke-BackupRetentionPolicy is now in RetentionManager.psm1
-Export-ModuleMember -Function Test-DestinationFreeSpace, Invoke-PoShBackupJob
+Export-ModuleMember -Function Invoke-PoShBackupJob
 #endregion
