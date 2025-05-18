@@ -84,8 +84,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.9 
-    Date:           17-May-2025
+    Version:        1.9.10 # Pass logger to Import-AppConfiguration for -TestConfig robustness.
+    Date:           18-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS.
     Modules:        Located in '.\Modules\': Utils.psm1, ConfigManager.psm1, Operations.psm1,
                     Reporting.psm1, PasswordManager.psm1, 7ZipManager.psm1, VssManager.psm1,
@@ -207,7 +207,7 @@ try {
 
 Write-LogMessage "---------------------------------" -Level "NONE"
 Write-LogMessage " Starting PoSh Backup Script     " -Level "HEADING"
-Write-LogMessage " Script Version: v1.9.9 (Added ConfigManager module, fixed import order)" -Level "HEADING"
+Write-LogMessage " Script Version: v1.9.10 (Pass logger to Import-AppConfiguration)" -Level "HEADING"
 if ($IsSimulateMode) { Write-LogMessage " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { Write-LogMessage " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { Write-LogMessage " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
@@ -274,7 +274,10 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
 }
 
 # Now that all modules (including ConfigManager) are loaded, call Import-AppConfiguration
-$configResult = Import-AppConfiguration -UserSpecifiedPath $ConfigFile -IsTestConfigMode:(($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) -MainScriptPSScriptRoot $PSScriptRoot
+$configResult = Import-AppConfiguration -UserSpecifiedPath $ConfigFile `
+                                         -IsTestConfigMode:(($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) `
+                                         -MainScriptPSScriptRoot $PSScriptRoot `
+                                         -Logger ${function:Write-LogMessage}
 if (-not $configResult.IsValid) {
     Write-LogMessage "FATAL: Configuration loading or validation failed. Exiting." -Level "ERROR"
     exit 1
@@ -434,7 +437,11 @@ if ($TestConfig.IsPresent) {
     exit 0
 }
 
-$jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet
+# Note: PoSh-Backup.ps1 calls Get-JobsToProcess and Get-PoShBackupJobEffectiveConfiguration from ConfigManager.psm1.
+# These functions also use Write-LogMessage directly. If the logger passing is the true fix, they will
+# also need to be updated to accept and use a -Logger parameter.
+# For now, the fix is targeted at Import-AppConfiguration as it's the one failing in -TestConfig.
+$jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger ${function:Write-LogMessage}
 if (-not $jobResolutionResult.Success) {
     Write-LogMessage "FATAL: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
     exit 1
@@ -482,6 +489,7 @@ foreach ($currentJobName in $jobsToProcess) {
             ActualConfigFile    = $ActualConfigFile
             JobReportDataRef    = ([ref]$currentJobReportData)
             IsSimulateMode      = $IsSimulateMode
+            Logger              = ${function:Write-LogMessage} # Pass logger to Invoke-PoShBackupJob
         }
         $jobResult = Invoke-PoShBackupJob @invokePoShBackupJobParams
         $currentJobStatus = $jobResult.Status
@@ -550,12 +558,14 @@ foreach ($currentJobName in $jobsToProcess) {
                 Write-LogMessage "[WARNING] Failed to create default reports directory '$defaultJobReportsDir'. Report generation may fail. Error: $($_.Exception.Message)" -Level "WARNING"
             }
         }
-
+        # Invoke-ReportGenerator itself calls Write-LogMessage directly. For full robustness, it too would need a logger.
+        # However, it's called from the main script's scope here, so it likely works.
         Invoke-ReportGenerator -ReportDirectory $defaultJobReportsDir `
                                -JobName $currentJobName `
                                -ReportData $currentJobReportData `
                                -GlobalConfig $Configuration `
-                               -JobConfig $jobConfig
+                               -JobConfig $jobConfig `
+                               -Logger ${function:Write-LogMessage} # Pass logger
     }
 
     if ($currentSetName -and $currentJobStatus -eq "FAILURE" -and $stopSetOnError) {

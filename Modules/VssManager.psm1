@@ -16,23 +16,24 @@
     - Remove specific shadow copies by ID or all tracked shadow copies for the run.
 
     This module relies on utility functions (like Write-LogMessage, Test-AdminPrivilege)
-    being made available globally by the main PoSh-Backup script importing Utils.psm1.
+    being made available globally by the main PoSh-Backup script importing Utils.psm1, or by
+    passing a logger reference.
     Administrator privileges are required for all VSS operations.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Functions now accept and use -Logger.
     DateCreated:    17-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        Centralised VSS management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+. Administrator privileges.
                     Core PoSh-Backup module Utils.psm1 (for Write-LogMessage, Test-AdminPrivilege)
-                    should be loaded by the parent script.
+                    should be loaded by the parent script, or logger passed explicitly.
 #>
 
 # Module-scoped variable to track VSS shadow IDs created during the current script run (keyed by PID)
 # This helps ensure that only shadows created by this specific invocation of PoSh-Backup are targeted for cleanup.
-$Script:VssManager_ScriptRunVSSShadowIDs = @{} # Renamed to avoid conflict if Operations.psm1 was somehow still loaded with old var
+$Script:VssManager_ScriptRunVSSShadowIDs = @{} 
 
 #region --- Internal VSS Helper Functions ---
 
@@ -43,28 +44,43 @@ function Remove-VssManagerShadowCopyByIdInternal {
     [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')]
     param (
         [Parameter(Mandatory)] [string]$ShadowID,
-        [Parameter(Mandatory)] [switch]$IsSimulateMode
+        [Parameter(Mandatory)] [switch]$IsSimulateMode,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Remove-VssManagerShadowCopyByIdInternal: Logger parameter active for ShadowID '$ShadowID'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+
     if (-not $PSCmdlet.ShouldProcess("VSS Shadow ID $ShadowID", "Delete using diskshadow.exe")) {
-        Write-LogMessage "  - VSS shadow ID $ShadowID deletion skipped by user (ShouldProcess)." -Level WARNING
+        & $LocalWriteLog -Message "  - VSS shadow ID $ShadowID deletion skipped by user (ShouldProcess)." -Level WARNING
         return
     }
 
-    Write-LogMessage "  - VssManager: Attempting cleanup of specific VSS shadow ID: $ShadowID" -Level VSS
+    & $LocalWriteLog -Message "  - VssManager: Attempting cleanup of specific VSS shadow ID: $ShadowID" -Level VSS
     $diskshadowScriptContentSingle = "SET VERBOSE ON`nDELETE SHADOWS ID $ShadowID`n"
     $tempScriptPathSingle = Join-Path -Path $env:TEMP -ChildPath "diskshadow_delete_single_$(Get-Random).txt"
     try { $diskshadowScriptContentSingle | Set-Content -Path $tempScriptPathSingle -Encoding UTF8 -ErrorAction Stop }
-    catch { Write-LogMessage "[ERROR] VssManager: Failed to write single VSS shadow delete script to '$tempScriptPathSingle'. Manual cleanup of ID $ShadowID may be required. Error: $($_.Exception.Message)" -Level ERROR; return}
+    catch { & $LocalWriteLog -Message "[ERROR] VssManager: Failed to write single VSS shadow delete script to '$tempScriptPathSingle'. Manual cleanup of ID $ShadowID may be required. Error: $($_.Exception.Message)" -Level ERROR; return}
 
     if (-not $IsSimulateMode.IsPresent) {
         $procDeleteSingle = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempScriptPathSingle`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$null" -RedirectStandardError "$null"
         if ($procDeleteSingle.ExitCode -ne 0) {
-            Write-LogMessage "[WARNING] VssManager: diskshadow.exe failed to delete specific VSS shadow ID $ShadowID. Exit Code: $($procDeleteSingle.ExitCode). Manual cleanup may be needed." -Level WARNING
+            & $LocalWriteLog -Message "[WARNING] VssManager: diskshadow.exe failed to delete specific VSS shadow ID $ShadowID. Exit Code: $($procDeleteSingle.ExitCode). Manual cleanup may be needed." -Level WARNING
         } else {
-            Write-LogMessage "    - VssManager: Successfully initiated deletion of VSS shadow ID $ShadowID." -Level VSS
+            & $LocalWriteLog -Message "    - VssManager: Successfully initiated deletion of VSS shadow ID $ShadowID." -Level VSS
         }
     } else {
-         Write-LogMessage "SIMULATE: VssManager would execute diskshadow.exe to delete VSS shadow ID $ShadowID." -Level SIMULATE
+         & $LocalWriteLog -Message "SIMULATE: VssManager would execute diskshadow.exe to delete VSS shadow ID $ShadowID." -Level SIMULATE
     }
     Remove-Item -LiteralPath $tempScriptPathSingle -Force -ErrorAction SilentlyContinue
 }
@@ -95,12 +111,14 @@ function New-VSSShadowCopy {
         How often in seconds to poll for shadow copy availability.
     .PARAMETER IsSimulateMode
         If $true, VSS creation is simulated, and plausible shadow paths are returned.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
         System.Collections.Hashtable
         A hashtable mapping original source paths to their VSS shadow copy paths if successful.
         Returns $null on failure or if no valid volumes are found.
     .EXAMPLE
-        # $shadowMap = New-VSSShadowCopy -SourcePathsToShadow "C:\Data", "D:\Logs" -VSSContextOption "Volatile NoWriters" ...
+        # $shadowMap = New-VSSShadowCopy -SourcePathsToShadow "C:\Data", "D:\Logs" -VSSContextOption "Volatile NoWriters" ... -Logger ${function:Write-LogMessage}
         # if ($shadowMap) { # Use $shadowMap.Values for backup }
     #>
     param(
@@ -109,23 +127,37 @@ function New-VSSShadowCopy {
         [Parameter(Mandatory)] [string]$MetadataCachePath, # Already expanded by caller (Operations.psm1)
         [Parameter(Mandatory)] [int]$PollingTimeoutSeconds,
         [Parameter(Mandatory)] [int]$PollingIntervalSeconds,
-        [Parameter(Mandatory)] [switch]$IsSimulateMode
+        [Parameter(Mandatory)] [switch]$IsSimulateMode,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "New-VSSShadowCopy: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey)) {
         $Script:VssManager_ScriptRunVSSShadowIDs[$runKey] = @{}
     }
     $currentCallShadowIDs = $Script:VssManager_ScriptRunVSSShadowIDs[$runKey]
 
-    Write-LogMessage "`n[INFO] VssManager: Initialising Volume Shadow Copy Service (VSS) operations..." -Level "VSS"
+    & $LocalWriteLog -Message "`n[INFO] VssManager: Initialising Volume Shadow Copy Service (VSS) operations..." -Level "VSS"
     $mappedShadowPaths = @{}
 
     $volumesToShadow = $SourcePathsToShadow | ForEach-Object {
-        try { (Get-Item -LiteralPath $_ -ErrorAction Stop).PSDrive.Name + ":" } catch { Write-LogMessage "[WARNING] VssManager: Could not determine volume for source path '$_'. It will be skipped for VSS snapshotting." -Level WARNING; $null }
+        try { (Get-Item -LiteralPath $_ -ErrorAction Stop).PSDrive.Name + ":" } catch { & $LocalWriteLog -Message "[WARNING] VssManager: Could not determine volume for source path '$_'. It will be skipped for VSS snapshotting." -Level WARNING; $null }
     } | Where-Object {$null -ne $_} | Select-Object -Unique
 
     if ($volumesToShadow.Count -eq 0) {
-        Write-LogMessage "[WARNING] VssManager: No valid volumes determined from source paths to create shadow copies for." -Level WARNING
+        & $LocalWriteLog -Message "[WARNING] VssManager: No valid volumes determined from source paths to create shadow copies for." -Level WARNING
         return $null
     }
 
@@ -138,12 +170,12 @@ CREATE
 "@
     $tempDiskshadowScriptFile = Join-Path -Path $env:TEMP -ChildPath "diskshadow_create_vss_$(Get-Random).txt"
     try { $diskshadowScriptContent | Set-Content -Path $tempDiskshadowScriptFile -Encoding UTF8 -ErrorAction Stop }
-    catch { Write-LogMessage "[ERROR] VssManager: Failed to write diskshadow script to '$tempDiskshadowScriptFile'. VSS creation aborted. Error: $($_.Exception.Message)" -Level ERROR; return $null }
+    catch { & $LocalWriteLog -Message "[ERROR] VssManager: Failed to write diskshadow script to '$tempDiskshadowScriptFile'. VSS creation aborted. Error: $($_.Exception.Message)" -Level ERROR; return $null }
 
-    Write-LogMessage "  - VssManager: Generated diskshadow script: '$tempDiskshadowScriptFile' (Context: $VSSContextOption, Cache: '$MetadataCachePath')" -Level VSS
+    & $LocalWriteLog -Message "  - VssManager: Generated diskshadow script: '$tempDiskshadowScriptFile' (Context: $VSSContextOption, Cache: '$MetadataCachePath')" -Level VSS
 
     if ($IsSimulateMode.IsPresent) {
-        Write-LogMessage "SIMULATE: VssManager would execute diskshadow with script '$tempDiskshadowScriptFile' for volumes: $($volumesToShadow -join ', ')" -Level SIMULATE
+        & $LocalWriteLog -Message "SIMULATE: VssManager would execute diskshadow with script '$tempDiskshadowScriptFile' for volumes: $($volumesToShadow -join ', ')" -Level SIMULATE
         $SourcePathsToShadow | ForEach-Object {
             $currentSourcePath = $_
             try {
@@ -153,7 +185,7 @@ CREATE
                 if ($simulatedIndex -le 0) { $simulatedIndex = Get-Random -Minimum 1000 -Maximum 9999 }
                 $mappedShadowPaths[$currentSourcePath] = "\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopySIMULATED$($simulatedIndex)$relativePathSimulated"
             } catch {
-                 Write-LogMessage "SIMULATE: VssManager could not determine volume for '$currentSourcePath' for simulated shadow path." -Level SIMULATE
+                 & $LocalWriteLog -Message "SIMULATE: VssManager could not determine volume for '$currentSourcePath' for simulated shadow path." -Level SIMULATE
                  $mappedShadowPaths[$currentSourcePath] = "$currentSourcePath (Original Path - VSS Simulation)"
             }
         }
@@ -162,21 +194,21 @@ CREATE
     }
 
     if (-not $PSCmdlet.ShouldProcess("Volumes: $($volumesToShadow -join ', ')", "Create VSS Shadow Copies (diskshadow.exe)")) {
-        Write-LogMessage "  - VssManager: VSS shadow copy creation skipped by user (ShouldProcess)." -Level WARNING
+        & $LocalWriteLog -Message "  - VssManager: VSS shadow copy creation skipped by user (ShouldProcess)." -Level WARNING
         Remove-Item -LiteralPath $tempDiskshadowScriptFile -Force -ErrorAction SilentlyContinue
         return $null
     }
 
-    Write-LogMessage "  - VssManager: Executing diskshadow.exe. This may take a moment..." -Level VSS
+    & $LocalWriteLog -Message "  - VssManager: Executing diskshadow.exe. This may take a moment..." -Level VSS
     $process = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempDiskshadowScriptFile`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$null" -RedirectStandardError "$null"
     Remove-Item -LiteralPath $tempDiskshadowScriptFile -Force -ErrorAction SilentlyContinue
 
     if ($process.ExitCode -ne 0) {
-        Write-LogMessage "[ERROR] VssManager: diskshadow.exe failed to create shadow copies. Exit Code: $($process.ExitCode). Check system event logs." -Level ERROR
+        & $LocalWriteLog -Message "[ERROR] VssManager: diskshadow.exe failed to create shadow copies. Exit Code: $($process.ExitCode). Check system event logs." -Level ERROR
         return $null
     }
 
-    Write-LogMessage "  - VssManager: Diskshadow command completed. Polling CIM for shadow details (Timeout: ${PollingTimeoutSeconds}s)..." -Level VSS
+    & $LocalWriteLog -Message "  - VssManager: Diskshadow command completed. Polling CIM for shadow details (Timeout: ${PollingTimeoutSeconds}s)..." -Level VSS
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $allVolumesSuccessfullyShadowed = $false
     $foundShadowsForThisSpecificCall = @{}
@@ -193,7 +225,7 @@ CREATE
                                        Sort-Object InstallDate -Descending |
                                        Select-Object -First 1
                     if ($null -ne $candidateShadow) {
-                        Write-LogMessage "  - VssManager: Found shadow via CIM for volume '$volName': Device '$($candidateShadow.DeviceObject)' (ID: $($candidateShadow.ID))" -Level VSS
+                        & $LocalWriteLog -Message "  - VssManager: Found shadow via CIM for volume '$volName': Device '$($candidateShadow.DeviceObject)' (ID: $($candidateShadow.ID))" -Level VSS
                         $currentCallShadowIDs[$volName] = $candidateShadow.ID
                         $foundShadowsForThisSpecificCall[$volName] = $candidateShadow.DeviceObject
                     }
@@ -204,16 +236,16 @@ CREATE
             $allVolumesSuccessfullyShadowed = $true; break
         }
         Start-Sleep -Seconds $PollingIntervalSeconds
-        Write-LogMessage "  - VssManager: Polling CIM for shadow copies... ($([math]::Round($stopwatch.Elapsed.TotalSeconds))s / ${PollingTimeoutSeconds}s remaining)" -Level "VSS" -NoTimestampToLogFile ($stopwatch.Elapsed.TotalSeconds -ge $PollingIntervalSeconds)
+        & $LocalWriteLog -Message "  - VssManager: Polling CIM for shadow copies... ($([math]::Round($stopwatch.Elapsed.TotalSeconds))s / ${PollingTimeoutSeconds}s remaining)" -Level "VSS" -NoTimestampToLogFile ($stopwatch.Elapsed.TotalSeconds -ge $PollingIntervalSeconds)
     }
     $stopwatch.Stop()
 
     if (-not $allVolumesSuccessfullyShadowed) {
-        Write-LogMessage "[ERROR] VssManager: Timed out or failed to find all required shadow copies via CIM after $PollingTimeoutSeconds seconds." -Level ERROR
+        & $LocalWriteLog -Message "[ERROR] VssManager: Timed out or failed to find all required shadow copies via CIM after $PollingTimeoutSeconds seconds." -Level ERROR
         $foundShadowsForThisSpecificCall.Keys | ForEach-Object {
             $volNameToClean = $_
             if ($currentCallShadowIDs.ContainsKey($volNameToClean)) {
-                Remove-VssManagerShadowCopyByIdInternal -ShadowID $currentCallShadowIDs[$volNameToClean] -IsSimulateMode:$IsSimulateMode # Internal call
+                Remove-VssManagerShadowCopyByIdInternal -ShadowID $currentCallShadowIDs[$volNameToClean] -IsSimulateMode:$IsSimulateMode -Logger $Logger # Pass logger
                 $currentCallShadowIDs.Remove($volNameToClean)
             }
         }
@@ -228,20 +260,20 @@ CREATE
                 $shadowDevicePath = $foundShadowsForThisSpecificCall[$volNameOfPath]
                 $relativePath = $originalFullPath -replace [regex]::Escape($volNameOfPath), ""
                 $mappedShadowPaths[$originalFullPath] = Join-Path -Path $shadowDevicePath -ChildPath $relativePath.TrimStart('\')
-                Write-LogMessage "    - VssManager: Mapped source '$originalFullPath' to VSS shadow path '$($mappedShadowPaths[$originalFullPath])'" -Level VSS
+                & $LocalWriteLog -Message "    - VssManager: Mapped source '$originalFullPath' to VSS shadow path '$($mappedShadowPaths[$originalFullPath])'" -Level VSS
             } else {
-                Write-LogMessage "[WARNING] VssManager: Could not map '$originalFullPath' as its volume shadow ('$volNameOfPath') was not found in this call." -Level WARNING
+                & $LocalWriteLog -Message "[WARNING] VssManager: Could not map '$originalFullPath' as its volume shadow ('$volNameOfPath') was not found in this call." -Level WARNING
             }
         } catch {
-            Write-LogMessage "[WARNING] VssManager: Error during VSS mapping for '$originalFullPath': $($_.Exception.Message)." -Level WARNING
+            & $LocalWriteLog -Message "[WARNING] VssManager: Error during VSS mapping for '$originalFullPath': $($_.Exception.Message)." -Level WARNING
         }
     }
     if ($mappedShadowPaths.Count -eq 0 -and $SourcePathsToShadow.Count -gt 0) {
-         Write-LogMessage "[ERROR] VssManager: Failed to map ANY source paths to VSS shadow paths. Critical VSS issue." -Level ERROR
+         & $LocalWriteLog -Message "[ERROR] VssManager: Failed to map ANY source paths to VSS shadow paths. Critical VSS issue." -Level ERROR
          return $null
     }
     if ($mappedShadowPaths.Count -lt $SourcePathsToShadow.Count) {
-        Write-LogMessage "[WARNING] VssManager: Not all source paths mapped to VSS. Unmapped paths will use original files." -Level WARNING
+        & $LocalWriteLog -Message "[WARNING] VssManager: Not all source paths mapped to VSS. Unmapped paths will use original files." -Level WARNING
     }
     return $mappedShadowPaths
 }
@@ -258,28 +290,44 @@ function Remove-VSSShadowCopy {
         for persistent shadow copies.
     .PARAMETER IsSimulateMode
         If $true, VSS deletion is simulated and logged, but not actually performed.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .EXAMPLE
-        # Remove-VSSShadowCopy -IsSimulateMode:$false
+        # Remove-VSSShadowCopy -IsSimulateMode:$false -Logger ${function:Write-LogMessage}
     #>
     param(
-        [Parameter(Mandatory)] [switch]$IsSimulateMode
+        [Parameter(Mandatory)] [switch]$IsSimulateMode,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Remove-VSSShadowCopy: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey) -or $Script:VssManager_ScriptRunVSSShadowIDs[$runKey].Count -eq 0) {
-        Write-LogMessage "`n[INFO] VssManager: No VSS Shadow IDs recorded for current run (PID $runKey) to remove, or already cleared." -Level VSS
+        & $LocalWriteLog -Message "`n[INFO] VssManager: No VSS Shadow IDs recorded for current run (PID $runKey) to remove, or already cleared." -Level VSS
         return
     }
     $shadowIdMapForRun = $Script:VssManager_ScriptRunVSSShadowIDs[$runKey]
-    Write-LogMessage "`n[INFO] VssManager: Removing VSS Shadow Copies for this run (PID $runKey)..." -Level VSS
+    & $LocalWriteLog -Message "`n[INFO] VssManager: Removing VSS Shadow Copies for this run (PID $runKey)..." -Level VSS
     $shadowIdsToRemove = $shadowIdMapForRun.Values | Select-Object -Unique
 
     if ($shadowIdsToRemove.Count -eq 0) {
-        Write-LogMessage "  - VssManager: No unique VSS shadow IDs in tracking list to remove." -Level VSS
+        & $LocalWriteLog -Message "  - VssManager: No unique VSS shadow IDs in tracking list to remove." -Level VSS
         $shadowIdMapForRun.Clear(); return
     }
 
     if (-not $PSCmdlet.ShouldProcess("VSS Shadow IDs: $($shadowIdsToRemove -join ', ')", "Delete All (diskshadow.exe)")) {
-        Write-LogMessage "  - VssManager: VSS shadow deletion skipped by user (ShouldProcess) for IDs: $($shadowIdsToRemove -join ', ')." -Level WARNING
+        & $LocalWriteLog -Message "  - VssManager: VSS shadow deletion skipped by user (ShouldProcess) for IDs: $($shadowIdsToRemove -join ', ')." -Level WARNING
         return
     }
 
@@ -287,20 +335,20 @@ function Remove-VSSShadowCopy {
     $shadowIdsToRemove | ForEach-Object { $diskshadowScriptContentAll += "DELETE SHADOWS ID $_`n" }
     $tempScriptPathAll = Join-Path -Path $env:TEMP -ChildPath "diskshadow_delete_all_vss_$(Get-Random).txt"
     try { $diskshadowScriptContentAll | Set-Content -Path $tempScriptPathAll -Encoding UTF8 -ErrorAction Stop }
-    catch { Write-LogMessage "[ERROR] VssManager: Failed to write VSS deletion script to '$tempScriptPathAll'. Manual cleanup may be needed. Error: $($_.Exception.Message)" -Level ERROR; return }
+    catch { & $LocalWriteLog -Message "[ERROR] VssManager: Failed to write VSS deletion script to '$tempScriptPathAll'. Manual cleanup may be needed. Error: $($_.Exception.Message)" -Level ERROR; return }
 
-    Write-LogMessage "  - VssManager: Generated diskshadow VSS deletion script: '$tempScriptPathAll' for IDs: $($shadowIdsToRemove -join ', ')" -Level VSS
+    & $LocalWriteLog -Message "  - VssManager: Generated diskshadow VSS deletion script: '$tempScriptPathAll' for IDs: $($shadowIdsToRemove -join ', ')" -Level VSS
 
     if (-not $IsSimulateMode.IsPresent) {
-        Write-LogMessage "  - VssManager: Executing diskshadow.exe to delete VSS shadow copies..." -Level VSS
+        & $LocalWriteLog -Message "  - VssManager: Executing diskshadow.exe to delete VSS shadow copies..." -Level VSS
         $processDeleteAll = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempScriptPathAll`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$null" -RedirectStandardError "$null"
         if ($processDeleteAll.ExitCode -ne 0) {
-            Write-LogMessage "[ERROR] VssManager: diskshadow.exe failed to delete one or more VSS shadows. Exit Code: $($processDeleteAll.ExitCode). Manual cleanup may be needed for ID(s): $($shadowIdsToRemove -join ', ')" -Level ERROR
+            & $LocalWriteLog -Message "[ERROR] VssManager: diskshadow.exe failed to delete one or more VSS shadows. Exit Code: $($processDeleteAll.ExitCode). Manual cleanup may be needed for ID(s): $($shadowIdsToRemove -join ', ')" -Level ERROR
         } else {
-            Write-LogMessage "  - VssManager: VSS shadow deletion process completed successfully." -Level VSS
+            & $LocalWriteLog -Message "  - VssManager: VSS shadow deletion process completed successfully." -Level VSS
         }
     } else {
-        Write-LogMessage "SIMULATE: VssManager would execute diskshadow.exe to delete VSS shadow IDs: $($shadowIdsToRemove -join ', ')." -Level SIMULATE
+        & $LocalWriteLog -Message "SIMULATE: VssManager would execute diskshadow.exe to delete VSS shadow IDs: $($shadowIdsToRemove -join ', ')." -Level SIMULATE
     }
     Remove-Item -LiteralPath $tempScriptPathAll -Force -ErrorAction SilentlyContinue
     $shadowIdMapForRun.Clear()

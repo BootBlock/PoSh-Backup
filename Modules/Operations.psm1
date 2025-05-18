@@ -29,12 +29,13 @@
 
     This module relies on other PoSh-Backup modules like Utils.psm1, PasswordManager.psm1,
     7ZipManager.psm1, VssManager.psm1, RetentionManager.psm1, and ConfigManager.psm1.
+    Functions within this module requiring logging accept a -Logger parameter.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.12.0 # Moved Test-DestinationFreeSpace to Utils.psm1.
+    Version:        1.12.1 # Pass logger to 7ZipManager functions, use local logger.
     DateCreated:    10-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        Handles the execution logic for individual backup jobs.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules.
@@ -60,8 +61,23 @@ function Invoke-PoShBackupJob {
         [Parameter(Mandatory=$true)]
         [ref]$JobReportDataRef,
         [Parameter(Mandatory=$false)]
-        [switch]$IsSimulateMode
+        [switch]$IsSimulateMode,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger # Added Logger parameter
     )
+
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Invoke-PoShBackupJob: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
 
     $currentJobStatus = "SUCCESS" 
     $tempPasswordFilePath = $null
@@ -80,26 +96,27 @@ function Invoke-PoShBackupJob {
         if (-not (Get-Command Get-PoShBackupJobEffectiveConfiguration -ErrorAction SilentlyContinue)) {
             throw "CRITICAL: Function 'Get-PoShBackupJobEffectiveConfiguration' from ConfigManager.psm1 is not available."
         }
-        $effectiveJobConfig = Get-PoShBackupJobEffectiveConfiguration -JobConfig $JobConfig -GlobalConfig $GlobalConfig -CliOverrides $CliOverrides -JobReportDataRef $JobReportDataRef
+        # Pass the logger to Get-PoShBackupJobEffectiveConfiguration
+        $effectiveJobConfig = Get-PoShBackupJobEffectiveConfiguration -JobConfig $JobConfig -GlobalConfig $GlobalConfig -CliOverrides $CliOverrides -JobReportDataRef $JobReportDataRef -Logger $Logger
 
-        Write-LogMessage " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
-        Write-LogMessage "   - Effective Source Path(s): $(if ($effectiveJobConfig.OriginalSourcePath -is [array]) {$effectiveJobConfig.OriginalSourcePath -join '; '} else {$effectiveJobConfig.OriginalSourcePath})"
-        Write-LogMessage "   - Destination Directory  : $($effectiveJobConfig.DestinationDir)"
-        Write-LogMessage "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)"
-        Write-LogMessage "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod)"
+        & $LocalWriteLog -Message " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
+        & $LocalWriteLog -Message "   - Effective Source Path(s): $(if ($effectiveJobConfig.OriginalSourcePath -is [array]) {$effectiveJobConfig.OriginalSourcePath -join '; '} else {$effectiveJobConfig.OriginalSourcePath})"
+        & $LocalWriteLog -Message "   - Destination Directory  : $($effectiveJobConfig.DestinationDir)"
+        & $LocalWriteLog -Message "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)"
+        & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod)"
 
         if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.DestinationDir)) {
-            Write-LogMessage "FATAL: Destination directory for job '$JobName' is not defined. Cannot proceed." -Level ERROR; throw "DestinationDir missing for job '$JobName'."
+            & $LocalWriteLog -Message "FATAL: Destination directory for job '$JobName' is not defined. Cannot proceed." -Level ERROR; throw "DestinationDir missing for job '$JobName'."
         }
         if (-not (Test-Path -LiteralPath $effectiveJobConfig.DestinationDir -PathType Container)) {
-            Write-LogMessage "[INFO] Destination directory '$($effectiveJobConfig.DestinationDir)' for job '$JobName' does not exist. Attempting to create..."
+            & $LocalWriteLog -Message "[INFO] Destination directory '$($effectiveJobConfig.DestinationDir)' for job '$JobName' does not exist. Attempting to create..."
             if (-not $IsSimulateMode.IsPresent) {
                 if ($PSCmdlet.ShouldProcess($effectiveJobConfig.DestinationDir, "Create Directory")) {
-                    try { New-Item -Path $effectiveJobConfig.DestinationDir -ItemType Directory -Force -ErrorAction Stop | Out-Null; Write-LogMessage "  - Destination directory created successfully." -Level SUCCESS }
-                    catch { Write-LogMessage "FATAL: Failed to create destination directory '$($effectiveJobConfig.DestinationDir)'. Error: $($_.Exception.Message)" -Level ERROR; throw "Failed to create destination directory for job '$JobName'." }
+                    try { New-Item -Path $effectiveJobConfig.DestinationDir -ItemType Directory -Force -ErrorAction Stop | Out-Null; & $LocalWriteLog -Message "  - Destination directory created successfully." -Level SUCCESS }
+                    catch { & $LocalWriteLog -Message "FATAL: Failed to create destination directory '$($effectiveJobConfig.DestinationDir)'. Error: $($_.Exception.Message)" -Level ERROR; throw "Failed to create destination directory for job '$JobName'." }
                 }
             } else {
-                Write-LogMessage "SIMULATE: Would create destination directory '$($effectiveJobConfig.DestinationDir)'." -Level SIMULATE
+                & $LocalWriteLog -Message "SIMULATE: Would create destination directory '$($effectiveJobConfig.DestinationDir)'." -Level SIMULATE
             }
         }
 
@@ -118,7 +135,7 @@ function Invoke-PoShBackupJob {
                     JobConfigForPassword = $effectiveJobConfig
                     JobName              = $JobName
                     IsSimulateMode       = $IsSimulateMode.IsPresent
-                    Logger               = ${function:Write-LogMessage}
+                    Logger               = $Logger # Pass the logger
                 }
                 $passwordResult = Get-PoShBackupArchivePassword @passwordParams
                 $reportData.PasswordSource = $passwordResult.PasswordSource 
@@ -128,35 +145,37 @@ function Invoke-PoShBackupJob {
                     $effectiveJobConfig.PasswordInUseFor7Zip = $true
                     if ($IsSimulateMode.IsPresent) {
                         $tempPasswordFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "simulated_poshbackup_pass.tmp") 
-                        Write-LogMessage "SIMULATE: Would write password (obtained via $($reportData.PasswordSource)) to temporary file '$tempPasswordFilePath' for 7-Zip." -Level SIMULATE
+                        & $LocalWriteLog -Message "SIMULATE: Would write password (obtained via $($reportData.PasswordSource)) to temporary file '$tempPasswordFilePath' for 7-Zip." -Level SIMULATE
                     } else {
                         if ($PSCmdlet.ShouldProcess("Temporary Password File", "Create and Write Password (details in DEBUG log)")) {
                             $tempPasswordFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
                             Set-Content -Path $tempPasswordFilePath -Value $plainTextPasswordForJob -Encoding UTF8 -Force -ErrorAction Stop
-                            Write-LogMessage "   - Password (obtained via $($reportData.PasswordSource)) written to temporary file '$tempPasswordFilePath' for 7-Zip." -Level DEBUG
+                            & $LocalWriteLog -Message "   - Password (obtained via $($reportData.PasswordSource)) written to temporary file '$tempPasswordFilePath' for 7-Zip." -Level DEBUG
                         }
                     }
                 } elseif ($isPasswordRequiredOrConfigured -and $effectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -ne "NONE" -and (-not $IsSimulateMode.IsPresent)) {
-                     Write-LogMessage "FATAL: Password was required for job '$JobName' via method '$($effectiveJobConfig.ArchivePasswordMethod)' but could not be obtained or was empty." -Level ERROR
+                     & $LocalWriteLog -Message "FATAL: Password was required for job '$JobName' via method '$($effectiveJobConfig.ArchivePasswordMethod)' but could not be obtained or was empty." -Level ERROR
                      throw "Password unavailable/empty for job '$JobName' using method '$($effectiveJobConfig.ArchivePasswordMethod)'."
                 }
             } catch {
-                Write-LogMessage "FATAL: Error during password retrieval process for job '$JobName'. Error: $($_.Exception.ToString())" -Level ERROR
+                & $LocalWriteLog -Message "FATAL: Error during password retrieval process for job '$JobName'. Error: $($_.Exception.ToString())" -Level ERROR
                 throw 
             }
         } elseif ($effectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -eq "NONE") {
             $reportData.PasswordSource = "None (Explicitly Configured)"
         }
 
+        # Invoke-HookScript uses Write-LogMessage internally, ensure it's from Utils.psm1 global scope or pass logger
         Invoke-HookScript -ScriptPath $effectiveJobConfig.PreBackupScriptPath -HookType "PreBackup" `
                           -HookParameters @{ JobName = $JobName; Status = "PreBackup"; ConfigFile = $ActualConfigFile; SimulateMode = $IsSimulateMode.IsPresent } `
-                          -IsSimulateMode:$IsSimulateMode
+                          -IsSimulateMode:$IsSimulateMode -Logger $Logger
+
 
         $currentJobSourcePathFor7Zip = $effectiveJobConfig.OriginalSourcePath 
         if ($effectiveJobConfig.JobEnableVSS) {
-            Write-LogMessage "`n[INFO] VSS (Volume Shadow Copy Service) is enabled for job '$JobName'." -Level "VSS"
-            if (-not (Test-AdminPrivilege)) { 
-                Write-LogMessage "FATAL: VSS requires Administrator privileges for job '$JobName', but script is not running as Admin." -Level ERROR
+            & $LocalWriteLog -Message "`n[INFO] VSS (Volume Shadow Copy Service) is enabled for job '$JobName'." -Level "VSS"
+            if (-not (Test-AdminPrivilege -Logger $Logger)) { # Pass logger to Test-AdminPrivilege
+                & $LocalWriteLog -Message "FATAL: VSS requires Administrator privileges for job '$JobName', but script is not running as Admin." -Level ERROR
                 throw "VSS requires Administrator privileges for job '$JobName'."
             }
             if (-not (Get-Command New-VSSShadowCopy -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'New-VSSShadowCopy' from VssManager.psm1 is not available."}
@@ -168,20 +187,21 @@ function Invoke-PoShBackupJob {
                 PollingTimeoutSeconds = $effectiveJobConfig.VSSPollingTimeoutSeconds
                 PollingIntervalSeconds = $effectiveJobConfig.VSSPollingIntervalSeconds
                 IsSimulateMode = $IsSimulateMode.IsPresent
+                Logger = $Logger # Pass logger to New-VSSShadowCopy
             }
             $VSSPathsInUse = New-VSSShadowCopy @vssParams 
 
             if ($null -eq $VSSPathsInUse -or $VSSPathsInUse.Count -eq 0) {
                 if (-not $IsSimulateMode.IsPresent) {
-                    Write-LogMessage "[ERROR] VSS shadow copy creation failed or returned no usable paths for job '$JobName'. Attempting backup using original source paths." -Level ERROR
+                    & $LocalWriteLog -Message "[ERROR] VSS shadow copy creation failed or returned no usable paths for job '$JobName'. Attempting backup using original source paths." -Level ERROR
                     $reportData.VSSStatus = "Failed to create/map shadows"
                     if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
                 } else {
-                     Write-LogMessage "SIMULATE: VSS shadow copy creation would have been attempted for job '$JobName'. Simulating use of original paths." -Level SIMULATE
+                     & $LocalWriteLog -Message "SIMULATE: VSS shadow copy creation would have been attempted for job '$JobName'. Simulating use of original paths." -Level SIMULATE
                      $reportData.VSSStatus = "Simulated (No Shadows Created/Needed)"
                 }
             } else {
-                Write-LogMessage "  - VSS shadow copies successfully created/mapped for job '$JobName'. Using shadow paths for backup." -Level VSS
+                & $LocalWriteLog -Message "  - VSS shadow copies successfully created/mapped for job '$JobName'. Using shadow paths for backup." -Level VSS
                 $currentJobSourcePathFor7Zip = if ($effectiveJobConfig.OriginalSourcePath -is [array]) {
                     $effectiveJobConfig.OriginalSourcePath | ForEach-Object {
                         if ($VSSPathsInUse.ContainsKey($_)) { $VSSPathsInUse[$_] } else { $_ } 
@@ -197,12 +217,11 @@ function Invoke-PoShBackupJob {
         }
         $reportData.EffectiveSourcePath = if ($currentJobSourcePathFor7Zip -is [array]) {$currentJobSourcePathFor7Zip} else {@($currentJobSourcePathFor7Zip)}
 
-        Write-LogMessage "`n[INFO] Performing Pre-Backup Operations for job '$JobName'..."
-        Write-LogMessage "   - Using source(s) for 7-Zip: $(if ($currentJobSourcePathFor7Zip -is [array]) {($currentJobSourcePathFor7Zip | Where-Object {$_}) -join '; '} else {$currentJobSourcePathFor7Zip})"
+        & $LocalWriteLog -Message "`n[INFO] Performing Pre-Backup Operations for job '$JobName'..."
+        & $LocalWriteLog -Message "   - Using source(s) for 7-Zip: $(if ($currentJobSourcePathFor7Zip -is [array]) {($currentJobSourcePathFor7Zip | Where-Object {$_}) -join '; '} else {$currentJobSourcePathFor7Zip})"
 
-        # Test-DestinationFreeSpace is now in Utils.psm1
         if (-not (Get-Command Test-DestinationFreeSpace -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Test-DestinationFreeSpace' from Utils.psm1 is not available."}
-        if (-not (Test-DestinationFreeSpace -DestDir $effectiveJobConfig.DestinationDir -MinRequiredGB $effectiveJobConfig.JobMinimumRequiredFreeSpaceGB -ExitOnLow $effectiveJobConfig.JobExitOnLowSpace -IsSimulateMode:$IsSimulateMode)) {
+        if (-not (Test-DestinationFreeSpace -DestDir $effectiveJobConfig.DestinationDir -MinRequiredGB $effectiveJobConfig.JobMinimumRequiredFreeSpaceGB -ExitOnLow $effectiveJobConfig.JobExitOnLowSpace -IsSimulateMode:$IsSimulateMode -Logger $Logger)) { # Pass logger
             throw "Low disk space condition met and configured to halt job '$JobName'." 
         }
 
@@ -210,12 +229,12 @@ function Invoke-PoShBackupJob {
         $ArchiveFileName = "$($effectiveJobConfig.BaseFileName) [$DateString]$($effectiveJobConfig.JobArchiveExtension)"
         $FinalArchivePath = Join-Path -Path $effectiveJobConfig.DestinationDir -ChildPath $ArchiveFileName
         $reportData.FinalArchivePath = $FinalArchivePath
-        Write-LogMessage "`n[INFO] Target Archive for job '$JobName': $FinalArchivePath"
+        & $LocalWriteLog -Message "`n[INFO] Target Archive for job '$JobName': $FinalArchivePath"
 
         $vbLoaded = $false 
         if ($effectiveJobConfig.DeleteToRecycleBin) {
             try { Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop; $vbLoaded = $true }
-            catch { Write-LogMessage "[WARNING] Failed to load Microsoft.VisualBasic assembly for Recycle Bin functionality. Will use permanent deletion. Error: $($_.Exception.Message)" -Level WARNING }
+            catch { & $LocalWriteLog -Message "[WARNING] Failed to load Microsoft.VisualBasic assembly for Recycle Bin functionality. Will use permanent deletion. Error: $($_.Exception.Message)" -Level WARNING }
         }
         
         if (-not (Get-Command Invoke-BackupRetentionPolicy -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Invoke-BackupRetentionPolicy' from RetentionManager.psm1 is not available."}
@@ -225,13 +244,15 @@ function Invoke-PoShBackupJob {
                                      -RetentionCountToKeep $effectiveJobConfig.RetentionCount `
                                      -SendToRecycleBin $effectiveJobConfig.DeleteToRecycleBin `
                                      -VBAssemblyLoaded $vbLoaded `
-                                     -IsSimulateMode:$IsSimulateMode
+                                     -IsSimulateMode:$IsSimulateMode `
+                                     -Logger $Logger # Pass logger
 
         if (-not (Get-Command Get-PoShBackup7ZipArgument -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Get-PoShBackup7ZipArgument' from 7ZipManager.psm1 is not available." }
         $sevenZipArgsArray = Get-PoShBackup7ZipArgument -EffectiveConfig $effectiveJobConfig `
                                                         -FinalArchivePath $FinalArchivePath `
                                                         -CurrentJobSourcePathFor7Zip $currentJobSourcePathFor7Zip `
-                                                        -TempPasswordFile $tempPasswordFilePath
+                                                        -TempPasswordFile $tempPasswordFilePath `
+                                                        -Logger $Logger # Pass logger
 
         $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath' 
         if (-not (Get-Command Invoke-7ZipOperation -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Invoke-7ZipOperation' from 7ZipManager.psm1 is not available." }
@@ -244,6 +265,7 @@ function Invoke-PoShBackupJob {
             RetryDelaySeconds = $effectiveJobConfig.JobRetryDelaySeconds
             EnableRetries = $effectiveJobConfig.JobEnableRetries
             IsSimulateMode = $IsSimulateMode.IsPresent
+            Logger = $Logger # Pass logger
         }
         $sevenZipResult = Invoke-7ZipOperation @zipOpParams
 
@@ -253,7 +275,7 @@ function Invoke-PoShBackupJob {
 
         $archiveSize = "N/A (Simulated)"
         if (-not $IsSimulateMode.IsPresent -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
-             $archiveSize = Get-ArchiveSizeFormatted -PathToArchive $FinalArchivePath
+             $archiveSize = Get-ArchiveSizeFormatted -PathToArchive $FinalArchivePath -Logger $Logger # Pass logger
         } elseif ($IsSimulateMode.IsPresent) {
             $archiveSize = "0 Bytes (Simulated)" 
         }
@@ -278,6 +300,7 @@ function Invoke-PoShBackupJob {
                 MaxRetries = $effectiveJobConfig.JobMaxRetryAttempts
                 RetryDelaySeconds = $effectiveJobConfig.JobRetryDelaySeconds
                 EnableRetries = $effectiveJobConfig.JobEnableRetries
+                Logger = $Logger # Pass logger
             }
             $testResult = Test-7ZipArchive @testArchiveParams
 
@@ -295,15 +318,15 @@ function Invoke-PoShBackupJob {
         }
 
     } catch {
-        Write-LogMessage "ERROR during processing of job '$JobName': $($_.Exception.ToString())" -Level ERROR
+        & $LocalWriteLog -Message "ERROR during processing of job '$JobName': $($_.Exception.ToString())" -Level ERROR
         $currentJobStatus = "FAILURE" 
         $reportData.ErrorMessage = $_.Exception.ToString() 
     } finally {
         if ($null -ne $VSSPathsInUse) { 
             if (-not (Get-Command Remove-VSSShadowCopy -ErrorAction SilentlyContinue)) {
-                Write-LogMessage "CRITICAL: Function 'Remove-VSSShadowCopy' from VssManager.psm1 is not available. VSS Shadows may not be cleaned up." -Level ERROR
+                & $LocalWriteLog -Message "CRITICAL: Function 'Remove-VSSShadowCopy' from VssManager.psm1 is not available. VSS Shadows may not be cleaned up." -Level ERROR
             } else {
-                Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode.IsPresent 
+                Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger # Pass logger
             }
         }
 
@@ -313,9 +336,9 @@ function Invoke-PoShBackupJob {
                 Remove-Variable plainTextPasswordForJob -Scope Script -ErrorAction SilentlyContinue
                 [System.GC]::Collect()
                 [System.GC]::WaitForPendingFinalizers()
-                Write-LogMessage "   - Plain text password for job '$JobName' cleared from Operations module memory." -Level DEBUG
+                & $LocalWriteLog -Message "   - Plain text password for job '$JobName' cleared from Operations module memory." -Level DEBUG
             } catch {
-                Write-LogMessage "[WARNING] Exception while clearing plain text password from Operations module memory for job '$JobName'. Error: $($_.Exception.Message)" -Level WARNING
+                & $LocalWriteLog -Message "[WARNING] Exception while clearing plain text password from Operations module memory for job '$JobName'. Error: $($_.Exception.Message)" -Level WARNING
             }
         }
         if (-not [string]::IsNullOrWhiteSpace($tempPasswordFilePath) -and (Test-Path -LiteralPath $tempPasswordFilePath -PathType Leaf) `
@@ -323,10 +346,10 @@ function Invoke-PoShBackupJob {
             if ($PSCmdlet.ShouldProcess($tempPasswordFilePath, "Delete Temporary Password File")) {
                 try {
                     Remove-Item -LiteralPath $tempPasswordFilePath -Force -ErrorAction Stop
-                    Write-LogMessage "   - Temporary password file '$tempPasswordFilePath' deleted successfully." -Level DEBUG
+                    & $LocalWriteLog -Message "   - Temporary password file '$tempPasswordFilePath' deleted successfully." -Level DEBUG
                 }
                 catch {
-                    Write-LogMessage "[WARNING] Failed to delete temporary password file '$tempPasswordFilePath'. Manual deletion may be required. Error: $($_.Exception.Message)" -Level "WARNING"
+                    & $LocalWriteLog -Message "[WARNING] Failed to delete temporary password file '$tempPasswordFilePath'. Manual deletion may be required. Error: $($_.Exception.Message)" -Level "WARNING"
                 }
             }
         }
@@ -350,11 +373,11 @@ function Invoke-PoShBackupJob {
         }
 
         if ($reportData.OverallStatus -in @("SUCCESS", "WARNINGS", "SIMULATED_COMPLETE") ) {
-            Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptOnSuccessPath -HookType "PostBackupOnSuccess" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent
+            Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptOnSuccessPath -HookType "PostBackupOnSuccess" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
         } else { 
-            Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptOnFailurePath -HookType "PostBackupOnFailure" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent
+            Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptOnFailurePath -HookType "PostBackupOnFailure" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
         }
-        Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptAlwaysPath -HookType "PostBackupAlways" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent
+        Invoke-HookScript -ScriptPath $effectiveJobConfig.PostBackupScriptAlwaysPath -HookType "PostBackupAlways" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
     }
 
     return @{ Status = $currentJobStatus } 

@@ -14,18 +14,19 @@
     - Execute 7-Zip for testing archive integrity, also with retry support.
 
     This module relies on utility functions (like Write-LogMessage, Get-ConfigValue) being made
-    available globally by the main PoSh-Backup script importing Utils.psm1.
+    available globally by the main PoSh-Backup script importing Utils.psm1, or by passing a logger
+    reference for functions that need it.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.2 # All functions now accept and use -Logger.
     DateCreated:    17-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     7-Zip (7z.exe) must be installed.
                     Core PoSh-Backup module Utils.psm1 (for Write-LogMessage, Get-ConfigValue)
-                    should be loaded by the parent script.
+                    should be loaded by the parent script, or logger passed explicitly.
 #>
 
 #region --- 7-Zip Executable Finder ---
@@ -38,16 +39,35 @@ function Find-SevenZipExecutable {
         This function searches for 7z.exe in standard installation directories (Program Files, Program Files (x86))
         and then checks the system's PATH environment variable. It's used by the configuration loading
         process to auto-detect the 7-Zip path if not explicitly set by the user.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
+        Used for logging the auto-detection process.
     .OUTPUTS
         System.String
         The full path to the found 7z.exe, or $null if not found.
     .EXAMPLE
-        $sevenZipPath = Find-SevenZipExecutable
-        if ($sevenZipPath) { Write-Host "Found 7-Zip at $sevenZipPath" }
+        # $sevenZipPath = Find-SevenZipExecutable -Logger ${function:Write-LogMessage}
+        # if ($sevenZipPath) { Write-Host "Found 7-Zip at $sevenZipPath" }
     #>
-    param()
+    param(
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
+    )
 
-    Write-LogMessage "  - Attempting to auto-detect 7z.exe..." -Level "DEBUG"
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Find-SevenZipExecutable: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+
+    & $LocalWriteLog -Message "  - Attempting to auto-detect 7z.exe..." -Level "DEBUG"
     $commonPaths = @(
         (Join-Path -Path $env:ProgramFiles -ChildPath "7-Zip\7z.exe"),
         (Join-Path -Path ${env:ProgramFiles(x86)} -ChildPath "7-Zip\7z.exe")
@@ -55,7 +75,7 @@ function Find-SevenZipExecutable {
 
     foreach ($pathAttempt in $commonPaths) {
         if ($null -ne $pathAttempt -and (Test-Path -LiteralPath $pathAttempt -PathType Leaf)) {
-            Write-LogMessage "    - Auto-detected 7z.exe at '$pathAttempt' (common installation location)." -Level "INFO"
+            & $LocalWriteLog -Message "    - Auto-detected 7z.exe at '$pathAttempt' (common installation location)." -Level "INFO"
             return $pathAttempt
         }
     }
@@ -64,15 +84,15 @@ function Find-SevenZipExecutable {
     try {
         $pathFromCommand = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
         if (-not [string]::IsNullOrWhiteSpace($pathFromCommand) -and (Test-Path -LiteralPath $pathFromCommand -PathType Leaf)) {
-            Write-LogMessage "    - Auto-detected 7z.exe at '$pathFromCommand' (found in system PATH)." -Level "INFO"
+            & $LocalWriteLog -Message "    - Auto-detected 7z.exe at '$pathFromCommand' (found in system PATH)." -Level "INFO"
             return $pathFromCommand
         }
     }
     catch {
-        Write-LogMessage "    - 7z.exe not found in system PATH (Get-Command error: $($_.Exception.Message))." -Level "DEBUG"
+        & $LocalWriteLog -Message "    - 7z.exe not found in system PATH (Get-Command error: $($_.Exception.Message))." -Level "DEBUG"
     }
 
-    Write-LogMessage "    - Auto-detection failed to find 7z.exe in common locations or system PATH. Please ensure 'SevenZipPath' is set in the configuration." -Level "DEBUG"
+    & $LocalWriteLog -Message "    - Auto-detection failed to find 7z.exe in common locations or system PATH. Please ensure 'SevenZipPath' is set in the configuration." -Level "DEBUG"
     return $null # Return null if not found
 }
 #endregion
@@ -100,11 +120,13 @@ function Get-PoShBackup7ZipArgument {
     .PARAMETER TempPasswordFile
         Optional. The full path to a temporary file containing the password for archive encryption.
         If provided, 7-Zip's -spf switch will be used.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
         System.Array
         An array of strings, where each string is an argument or switch for 7z.exe.
     .EXAMPLE
-        # $args = Get-PoShBackup7ZipArgument -EffectiveConfig $jobSettings -FinalArchivePath "D:\Backup.7z" -CurrentJobSourcePathFor7Zip "C:\Data"
+        # $args = Get-PoShBackup7ZipArgument -EffectiveConfig $jobSettings -FinalArchivePath "D:\Backup.7z" -CurrentJobSourcePathFor7Zip "C:\Data" -Logger ${function:Write-LogMessage}
         # & "7z.exe" $args
     #>
     param(
@@ -112,8 +134,23 @@ function Get-PoShBackup7ZipArgument {
         [Parameter(Mandatory)] [string]$FinalArchivePath,
         [Parameter(Mandatory)] [object]$CurrentJobSourcePathFor7Zip, # Can be string or array of strings
         [Parameter(Mandatory=$false)]
-        [string]$TempPasswordFile = $null
+        [string]$TempPasswordFile = $null,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
+
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Get-PoShBackup7ZipArgument: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $sevenZipArgs = [System.Collections.Generic.List[string]]::new()
     $sevenZipArgs.Add("a") # Add (archive) command
 
@@ -151,13 +188,12 @@ function Get-PoShBackup7ZipArgument {
         if (-not [string]::IsNullOrWhiteSpace($TempPasswordFile)) {
             $sevenZipArgs.Add("-spf`"$TempPasswordFile`"") # Read password from temp file
         } else {
-            Write-LogMessage "[WARNING] PasswordInUseFor7Zip is true but no temporary password file was provided to 7-Zip; the archive might not be password-protected as intended." -Level WARNING
+            & $LocalWriteLog -Message "[WARNING] PasswordInUseFor7Zip is true but no temporary password file was provided to 7-Zip; the archive might not be password-protected as intended." -Level WARNING
         }
     }
 
     if ([string]::IsNullOrWhiteSpace($FinalArchivePath)) {
-        Write-LogMessage "[CRITICAL] Final Archive Path is NULL or EMPTY in Get-PoShBackup7ZipArgument. 7-Zip command will likely fail or use an unexpected name." -Level ERROR
-        # This situation should ideally be caught earlier, but it's a critical check here.
+        & $LocalWriteLog -Message "[CRITICAL] Final Archive Path is NULL or EMPTY in Get-PoShBackup7ZipArgument. 7-Zip command will likely fail or use an unexpected name." -Level ERROR
     }
     $sevenZipArgs.Add($FinalArchivePath) # The target archive path/name
 
@@ -202,6 +238,8 @@ function Invoke-7ZipOperation {
     .PARAMETER EnableRetries
         A boolean. $true to enable the retry mechanism, $false to perform only one attempt.
         Defaults to $false.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
         System.Collections.Hashtable
         Returns a hashtable containing:
@@ -209,7 +247,7 @@ function Invoke-7ZipOperation {
         - ElapsedTime (System.TimeSpan): The time taken for the 7-Zip operation.
         - AttemptsMade (int): The number of attempts made to execute the command.
     .EXAMPLE
-        # $result = Invoke-7ZipOperation -SevenZipPathExe "C:\7z\7z.exe" -SevenZipArguments "a archive.7z C:\data" -EnableRetries $true -MaxRetries 3
+        # $result = Invoke-7ZipOperation -SevenZipPathExe "C:\7z\7z.exe" -SevenZipArguments "a archive.7z C:\data" -EnableRetries $true -MaxRetries 3 -Logger ${function:Write-LogMessage}
         # if ($result.ExitCode -ne 0) { Write-Error "7-Zip failed!" }
     #>
     param(
@@ -220,8 +258,22 @@ function Invoke-7ZipOperation {
         [switch]$IsSimulateMode,
         [int]$MaxRetries = 1, # Default to 1 attempt (no retries) if EnableRetries is false
         [int]$RetryDelaySeconds = 60,
-        [bool]$EnableRetries = $false
+        [bool]$EnableRetries = $false,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
+
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Invoke-7ZipOperation: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     $currentTry = 0
     $actualMaxTries = if ($EnableRetries) { [math]::Max(1, $MaxRetries) } else { 1 } # Ensure at least 1 try
@@ -245,24 +297,24 @@ function Invoke-7ZipOperation {
         $currentTry++; $attemptsMade = $currentTry
 
         if ($IsSimulateMode.IsPresent) {
-            Write-LogMessage "SIMULATE: 7-Zip Operation (Attempt $currentTry/$actualMaxTries would be): `"$SevenZipPathExe`" $argumentStringForProcess" -Level SIMULATE
+            & $LocalWriteLog -Message "SIMULATE: 7-Zip Operation (Attempt $currentTry/$actualMaxTries would be): `"$SevenZipPathExe`" $argumentStringForProcess" -Level SIMULATE
             $operationExitCode = 0 # Simulate success for 7-Zip command itself
             $operationElapsedTime = New-TimeSpan -Seconds 0 # Simulate no time taken
             break # Exit loop in simulate mode after logging
         }
 
         if (-not $PSCmdlet.ShouldProcess("Target: $($SevenZipArguments | Where-Object {$_ -notlike '-*'} | Select-Object -Last 1)", "Execute 7-Zip ($($SevenZipArguments[0]))")) {
-             Write-LogMessage "   - 7-Zip execution (Attempt $currentTry/$actualMaxTries) skipped by user (ShouldProcess)." -Level WARNING
+             & $LocalWriteLog -Message "   - 7-Zip execution (Attempt $currentTry/$actualMaxTries) skipped by user (ShouldProcess)." -Level WARNING
              $operationExitCode = -1000 # Indicate user skip
              break
         }
 
-        Write-LogMessage "   - Attempting 7-Zip execution (Attempt $currentTry/$actualMaxTries)..."
-        Write-LogMessage "     Command: `"$SevenZipPathExe`" $argumentStringForProcess" -Level DEBUG
+        & $LocalWriteLog -Message "   - Attempting 7-Zip execution (Attempt $currentTry/$actualMaxTries)..."
+        & $LocalWriteLog -Message "     Command: `"$SevenZipPathExe`" $argumentStringForProcess" -Level DEBUG
 
         $validPriorities = "Idle", "BelowNormal", "Normal", "AboveNormal", "High"
         if ([string]::IsNullOrWhiteSpace($ProcessPriority) -or $ProcessPriority -notin $validPriorities) {
-            Write-LogMessage "[WARNING] Invalid or empty 7-Zip process priority '$ProcessPriority' specified. Defaulting to 'Normal'." -Level WARNING; $ProcessPriority = "Normal"
+            & $LocalWriteLog -Message "[WARNING] Invalid or empty 7-Zip process priority '$ProcessPriority' specified. Defaulting to 'Normal'." -Level WARNING; $ProcessPriority = "Normal"
         }
 
         $stopwatch = [System.Diagnostics.Stopwatch]::StartNew(); $process = $null
@@ -279,12 +331,12 @@ function Invoke-7ZipOperation {
                 $startInfo.RedirectStandardError = $true
             }
 
-            Write-LogMessage "  - Starting 7-Zip process with priority: $ProcessPriority" -Level DEBUG
+            & $LocalWriteLog -Message "  - Starting 7-Zip process with priority: $ProcessPriority" -Level DEBUG
             $process = New-Object System.Diagnostics.Process
             $process.StartInfo = $startInfo
             $process.Start() | Out-Null
             try { $process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]$ProcessPriority }
-            catch { Write-LogMessage "[WARNING] Failed to set 7-Zip process priority to '$ProcessPriority'. Error: $($_.Exception.Message)" -Level WARNING }
+            catch { & $LocalWriteLog -Message "[WARNING] Failed to set 7-Zip process priority to '$ProcessPriority'. Error: $($_.Exception.Message)" -Level WARNING }
 
             $stdOutput = ""
             $stdError = ""
@@ -300,25 +352,25 @@ function Invoke-7ZipOperation {
 
             if ($HideOutput.IsPresent) { # Process captured output
                 if ($null -ne $outputTask) {
-                    try { $stdOutput = $outputTask.GetAwaiter().GetResult() } catch { try { $stdOutput = $process.StandardOutput.ReadToEnd() } catch { Write-LogMessage "    - DEBUG: Fallback ReadToEnd STDOUT for 7-Zip failed: $($_.Exception.Message)" -Level DEBUG } }
+                    try { $stdOutput = $outputTask.GetAwaiter().GetResult() } catch { try { $stdOutput = $process.StandardOutput.ReadToEnd() } catch { & $LocalWriteLog -Message "    - DEBUG: Fallback ReadToEnd STDOUT for 7-Zip failed: $($_.Exception.Message)" -Level DEBUG } }
                 }
                  if ($null -ne $errorTask) {
-                    try { $stdError = $errorTask.GetAwaiter().GetResult() } catch { try { $stdError = $process.StandardError.ReadToEnd() } catch { Write-LogMessage "    - DEBUG: Fallback ReadToEnd STDERR for 7-Zip failed: $($_.Exception.Message)" -Level DEBUG } }
+                    try { $stdError = $errorTask.GetAwaiter().GetResult() } catch { try { $stdError = $process.StandardError.ReadToEnd() } catch { & $LocalWriteLog -Message "    - DEBUG: Fallback ReadToEnd STDERR for 7-Zip failed: $($_.Exception.Message)" -Level DEBUG } }
                  }
 
                 if (-not [string]::IsNullOrWhiteSpace($stdOutput)) {
-                    Write-LogMessage "  - 7-Zip STDOUT (captured as HideSevenZipOutput is true):" -Level DEBUG
-                    $stdOutput.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "    | $_" -Level DEBUG -NoTimestampToLogFile }
+                    & $LocalWriteLog -Message "  - 7-Zip STDOUT (captured as HideSevenZipOutput is true):" -Level DEBUG
+                    $stdOutput.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "    | $_" -Level DEBUG -NoTimestampToLogFile }
                 }
                 # Always log STDERR if present, as it usually indicates issues.
                 if (-not [string]::IsNullOrWhiteSpace($stdError)) {
-                    Write-LogMessage "  - 7-Zip STDERR:" -Level ERROR
-                    $stdError.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "    | $_" -Level ERROR -NoTimestampToLogFile }
+                    & $LocalWriteLog -Message "  - 7-Zip STDERR:" -Level ERROR
+                    $stdError.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "    | $_" -Level ERROR -NoTimestampToLogFile }
                 }
             }
             $operationExitCode = $process.ExitCode
         } catch {
-            Write-LogMessage "[ERROR] Failed to start or manage the 7-Zip process. Error: $($_.Exception.ToString())" -Level ERROR
+            & $LocalWriteLog -Message "[ERROR] Failed to start or manage the 7-Zip process. Error: $($_.Exception.ToString())" -Level ERROR
             $operationExitCode = -999 # Arbitrary code for script-level failure to launch 7-Zip
         } finally {
             $stopwatch.Stop()
@@ -326,14 +378,14 @@ function Invoke-7ZipOperation {
             if ($null -ne $process) { $process.Dispose() }
         }
 
-        Write-LogMessage "   - 7-Zip attempt $currentTry finished. Exit Code: $operationExitCode. Elapsed Time: $operationElapsedTime"
+        & $LocalWriteLog -Message "   - 7-Zip attempt $currentTry finished. Exit Code: $operationExitCode. Elapsed Time: $operationElapsedTime"
         # 7-Zip Exit Codes: 0=No error, 1=Warning (e.g., locked files not archived), 2=Fatal error
         if ($operationExitCode -in @(0,1)) { break } # Success or Warning, stop retrying
         elseif ($currentTry -lt $actualMaxTries) {
-            Write-LogMessage "[WARNING] 7-Zip operation failed (Exit Code: $operationExitCode). Retrying in $actualDelaySeconds seconds..." -Level WARNING
+            & $LocalWriteLog -Message "[WARNING] 7-Zip operation failed (Exit Code: $operationExitCode). Retrying in $actualDelaySeconds seconds..." -Level WARNING
             Start-Sleep -Seconds $actualDelaySeconds
         } else {
-            Write-LogMessage "[ERROR] 7-Zip operation failed after $actualMaxTries attempt(s) (Final Exit Code: $operationExitCode)." -Level ERROR
+            & $LocalWriteLog -Message "[ERROR] 7-Zip operation failed after $actualMaxTries attempt(s) (Final Exit Code: $operationExitCode)." -Level ERROR
         }
     }
     return @{ ExitCode = $operationExitCode; ElapsedTime = $operationElapsedTime; AttemptsMade = $attemptsMade }
@@ -366,6 +418,8 @@ function Test-7ZipArchive {
         Delay in seconds between retry attempts. Defaults to 60.
     .PARAMETER EnableRetries
         A boolean. $true to enable retries, $false for a single attempt. Defaults to $false.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
         System.Collections.Hashtable
         Returns a hashtable containing:
@@ -373,7 +427,7 @@ function Test-7ZipArchive {
         - ElapsedTime (System.TimeSpan): The time taken for the test operation.
         - AttemptsMade (int): The number of attempts made.
     .EXAMPLE
-        # $testResult = Test-7ZipArchive -SevenZipPathExe "C:\7z\7z.exe" -ArchivePath "D:\backup.7z"
+        # $testResult = Test-7ZipArchive -SevenZipPathExe "C:\7z\7z.exe" -ArchivePath "D:\backup.7z" -Logger ${function:Write-LogMessage}
         # if ($testResult.ExitCode -ne 0) { Write-Warning "Archive test failed!" }
     #>
     param(
@@ -385,9 +439,24 @@ function Test-7ZipArchive {
         [switch]$HideOutput,
         [int]$MaxRetries = 1,
         [int]$RetryDelaySeconds = 60,
-        [bool]$EnableRetries = $false
+        [bool]$EnableRetries = $false,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
-    Write-LogMessage "`n[INFO] Performing archive integrity test for '$ArchivePath'..."
+
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Test-7ZipArchive: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    & $LocalWriteLog -Message "`n[INFO] Performing archive integrity test for '$ArchivePath'..."
     $testArguments = [System.Collections.Generic.List[string]]::new()
     $testArguments.Add("t") # Test command
     $testArguments.Add($ArchivePath) # Archive to test
@@ -395,20 +464,21 @@ function Test-7ZipArchive {
     if (-not [string]::IsNullOrWhiteSpace($TempPasswordFile) -and (Test-Path -LiteralPath $TempPasswordFile)) {
         $testArguments.Add("-spf`"$TempPasswordFile`"") # Add password file if provided
     }
-    Write-LogMessage "   - Test Command (raw args before Invoke-7ZipOperation internal quoting): `"$SevenZipPathExe`" $($testArguments -join ' ')" -Level DEBUG
+    & $LocalWriteLog -Message "   - Test Command (raw args before Invoke-7ZipOperation internal quoting): `"$SevenZipPathExe`" $($testArguments -join ' ')" -Level DEBUG
 
     $invokeParams = @{
         SevenZipPathExe = $SevenZipPathExe; SevenZipArguments = $testArguments.ToArray()
         ProcessPriority = $ProcessPriority; HideOutput = $HideOutput.IsPresent
         MaxRetries = $MaxRetries; RetryDelaySeconds = $RetryDelaySeconds; EnableRetries = $EnableRetries
         IsSimulateMode = $false # Testing is never simulated in this function
+        Logger = $Logger # Pass the logger down
     }
     # Invoke-7ZipOperation handles ShouldProcess for the actual 7-Zip execution
     $result = Invoke-7ZipOperation @invokeParams
 
     $msg = if ($result.ExitCode -eq 0) { "PASSED" } else { "FAILED (7-Zip Test Exit Code: $($result.ExitCode))" }
     $levelForResult = if ($result.ExitCode -eq 0) { "SUCCESS" } else { "ERROR" }
-    Write-LogMessage "  - Archive Test Result for '$ArchivePath': $msg" -Level $levelForResult
+    & $LocalWriteLog -Message "  - Archive Test Result for '$ArchivePath': $msg" -Level $levelForResult
     return $result
 }
 #endregion

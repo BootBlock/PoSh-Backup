@@ -26,9 +26,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.3.0 # Enhanced CBH for module and Invoke-ReportGenerator.
+    Version:        2.3.1 # Accept and use -Logger parameter, pass to sub-modules.
     DateCreated:    10-May-2025
-    LastModified:   16-May-2025
+    LastModified:   18-May-2025
     Purpose:        Manages and dispatches report generation to format-specific reporting sub-modules.
     Prerequisites:  PowerShell 5.1+.
                     Core PoSh-Backup modules: Utils.psm1.
@@ -64,6 +64,8 @@ function Invoke-ReportGenerator {
     .PARAMETER JobConfig
         The specific configuration hashtable for the job being reported on. This may be passed
         to sub-modules if they accept a -JobConfig parameter (e.g., for job-specific report settings).
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .EXAMPLE
         # This function is typically called by PoSh-Backup.ps1 after a job completes.
         # $reportParams = @{
@@ -72,6 +74,7 @@ function Invoke-ReportGenerator {
         #     ReportData      = $currentJobReportDataObject
         #     GlobalConfig    = $Configuration
         #     JobConfig       = $Configuration.BackupLocations.MyServerBackup
+        #     Logger          = ${function:Write-LogMessage}
         # }
         # Invoke-ReportGenerator @reportParams
     .OUTPUTS
@@ -87,8 +90,23 @@ function Invoke-ReportGenerator {
         [Parameter(Mandatory=$true)]
         [hashtable]$GlobalConfig,
         [Parameter(Mandatory=$true)]
-        [hashtable]$JobConfig
+        [hashtable]$JobConfig,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
+
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Invoke-ReportGenerator: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
 
     # Determine which report types are configured for this job
     $reportTypeSetting = Get-ConfigValue -ConfigObject $JobConfig -Key 'ReportGeneratorType' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'ReportGeneratorType' -DefaultValue "HTML")
@@ -100,10 +118,10 @@ function Invoke-ReportGenerator {
     }
 
     foreach ($reportType in $reportTypesToGenerate) {
-        Write-LogMessage "`n[INFO] Report generation requested for job '$JobName'. Type: '$reportType'." -Level "INFO"
+        & $LocalWriteLog -Message "`n[INFO] Report generation requested for job '$JobName'. Type: '$reportType'." -Level "INFO"
 
         if ($reportType -eq "NONE") {
-            Write-LogMessage "  - Report generation is explicitly set to 'None' for this type/job. Skipping." -Level "INFO"
+            & $LocalWriteLog -Message "  - Report generation is explicitly set to 'None' for this type/job. Skipping." -Level "INFO"
             continue
         }
 
@@ -113,23 +131,23 @@ function Invoke-ReportGenerator {
 
         $mainScriptRoot = $GlobalConfig['_PoShBackup_PSScriptRoot']
         if ([string]::IsNullOrWhiteSpace($mainScriptRoot)) {
-            Write-LogMessage "[ERROR] _PoShBackup_PSScriptRoot not found in GlobalConfig. Cannot determine path for reporting sub-modules. Skipping '$reportType' report for job '$JobName'." -Level "ERROR"
+            & $LocalWriteLog -Message "[ERROR] _PoShBackup_PSScriptRoot not found in GlobalConfig. Cannot determine path for reporting sub-modules. Skipping '$reportType' report for job '$JobName'." -Level "ERROR"
             continue
         }
         $reportModulePath = Join-Path -Path $mainScriptRoot -ChildPath "Modules\$moduleSubPath\$moduleFileName"
 
         if (-not (Test-Path -LiteralPath $reportModulePath -PathType Leaf)) {
-            Write-LogMessage "[WARNING] Reporting sub-module file '$moduleFileName' for type '$reportType' not found at expected path: '$reportModulePath'. Skipping this report type for job '$JobName'." -Level "WARNING"
+            & $LocalWriteLog -Message "[WARNING] Reporting sub-module file '$moduleFileName' for type '$reportType' not found at expected path: '$reportModulePath'. Skipping this report type for job '$JobName'." -Level "WARNING"
             continue
         }
 
         try {
-            Write-LogMessage "  - Attempting to load reporting sub-module: '$moduleFileName' from '$reportModulePath'" -Level "DEBUG"
+            & $LocalWriteLog -Message "  - Attempting to load reporting sub-module: '$moduleFileName' from '$reportModulePath'" -Level "DEBUG"
             Import-Module -Name $reportModulePath -Force -ErrorAction Stop # Force import to pick up any changes if module was already loaded
 
             $reportFunctionCmd = Get-Command $invokeFunctionName -ErrorAction SilentlyContinue
             if ($reportFunctionCmd) {
-                Write-LogMessage "  - Executing report function '$invokeFunctionName' for job '$JobName'..." -Level "DEBUG"
+                & $LocalWriteLog -Message "  - Executing report function '$invokeFunctionName' for job '$JobName'..." -Level "DEBUG"
 
                 # Determine the specific output directory for this report type
                 $typeSpecificDirKey = "$($reportType)ReportDirectory" # e.g., "HtmlReportDirectory", "CsvReportDirectory"
@@ -143,12 +161,12 @@ function Invoke-ReportGenerator {
 
                 # Ensure the target report directory exists
                 if (-not (Test-Path -LiteralPath $specificReportDirectory -PathType Container)) {
-                    Write-LogMessage "[INFO] Report output directory '$specificReportDirectory' for type '$reportType' does not exist. Attempting to create..." -Level "INFO"
+                    & $LocalWriteLog -Message "[INFO] Report output directory '$specificReportDirectory' for type '$reportType' does not exist. Attempting to create..." -Level "INFO"
                     try {
                         New-Item -Path $specificReportDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
-                        Write-LogMessage "  - Report output directory '$specificReportDirectory' created successfully." -Level "SUCCESS"
+                        & $LocalWriteLog -Message "  - Report output directory '$specificReportDirectory' created successfully." -Level "SUCCESS"
                     } catch {
-                        Write-LogMessage "[WARNING] Failed to create report output directory '$specificReportDirectory' for type '$reportType'. Report generation for this type may fail or be skipped. Error: $($_.Exception.Message)" -Level "WARNING"
+                        & $LocalWriteLog -Message "[WARNING] Failed to create report output directory '$specificReportDirectory' for type '$reportType'. Report generation for this type may fail or be skipped. Error: $($_.Exception.Message)" -Level "WARNING"
                         continue # Skip to next report type if directory creation fails
                     }
                 }
@@ -158,7 +176,7 @@ function Invoke-ReportGenerator {
                     ReportDirectory = $specificReportDirectory
                     JobName         = $JobName
                     ReportData      = $ReportData
-                    Logger          = ${function:Write-LogMessage} # Pass logger reference
+                    Logger          = $Logger # Pass the logger reference
                 }
 
                 # Conditionally add GlobalConfig and JobConfig if the target function accepts them
@@ -173,10 +191,10 @@ function Invoke-ReportGenerator {
                 & $invokeFunctionName @reportParams
 
             } else {
-                Write-LogMessage "[ERROR] Report generation function '$invokeFunctionName' was not found in module '$moduleFileName' after successful import. Cannot generate '$reportType' report for job '$JobName'." -Level "ERROR"
+                & $LocalWriteLog -Message "[ERROR] Report generation function '$invokeFunctionName' was not found in module '$moduleFileName' after successful import. Cannot generate '$reportType' report for job '$JobName'." -Level "ERROR"
             }
         } catch {
-            Write-LogMessage "[ERROR] Failed to load or execute reporting sub-module '$moduleFileName' for type '$reportType' for job '$JobName'. Error: $($_.Exception.ToString())" -Level "ERROR"
+            & $LocalWriteLog -Message "[ERROR] Failed to load or execute reporting sub-module '$moduleFileName' for type '$reportType' for job '$JobName'. Error: $($_.Exception.ToString())" -Level "ERROR"
         }
     }
 }

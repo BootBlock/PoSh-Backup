@@ -23,17 +23,29 @@
 
     This module relies on Utils.psm1 (for Write-LogMessage, Get-ConfigValue),
     7ZipManager.psm1 (for Find-SevenZipExecutable), and optionally PoShBackupValidator.psm1.
+    Functions requiring logging accept a -Logger parameter.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.2 # Explicitly import Utils.psm1. Use Logger in Get-JobsToProcess & Get-PoShBackupJobEffectiveConfiguration.
     DateCreated:    17-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        Centralised configuration management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Core PoSh-Backup modules: Utils.psm1, 7ZipManager.psm1.
                     Optional: PoShBackupValidator.psm1.
 #>
+
+# Explicitly import Utils.psm1 to ensure its functions are available, especially Get-ConfigValue.
+# $PSScriptRoot here refers to the directory of ConfigManager.psm1 (Modules).
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "Utils.psm1") -Force -ErrorAction Stop
+} catch {
+    # If this fails, the module cannot function. Write-Error is appropriate as Write-LogMessage might not be available.
+    Write-Error "ConfigManager.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw # Re-throw to stop further execution of this module loading.
+}
+
 
 #region --- Private Helper Function: Merge-DeepHashtable ---
 # Merges two hashtables deeply. If a key exists in both and its values are hashtables,
@@ -89,8 +101,11 @@ function Import-AppConfiguration {
     .PARAMETER MainScriptPSScriptRoot
         The $PSScriptRoot of the main PoSh-Backup.ps1 script. Used to resolve relative paths
         for default configuration files and modules.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
+        Used for all logging within this function and passed to other functions it calls if they require logging.
     .EXAMPLE
-        # $configLoadResult = Import-AppConfiguration -MainScriptPSScriptRoot $PSScriptRoot
+        # $configLoadResult = Import-AppConfiguration -MainScriptPSScriptRoot $PSScriptRoot -Logger ${function:Write-LogMessage}
         # if ($configLoadResult.IsValid) { $Configuration = $configLoadResult.Configuration }
     .OUTPUTS
         System.Collections.Hashtable
@@ -99,8 +114,22 @@ function Import-AppConfiguration {
     param (
         [string]$UserSpecifiedPath,
         [switch]$IsTestConfigMode,
-        [string]$MainScriptPSScriptRoot
+        [string]$MainScriptPSScriptRoot,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
+
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Import-AppConfiguration: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     $finalConfiguration = $null
     $userConfigLoadedSuccessfully = $false
@@ -114,81 +143,82 @@ function Import-AppConfiguration {
     $defaultUserConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultUserConfigFileName
 
     if (-not [string]::IsNullOrWhiteSpace($UserSpecifiedPath)) {
-        Write-LogMessage "`n[INFO] ConfigManager: Using user-specified configuration file: '$($UserSpecifiedPath)'" -Level "INFO"
+        & $LocalWriteLog -Message "`n[INFO] ConfigManager: Using user-specified configuration file: '$($UserSpecifiedPath)'" -Level "INFO"
         $primaryConfigPathForReturn = $UserSpecifiedPath
         if (-not (Test-Path -LiteralPath $UserSpecifiedPath -PathType Leaf)) {
-            Write-LogMessage "FATAL: ConfigManager: Specified configuration file '$UserSpecifiedPath' not found." -Level "ERROR"
+            & $LocalWriteLog -Message "FATAL: ConfigManager: Specified configuration file '$UserSpecifiedPath' not found." -Level "ERROR"
             return @{ IsValid = $false; ErrorMessage = "Configuration file not found at '$UserSpecifiedPath'." }
         }
         try {
             $finalConfiguration = Import-PowerShellDataFile -LiteralPath $UserSpecifiedPath -ErrorAction Stop
-            Write-LogMessage "  - ConfigManager: Configuration loaded successfully from '$UserSpecifiedPath'." -Level "SUCCESS"
+            & $LocalWriteLog -Message "  - ConfigManager: Configuration loaded successfully from '$UserSpecifiedPath'." -Level "SUCCESS"
         } catch {
-            Write-LogMessage "FATAL: ConfigManager: Could not load or parse specified configuration file '$UserSpecifiedPath'. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message "FATAL: ConfigManager: Could not load or parse specified configuration file '$UserSpecifiedPath'. Error: $($_.Exception.Message)" -Level "ERROR"
             return @{ IsValid = $false; ErrorMessage = "Failed to parse configuration file '$UserSpecifiedPath': $($_.Exception.Message)" }
         }
     } else {
         $primaryConfigPathForReturn = $defaultBaseConfigPath
-        Write-LogMessage "`n[INFO] ConfigManager: No -ConfigFile specified by user. Loading base configuration from: '$($defaultBaseConfigPath)'" -Level "INFO"
+        & $LocalWriteLog -Message "`n[INFO] ConfigManager: No -ConfigFile specified by user. Loading base configuration from: '$($defaultBaseConfigPath)'" -Level "INFO"
         if (-not (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf)) {
-            Write-LogMessage "FATAL: ConfigManager: Base configuration file '$defaultBaseConfigPath' not found. This file is required for default operation." -Level "ERROR"
+            & $LocalWriteLog -Message "FATAL: ConfigManager: Base configuration file '$defaultBaseConfigPath' not found. This file is required for default operation." -Level "ERROR"
             return @{ IsValid = $false; ErrorMessage = "Base configuration file '$defaultBaseConfigPath' not found." }
         }
         try {
             $loadedBaseConfiguration = Import-PowerShellDataFile -LiteralPath $defaultBaseConfigPath -ErrorAction Stop
-            Write-LogMessage "  - ConfigManager: Base configuration loaded successfully from '$defaultBaseConfigPath'." -Level "SUCCESS"
+            & $LocalWriteLog -Message "  - ConfigManager: Base configuration loaded successfully from '$defaultBaseConfigPath'." -Level "SUCCESS"
             $finalConfiguration = $loadedBaseConfiguration
         } catch {
-            Write-LogMessage "FATAL: ConfigManager: Could not load or parse base configuration file '$defaultBaseConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message "FATAL: ConfigManager: Could not load or parse base configuration file '$defaultBaseConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR"
             return @{ IsValid = $false; ErrorMessage = "Failed to parse base configuration file '$defaultBaseConfigPath': $($_.Exception.Message)" }
         }
 
-        Write-LogMessage "[INFO] ConfigManager: Checking for user override configuration at: '$($defaultUserConfigPath)'" -Level "INFO"
+        & $LocalWriteLog -Message "[INFO] ConfigManager: Checking for user override configuration at: '$($defaultUserConfigPath)'" -Level "INFO"
         if (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf) {
             try {
                 $loadedUserConfiguration = Import-PowerShellDataFile -LiteralPath $defaultUserConfigPath -ErrorAction Stop
                 if ($null -ne $loadedUserConfiguration -and $loadedUserConfiguration -is [hashtable]) {
-                    Write-LogMessage "  - ConfigManager: User override configuration '$defaultUserConfigPath' found and loaded successfully." -Level "SUCCESS"
-                    Write-LogMessage "  - ConfigManager: Merging user configuration over base configuration..." -Level "DEBUG"
+                    & $LocalWriteLog -Message "  - ConfigManager: User override configuration '$defaultUserConfigPath' found and loaded successfully." -Level "SUCCESS"
+                    & $LocalWriteLog -Message "  - ConfigManager: Merging user configuration over base configuration..." -Level "DEBUG"
                     $finalConfiguration = Merge-DeepHashtable -Base $finalConfiguration -Override $loadedUserConfiguration
                     $userConfigLoadedSuccessfully = $true
-                    Write-LogMessage "  - ConfigManager: User configuration merged successfully." -Level "SUCCESS"
+                    & $LocalWriteLog -Message "  - ConfigManager: User configuration merged successfully." -Level "SUCCESS"
                 } else {
-                    Write-LogMessage "[WARNING] ConfigManager: User override configuration file '$defaultUserConfigPath' was found but did not load as a valid hashtable (it might be empty or malformed). Skipping user overrides." -Level "WARNING"
+                    & $LocalWriteLog -Message "[WARNING] ConfigManager: User override configuration file '$defaultUserConfigPath' was found but did not load as a valid hashtable (it might be empty or malformed). Skipping user overrides." -Level "WARNING"
                 }
             } catch {
-                Write-LogMessage "[WARNING] ConfigManager: Could not load or parse user override configuration file '$defaultUserConfigPath'. Error: $($_.Exception.Message). Using base configuration only." -Level "WARNING"
+                & $LocalWriteLog -Message "[WARNING] ConfigManager: Could not load or parse user override configuration file '$defaultUserConfigPath'. Error: $($_.Exception.Message). Using base configuration only." -Level "WARNING"
             }
         } else {
-            Write-LogMessage "  - ConfigManager: User override configuration file '$defaultUserConfigPath' not found. Using base configuration only." -Level "INFO"
+            & $LocalWriteLog -Message "  - ConfigManager: User override configuration file '$defaultUserConfigPath' not found. Using base configuration only." -Level "INFO"
         }
     }
 
     if ($null -eq $finalConfiguration -or -not ($finalConfiguration -is [hashtable])) {
-        Write-LogMessage "FATAL: ConfigManager: Final configuration object is null or not a valid hashtable after loading/merging attempts." -Level "ERROR"
+        & $LocalWriteLog -Message "FATAL: ConfigManager: Final configuration object is null or not a valid hashtable after loading/merging attempts." -Level "ERROR"
         return @{ IsValid = $false; ErrorMessage = "Final configuration is not a valid hashtable." }
     }
 
     $validationMessages = [System.Collections.Generic.List[string]]::new()
 
+    # Get-ConfigValue is now available due to Import-Module "Utils.psm1" at the top of this module.
     $enableAdvancedValidation = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'EnableAdvancedSchemaValidation' -DefaultValue $false
     if ($enableAdvancedValidation -eq $true) {
-        Write-LogMessage "[INFO] ConfigManager: Advanced Schema Validation enabled. Attempting PoShBackupValidator module..." -Level "INFO"
+        & $LocalWriteLog -Message "[INFO] ConfigManager: Advanced Schema Validation enabled. Attempting PoShBackupValidator module..." -Level "INFO"
         try {
             Import-Module -Name (Join-Path -Path $MainScriptPSScriptRoot -ChildPath "Modules\PoShBackupValidator.psm1") -Force -ErrorAction Stop
-            Write-LogMessage "  - ConfigManager: PoShBackupValidator module loaded. Performing schema validation..." -Level "DEBUG"
+            & $LocalWriteLog -Message "  - ConfigManager: PoShBackupValidator module loaded. Performing schema validation..." -Level "DEBUG"
             Invoke-PoShBackupConfigValidation -ConfigurationToValidate $finalConfiguration -ValidationMessagesListRef ([ref]$validationMessages)
             if ($IsTestConfigMode.IsPresent -and $validationMessages.Count -eq 0) {
-                 Write-LogMessage "[SUCCESS] ConfigManager: Advanced schema validation completed (no schema errors found)." -Level "CONFIG_TEST"
+                 & $LocalWriteLog -Message "[SUCCESS] ConfigManager: Advanced schema validation completed (no schema errors found)." -Level "CONFIG_TEST"
             } elseif ($validationMessages.Count -gt 0) {
-                 Write-LogMessage "[WARNING] ConfigManager: Advanced schema validation found issues (see detailed errors below)." -Level "WARNING"
+                 & $LocalWriteLog -Message "[WARNING] ConfigManager: Advanced schema validation found issues (see detailed errors below)." -Level "WARNING"
             }
         } catch {
-            Write-LogMessage "[WARNING] ConfigManager: Could not load/execute PoShBackupValidator. Advanced schema validation skipped. Error: $($_.Exception.Message)" -Level "WARNING"
+            & $LocalWriteLog -Message "[WARNING] ConfigManager: Could not load/execute PoShBackupValidator. Advanced schema validation skipped. Error: $($_.Exception.Message)" -Level "WARNING"
         }
     } else {
         if ($IsTestConfigMode.IsPresent) {
-            Write-LogMessage "[INFO] ConfigManager: Advanced Schema Validation disabled ('EnableAdvancedSchemaValidation' is `$false or missing)." -Level "INFO"
+            & $LocalWriteLog -Message "[INFO] ConfigManager: Advanced Schema Validation disabled ('EnableAdvancedSchemaValidation' is `$false or missing)." -Level "INFO"
         }
     }
 
@@ -199,7 +229,7 @@ function Import-AppConfiguration {
         $parentDir = Split-Path -Path $expandedVssCachePath
         if ( ($null -ne $parentDir) -and (-not ([string]::IsNullOrEmpty($parentDir))) -and (-not (Test-Path -Path $parentDir -PathType Container)) ) {
              if ($IsTestConfigMode.IsPresent) {
-                 Write-LogMessage "[INFO] ConfigManager: Note: Parent directory ('$parentDir') for 'VSSMetadataCachePath' ('$expandedVssCachePath') does not exist. Diskshadow may attempt creation." -Level "INFO"
+                 & $LocalWriteLog -Message "[INFO] ConfigManager: Note: Parent directory ('$parentDir') for 'VSSMetadataCachePath' ('$expandedVssCachePath') does not exist. Diskshadow may attempt creation." -Level "INFO"
             }
         }
     } catch {
@@ -211,28 +241,41 @@ function Import-AppConfiguration {
 
     if (-not ([string]::IsNullOrWhiteSpace($finalConfiguration.SevenZipPath)) -and (Test-Path -LiteralPath $finalConfiguration.SevenZipPath -PathType Leaf)) {
         if ($IsTestConfigMode.IsPresent) {
-             Write-LogMessage "  - ConfigManager: Effective 7-Zip Path set to: '$($finalConfiguration.SevenZipPath)' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
+             & $LocalWriteLog -Message "  - ConfigManager: Effective 7-Zip Path set to: '$($finalConfiguration.SevenZipPath)' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
         }
     } else {
         $initialPathIsEmpty = [string]::IsNullOrWhiteSpace($sevenZipPathFromConfigOriginal)
         if (-not $initialPathIsEmpty) {
-            Write-LogMessage "[WARNING] ConfigManager: Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') invalid/not found. Attempting auto-detection..." -Level "WARNING"
+            & $LocalWriteLog -Message "[WARNING] ConfigManager: Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') invalid/not found. Attempting auto-detection..." -Level "WARNING"
         } else {
-            Write-LogMessage "[INFO] ConfigManager: 'SevenZipPath' empty/not set. Attempting auto-detection..." -Level "INFO"
+            & $LocalWriteLog -Message "[INFO] ConfigManager: 'SevenZipPath' empty/not set. Attempting auto-detection..." -Level "INFO"
         }
 
+        # Ensure 7ZipManager.psm1 is loaded to make Find-SevenZipExecutable available.
+        # This is a bit of a chicken-and-egg if ConfigManager is loaded before 7ZipManager by the main script,
+        # but PoSh-Backup.ps1 loads 7ZipManager before ConfigManager's Import-AppConfiguration is called.
+        # However, for direct calls or testing of ConfigManager, this ensures dependency.
         if (-not (Get-Command Find-SevenZipExecutable -ErrorAction SilentlyContinue)) {
-            $criticalErrorMsg = "CRITICAL: ConfigManager: Function 'Find-SevenZipExecutable' (from 7ZipManager.psm1) not available. Cannot auto-detect 7-Zip path."
-            Write-LogMessage $criticalErrorMsg -Level ERROR
-            if (-not $validationMessages.Contains($criticalErrorMsg)) { $validationMessages.Add($criticalErrorMsg) }
-        } else {
-            $foundPath = Find-SevenZipExecutable 
+            try {
+                 Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager.psm1") -Force -ErrorAction Stop
+                 & $LocalWriteLog -Message "  - ConfigManager: Dynamically imported 7ZipManager.psm1 to find Find-SevenZipExecutable." -Level "DEBUG"
+            } catch {
+                $criticalErrorMsg = "CRITICAL: ConfigManager: Function 'Find-SevenZipExecutable' not available and could not load 7ZipManager.psm1. Error: $($_.Exception.Message)"
+                & $LocalWriteLog -Message $criticalErrorMsg -Level ERROR
+                if (-not $validationMessages.Contains($criticalErrorMsg)) { $validationMessages.Add($criticalErrorMsg) }
+                # Fall through, next check for $foundPath will handle it.
+            }
+        }
+        
+        if (Get-Command Find-SevenZipExecutable -ErrorAction SilentlyContinue) {
+            # Pass the logger to Find-SevenZipExecutable
+            $foundPath = Find-SevenZipExecutable -Logger $Logger
             if ($null -ne $foundPath) {
                 $finalConfiguration.SevenZipPath = $foundPath
                 $sevenZipPathSource = if ($initialPathIsEmpty) { "auto-detected (config was empty)" } else { "auto-detected (configured path was invalid)" }
-                Write-LogMessage "[INFO] ConfigManager: Successfully auto-detected and using 7-Zip Path: '$foundPath'." -Level "INFO"
+                & $LocalWriteLog -Message "[INFO] ConfigManager: Successfully auto-detected and using 7-Zip Path: '$foundPath'." -Level "INFO"
                 if ($IsTestConfigMode.IsPresent) {
-                    Write-LogMessage "  - ConfigManager: Effective 7-Zip Path set to: '$foundPath' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
+                    & $LocalWriteLog -Message "  - ConfigManager: Effective 7-Zip Path set to: '$foundPath' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
                 }
             } else {
                 $errorMsg = if ($initialPathIsEmpty) {
@@ -242,8 +285,14 @@ function Import-AppConfiguration {
                 }
                 if (-not $validationMessages.Contains($errorMsg)) { $validationMessages.Add($errorMsg) }
             }
+        } else {
+            # This case should have been caught by the explicit check above, but defensive.
+             $criticalErrorMsg = "CRITICAL: ConfigManager: Function 'Find-SevenZipExecutable' (from 7ZipManager.psm1) is definitively not available. Cannot auto-detect 7-Zip path."
+            & $LocalWriteLog -Message $criticalErrorMsg -Level ERROR
+            if (-not $validationMessages.Contains($criticalErrorMsg)) { $validationMessages.Add($criticalErrorMsg) }
         }
     }
+
     if ([string]::IsNullOrWhiteSpace($finalConfiguration.SevenZipPath) -or (-not (Test-Path -LiteralPath $finalConfiguration.SevenZipPath -PathType Leaf))) {
         $criticalErrorMsg = "CRITICAL: ConfigManager: Effective 'SevenZipPath' ('$($finalConfiguration.SevenZipPath)') is invalid or not found after all checks. PoSh-Backup requires a valid 7z.exe path."
         if (-not $validationMessages.Contains($criticalErrorMsg) -and `
@@ -274,7 +323,7 @@ function Import-AppConfiguration {
     if (($null -eq $finalConfiguration.BackupLocations -or $finalConfiguration.BackupLocations.Count -eq 0) -and -not $IsTestConfigMode.IsPresent `
         -and -not ($PSBoundParameters.ContainsKey('ListBackupLocations') -and $ListBackupLocations.IsPresent) `
         -and -not ($PSBoundParameters.ContainsKey('ListBackupSets') -and $ListBackupSets.IsPresent) ) {
-         Write-LogMessage "[WARNING] ConfigManager: 'BackupLocations' empty. No jobs to run unless specified by -BackupLocationName." -Level "WARNING"
+         & $LocalWriteLog -Message "[WARNING] ConfigManager: 'BackupLocations' empty. No jobs to run unless specified by -BackupLocationName." -Level "WARNING"
     } else {
         if ($null -ne $finalConfiguration.BackupLocations -and $finalConfiguration.BackupLocations -is [hashtable]) {
             foreach ($jobKey in $finalConfiguration.BackupLocations.Keys) {
@@ -329,8 +378,8 @@ function Import-AppConfiguration {
     }
 
     if ($validationMessages.Count -gt 0) {
-        Write-LogMessage "ConfigManager: Configuration validation FAILED with errors/warnings:" -Level "ERROR"
-        ($validationMessages | Select-Object -Unique) | ForEach-Object { Write-LogMessage "  - $_" -Level "ERROR" }
+        & $LocalWriteLog -Message "ConfigManager: Configuration validation FAILED with errors/warnings:" -Level "ERROR"
+        ($validationMessages | Select-Object -Unique) | ForEach-Object { & $LocalWriteLog -Message "  - $_" -Level "ERROR" }
         return @{ IsValid = $false; ErrorMessage = "Configuration validation failed. See logs for details." }
     }
 
@@ -364,6 +413,8 @@ function Get-JobsToProcess {
         The job name provided via the -BackupLocationName command-line parameter, if any.
     .PARAMETER SpecifiedSetName
         The set name provided via the -RunSet command-line parameter, if any.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
         System.Collections.Hashtable
         Returns a hashtable with keys: Success, JobsToRun, SetName, StopSetOnErrorPolicy, ErrorMessage.
@@ -371,14 +422,29 @@ function Get-JobsToProcess {
     param(
         [hashtable]$Config,
         [string]$SpecifiedJobName,
-        [string]$SpecifiedSetName
+        [string]$SpecifiedSetName,
+        [Parameter(Mandatory=$true)] 
+        [scriptblock]$Logger
     )
+
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Get-JobsToProcess: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $jobsToRun = [System.Collections.Generic.List[string]]::new()
     $setName = $null
-    $stopSetOnErrorPolicy = $true
+    $stopSetOnErrorPolicy = $true # Default for StopSetOnError is "StopSet", hence $true
 
     if (-not [string]::IsNullOrWhiteSpace($SpecifiedSetName)) {
-        Write-LogMessage "`n[INFO] ConfigManager: Backup Set specified by user: '$SpecifiedSetName'" -Level "INFO"
+        & $LocalWriteLog -Message "`n[INFO] ConfigManager: Backup Set specified by user: '$SpecifiedSetName'" -Level "INFO"
         if ($Config.ContainsKey('BackupSets') -and $Config['BackupSets'] -is [hashtable] -and $Config['BackupSets'].ContainsKey($SpecifiedSetName)) {
             $setDefinition = $Config['BackupSets'][$SpecifiedSetName]
             $setName = $SpecifiedSetName
@@ -390,8 +456,8 @@ function Get-JobsToProcess {
                      return @{ Success = $false; ErrorMessage = "ConfigManager: Backup Set '$setName' defined but 'JobNames' list is empty/invalid." }
                 }
                 $stopSetOnErrorPolicy = if (((Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue "StopSet") -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
-                Write-LogMessage "  - ConfigManager: Jobs in set '$setName': $($jobsToRun -join ', ')" -Level "INFO"
-                Write-LogMessage "  - ConfigManager: Policy for set on job failure: $(if($stopSetOnErrorPolicy){'StopSet'}else{'ContinueSet'})" -Level "INFO"
+                & $LocalWriteLog -Message "  - ConfigManager: Jobs in set '$setName': $($jobsToRun -join ', ')" -Level "INFO"
+                & $LocalWriteLog -Message "  - ConfigManager: Policy for set on job failure: $(if($stopSetOnErrorPolicy){'StopSet'}else{'ContinueSet'})" -Level "INFO"
             } else {
                 return @{ Success = $false; ErrorMessage = "ConfigManager: Backup Set '$setName' defined but has no 'JobNames' listed." }
             }
@@ -406,7 +472,7 @@ function Get-JobsToProcess {
     } elseif (-not [string]::IsNullOrWhiteSpace($SpecifiedJobName)) {
         if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable] -and $Config['BackupLocations'].ContainsKey($SpecifiedJobName)) {
             $jobsToRun.Add($SpecifiedJobName)
-            Write-LogMessage "`n[INFO] ConfigManager: Single Backup Location specified by user: '$SpecifiedJobName'" -Level "INFO"
+            & $LocalWriteLog -Message "`n[INFO] ConfigManager: Single Backup Location specified by user: '$SpecifiedJobName'" -Level "INFO"
         } else {
             $availableJobsMessage = "No Backup Locations defined."
             if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable] -and $Config['BackupLocations'].Keys.Count -gt 0) {
@@ -424,7 +490,7 @@ function Get-JobsToProcess {
         if ($jobCount -eq 1) {
             $singleJobKey = ($Config['BackupLocations'].Keys | Select-Object -First 1)
             $jobsToRun.Add($singleJobKey)
-            Write-LogMessage "`n[INFO] ConfigManager: No job/set specified. Auto-selected single defined Backup Location: '$singleJobKey'" -Level "INFO"
+            & $LocalWriteLog -Message "`n[INFO] ConfigManager: No job/set specified. Auto-selected single defined Backup Location: '$singleJobKey'" -Level "INFO"
         } elseif ($jobCount -eq 0) {
             return @{ Success = $false; ErrorMessage = "ConfigManager: No job/set specified, and no Backup Locations defined. Nothing to back up." }
         } else {
@@ -475,6 +541,8 @@ function Get-PoShBackupJobEffectiveConfiguration {
     .PARAMETER JobReportDataRef
         A reference ([ref]) to an ordered hashtable. This function populates some initial
         report data based on the effective settings.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
         System.Collections.Hashtable
         A hashtable representing the effective configuration for the job.
@@ -483,16 +551,32 @@ function Get-PoShBackupJobEffectiveConfiguration {
         [Parameter(Mandatory)] [hashtable]$JobConfig,
         [Parameter(Mandatory)] [hashtable]$GlobalConfig,
         [Parameter(Mandatory)] [hashtable]$CliOverrides,
-        [Parameter(Mandatory)] [ref]$JobReportDataRef
+        [Parameter(Mandatory)] [ref]$JobReportDataRef,
+        [Parameter(Mandatory=$true)] 
+        [scriptblock]$Logger
     )
 
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Get-PoShBackupJobEffectiveConfiguration: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+
     $effectiveConfig = @{}
-    $reportData = $JobReportDataRef.Value
+    $reportData = $JobReportDataRef.Value 
 
     $effectiveConfig.OriginalSourcePath = $JobConfig.Path
     $effectiveConfig.BaseFileName       = $JobConfig.Name
     $reportData.JobConfiguration        = $JobConfig 
 
+    # Using Get-ConfigValue from Utils.psm1, which doesn't log.
     $effectiveConfig.DestinationDir = Get-ConfigValue -ConfigObject $JobConfig -Key 'DestinationDir' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDestinationDir' -DefaultValue $null)
     $effectiveConfig.RetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3)
     if ($effectiveConfig.RetentionCount -lt 0) { $effectiveConfig.RetentionCount = 0 } 

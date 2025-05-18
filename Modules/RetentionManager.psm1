@@ -18,17 +18,18 @@
     - Optionally sending deleted archives to the Recycle Bin (requires Microsoft.VisualBasic assembly).
 
     This module relies on utility functions (like Write-LogMessage) being made available
-    globally by the main PoSh-Backup script importing Utils.psm1.
+    globally by the main PoSh-Backup script importing Utils.psm1, or by passing a logger
+    reference.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Functions now accept and use -Logger.
     DateCreated:    17-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        Centralised backup retention policy management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Core PoSh-Backup module Utils.psm1 (for Write-LogMessage)
-                    should be loaded by the parent script.
+                    should be loaded by the parent script, or logger passed explicitly.
                     Microsoft.VisualBasic assembly is required for Recycle Bin functionality.
 #>
 
@@ -45,17 +46,26 @@ function Invoke-VisualBasicFileOperation {
         [string]$Operation,
         [Microsoft.VisualBasic.FileIO.UIOption]$UIOption = [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
         [Microsoft.VisualBasic.FileIO.RecycleOption]$RecycleOption = [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin,
-        [Microsoft.VisualBasic.FileIO.UICancelOption]$CancelOption = [Microsoft.VisualBasic.FileIO.UICancelOption]::ThrowException
+        [Microsoft.VisualBasic.FileIO.UICancelOption]$CancelOption = [Microsoft.VisualBasic.FileIO.UICancelOption]::ThrowException,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
-    # Add-Type is called here because it's only needed if Recycle Bin is used.
-    # It's assumed the caller (Invoke-BackupRetentionPolicy) checks $VBAssemblyLoaded before calling this with Recycle Bin option.
-    # However, a direct call would still need this. For safety, ensure it's present.
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Invoke-VisualBasicFileOperation: Logger parameter active for path '$Path'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     try {
         Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop
     } catch {
-        # This error should ideally be caught by the caller, which checks VBAssemblyLoaded.
-        # If this function were called directly without that check, this would be critical.
-        Write-LogMessage "[ERROR] RetentionManager: Failed to load Microsoft.VisualBasic assembly for Recycle Bin operation. Error: $($_.Exception.Message)" -Level ERROR
+        & $LocalWriteLog -Message "[ERROR] RetentionManager/Invoke-VisualBasicFileOperation: Failed to load Microsoft.VisualBasic assembly for Recycle Bin operation. Error: $($_.Exception.Message)" -Level ERROR
         throw "RetentionManager: Microsoft.VisualBasic assembly could not be loaded. Recycle Bin operations unavailable."
     }
 
@@ -97,9 +107,11 @@ function Invoke-BackupRetentionPolicy {
         this function will fall back to permanent deletion.
     .PARAMETER IsSimulateMode
         If $true, deletion operations are simulated and logged, but no files are actually deleted.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .EXAMPLE
         # Invoke-BackupRetentionPolicy -DestinationDirectory "D:\Backups" -ArchiveBaseFileName "MyData" `
-        #   -ArchiveExtension ".7z" -RetentionCountToKeep 7 -SendToRecycleBin $true -VBAssemblyLoaded $true
+        #   -ArchiveExtension ".7z" -RetentionCountToKeep 7 -SendToRecycleBin $true -VBAssemblyLoaded $true -Logger ${function:Write-LogMessage}
     #>
     param(
         [string]$DestinationDirectory,
@@ -108,32 +120,46 @@ function Invoke-BackupRetentionPolicy {
         [int]$RetentionCountToKeep,
         [bool]$SendToRecycleBin,
         [bool]$VBAssemblyLoaded, 
-        [switch]$IsSimulateMode
+        [switch]$IsSimulateMode,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
-    Write-LogMessage "`n[INFO] RetentionManager: Applying Backup Retention Policy for archives matching base name '$ArchiveBaseFileName' and extension '$ArchiveExtension'..."
-    Write-LogMessage "   - Destination Directory: $DestinationDirectory"
-    Write-LogMessage "   - Configured Total Retention Count (target after current backup completes): $RetentionCountToKeep"
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Invoke-BackupRetentionPolicy: Logger parameter active for base name '$ArchiveBaseFileName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    & $LocalWriteLog -Message "`n[INFO] RetentionManager: Applying Backup Retention Policy for archives matching base name '$ArchiveBaseFileName' and extension '$ArchiveExtension'..."
+    & $LocalWriteLog -Message "   - Destination Directory: $DestinationDirectory"
+    & $LocalWriteLog -Message "   - Configured Total Retention Count (target after current backup completes): $RetentionCountToKeep"
 
     $effectiveSendToRecycleBin = $SendToRecycleBin
     if ($SendToRecycleBin -and -not $VBAssemblyLoaded) {
-        Write-LogMessage "[WARNING] RetentionManager: Deletion to Recycle Bin requested, but Microsoft.VisualBasic assembly not loaded. Falling back to PERMANENT deletion." -Level WARNING
+        & $LocalWriteLog -Message "[WARNING] RetentionManager: Deletion to Recycle Bin requested, but Microsoft.VisualBasic assembly not loaded. Falling back to PERMANENT deletion." -Level WARNING
         $effectiveSendToRecycleBin = $false
     }
-    Write-LogMessage "   - Effective Deletion Method for old archives: $(if ($effectiveSendToRecycleBin) {'Send to Recycle Bin'} else {'Permanent Delete'})"
+    & $LocalWriteLog -Message "   - Effective Deletion Method for old archives: $(if ($effectiveSendToRecycleBin) {'Send to Recycle Bin'} else {'Permanent Delete'})"
 
     $literalBaseName = $ArchiveBaseFileName -replace '\*', '`*' -replace '\?', '`?' 
     $filePattern = "$($literalBaseName)*$($ArchiveExtension)" 
 
     try {
         if (-not (Test-Path -LiteralPath $DestinationDirectory -PathType Container)) {
-            Write-LogMessage "   - RetentionManager: Policy SKIPPED. Destination directory '$DestinationDirectory' not found." -Level WARNING
+            & $LocalWriteLog -Message "   - RetentionManager: Policy SKIPPED. Destination directory '$DestinationDirectory' not found." -Level WARNING
             return
         }
 
         $existingBackups = Get-ChildItem -Path $DestinationDirectory -Filter $filePattern -File -ErrorAction SilentlyContinue | Sort-Object CreationTime -Descending
 
         if ($RetentionCountToKeep -le 0) { 
-            Write-LogMessage "   - RetentionManager: Retention count is $RetentionCountToKeep; all existing backups matching pattern '$filePattern' will be kept." -Level INFO
+            & $LocalWriteLog -Message "   - RetentionManager: Retention count is $RetentionCountToKeep; all existing backups matching pattern '$filePattern' will be kept." -Level INFO
             return
         }
 
@@ -142,42 +168,38 @@ function Invoke-BackupRetentionPolicy {
 
         if (($null -ne $existingBackups) -and ($existingBackups.Count -gt $numberOfOldBackupsToPreserve)) {
             $backupsToDelete = $existingBackups | Select-Object -Skip $numberOfOldBackupsToPreserve
-            Write-LogMessage "[INFO] RetentionManager: Found $($existingBackups.Count) existing backups. Will attempt to delete $($backupsToDelete.Count) older backup(s) to meet retention ($RetentionCountToKeep total)." -Level INFO
+            & $LocalWriteLog -Message "[INFO] RetentionManager: Found $($existingBackups.Count) existing backups. Will attempt to delete $($backupsToDelete.Count) older backup(s) to meet retention ($RetentionCountToKeep total)." -Level INFO
 
             foreach ($backupFile in $backupsToDelete) {
                 $deleteActionMessage = if ($effectiveSendToRecycleBin) {"Send to Recycle Bin"} else {"Permanently Delete"}
                 if (-not $IsSimulateMode.IsPresent) {
                     if ($PSCmdlet.ShouldProcess($backupFile.FullName, $deleteActionMessage)) {
-                        Write-LogMessage "       - Deleting: $($backupFile.FullName) (Created: $($backupFile.CreationTime))" -Level WARNING
+                        & $LocalWriteLog -Message "       - Deleting: $($backupFile.FullName) (Created: $($backupFile.CreationTime))" -Level WARNING
                         try {
                             if ($effectiveSendToRecycleBin) {
-                                # Ensure VB assembly is loaded before calling internal helper, though VBAssemblyLoaded param should gate this
-                                if (-not (Get-Module -Name Microsoft.VisualBasic.FileIO.FileSystemWatcher -ErrorAction SilentlyContinue)) {
-                                    Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop
-                                }
-                                Invoke-VisualBasicFileOperation -Path $backupFile.FullName -Operation "DeleteFile" -RecycleOption ([Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin)
-                                Write-LogMessage "         - Status: MOVED TO RECYCLE BIN" -Level SUCCESS
+                                Invoke-VisualBasicFileOperation -Path $backupFile.FullName -Operation "DeleteFile" -RecycleOption ([Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin) -Logger $Logger # Pass logger
+                                & $LocalWriteLog -Message "         - Status: MOVED TO RECYCLE BIN" -Level SUCCESS
                             } else {
                                 Remove-Item -LiteralPath $backupFile.FullName -Force -ErrorAction Stop
-                                Write-LogMessage "         - Status: DELETED PERMANENTLY" -Level SUCCESS
+                                & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level SUCCESS
                             }
                         } catch {
-                            Write-LogMessage "         - Status: FAILED! Error: $($_.Exception.Message)" -Level ERROR
+                            & $LocalWriteLog -Message "         - Status: FAILED! Error: $($_.Exception.Message)" -Level ERROR
                         }
                     } else {
-                        Write-LogMessage "       - SKIPPED Deletion (ShouldProcess): $($backupFile.FullName)" -Level INFO
+                        & $LocalWriteLog -Message "       - SKIPPED Deletion (ShouldProcess): $($backupFile.FullName)" -Level INFO
                     }
                 } else {
-                     Write-LogMessage "       - SIMULATE: Would $deleteActionMessage '$($backupFile.FullName)' (Created: $($backupFile.CreationTime))" -Level SIMULATE
+                     & $LocalWriteLog -Message "       - SIMULATE: Would $deleteActionMessage '$($backupFile.FullName)' (Created: $($backupFile.CreationTime))" -Level SIMULATE
                 }
             }
         } elseif ($null -ne $existingBackups) {
-            Write-LogMessage "   - RetentionManager: Number of existing backups ($($existingBackups.Count)) is at or below target old backups to preserve ($numberOfOldBackupsToPreserve). No older backups to delete." -Level INFO
+            & $LocalWriteLog -Message "   - RetentionManager: Number of existing backups ($($existingBackups.Count)) is at or below target old backups to preserve ($numberOfOldBackupsToPreserve). No older backups to delete." -Level INFO
         } else {
-            Write-LogMessage "   - RetentionManager: No existing backups found matching pattern '$filePattern'. No retention actions needed." -Level INFO
+            & $LocalWriteLog -Message "   - RetentionManager: No existing backups found matching pattern '$filePattern'. No retention actions needed." -Level INFO
         }
     } catch {
-        Write-LogMessage "[WARNING] RetentionManager: Error during retention policy for '$ArchiveBaseFileName'. Some old backups might not have been deleted. Error: $($_.Exception.Message)" -Level WARNING
+        & $LocalWriteLog -Message "[WARNING] RetentionManager: Error during retention policy for '$ArchiveBaseFileName'. Some old backups might not have been deleted. Error: $($_.Exception.Message)" -Level WARNING
     }
 }
 #endregion

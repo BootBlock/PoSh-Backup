@@ -22,9 +22,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.10.0 # Moved Test-DestinationFreeSpace here from Operations.psm1.
+    Version:        1.10.1 # Functions now accept and use -Logger where applicable.
     DateCreated:    10-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        Core utility functions for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+. Some functions may have dependencies on specific global
                     variables (e.g., $Global:StatusToColourMap) being set by the main script.
@@ -97,14 +97,29 @@ function Get-ConfigValue {
 #region --- Helper Function Test-AdminPrivilege ---
 function Test-AdminPrivilege {
     [CmdletBinding()]
-    param()
-    Write-LogMessage "[INFO] Checking for Administrator privileges..." -Level "DEBUG"
+    param(
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
+    )
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Test-AdminPrivilege: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    & $LocalWriteLog -Message "[INFO] Checking for Administrator privileges..." -Level "DEBUG"
     $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
     $isAdmin = $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($isAdmin) {
-        Write-LogMessage "  - Script is running with Administrator privileges." -Level "SUCCESS"
+        & $LocalWriteLog -Message "  - Script is running with Administrator privileges." -Level "SUCCESS"
     } else {
-        Write-LogMessage "  - Script is NOT running with Administrator privileges. VSS functionality will be unavailable." -Level "WARNING"
+        & $LocalWriteLog -Message "  - Script is NOT running with Administrator privileges. VSS functionality will be unavailable." -Level "WARNING"
     }
     return $isAdmin
 }
@@ -117,13 +132,27 @@ function Invoke-HookScript {
         [string]$ScriptPath,
         [string]$HookType,
         [hashtable]$HookParameters,
-        [switch]$IsSimulateMode
+        [switch]$IsSimulateMode,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Invoke-HookScript: Logger parameter active for hook '$HookType'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     if ([string]::IsNullOrWhiteSpace($ScriptPath)) { return } 
 
-    Write-LogMessage "`n[INFO] Attempting to execute $HookType script: $ScriptPath" -Level "HOOK"
+    & $LocalWriteLog -Message "`n[INFO] Attempting to execute $HookType script: $ScriptPath" -Level "HOOK"
     if (-not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) {
-        Write-LogMessage "[WARNING] $HookType script not found at '$ScriptPath'. Skipping execution." -Level "WARNING"
+        & $LocalWriteLog -Message "[WARNING] $HookType script not found at '$ScriptPath'. Skipping execution." -Level "WARNING"
         if ($Global:GlobalJobHookScriptData -is [System.Collections.Generic.List[object]]) {
             $Global:GlobalJobHookScriptData.Add([PSCustomObject]@{ Name = $HookType; Path = $ScriptPath; Status = "Not Found"; Output = "Script file not found at specified path."})
         }
@@ -134,11 +163,11 @@ function Invoke-HookScript {
     $status = "Success" 
     try {
         if ($IsSimulateMode.IsPresent) {
-            Write-LogMessage "SIMULATE: Would execute $HookType script '$ScriptPath' with parameters: $($HookParameters | Out-String | ForEach-Object {$_.TrimEnd()})" -Level "SIMULATE"
+            & $LocalWriteLog -Message "SIMULATE: Would execute $HookType script '$ScriptPath' with parameters: $($HookParameters | Out-String | ForEach-Object {$_.TrimEnd()})" -Level "SIMULATE"
             $outputLog.Add("SIMULATE: Script execution skipped due to simulation mode.")
             $status = "Simulated"
         } else {
-            Write-LogMessage "  - Executing $HookType script: '$ScriptPath'" -Level "HOOK"
+            & $LocalWriteLog -Message "  - Executing $HookType script: '$ScriptPath'" -Level "HOOK"
             $processArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
             $paramString = ""
 
@@ -160,7 +189,7 @@ function Invoke-HookScript {
             $tempStdOut = New-TemporaryFile
             $tempStdErr = New-TemporaryFile
 
-            Write-LogMessage "    - PowerShell arguments for hook script: $processArgs" -Level "DEBUG"
+            & $LocalWriteLog -Message "    - PowerShell arguments for hook script: $processArgs" -Level "DEBUG"
             $proc = Start-Process powershell.exe -ArgumentList $processArgs -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $tempStdOut.FullName -RedirectStandardError $tempStdErr.FullName
 
             $stdOutContent = Get-Content $tempStdOut.FullName -Raw -ErrorAction SilentlyContinue
@@ -170,26 +199,26 @@ function Invoke-HookScript {
             Remove-Item $tempStdErr.FullName -Force -ErrorAction SilentlyContinue
 
             if (-not [string]::IsNullOrWhiteSpace($stdOutContent)) {
-                Write-LogMessage "    $HookType Script STDOUT:" -Level "HOOK"
-                $stdOutContent.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "      | $_" -Level "HOOK" -NoTimestampToLogFile; $outputLog.Add("OUTPUT: $_") }
+                & $LocalWriteLog -Message "    $HookType Script STDOUT:" -Level "HOOK"
+                $stdOutContent.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "      | $_" -Level "HOOK" -NoTimestampToLogFile; $outputLog.Add("OUTPUT: $_") }
             }
             if ($proc.ExitCode -ne 0) {
-                Write-LogMessage "[ERROR] $HookType script '$ScriptPath' exited with error code $($proc.ExitCode)." -Level "ERROR"
+                & $LocalWriteLog -Message "[ERROR] $HookType script '$ScriptPath' exited with error code $($proc.ExitCode)." -Level "ERROR"
                 $status = "Failure (ExitCode $($proc.ExitCode))"
                 if (-not [string]::IsNullOrWhiteSpace($stdErrContent)) {
-                    Write-LogMessage "    $HookType Script STDERR:" -Level "ERROR"
-                    $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "      | $_" -Level "ERROR" -NoTimestampToLogFile; $outputLog.Add("ERROR: $_") }
+                    & $LocalWriteLog -Message "    $HookType Script STDERR:" -Level "ERROR"
+                    $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "      | $_" -Level "ERROR" -NoTimestampToLogFile; $outputLog.Add("ERROR: $_") }
                 }
             } elseif (-not [string]::IsNullOrWhiteSpace($stdErrContent)) {
-                 Write-LogMessage "[WARNING] $HookType script '$ScriptPath' wrote to STDERR despite exiting successfully (Code 0)." -Level "WARNING"
-                 Write-LogMessage "    $HookType Script STDERR (Warning):" -Level "WARNING"
-                 $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { Write-LogMessage "      | $_" -Level "WARNING" -NoTimestampToLogFile; $outputLog.Add("STDERR_WARN: $_") }
+                 & $LocalWriteLog -Message "[WARNING] $HookType script '$ScriptPath' wrote to STDERR despite exiting successfully (Code 0)." -Level "WARNING"
+                 & $LocalWriteLog -Message "    $HookType Script STDERR (Warning):" -Level "WARNING"
+                 $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "      | $_" -Level "WARNING" -NoTimestampToLogFile; $outputLog.Add("STDERR_WARN: $_") }
             }
             $statusLevelForLog = if($status -like "Failure*"){"ERROR"}elseif($status -eq "Simulated"){"SIMULATE"}else{"SUCCESS"}
-            Write-LogMessage "  - $HookType script execution finished. Status: $status" -Level $statusLevelForLog
+            & $LocalWriteLog -Message "  - $HookType script execution finished. Status: $status" -Level $statusLevelForLog
         }
     } catch {
-        Write-LogMessage "[ERROR] Exception occurred while trying to execute $HookType script '$ScriptPath': $($_.Exception.ToString())" -Level "ERROR"
+        & $LocalWriteLog -Message "[ERROR] Exception occurred while trying to execute $HookType script '$ScriptPath': $($_.Exception.ToString())" -Level "ERROR"
         $outputLog.Add("EXCEPTION: $($_.Exception.Message)")
         $status = "Exception"
     }
@@ -203,7 +232,23 @@ function Invoke-HookScript {
 #region --- Get Archive Size Formatted ---
 function Get-ArchiveSizeFormatted {
     [CmdletBinding()]
-    param([string]$PathToArchive)
+    param(
+        [string]$PathToArchive,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
+    )
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Get-ArchiveSizeFormatted: Logger parameter active for path '$PathToArchive'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $FormattedSize = "N/A"
     try {
         if (Test-Path -LiteralPath $PathToArchive -PathType Leaf) {
@@ -214,11 +259,11 @@ function Get-ArchiveSizeFormatted {
             elseif ($Size -ge 1KB) { $FormattedSize = "{0:N2} KB" -f ($Size / 1KB) }
             else { $FormattedSize = "$Size Bytes" }
         } else {
-            Write-LogMessage "[DEBUG] File not found at '$PathToArchive' for size formatting." -Level "DEBUG"
+            & $LocalWriteLog -Message "[DEBUG] File not found at '$PathToArchive' for size formatting." -Level "DEBUG"
             $FormattedSize = "File not found"
         }
     } catch {
-        Write-LogMessage "[WARNING] Error getting file size for '$PathToArchive': $($_.Exception.Message)" -Level "WARNING"
+        & $LocalWriteLog -Message "[WARNING] Error getting file size for '$PathToArchive': $($_.Exception.Message)" -Level "WARNING"
         $FormattedSize = "Error getting size"
     }
     return $FormattedSize
@@ -247,13 +292,15 @@ function Test-DestinationFreeSpace {
     .PARAMETER IsSimulateMode
         A switch. If $true, the actual free space check is skipped, a simulation message is logged,
         and the function returns $true.
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
         System.Boolean
         Returns $true if there is sufficient free space, or if the check is disabled/simulated,
         or if ExitOnLow is $false and space is low.
         Returns $false only if ExitOnLow is $true and free space is below the minimum requirement.
     .EXAMPLE
-        # if (Test-DestinationFreeSpace -DestDir "D:\Backups" -MinRequiredGB 10 -ExitOnLow $true) {
+        # if (Test-DestinationFreeSpace -DestDir "D:\Backups" -MinRequiredGB 10 -ExitOnLow $true -Logger ${function:Write-LogMessage}) {
         #   Write-Host "Sufficient space found."
         # } else {
         #   Write-Error "Insufficient space, job should halt."
@@ -263,39 +310,53 @@ function Test-DestinationFreeSpace {
         [string]$DestDir,
         [int]$MinRequiredGB,
         [bool]$ExitOnLow, 
-        [switch]$IsSimulateMode
+        [switch]$IsSimulateMode,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
     )
+    # Internal helper to use the passed-in logger consistently
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    # Defensive PSSA appeasement line
+    & $LocalWriteLog -Message "Test-DestinationFreeSpace: Logger parameter active for path '$DestDir'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     if ($MinRequiredGB -le 0) { return $true } 
 
-    Write-LogMessage "`n[INFO] Utils: Checking destination free space for '$DestDir'..." -Level "INFO" # Prefixed with Utils
-    Write-LogMessage "   - Minimum free space required: $MinRequiredGB GB" -Level "INFO"
+    & $LocalWriteLog -Message "`n[INFO] Utils: Checking destination free space for '$DestDir'..." -Level "INFO" 
+    & $LocalWriteLog -Message "   - Minimum free space required: $MinRequiredGB GB" -Level "INFO"
 
     if ($IsSimulateMode.IsPresent) {
-        Write-LogMessage "SIMULATE: Utils: Would check free space on '$DestDir'. Assuming sufficient space." -Level SIMULATE
+        & $LocalWriteLog -Message "SIMULATE: Utils: Would check free space on '$DestDir'. Assuming sufficient space." -Level SIMULATE
         return $true
     }
 
     try {
         if (-not (Test-Path -LiteralPath $DestDir -PathType Container)) {
-            Write-LogMessage "[WARNING] Utils: Destination directory '$DestDir' for free space check not found. Skipping." -Level WARNING
+            & $LocalWriteLog -Message "[WARNING] Utils: Destination directory '$DestDir' for free space check not found. Skipping." -Level WARNING
             return $true 
         }
         $driveLetter = (Get-Item -LiteralPath $DestDir).PSDrive.Name
         $destDrive = Get-PSDrive -Name $driveLetter -ErrorAction Stop
         $freeSpaceGB = [math]::Round($destDrive.Free / 1GB, 2)
-        Write-LogMessage "   - Utils: Available free space on drive $($destDrive.Name) (hosting '$DestDir'): $freeSpaceGB GB" -Level "INFO"
+        & $LocalWriteLog -Message "   - Utils: Available free space on drive $($destDrive.Name) (hosting '$DestDir'): $freeSpaceGB GB" -Level "INFO"
 
         if ($freeSpaceGB -lt $MinRequiredGB) {
-            Write-LogMessage "[WARNING] Utils: Low disk space on destination. Available: $freeSpaceGB GB, Required: $MinRequiredGB GB." -Level WARNING
+            & $LocalWriteLog -Message "[WARNING] Utils: Low disk space on destination. Available: $freeSpaceGB GB, Required: $MinRequiredGB GB." -Level WARNING
             if ($ExitOnLow) {
-                Write-LogMessage "FATAL: Utils: Exiting job due to insufficient free disk space (ExitOnLowSpaceIfBelowMinimum is true)." -Level ERROR
+                & $LocalWriteLog -Message "FATAL: Utils: Exiting job due to insufficient free disk space (ExitOnLowSpaceIfBelowMinimum is true)." -Level ERROR
                 return $false 
             }
         } else {
-            Write-LogMessage "   - Utils: Free space check: OK (Available: $freeSpaceGB GB, Required: $MinRequiredGB GB)" -Level SUCCESS
+            & $LocalWriteLog -Message "   - Utils: Free space check: OK (Available: $freeSpaceGB GB, Required: $MinRequiredGB GB)" -Level SUCCESS
         }
     } catch {
-        Write-LogMessage "[WARNING] Utils: Could not determine free space for destination '$DestDir'. Check skipped. Error: $($_.Exception.Message)" -Level WARNING
+        & $LocalWriteLog -Message "[WARNING] Utils: Could not determine free space for destination '$DestDir'. Check skipped. Error: $($_.Exception.Message)" -Level WARNING
     }
     return $true 
 }
