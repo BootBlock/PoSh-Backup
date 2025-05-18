@@ -11,9 +11,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Added placeholder for missing PowerShell synopses.
     DateCreated:    17-May-2025
-    LastModified:   17-May-2025
+    LastModified:   18-May-2025
     Purpose:        File processing utilities for the AI project bundler.
 #>
 
@@ -30,6 +30,8 @@ $Script:FileProcessor_FileExtensionToLanguageMap = @{
     ".go"     = "go";         ".swift"  = "swift";      ".kt"     = "kotlin"
     ".sql"    = "sql"
 }
+
+$Script:SynopsisMissingPlaceholder = "POWERSHELL_SYNOPSIS_MISSING_OR_UNPARSABLE"
 # --- End Module-Scoped Variables ---
 
 
@@ -89,43 +91,53 @@ function Add-FileToBundle {
     $extractedSynopsis = $null
     $extractedDependencies = [System.Collections.Generic.List[string]]::new()
 
-    # Extract synopsis and dependencies if it's a PowerShell script/module and content was read
-    if ($FileObject.Extension -in ".ps1", ".psm1" -and -not [string]::IsNullOrEmpty($fileContent)) {
-        # Synopsis Extraction
-        try {
-            $synopsisMatch = [regex]::Match($fileContent, '(?s)\.SYNOPSIS\s*(.*?)(?=\r?\n\s*\.(?:DESCRIPTION|EXAMPLE|PARAMETER|NOTES|LINK)|<#|$)')
-            if ($synopsisMatch.Success) {
-                $synopsisText = $synopsisMatch.Groups[1].Value.Trim() -replace '\s*\r?\n\s*', ' ' -replace '\s{2,}', ' '
-                if ($synopsisText.Length -gt 200) { $synopsisText = $synopsisText.Substring(0, 197) + "..." }
-                if (-not [string]::IsNullOrWhiteSpace($synopsisText)) {
-                    $extractedSynopsis = $synopsisText
+    # Extract synopsis and dependencies if it's a PowerShell script/module
+    if ($FileObject.Extension -in ".ps1", ".psm1") {
+        if (-not [string]::IsNullOrEmpty($fileContent)) {
+            # Synopsis Extraction
+            try {
+                $synopsisMatch = [regex]::Match($fileContent, '(?s)\.SYNOPSIS\s*(.*?)(?=\r?\n\s*\.(?:DESCRIPTION|EXAMPLE|PARAMETER|NOTES|LINK)|<#|$)')
+                if ($synopsisMatch.Success) {
+                    $synopsisText = $synopsisMatch.Groups[1].Value.Trim() -replace '\s*\r?\n\s*', ' ' -replace '\s{2,}', ' '
+                    if ($synopsisText.Length -gt 200) { $synopsisText = $synopsisText.Substring(0, 197) + "..." }
+                    if (-not [string]::IsNullOrWhiteSpace($synopsisText)) {
+                        $extractedSynopsis = $synopsisText
+                    } else {
+                        $extractedSynopsis = $Script:SynopsisMissingPlaceholder # Synopsis block found but empty
+                    }
+                } else {
+                    $extractedSynopsis = $Script:SynopsisMissingPlaceholder # No .SYNOPSIS block found
                 }
+            } catch {
+                Write-Warning "Bundler FileProcessor: Error parsing synopsis for '$currentRelativePath': $($_.Exception.Message)"
+                $extractedSynopsis = $Script:SynopsisMissingPlaceholder # Error during parsing
             }
-        } catch {
-            Write-Warning "Bundler FileProcessor: Error parsing synopsis for '$currentRelativePath': $($_.Exception.Message)"
-        }
 
-        # PowerShell Dependency Extraction (#Requires -Module)
-        try {
-            $regexPatternForRequires = '(?im)^\s*#Requires\s+-Module\s+(?:@{ModuleName\s*=\s*)?["'']?([a-zA-Z0-9._-]+)["'']?'
-            $requiresMatches = [regex]::Matches($fileContent, $regexPatternForRequires)
+            # PowerShell Dependency Extraction (#Requires -Module)
+            try {
+                $regexPatternForRequires = '(?im)^\s*#Requires\s+-Module\s+(?:@{ModuleName\s*=\s*)?["'']?([a-zA-Z0-9._-]+)["'']?'
+                $requiresMatches = [regex]::Matches($fileContent, $regexPatternForRequires)
 
-            if ($requiresMatches.Count -gt 0) {
-                foreach ($reqMatch in $requiresMatches) {
-                    if ($reqMatch.Groups[1].Success) {
-                        $moduleName = $reqMatch.Groups[1].Value
-                        $extractedDependencies.Add($moduleName)
+                if ($requiresMatches.Count -gt 0) {
+                    foreach ($reqMatch in $requiresMatches) {
+                        if ($reqMatch.Groups[1].Success) {
+                            $moduleName = $reqMatch.Groups[1].Value
+                            $extractedDependencies.Add($moduleName)
+                        }
                     }
                 }
+            } catch {
+                Write-Warning "Bundler FileProcessor: Error parsing #Requires for '$currentRelativePath': $($_.Exception.Message)"
             }
-        } catch {
-            Write-Warning "Bundler FileProcessor: Error parsing #Requires for '$currentRelativePath': $($_.Exception.Message)"
+        } else {
+            # File is .ps1 or .psm1, but content is empty or unreadable
+            $extractedSynopsis = $Script:SynopsisMissingPlaceholder
         }
     }
 
     return @{
-        Synopsis     = $extractedSynopsis
-        Dependencies = $extractedDependencies.ToArray() # Return as a fixed array
+        Synopsis     = $extractedSynopsis # Will be populated for PS files (real or placeholder), null otherwise
+        Dependencies = $extractedDependencies.ToArray() 
     }
 }
 
