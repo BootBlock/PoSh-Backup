@@ -11,7 +11,7 @@
 
     Key features of the generated HTML reports:
     - Structured Sections: Includes clear sections for Summary, Configuration Used,
-      Hook Scripts Executed, and Detailed Logs. Configuration and Hook sections are collapsible.
+      Hook Scripts Executed, and Detailed Logs. Configuration, Hook, and Log sections are collapsible.
     - Customisable Appearance:
         - Themes: Supports themes via external CSS files located in 'Config\Themes\'. A 'Base.css'
           provides foundational styles, and specific theme files (e.g., 'Dark.css', 'Light.css')
@@ -23,7 +23,8 @@
     - Embedded Logo: Optionally embeds a company or project logo into the report header.
     - Interactive Log Filtering: Includes client-side JavaScript to allow users to filter
       the detailed log entries by keyword and log level directly in their browser. Includes
-      "Select All" / "Deselect All" buttons for log levels.
+      "Select All" / "Deselect All" buttons for log levels and a visual cue when filters are active.
+    - Scroll to Top Button: Appears on long reports for easier navigation.
     - Simulation Banner: Clearly indicates if the report pertains to a simulation run.
     - Security: Employs robust HTML encoding for all dynamic data to prevent Cross-Site
       Scripting (XSS) vulnerabilities. It attempts to use 'System.Web.HttpUtility.HtmlEncode'
@@ -31,7 +32,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.0 # Added Select All/Deselect All buttons for log level filters.
+    Version:        1.6.0 # Added collapsible Detailed Log, filter active cue, scroll-to-top button.
     DateCreated:    14-May-2025
     LastModified:   18-May-2025
     Purpose:        Interactive HTML report generation sub-module for PoSh-Backup.
@@ -296,78 +297,114 @@ function Invoke-HtmlReport {
         $finalCssToInject = "<style>" + $baseCssContent + $themeCssContent + "</style>" + $overrideCssVariablesStyleBlock + "<style>" + $customUserCssContentFromFile + "</style>"
     }
 
-    # --- JavaScript for Log Filtering ---
-    $logFilterJavaScript = @"
+    # --- JavaScript ---
+    $pageJavaScript = @"
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    // Log Filtering Logic
     const keywordSearchInput = document.getElementById('logKeywordSearch');
     const levelFilterCheckboxes = document.querySelectorAll('.log-level-filter');
     const logEntriesContainer = document.getElementById('detailedLogEntries');
     const selectAllButton = document.getElementById('logFilterSelectAll');
     const deselectAllButton = document.getElementById('logFilterDeselectAll');
+    const filterIndicator = document.getElementById('logFilterActiveIndicator');
 
-    if (!logEntriesContainer) {
-        console.warn('Log entries container "detailedLogEntries" not found. Log filtering disabled.');
-        return;
-    }
-    const logEntries = Array.from(logEntriesContainer.getElementsByClassName('log-entry'));
-    if (logEntries.length === 0 && (keywordSearchInput || levelFilterCheckboxes.length > 0)) {
-        const filterControlsArea = document.querySelector('.log-filters');
-        if(filterControlsArea) filterControlsArea.style.display = 'none';
-        return;
-    }
-
-    function filterLogs() {
-        const keyword = keywordSearchInput ? keywordSearchInput.value.toLowerCase().trim() : '';
-        const activeLevelFilters = new Set();
-        let allLevelsUnchecked = true; 
-
-        if (levelFilterCheckboxes.length > 0) {
-            levelFilterCheckboxes.forEach(checkbox => {
-                if (checkbox.checked) {
-                    activeLevelFilters.add(checkbox.value.toUpperCase());
-                    allLevelsUnchecked = false; 
-                }
-            });
-        } else {
-            allLevelsUnchecked = false; 
+    if (logEntriesContainer) {
+        const logEntries = Array.from(logEntriesContainer.getElementsByClassName('log-entry'));
+        if (logEntries.length === 0 && (keywordSearchInput || levelFilterCheckboxes.length > 0)) {
+            const filterControlsArea = document.querySelector('.log-filters');
+            if(filterControlsArea) filterControlsArea.style.display = 'none';
         }
 
-        logEntries.forEach(entry => {
-            const entryText = entry.textContent ? entry.textContent.toLowerCase() : '';
-            const entryLevel = entry.dataset.level ? entry.dataset.level.toUpperCase() : '';
-            const keywordMatch = (keyword === '') || entryText.includes(keyword);
-            const levelMatch = allLevelsUnchecked || activeLevelFilters.size === 0 || activeLevelFilters.has(entryLevel);
+        function filterLogs() {
+            const keyword = keywordSearchInput ? keywordSearchInput.value.toLowerCase().trim() : '';
+            const activeLevelFilters = new Set();
+            let allLevelsUnchecked = true; 
+            let allLevelsCheckedInitially = true; // Used for filter indicator logic
 
-            if (keywordMatch && levelMatch) {
-                entry.style.display = 'flex'; 
-            } else {
-                entry.style.display = 'none';
+            if (levelFilterCheckboxes.length > 0) {
+                levelFilterCheckboxes.forEach(checkbox => {
+                    if (checkbox.checked) {
+                        activeLevelFilters.add(checkbox.value.toUpperCase());
+                        allLevelsUnchecked = false; 
+                    } else {
+                        allLevelsCheckedInitially = false;
+                    }
+                });
+            } else { // No checkboxes means no level filtering by checkbox
+                allLevelsUnchecked = false; 
+                allLevelsCheckedInitially = false; // Treat as if filters aren't in a "default all shown" state
             }
-        });
+
+            logEntries.forEach(entry => {
+                const entryText = entry.textContent ? entry.textContent.toLowerCase() : '';
+                const entryLevel = entry.dataset.level ? entry.dataset.level.toUpperCase() : '';
+                const keywordMatch = (keyword === '') || entryText.includes(keyword);
+                const levelMatch = allLevelsUnchecked || activeLevelFilters.size === 0 || activeLevelFilters.has(entryLevel);
+
+                if (keywordMatch && levelMatch) {
+                    entry.style.display = 'flex'; 
+                } else {
+                    entry.style.display = 'none';
+                }
+            });
+
+            // Update Filter Active Indicator
+            let keywordFilterActive = (keywordSearchInput && keywordSearchInput.value.trim() !== '');
+            let levelFilterActive = false;
+            if (levelFilterCheckboxes.length > 0) {
+                if (!allLevelsCheckedInitially || allLevelsUnchecked) { // Active if not all are checked, or if all are unchecked
+                    levelFilterActive = true;
+                }
+            }
+            const filtersInUse = keywordFilterActive || levelFilterActive;
+            if (filterIndicator) {
+                filterIndicator.style.display = filtersInUse ? 'inline-block' : 'none';
+            }
+        }
+
+        if (keywordSearchInput) {
+            keywordSearchInput.addEventListener('input', filterLogs);
+        }
+        if (levelFilterCheckboxes.length > 0) {
+            levelFilterCheckboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', filterLogs);
+            });
+             // Initial filter call (also updates indicator)
+            filterLogs();
+        }
+
+        if (selectAllButton) {
+            selectAllButton.addEventListener('click', function() {
+                levelFilterCheckboxes.forEach(checkbox => checkbox.checked = true);
+                filterLogs(); 
+            });
+        }
+
+        if (deselectAllButton) {
+            deselectAllButton.addEventListener('click', function() {
+                levelFilterCheckboxes.forEach(checkbox => checkbox.checked = false);
+                filterLogs(); 
+            });
+        }
+    } else {
+        if (filterIndicator) filterIndicator.style.display = 'none'; // Hide if no logs container
+        console.warn('Log entries container "detailedLogEntries" not found. Log filtering disabled.');
     }
 
-    if (keywordSearchInput) {
-        keywordSearchInput.addEventListener('input', filterLogs);
-    }
-    if (levelFilterCheckboxes.length > 0) {
-        levelFilterCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', filterLogs);
-        });
-        filterLogs(); // Initial filter
-    }
-
-    if (selectAllButton) {
-        selectAllButton.addEventListener('click', function() {
-            levelFilterCheckboxes.forEach(checkbox => checkbox.checked = true);
-            filterLogs(); 
-        });
-    }
-
-    if (deselectAllButton) {
-        deselectAllButton.addEventListener('click', function() {
-            levelFilterCheckboxes.forEach(checkbox => checkbox.checked = false);
-            filterLogs(); 
+    // Scroll to Top Button Logic
+    const scrollTopButton = document.getElementById('scrollToTopBtn');
+    if (scrollTopButton) {
+        window.onscroll = function() {
+            if (document.body.scrollTop > 100 || document.documentElement.scrollTop > 100) {
+                scrollTopButton.style.display = "block";
+            } else {
+                scrollTopButton.style.display = "none";
+            }
+        };
+        scrollTopButton.addEventListener('click', function() {
+            document.body.scrollTop = 0; 
+            document.documentElement.scrollTop = 0; 
         });
     }
 });
@@ -382,49 +419,32 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             $logoBytes = [System.IO.File]::ReadAllBytes($reportLogoPath)
             $logoBase64 = [System.Convert]::ToBase64String($logoBytes)
-            # Determine MIME type from extension for better browser compatibility
             $logoMimeType = switch ([System.IO.Path]::GetExtension($reportLogoPath).ToLowerInvariant()) {
-                ".png"  { "image/png" }
-                ".jpg"  { "image/jpeg" }
-                ".jpeg" { "image/jpeg" }
-                ".gif"  { "image/gif" }
-                ".svg"  { "image/svg+xml"} # SVG needs svg+xml
-                default { "image/octet-stream" } # Fallback, browser might not render
+                ".png"  { "image/png" } ".jpg"  { "image/jpeg" } ".jpeg" { "image/jpeg" }
+                ".gif"  { "image/gif" } ".svg"  { "image/svg+xml"}
+                default { "image/octet-stream" } 
             }
             if ($logoMimeType -ne "image/octet-stream") {
                 $embeddedLogoHtml = "<img src='data:$($logoMimeType);base64,$($logoBase64)' alt='Report Logo' class='report-logo'>"
                 & $LocalWriteLog -Message "  - Logo successfully prepared for embedding from '$reportLogoPath'." -Level "DEBUG"
             } else {
-                 & $LocalWriteLog -Message "[WARNING] Logo file '$reportLogoPath' has an unrecognised extension for MIME type determination. Logo might not display correctly." -Level "WARNING"
+                 & $LocalWriteLog -Message "[WARNING] Logo file '$reportLogoPath' has an unrecognised extension for MIME type. Logo might not display." -Level "WARNING"
             }
         } catch { & $LocalWriteLog -Message "[WARNING] Could not read or embed logo from '$reportLogoPath'. Error: $($_.Exception.Message)" -Level "WARNING"}
     }
 
     # --- Build HTML Body ---
-    $htmlBodyLocal = "<div class='container'>" # Start main content container
+    $htmlBodyLocal = "<div class='container'>" 
 
-    # Add Simulation Banner if applicable
-    $isSimulation = $false
-    if ($ReportData.ContainsKey('IsSimulationReport')) { # Check modern flag first
-        if ($ReportData.IsSimulationReport -is [System.Management.Automation.SwitchParameter]) {
-             $isSimulation = $ReportData.IsSimulationReport.IsPresent
-        } elseif ($ReportData.IsSimulationReport -is [bool]) {
-            $isSimulation = $ReportData.IsSimulationReport
-        }
-    } elseif ($ReportData.ContainsKey('OverallStatus') -and ($ReportData.OverallStatus -is [string]) -and $ReportData.OverallStatus.ToUpperInvariant().Contains("SIMULAT")) {
-        # Fallback check based on status string for older data structures if IsSimulationReport isn't present
-        $isSimulation = $true
-    }
-
+    # Simulation Banner
+    $isSimulation = $ReportData.IsSimulationReport -is [System.Management.Automation.SwitchParameter] ? $ReportData.IsSimulationReport.IsPresent : ($ReportData.IsSimulationReport -eq $true)
     if ($isSimulation) {
         $htmlBodyLocal += "<div class='simulation-banner'><strong>*** SIMULATION MODE RUN ***</strong> This report reflects a simulated backup. No actual files were changed or archives created.</div>"
     }
 
-    # Report Header (Title and Logo)
+    # Report Header
     $headerTitle = "$($reportTitlePrefix) - $(ConvertTo-SafeHtml $JobName)"
-    if ($reportThemeName.ToLowerInvariant() -eq "retroterminal") { # Add blinking cursor for retro theme
-        $headerTitle += "<span class='blinking-cursor'></span>"
-    }
+    if ($reportThemeName.ToLowerInvariant() -eq "retroterminal") { $headerTitle += "<span class='blinking-cursor'></span>" }
     $htmlBodyLocal += "<div class='report-header'><h1>$headerTitle</h1>$($embeddedLogoHtml)</div>"
 
     # Summary Section
@@ -433,12 +453,10 @@ document.addEventListener('DOMContentLoaded', function () {
         $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot')} | ForEach-Object {
             $keyName = ConvertTo-SafeHtml $_.Name
             $value = $_.Value
-            # Format array values as multi-line in HTML using <br>
             $displayValue = if ($value -is [array]) { ($value | ForEach-Object { ConvertTo-SafeHtml ([string]$_) }) -join '<br>' } else { ConvertTo-SafeHtml ([string]$value) }
-            # Apply status-specific CSS classes for key summary items
             $statusClass = ""
             if ($_.Name -in @("OverallStatus", "ArchiveTestResult", "VSSStatus")) {
-                 $sanitizedStatusValue = ([string]$_.Value -replace ' ','_') -replace '\(','_' -replace '\)','_' -replace ':','' -replace '/','_' -replace '\+','plus' # Ensure valid CSS class
+                 $sanitizedStatusValue = ([string]$_.Value -replace ' ','_') -replace '\(','_' -replace '\)','_' -replace ':','' -replace '/','_' -replace '\+','plus'
                  $statusClass = "status-$(ConvertTo-SafeHtml $sanitizedStatusValue)"
             }
             $htmlBodyLocal += "<tr><td data-label='Item'>$($keyName)</td><td data-label='Detail' class='$($statusClass)'>$($displayValue)</td></tr>"
@@ -448,44 +466,40 @@ document.addEventListener('DOMContentLoaded', function () {
 
     # Configuration Section
     if ($reportShowConfiguration -and ($ReportData.Keys -contains 'JobConfiguration') -and ($null -ne $ReportData.JobConfiguration)) {
-        # MODIFICATION: Wrap Configuration section in <details> for collapsibility
-        $htmlBodyLocal += "<div class='details-section config-section'><details>"
+        $htmlBodyLocal += "<div class='details-section config-section'><details>" # Collapsible
         $htmlBodyLocal += "<summary><h2>Configuration Used for Job '$(ConvertTo-SafeHtml $JobName)'</h2></summary>"
-        $htmlBodyLocal += "<table>" # Table remains inside <details>
-        $htmlBodyLocal += "<thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>"
-        # Sort configuration keys for consistent order
+        $htmlBodyLocal += "<table><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>"
         foreach ($key in $ReportData.JobConfiguration.Keys | Sort-Object) {
             $value = $ReportData.JobConfiguration[$key]
             $displayValue = if ($value -is [array]) { ($value | ForEach-Object { ConvertTo-SafeHtml ([string]$_) }) -join ", " } else { ConvertTo-SafeHtml ([string]$value) }
             $htmlBodyLocal += "<tr><td data-label='Setting'>$(ConvertTo-SafeHtml $key)</td><td data-label='Value'>$($displayValue)</td></tr>"
         }
-        $htmlBodyLocal += "</tbody></table></details></div>" # Close <details> then <div>
+        $htmlBodyLocal += "</tbody></table></details></div>"
     }
 
     # Hook Scripts Section
     if ($reportShowHooks -and ($ReportData.Keys -contains 'HookScripts') -and ($null -ne $ReportData.HookScripts) -and $ReportData.HookScripts.Count -gt 0) {
-        # MODIFICATION: Wrap Hook Scripts section in <details> for collapsibility
-        $htmlBodyLocal += "<div class='details-section hooks-section'><details>"
+        $htmlBodyLocal += "<div class='details-section hooks-section'><details>" # Collapsible
         $htmlBodyLocal += "<summary><h2>Hook Scripts Executed</h2></summary>"
-        $htmlBodyLocal += "<table>" # Table remains inside <details>
-        $htmlBodyLocal += "<thead><tr><th>Type</th><th>Path</th><th>Status</th><th>Output/Error</th></tr></thead><tbody>"
+        $htmlBodyLocal += "<table><thead><tr><th>Type</th><th>Path</th><th>Status</th><th>Output/Error</th></tr></thead><tbody>"
         $ReportData.HookScripts | ForEach-Object {
             $sanitizedStatusValue = ([string]$_.Status -replace ' ','_') -replace '\(','_' -replace '\)','_' -replace ':','' -replace '/','_' -replace '\+','plus'
             $statusClass = "status-$(ConvertTo-SafeHtml $sanitizedStatusValue)"
-            # Hook output is wrapped in <pre> for preserving formatting
             $hookOutputHtml = if ([string]::IsNullOrWhiteSpace($_.Output)) { "<No output>" } else { "<pre>$(ConvertTo-SafeHtml $_.Output)</pre>" }
             $htmlBodyLocal += "<tr><td data-label='Hook Type'>$(ConvertTo-SafeHtml $_.Name)</td><td data-label='Path'>$(ConvertTo-SafeHtml $_.Path)</td><td data-label='Status' class='$($statusClass)'>$(ConvertTo-SafeHtml $_.Status)</td><td data-label='Output/Error'>$($hookOutputHtml)</td></tr>"
         }
-        $htmlBodyLocal += "</tbody></table></details></div>" # Close <details> then <div>
+        $htmlBodyLocal += "</tbody></table></details></div>"
     }
 
-    # Detailed Log Entries Section (with filter controls)
+    # Detailed Log Entries Section
     if ($reportShowLogEntries -and ($ReportData.Keys -contains 'LogEntries') -and ($null -ne $ReportData.LogEntries) -and $ReportData.LogEntries.Count -gt 0) {
-        $htmlBodyLocal += "<div class='details-section log-section'><h2>Detailed Log</h2>"
+        # MODIFICATION: Wrap in <details open> for collapsibility, open by default. Add filter active indicator.
+        $htmlBodyLocal += "<div class='details-section log-section'><details open>"
+        $htmlBodyLocal += "<summary><h2>Detailed Log <span id='logFilterActiveIndicator' class='filter-active-indicator' style='display:none;'>(Filters Active)</span></h2></summary>"
+        
         # Filter controls HTML structure
         $htmlBodyLocal += "<div class='log-filters'>" 
         $htmlBodyLocal += "<div><label for='logKeywordSearch'>Search Logs:</label><input type='text' id='logKeywordSearch' placeholder='Enter keyword...'></div>"
-
         $logLevelsInReport = ($ReportData.LogEntries.Level | Select-Object -Unique | Sort-Object | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         if ($logLevelsInReport.Count -gt 0) {
             $htmlBodyLocal += "<div class='log-level-filters-container'><strong>Filter by Level:</strong>"
@@ -493,26 +507,24 @@ document.addEventListener('DOMContentLoaded', function () {
                 $safeLevel = ConvertTo-SafeHtml $level
                 $htmlBodyLocal += "<label><input type='checkbox' class='log-level-filter' value='$safeLevel' checked> $safeLevel</label>"
             }
-            # Add Select All / Deselect All buttons
             $htmlBodyLocal += "<div class='log-level-toggle-buttons'>" 
             $htmlBodyLocal += "<button type='button' id='logFilterSelectAll'>Select All</button>"
             $htmlBodyLocal += "<button type='button' id='logFilterDeselectAll'>Deselect All</button>"
-            $htmlBodyLocal += "</div>" # Close log-level-toggle-buttons
-            $htmlBodyLocal += "</div>" # Close log-level-filters-container
+            $htmlBodyLocal += "</div>" 
+            $htmlBodyLocal += "</div>" 
         }
-        $htmlBodyLocal += "</div>" # Close log-filters
+        $htmlBodyLocal += "</div>" 
 
         # Log entries container
         $htmlBodyLocal += "<div id='detailedLogEntries'>"
         $ReportData.LogEntries | ForEach-Object {
-            $entryClass = "log-$(ConvertTo-SafeHtml $_.Level)" # CSS class based on log level
-            # Store level in data-attribute for easier JS filtering
+            $entryClass = "log-$(ConvertTo-SafeHtml $_.Level)" 
             $htmlBodyLocal += "<div class='log-entry $entryClass' data-level='$(ConvertTo-SafeHtml $_.Level)'><strong>$(ConvertTo-SafeHtml $_.Timestamp) [$(ConvertTo-SafeHtml $_.Level)]</strong> <span>$(ConvertTo-SafeHtml $_.Message)</span></div>"
         }
         $htmlBodyLocal += "</div>" # Close detailedLogEntries
-        $htmlBodyLocal += "</div>" # Close log-section
+        $htmlBodyLocal += "</details></div>" # Close details and log-section div
 
-    } elseif ($reportShowLogEntries) { # Log section enabled but no logs
+    } elseif ($reportShowLogEntries) { 
          $htmlBodyLocal += "<div class='details-section log-section'><h2>Detailed Log</h2><p>No log entries were recorded or available for this HTML report.</p></div>"
     }
 
@@ -522,8 +534,9 @@ document.addEventListener('DOMContentLoaded', function () {
         $htmlBodyLocal += "$(ConvertTo-SafeHtml $reportCompanyName) - "
     }
     $htmlBodyLocal += "PoSh Backup Script - Report Generated on $(ConvertTo-SafeHtml ([string](Get-Date)))</footer>"
-    $htmlBodyLocal += $logFilterJavaScript # Add the JavaScript block at the end of the body
+    $htmlBodyLocal += $pageJavaScript # Add the JavaScript block
     $htmlBodyLocal += "</div>" # Close main container
+    $htmlBodyLocal += "<button type='button' id='scrollToTopBtn' title='Go to top'>▲</button>" # Scroll to top button (▲ arrow)
 
     # --- Generate and Write HTML File ---
     try {
