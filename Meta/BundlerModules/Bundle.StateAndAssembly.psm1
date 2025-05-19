@@ -15,7 +15,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.8 # Updated conversation summary for VSS reporting and retention confirmation.
+    Version:        1.0.9 # Updated conversation summary for early UNC path checks.
     DateCreated:    17-May-2025
     LastModified:   19-May-2025
     Purpose:        AI State generation and final bundle assembly for the AI project bundler.
@@ -76,31 +76,32 @@ function Get-BundlerAIState {
 
     # Dynamically construct the conversation summary
     # Versions reflect the latest state after the current session's changes:
-    # PoSh-Backup.ps1: v1.9.14
-    # Modules\Operations.psm1: v1.13.5
-    # Modules\RetentionManager.psm1: v1.0.8 (after fixing prompts and cleaning debug)
-    # Modules\ConfigManager.psm1: v1.0.5
-    # Modules\PoShBackupValidator.psm1: v1.2.3
-    # Config\Default.psd1: v1.2.6
-    # Modules\Reporting\ReportingHtml.psm1: v1.8.2
-    # Meta\BundlerModules\Bundle.StateAndAssembly.psm1 (this file): v1.0.8
+    # PoSh-Backup.ps1: v$($PoShBackupVersion) (e.g., 1.9.14 for content, though CBH might be 1.9.13)
+    # Modules\Operations.psm1: v1.14.0 (New: Early UNC path checks)
+    # Modules\RetentionManager.psm1: v1.0.8 (No change this session)
+    # Modules\ConfigManager.psm1: v1.0.5 (No change this session)
+    # Modules\PoShBackupValidator.psm1: v1.2.3 (No change this session)
+    # Config\Default.psd1: v1.2.6 (No change this session)
+    # Modules\Reporting\ReportingHtml.psm1: v1.8.2 (No change this session)
+    # Meta\BundlerModules\Bundle.StateAndAssembly.psm1 (this file): v1.0.9
 
     $currentConversationSummary = @(
-        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).", # PoSh-Backup.ps1 v1.9.14
+        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).", 
         "Modular design: Core modules, Reporting sub-modules, Config files, and Meta/ (bundler).",
-        "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.0.8).", # This file version
+        "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.0.9).", # This file version updated
         "Network Share Handling Improvements:",
-        "  - Enhanced VSS status reporting in `Operations.psm1` (v1.13.5) for network paths (e.g., 'Partially Used', 'Not Applicable (All Network)').",
+        "  - Added early UNC path accessibility checks in `Operations.psm1` (v1.14.0) for both source and destination paths to provide faster failure feedback.", # NEW ITEM & Operations.psm1 version updated
+        "  - Enhanced VSS status reporting in `Operations.psm1` (v1.14.0) for network paths (e.g., 'Partially Used', 'Not Applicable (All Network)').", # Operations.psm1 version updated
         "  - Added notes to `Config\\Default.psd1` (v1.2.6) about VSS and Recycle Bin behavior with network shares.",
         "  - Added warning in `RetentionManager.psm1` (v1.0.8) for Recycle Bin usage on network path destinations.",
         "Retention Policy Confirmation:",
         "  - Implemented configurable confirmation for retention policy deletions via `RetentionConfirmDelete` setting.",
-        "  - Updates in `Config\\Default.psd1` (v1.2.6), `ConfigManager.psm1` (v1.0.5), `Operations.psm1` (v1.13.5), `RetentionManager.psm1` (v1.0.8), and `PoShBackupValidator.psm1` (v1.2.3).",
+        "  - Updates in `Config\\Default.psd1` (v1.2.6), `ConfigManager.psm1` (v1.0.5), `Operations.psm1` (v1.14.0), `RetentionManager.psm1` (v1.0.8), and `PoShBackupValidator.psm1` (v1.2.3).", # Operations.psm1 version updated
         "  - Resolved issue where retention was always prompting for deletion confirmation, now respects configuration.",
         "Reporting Enhancements:",
         "  - HTML Report (`ReportingHtml.psm1` v1.8.2) updated to display new VSSStatus strings and new VSSAttempted field in the summary table.",
         "Minor Fixes:",
-        "  - Corrected `Write-LogMessage` color warning by adding 'WARNING' (singular) to `$Global:StatusToColourMap` in `PoSh-Backup.ps1` (v1.9.14).",
+        "  - Corrected `Write-LogMessage` color warning by adding 'WARNING' (singular) to `$Global:StatusToColourMap` in `PoSh-Backup.ps1` (v1.9.14).", # Assuming content of PoSh-Backup reflects this
         "Previous Major HTML Report Enhancements (ReportingHtml.psm1 v1.8.1 and CSS files):",
         "  - Collapsible sections, localStorage persistence, log filtering, keyword highlighting, table sorting, copy-to-clipboard, scroll-to-top, favicon, print CSS.",
         "Previous Feature (PoSh-Backup general): Treat 7-Zip Warnings as Success.",

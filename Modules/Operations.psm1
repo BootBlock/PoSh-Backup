@@ -13,19 +13,20 @@
 
     The primary exported function, Invoke-PoShBackupJob, performs the following sequence:
     1.  Gathers effective configuration (ConfigManager.psm1).
-    2.  Validates/creates destination directory.
-    3.  Retrieves archive password (PasswordManager.psm1).
-    4.  Executes pre-backup hook scripts (HookManager.psm1).
-    5.  Handles VSS shadow copy creation if enabled (VssManager.psm1).
-    6.  Checks destination free space (Utils.psm1).
-    7.  Applies retention policy (RetentionManager.psm1).
-    8.  Constructs 7-Zip arguments (7ZipManager.psm1).
-    9.  Executes 7-Zip for archiving (7ZipManager.psm1).
-    10. Optionally tests archive integrity (7ZipManager.psm1).
-    11. Cleans up VSS shadow copies (VssManager.psm1).
-    12. Securely disposes of temporary password files.
-    13. Executes post-backup hook scripts (HookManager.psm1).
-    14. Returns job status.
+    2.  Performs early accessibility checks for UNC source and destination paths.
+    3.  Validates/creates destination directory.
+    4.  Retrieves archive password (PasswordManager.psm1).
+    5.  Executes pre-backup hook scripts (HookManager.psm1).
+    6.  Handles VSS shadow copy creation if enabled (VssManager.psm1).
+    7.  Checks destination free space (Utils.psm1).
+    8.  Applies retention policy (RetentionManager.psm1).
+    9.  Constructs 7-Zip arguments (7ZipManager.psm1).
+    10. Executes 7-Zip for archiving (7ZipManager.psm1).
+    11. Optionally tests archive integrity (7ZipManager.psm1).
+    12. Cleans up VSS shadow copies (VssManager.psm1).
+    13. Securely disposes of temporary password files.
+    14. Executes post-backup hook scripts (HookManager.psm1).
+    15. Returns job status.
 
     This module relies on other PoSh-Backup modules like Utils.psm1, PasswordManager.psm1,
     7ZipManager.psm1, VssManager.psm1, RetentionManager.psm1, ConfigManager.psm1, and HookManager.psm1.
@@ -33,7 +34,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.13.5 # Pass -Confirm:$false to Invoke-BackupRetentionPolicy if config specifies no prompt.
+    Version:        1.14.0 # Added early UNC path accessibility checks for source and destination.
     DateCreated:    10-May-2025
     LastModified:   19-May-2025
     Purpose:        Handles the execution logic for individual backup jobs.
@@ -136,6 +137,69 @@ function Invoke-PoShBackupJob {
         & $LocalWriteLog -Message "   - Treat 7-Zip Warnings as Success: $($effectiveJobConfig.TreatSevenZipWarningsAsSuccess)"
         & $LocalWriteLog -Message "   - Retention Deletion Confirmation: $($effectiveJobConfig.RetentionConfirmDelete)"
 
+        #region --- Early UNC Path Accessibility Checks ---
+        & $LocalWriteLog -Message "`n[INFO] Operations: Performing early accessibility checks for configured paths..." -Level INFO
+
+        # Check UNC Source Paths
+        $sourcePathsToCheck = @()
+        if ($effectiveJobConfig.OriginalSourcePath -is [array]) {
+            $sourcePathsToCheck = $effectiveJobConfig.OriginalSourcePath | Where-Object {-not [string]::IsNullOrWhiteSpace($_)}
+        } elseif (-not [string]::IsNullOrWhiteSpace($effectiveJobConfig.OriginalSourcePath)) {
+            $sourcePathsToCheck = @($effectiveJobConfig.OriginalSourcePath)
+        }
+
+        foreach ($individualSourcePath in $sourcePathsToCheck) {
+            if ($individualSourcePath -match '^\\\\') { # Is UNC
+                $uncPathToTestForSource = $individualSourcePath
+                if ($individualSourcePath -match '[\*\?\[]') { # If source path itself contains wildcards
+                    $uncPathToTestForSource = Split-Path -LiteralPath $individualSourcePath -Parent
+                }
+
+                if ([string]::IsNullOrWhiteSpace($uncPathToTestForSource) -or ($uncPathToTestForSource -match '^\\\\([^\\]+)$') ) { # Malformed or just \\server
+                    & $LocalWriteLog -Message "[WARNING] Operations: Could not determine a valid UNC base directory to test accessibility for source path '$individualSourcePath' (resolved to '$uncPathToTestForSource'). Accessibility check for this source path will be skipped. Backup might fail later if it's truly inaccessible." -Level WARNING
+                } else {
+                    if (-not $IsSimulateMode.IsPresent) {
+                        if (-not (Test-Path -LiteralPath $uncPathToTestForSource)) {
+                            $errorMessage = "FATAL: Operations: UNC source path '$individualSourcePath' (base directory '$uncPathToTestForSource' for testing) is inaccessible. Job '$JobName' cannot proceed."
+                            & $LocalWriteLog -Message $errorMessage -Level ERROR
+                            $reportData.ErrorMessage = $errorMessage
+                            throw $errorMessage
+                        } else {
+                            & $LocalWriteLog -Message "  - Operations: UNC source path '$individualSourcePath' (tested base: '$uncPathToTestForSource') accessibility check: PASSED." -Level DEBUG
+                        }
+                    } else {
+                        & $LocalWriteLog -Message "SIMULATE: Operations: Would test accessibility of UNC source path '$individualSourcePath' (base directory '$uncPathToTestForSource' for testing)." -Level SIMULATE
+                    }
+                }
+            }
+        }
+
+        # Check UNC Destination Path
+        if ($effectiveJobConfig.DestinationDir -match '^\\\\') { # Is UNC Destination
+            $uncDestinationBasePathToTest = $null
+            if ($effectiveJobConfig.DestinationDir -match '^(\\\\\\[^\\]+\\[^\\]+)') { # Extract \\server\share part
+                $uncDestinationBasePathToTest = $matches[1]
+            } 
+
+            if (-not [string]::IsNullOrWhiteSpace($uncDestinationBasePathToTest)) {
+                if (-not $IsSimulateMode.IsPresent) {
+                    if (-not (Test-Path -LiteralPath $uncDestinationBasePathToTest)) {
+                        $errorMessage = "FATAL: Operations: Base UNC destination share '$uncDestinationBasePathToTest' (derived from configured destination '$($effectiveJobConfig.DestinationDir)') is inaccessible. Job '$JobName' cannot proceed."
+                        & $LocalWriteLog -Message $errorMessage -Level ERROR
+                        $reportData.ErrorMessage = $errorMessage
+                        throw $errorMessage
+                    } else {
+                        & $LocalWriteLog -Message "  - Operations: Base UNC destination share '$uncDestinationBasePathToTest' accessibility check: PASSED." -Level DEBUG
+                    }
+                } else {
+                    & $LocalWriteLog -Message "SIMULATE: Operations: Would test accessibility of base UNC destination share '$uncDestinationBasePathToTest' (derived from configured destination '$($effectiveJobConfig.DestinationDir)')." -Level SIMULATE
+                }
+            } else {
+                 & $LocalWriteLog -Message "[WARNING] Operations: Could not determine a valid base UNC share path to test accessibility for destination '$($effectiveJobConfig.DestinationDir)'. Full path creation will be attempted later, which might fail if the share is inaccessible." -Level WARNING
+            }
+        }
+        & $LocalWriteLog -Message "[INFO] Operations: Early accessibility checks completed." -Level INFO
+        #endregion --- End Early UNC Path Accessibility Checks ---
 
         if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.DestinationDir)) {
             & $LocalWriteLog -Message "FATAL: Destination directory for job '$JobName' is not defined. Cannot proceed." -Level ERROR; throw "DestinationDir missing for job '$JobName'."
@@ -191,7 +255,7 @@ function Invoke-PoShBackupJob {
                 }
             } catch {
                 & $LocalWriteLog -Message "FATAL: Error during password retrieval process for job '$JobName'. Error: $($_.Exception.ToString())" -Level ERROR
-                throw 
+                throw # Re-throw to be caught by the main try/catch block
             }
         } elseif ($effectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -eq "NONE") {
             $reportData.PasswordSource = "None (Explicitly Configured)"
@@ -261,7 +325,10 @@ function Invoke-PoShBackupJob {
                         try {
                             $uriCheck = [uri]$originalPathItem
                             if ($uriCheck.IsUnc) { $isUncPath = $true }
-                        } catch { }
+                        } catch { # Not a valid URI, likely local
+                             # To satisfy PSSA's empty catch block rule if it flags this.
+                            & $LocalWriteLog -Message "[DEBUG] Operations: Path '$originalPathItem' not a URI, assumed local for VSS check." -Level "DEBUG"
+                        }
                         
                         if ($isUncPath) {
                             $containsUncPath = $true
