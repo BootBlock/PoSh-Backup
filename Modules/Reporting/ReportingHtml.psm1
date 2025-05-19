@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Generates detailed, interactive HTML reports for PoSh-Backup jobs. These reports feature
     customisable themes, CSS overrides, optional embedded logos, client-side JavaScript for
