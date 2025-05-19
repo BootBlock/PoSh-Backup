@@ -3,7 +3,8 @@
     Manages the loading, validation, and interpretation of PoSh-Backup configurations.
     This includes merging default and user configurations, handling 7-Zip path detection,
     validating configuration structure, determining which jobs/sets to process, and
-    calculating the effective configuration for individual backup jobs.
+    calculating the effective configuration for individual backup jobs, including new
+    Backup Target settings.
 
 .DESCRIPTION
     The ConfigManager module is a central component for handling all aspects of PoSh-Backup's
@@ -13,13 +14,15 @@
 
     Key Functions:
     - Import-AppConfiguration: Loads base (Default.psd1) and user (User.psd1) configurations,
-      merges them, handles 7-Zip path auto-detection (via 7ZipManager.psm1), and can invoke
+      merges them, handles 7-Zip path auto-detection (via 7ZipManager.psm1), loads and performs
+      basic validation on the new 'BackupTargets' global configuration section, and can invoke
       advanced schema validation (via PoShBackupValidator.psm1).
     - Get-JobsToProcess: Determines the list of backup jobs to execute based on command-line
       parameters or default configuration rules.
     - Get-PoShBackupJobEffectiveConfiguration: Calculates the final, effective settings for a
       single backup job by merging global settings, job-specific settings, and command-line
-      overrides.
+      overrides. This now includes resolving 'LocalRetentionCount', 'TargetNames' (and their
+      corresponding full target configurations from 'BackupTargets'), and 'DeleteLocalArchiveAfterSuccessfulTransfer'.
 
     This module relies on Utils.psm1 (for Write-LogMessage, Get-ConfigValue),
     7ZipManager.psm1 (for Find-SevenZipExecutable), and optionally PoShBackupValidator.psm1.
@@ -27,7 +30,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.5 # Process RetentionConfirmDelete in Get-PoShBackupJobEffectiveConfiguration.
+    Version:        1.1.0 # Added support for BackupTargets, TargetNames, LocalRetentionCount, DeleteLocalArchiveAfterSuccessfulTransfer.
     DateCreated:    17-May-2025
     LastModified:   19-May-2025
     Purpose:        Centralised configuration management for PoSh-Backup.
@@ -87,11 +90,10 @@ function Import-AppConfiguration {
         the base configuration (user settings take precedence).
         If a specific configuration file path is provided via -UserSpecifiedPath, only that file is loaded.
 
-        After loading, it performs basic validation (e.g., 7-Zip path) and can optionally invoke
-        advanced schema validation if 'EnableAdvancedSchemaValidation' is set to $true in the
-        loaded configuration and the 'PoShBackupValidator.psm1' module is available.
-        It also handles the auto-detection of the 7-Zip executable path if not explicitly set,
-        by calling 'Find-SevenZipExecutable' (expected to be available from 7ZipManager.psm1).
+        After loading, it performs basic validation (e.g., 7-Zip path, 'BackupTargets' structure)
+        and can optionally invoke advanced schema validation if 'EnableAdvancedSchemaValidation'
+        is set to $true in the loaded configuration and the 'PoShBackupValidator.psm1' module is available.
+        It also handles the auto-detection of the 7-Zip executable path if not explicitly set.
     .PARAMETER UserSpecifiedPath
         Optional. The full path to a specific .psd1 configuration file to load.
         If provided, the default 'Config\Default.psd1' and 'Config\User.psd1' loading/merging logic is bypassed.
@@ -201,7 +203,6 @@ function Import-AppConfiguration {
 
     $validationMessages = [System.Collections.Generic.List[string]]::new()
 
-    # Get-ConfigValue is now available due to Import-Module "Utils.psm1" at the top of this module.
     $enableAdvancedValidation = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'EnableAdvancedSchemaValidation' -DefaultValue $false
     if ($enableAdvancedValidation -eq $true) {
         & $LocalWriteLog -Message "[INFO] ConfigManager: Advanced Schema Validation enabled. Attempting PoShBackupValidator module..." -Level "INFO"
@@ -296,6 +297,28 @@ function Import-AppConfiguration {
         }
     }
 
+    # --- Basic Validation for BackupTargets ---
+    if ($finalConfiguration.ContainsKey('BackupTargets')) {
+        if ($finalConfiguration.BackupTargets -isnot [hashtable]) {
+            $validationMessages.Add("ConfigManager: Global 'BackupTargets' must be a Hashtable if defined.")
+        } else {
+            foreach ($targetName in $finalConfiguration.BackupTargets.Keys) {
+                $targetInstance = $finalConfiguration.BackupTargets[$targetName]
+                if ($targetInstance -isnot [hashtable]) {
+                    $validationMessages.Add("ConfigManager: BackupTarget instance '$targetName' must be a Hashtable.")
+                    continue
+                }
+                if (-not $targetInstance.ContainsKey('Type') -or [string]::IsNullOrWhiteSpace($targetInstance.Type)) {
+                    $validationMessages.Add("ConfigManager: BackupTarget instance '$targetName' is missing a 'Type' or it is empty.")
+                }
+                if (-not $targetInstance.ContainsKey('TargetSpecificSettings') -or $targetInstance.TargetSpecificSettings -isnot [hashtable]) {
+                    $validationMessages.Add("ConfigManager: BackupTarget instance '$targetName' is missing 'TargetSpecificSettings' or it is not a Hashtable.")
+                }
+                # Further validation of TargetSpecificSettings would be done by PoShBackupValidator.psm1 or by the target provider itself.
+            }
+        }
+    } # No 'else' needed here; BackupTargets is optional.
+
     $defaultDateFormat = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd"
     if ($finalConfiguration.ContainsKey('DefaultArchiveDateFormat')) {
         if (-not ([string]$defaultDateFormat).Trim()) {
@@ -335,6 +358,25 @@ function Import-AppConfiguration {
                     } else {
                         try { Get-Date -Format $jobDateFormat -ErrorAction Stop | Out-Null }
                         catch { $validationMessages.Add("ConfigManager: BackupLocation '$jobKey': 'ArchiveDateFormat' ('$jobDateFormat') invalid. Error: $($_.Exception.Message)") }
+                    }
+                }
+                # Validate TargetNames in each job
+                if ($null -ne $jobConfig -and $jobConfig.ContainsKey('TargetNames')) {
+                    if ($jobConfig.TargetNames -isnot [array] -and -not ($null -eq $jobConfig.TargetNames)) { # Allow null for optional, but if present must be array
+                        $validationMessages.Add("ConfigManager: BackupLocation '$jobKey': 'TargetNames' must be an array of strings if defined.")
+                    } elseif ($jobConfig.TargetNames -is [array]) {
+                        foreach ($targetNameRef in $jobConfig.TargetNames) {
+                            if (-not ($targetNameRef -is [string]) -or [string]::IsNullOrWhiteSpace($targetNameRef)) {
+                                $validationMessages.Add("ConfigManager: BackupLocation '$jobKey': 'TargetNames' array contains an invalid (non-string or empty) target name reference.")
+                                break # Stop checking this array further
+                            }
+                            # Check if the referenced target name actually exists in GlobalConfig.BackupTargets
+                            if (-not $finalConfiguration.ContainsKey('BackupTargets') -or `
+                                $finalConfiguration.BackupTargets -isnot [hashtable] -or `
+                                -not $finalConfiguration.BackupTargets.ContainsKey($targetNameRef)) {
+                                $validationMessages.Add("ConfigManager: BackupLocation '$jobKey': TargetName '$targetNameRef' referenced in 'TargetNames' is not defined in the global 'BackupTargets' section.")
+                            }
+                        }
                     }
                 }
             }
@@ -521,16 +563,18 @@ function Get-PoShBackupJobEffectiveConfiguration {
     <#
     .SYNOPSIS
         Gathers the effective configuration for a single backup job by merging global,
-        job-specific, and command-line override settings.
+        job-specific, and command-line override settings, including Backup Target resolution.
     .DESCRIPTION
         This function takes a specific job's raw configuration, the global configuration,
         and any command-line overrides, then resolves the final settings that will be
         used for that job. It prioritizes settings in the order: CLI overrides, then
         job-specific settings, then global settings.
+        It now also resolves 'TargetNames' specified in the job configuration by looking up
+        the full definitions of those targets in the global 'BackupTargets' section.
     .PARAMETER JobConfig
         A hashtable containing the specific configuration settings for this backup job.
     .PARAMETER GlobalConfig
-        A hashtable containing the global configuration settings for PoSh-Backup.
+        A hashtable containing the global configuration settings for PoSh-Backup, including 'BackupTargets'.
     .PARAMETER CliOverrides
         A hashtable containing command-line parameter overrides.
     .PARAMETER JobReportDataRef
@@ -540,7 +584,8 @@ function Get-PoShBackupJobEffectiveConfiguration {
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
         System.Collections.Hashtable
-        A hashtable representing the effective configuration for the job.
+        A hashtable representing the effective configuration for the job, including an array
+        of 'ResolvedTargetInstances' if 'TargetNames' were specified.
     #>
     param(
         [Parameter(Mandatory)] [hashtable]$JobConfig,
@@ -553,16 +598,6 @@ function Get-PoShBackupJobEffectiveConfiguration {
 
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
     & $Logger -Message "Get-PoShBackupJobEffectiveConfiguration: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    # Internal helper to use the passed-in logger consistently for other messages
-    # $LocalWriteLog = { # This helper is not strictly needed if no other logging calls are made directly by this function
-    #     param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-    #     if ($null -ne $ForegroundColour) {
-    #         & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-    #     } else {
-    #         & $Logger -Message $Message -Level $Level
-    #     }
-    # }
     
     $effectiveConfig = @{}
     $reportData = $JobReportDataRef.Value 
@@ -571,13 +606,42 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.BaseFileName       = $JobConfig.Name
     $reportData.JobConfiguration        = $JobConfig 
 
-    # Using Get-ConfigValue from Utils.psm1, which doesn't log.
     $effectiveConfig.DestinationDir = Get-ConfigValue -ConfigObject $JobConfig -Key 'DestinationDir' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDestinationDir' -DefaultValue $null)
-    $effectiveConfig.RetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3)
-    if ($effectiveConfig.RetentionCount -lt 0) { $effectiveConfig.RetentionCount = 0 } 
+    
+    # --- New Target-related settings ---
+    $effectiveConfig.TargetNames = @(Get-ConfigValue -ConfigObject $JobConfig -Key 'TargetNames' -DefaultValue @())
+    $effectiveConfig.DeleteLocalArchiveAfterSuccessfulTransfer = Get-ConfigValue -ConfigObject $JobConfig -Key 'DeleteLocalArchiveAfterSuccessfulTransfer' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DeleteLocalArchiveAfterSuccessfulTransfer' -DefaultValue $true)
+    $effectiveConfig.ResolvedTargetInstances = [System.Collections.Generic.List[hashtable]]::new()
+
+    if ($effectiveConfig.TargetNames.Count -gt 0) {
+        $globalBackupTargets = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'BackupTargets' -DefaultValue @{}
+        if (-not ($globalBackupTargets -is [hashtable])) {
+            & $Logger -Message "[WARNING] ConfigManager: Global 'BackupTargets' configuration is missing or not a hashtable. Cannot resolve target names for job." -Level WARNING
+        } else {
+            foreach ($targetNameRef in $effectiveConfig.TargetNames) {
+                if ($globalBackupTargets.ContainsKey($targetNameRef)) {
+                    $targetInstanceConfig = $globalBackupTargets[$targetNameRef]
+                    if ($targetInstanceConfig -is [hashtable]) {
+                        # Add the original reference name to the instance config for easier identification later
+                        $targetInstanceConfigWithName = $targetInstanceConfig.Clone() # Clone to avoid modifying global config
+                        $targetInstanceConfigWithName['_TargetInstanceName_'] = $targetNameRef 
+                        $effectiveConfig.ResolvedTargetInstances.Add($targetInstanceConfigWithName)
+                        & $Logger -Message "  - ConfigManager: Resolved Target Instance '$targetNameRef' (Type: $($targetInstanceConfig.Type)) for job." -Level DEBUG
+                    } else {
+                        & $Logger -Message "[WARNING] ConfigManager: Definition for TargetName '$targetNameRef' in 'BackupTargets' is not a valid hashtable. Skipping this target for job." -Level WARNING
+                    }
+                } else {
+                    & $Logger -Message "[WARNING] ConfigManager: TargetName '$targetNameRef' (specified in job's TargetNames) not found in global 'BackupTargets'. Skipping this target for job." -Level WARNING
+                }
+            }
+        }
+    }
+    # --- End New Target-related settings ---
+
+    $effectiveConfig.LocalRetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'LocalRetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3) # DefaultRetentionCount is legacy, should be LocalRetentionCount globally too eventually
+    if ($effectiveConfig.LocalRetentionCount -lt 0) { $effectiveConfig.LocalRetentionCount = 0 } 
     $effectiveConfig.DeleteToRecycleBin = Get-ConfigValue -ConfigObject $JobConfig -Key 'DeleteToRecycleBin' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDeleteToRecycleBin' -DefaultValue $false)
     $effectiveConfig.RetentionConfirmDelete = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionConfirmDelete' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetentionConfirmDelete' -DefaultValue $true)
-
 
     $effectiveConfig.ArchivePasswordMethod = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordMethod' -DefaultValue "None"
     $effectiveConfig.CredentialUserNameHint = Get-ConfigValue -ConfigObject $JobConfig -Key 'CredentialUserNameHint' -DefaultValue "BackupUser"
@@ -617,13 +681,12 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.JobMaxRetryAttempts = Get-ConfigValue -ConfigObject $JobConfig -Key 'MaxRetryAttempts' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MaxRetryAttempts' -DefaultValue 3)
     $effectiveConfig.JobRetryDelaySeconds = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetryDelaySeconds' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetryDelaySeconds' -DefaultValue 60)
 
-    # Determine effective TreatSevenZipWarningsAsSuccess setting
-    if ($null -ne $CliOverrides.TreatSevenZipWarningsAsSuccess) { # CLI switch has highest precedence
+    if ($null -ne $CliOverrides.TreatSevenZipWarningsAsSuccess) {
         $effectiveConfig.TreatSevenZipWarningsAsSuccess = $CliOverrides.TreatSevenZipWarningsAsSuccess
     } else {
         $effectiveConfig.TreatSevenZipWarningsAsSuccess = Get-ConfigValue -ConfigObject $JobConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue $false)
     }
-    $reportData.TreatSevenZipWarningsAsSuccess = $effectiveConfig.TreatSevenZipWarningsAsSuccess # Add to report data
+    $reportData.TreatSevenZipWarningsAsSuccess = $effectiveConfig.TreatSevenZipWarningsAsSuccess
 
     $effectiveConfig.JobSevenZipProcessPriority = if (-not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipPriority)) {
         $CliOverrides.SevenZipPriority
@@ -642,7 +705,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.PostBackupScriptAlwaysPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptAlwaysPath' -DefaultValue $null
 
     $reportData.SourcePath = if ($effectiveConfig.OriginalSourcePath -is [array]) {$effectiveConfig.OriginalSourcePath} else {@($effectiveConfig.OriginalSourcePath)}
-    $reportData.VSSUsed = $effectiveConfig.JobEnableVSS # This will be updated by Operations.psm1 later based on actual VSS use
+    $reportData.VSSUsed = $effectiveConfig.JobEnableVSS 
     $reportData.RetriesEnabled = $effectiveConfig.JobEnableRetries
     $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation 
     $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority

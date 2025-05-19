@@ -4,17 +4,19 @@
   bundler_script_version = "__BUNDLER_VERSION_PLACEHOLDER__" # Populated by bundler
 
   ai_development_watch_list = @(
-    "CRITICAL (AI): Ensure full, untruncated files are provided when requested by the user. AI has made this mistake multiple times, including during the most recent session regarding CSS and Validator module updates, and most recently with RetentionManager.psm1.", 
-    "CRITICAL (AI): Verify line counts and comment integrity when AI provides full script updates; inadvertent removal/truncation has occurred (e.g., missing comments, fewer lines than expected). This was a significant issue in the last session, particularly with RetentionManager.psm1. This was also an issue in the current session with RetentionManager.psm1.", # EMPHASIS ADDED
+    "CRITICAL (AI): Ensure full, untruncated files are provided when requested by the user. AI has made this mistake multiple times, including during the most recent session regarding CSS and Validator module updates, and most recently with RetentionManager.psm1. THIS WAS A REPEATED, SIGNIFICANT ISSUE IN THE CURRENT SESSION WITH README.md, Default.psd1, AND OTHER MODULES. EXTREME VIGILANCE REQUIRED.", # RE-EMPHASIZED + CURRENT SESSION
+    "CRITICAL (AI): Verify line counts and comment integrity when AI provides full script updates; inadvertent removal/truncation has occurred (e.g., missing comments, fewer lines than expected). This was a significant issue in the last session, particularly with RetentionManager.psm1. This was also an issue in the current session with multiple files. EXTREME VIGILANCE REQUIRED.", # RE-EMPHASIZED + CURRENT SESSION
     "CRITICAL (AI): Ensure no extraneous trailing whitespace is introduced on any lines, including apparently blank ones when providing code.",
+    "CRITICAL (AI): When modifying existing files, explicitly confirm the baseline version/content if there's any ambiguity (e.g., discrepancy between AI's understanding of a file's length/content and the user's current version). This caused confusion with README.md length and other files during the Backup Target feature development.", # UPDATED
     "CRITICAL (SYNTAX): For literal triple backticks (```) in PowerShell strings meant for Markdown code fences, use single quotes: '''```'''. For example, using 'theSBvariable.AppendLine('''''''```''''''')' with single quotes for the outer string. Double quotes for the outer string will cause parsing errors or misinterpretation.",
     "CRITICAL (SYNTAX): Escaping special characters (like `$`, `{`, `}` within regex patterns) in PowerShell here-strings for JavaScript requires extreme care. PowerShell's parser may interpret sequences like `${}` as empty variable expressions. Methods like string concatenation within the JS, or careful backtick escaping (`$`) are needed. This caused multiple iterations in a previous session.",
+    "CRITICAL (SYNTAX): When providing replacement strings for PowerShell's -replace operator that include special characters (e.g., HTML entities like '<'), ensure these replacement strings are correctly quoted (typically single quotes) to be treated as literal strings by PowerShell. Failure to do so caused parsing errors in ReportingHtml.psm1.", 
     "SYNTAX: PowerShell ordered dictionaries (`[ordered]@{}`) use `(theDictVariable.PSObject.Properties.Name -contains 'Key')`, NOT `theDictVariable.ContainsKey('Key')`. ",
     "REGEX: Be cautious with string interpolation vs. literal characters in regex patterns. Test regex patterns carefully. Ensure PowerShell string parsing is correct before regex engine sees it (e.g., use single-quoted strings for regex patterns, ensure proper escaping of special characters within the pattern if needed).",
-    "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting.",
-    "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`, `VSSStatus`, `VSSAttempted`) is correctly set in `theReportDataRefVariable` (a ref object) *before* report generation functions are called.", 
+    "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting, including through new Backup Target provider models.", # UPDATED
+    "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`, `VSSStatus`, `VSSAttempted`, and new `TargetTransfers` array) is correctly set in `theReportDataRefVariable` (a ref object) *before* report generation functions are called.", # UPDATED
     "SCOPE: Double-check variable scopes when helper functions modify collections intended for wider use (prefer passing by ref or using script scope explicitly and carefully, e.g., `script:varName`). Consider returning values from helper functions instead of direct script-scope modification for cleaner data flow, especially in modularized scripts.",
-    "STRUCTURE: Respect the modular design (PoSh-Backup core modules, Reporting sub-modules, Bundler sub-modules). Ensure functions are placed in the most logical module.",
+    "STRUCTURE: Respect the modular design (PoSh-Backup core modules, Reporting sub-modules, Bundler sub-modules, new Target Provider sub-modules in `Modules\Targets\`). Ensure functions are placed in the most logical module.", # UPDATED
     "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code, especially in complex `if/try/catch/finally` blocks and `param()` blocks.",
     "PSSA (BUNDLER): Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions from `PSScriptAnalyzerSettings.psd1`, even if VS Code (with the settings file) shows no issues. This was observed with unused parameters in closures, requiring defensive code changes.",
     "PSSA (CLOSURES): PSScriptAnalyzer may not always detect parameter/variable usage within scriptblock closures assigned to local variables, potentially leading to false 'unused' warnings that require defensive/explicit calls for PSSA appeasement.",
@@ -38,10 +40,10 @@
     fields_to_update_by_ai = @( 
       "ai_development_watch_list",
       "ai_bundler_update_instructions", 
-      "external_dependencies.executables"
+      "external_dependencies.executables" # AI can update this if it knows a new tool was explicitly added and configured
     )
     fields_to_be_updated_by_user = @( 
-      "external_dependencies.executables (if new external tools are added - AI cannot auto-detect this reliably)"
+      "external_dependencies.executables (if new external tools are added - AI cannot auto-detect this reliably if path is not hardcoded/standard)" # User primarily responsible
     )
     example_of_ai_provided_block_end = "}" 
   }
@@ -56,9 +58,13 @@
   external_dependencies = @{
     executables = @( 
       "7z.exe (7-Zip command-line tool - path configurable or auto-detected)"
+      # USER/AI: Add other executables if new target providers require them (e.g., rclone.exe, aws.exe, azcopy.exe).
+      # The bundler cannot reliably auto-detect these unless their paths are hardcoded or found via standard means.
     )
     powershell_modules = @( 
-      "__PS_DEPENDENCIES_PLACEHOLDER__" # Dynamically populated
+      "__PS_DEPENDENCIES_PLACEHOLDER__" # Dynamically populated by bundler based on #Requires
+      # USER/AI: Add PowerShell modules required by specific target providers if they are not declared with #Requires -Module
+      # (e.g., AWSPowerShell, Az.Storage). The bundler will pick up #Requires, but verify.
     )
   }
 }

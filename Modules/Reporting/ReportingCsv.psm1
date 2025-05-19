@@ -1,8 +1,9 @@
 <#
 .SYNOPSIS
     Generates Comma Separated Values (CSV) reports for PoSh-Backup jobs.
-    It provides a summary of the backup job, detailed log entries, and hook script
-    execution details, each in separate, easily parsable CSV files.
+    It provides a summary of the backup job, detailed log entries, hook script
+    execution details, and remote target transfer details, each in separate,
+    easily parsable CSV files.
 
 .DESCRIPTION
     This module is responsible for creating structured data output in CSV format for a
@@ -13,15 +14,17 @@
        (e.g., 'JobName_Logs_Timestamp.csv') with each log entry as a row.
     3. Optionally, if hook scripts were executed and data is available, a separate CSV file
        (e.g., 'JobName_Hooks_Timestamp.csv') detailing each hook script's execution.
+    4. **NEW**: Optionally, if remote target transfers were attempted, a separate CSV file
+       (e.g., 'JobName_TargetTransfers_Timestamp.csv') detailing each transfer.
 
     These CSV files are ideal for data import into spreadsheets, databases, or for
     programmatic analysis and integration with other monitoring or auditing systems.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.2 # Added defensive logger call for PSSA.
+    Version:        1.2.0 # Added separate CSV for Target Transfer details.
     DateCreated:    14-May-2025
-    LastModified:   17-May-2025
+    LastModified:   19-May-2025
     Purpose:        CSV report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -35,8 +38,8 @@ function Invoke-CsvReport {
     .DESCRIPTION
         This function takes the consolidated report data for a backup job and exports it
         into one or more CSV files. A primary CSV file provides a summary of the job.
-        If log entries or hook script data exist, they are exported into their own
-        respective CSV files. Files are named using the job name and a timestamp.
+        If log entries, hook script data, or target transfer data exist, they are exported
+        into their own respective CSV files. Files are named using the job name and a timestamp.
     .PARAMETER ReportDirectory
         The target directory where the generated CSV report files for this job will be saved.
         This path is typically resolved by the main Reporting.psm1 orchestrator.
@@ -45,8 +48,8 @@ function Invoke-CsvReport {
         to clearly associate them with the job.
     .PARAMETER ReportData
         A hashtable containing all data collected during the backup job's execution.
-        This function will extract summary information, log entries, and hook script details
-        from this hashtable to populate the CSV files.
+        This function will extract summary information, log entries, hook script details,
+        and target transfer details from this hashtable to populate the CSV files.
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function from Utils.psm1.
         Used for logging the CSV report generation process itself.
@@ -96,7 +99,8 @@ function Invoke-CsvReport {
 
     try {
         $summaryObject = [PSCustomObject]@{}
-        $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport')} | ForEach-Object {
+        # Exclude TargetTransfers from the main summary object
+        $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot', 'TargetTransfers')} | ForEach-Object {
             $value = if ($_.Value -is [array]) { $_.Value -join '; ' } else { $_.Value }
             Add-Member -InputObject $summaryObject -MemberType NoteProperty -Name $_.Name -Value $value
         }
@@ -132,6 +136,35 @@ function Invoke-CsvReport {
     } else {
         & $LocalWriteLog -Message "  - No hook script execution data found in report data for job '$JobName'. Hook Scripts CSV report will not be generated." -Level "DEBUG"
     }
+
+    # --- NEW: Target Transfers CSV Report ---
+    if ($ReportData.ContainsKey('TargetTransfers') -and $null -ne $ReportData.TargetTransfers -and $ReportData.TargetTransfers.Count -gt 0) {
+        $targetTransfersReportFileName = "$($safeJobNameForFile)_TargetTransfers_$($reportTimestamp).csv"
+        $targetTransfersReportFullPath = Join-Path -Path $ReportDirectory -ChildPath $targetTransfersReportFileName
+        try {
+            # Select specific properties to ensure consistent column order and include raw size
+            $targetTransfersForCsv = $ReportData.TargetTransfers | ForEach-Object {
+                [PSCustomObject]@{
+                    TargetName            = $_.TargetName
+                    TargetType            = $_.TargetType
+                    Status                = $_.Status
+                    RemotePath            = $_.RemotePath
+                    TransferDuration      = $_.TransferDuration
+                    TransferSize          = $_.TransferSize # Raw bytes
+                    TransferSizeFormatted = $_.TransferSizeFormatted
+                    ErrorMessage          = $_.ErrorMessage
+                }
+            }
+            $targetTransfersForCsv | Export-Csv -Path $targetTransfersReportFullPath -NoTypeInformation -Encoding UTF8 -Force
+            & $LocalWriteLog -Message "  - Target Transfers CSV report generated successfully: '$targetTransfersReportFullPath'" -Level "SUCCESS"
+        } catch {
+            & $LocalWriteLog -Message "[ERROR] Failed to generate Target Transfers CSV report '$targetTransfersReportFullPath' for job '$JobName'. Error: $($_.Exception.Message)" -Level "ERROR"
+        }
+    } else {
+        & $LocalWriteLog -Message "  - No target transfer data found in report data for job '$JobName'. Target Transfers CSV report will not be generated." -Level "DEBUG"
+    }
+    # --- END NEW: Target Transfers CSV Report ---
+
     & $LocalWriteLog -Message "[INFO] CSV Report generation process finished for job '$JobName'." -Level "INFO"
 }
 

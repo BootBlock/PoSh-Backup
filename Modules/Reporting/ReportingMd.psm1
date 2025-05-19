@@ -4,6 +4,7 @@
     These reports offer a human-readable plain text format that can also be rendered
     into richly structured HTML by various Markdown processors, making them suitable
     for documentation, version control, or quick reviews.
+    Now includes a section for Remote Target Transfer details.
 
 .DESCRIPTION
     This module is responsible for creating reports using Markdown syntax for a completed
@@ -16,7 +17,8 @@
     - A "Summary" section presented as a Markdown table.
     - A "Configuration Used" section, also as a Markdown table.
     - A "Hook Scripts Executed" section, detailing hooks in a table, with their output
-      often formatted within `<pre><code>` blocks for better readability in rendered Markdown.
+      often formatted within HTML <pre><code> blocks for better readability in rendered Markdown.
+    - A "Remote Target Transfers" section (if applicable), presented as a Markdown table.
     - A "Detailed Log" section where each log entry is presented within a Markdown code block
       for preservation of formatting and easy copying.
 
@@ -25,9 +27,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.2 # Added defensive logger call for PSSA.
+    Version:        1.3.0 # Added Remote Target Transfers section.
     DateCreated:    14-May-2025
-    LastModified:   17-May-2025
+    LastModified:   19-May-2025
     Purpose:        Markdown (.md) report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -41,9 +43,9 @@ function Invoke-MdReport {
     .DESCRIPTION
         This function takes the consolidated report data for a backup job and formats it
         into a Markdown file. The report uses Markdown headings for sections, tables for
-        summary and configuration data, and code blocks for log entries. Hook script output
-        is typically embedded in a way that preserves its formatting when the Markdown is rendered.
-        The output file is named using the job name and a timestamp.
+        summary, configuration, and target transfer data, and code blocks for log entries.
+        Hook script output is typically embedded in a way that preserves its formatting when
+        the Markdown is rendered. The output file is named using the job name and a timestamp.
     .PARAMETER ReportDirectory
         The target directory where the generated .md report file for this job will be saved.
         This path is typically resolved by the main Reporting.psm1 orchestrator.
@@ -91,17 +93,34 @@ function Invoke-MdReport {
         }
     }
 
+    # Helper function to escape characters special to Markdown tables
     $EscapeMarkdownTableContent = {
         param($Content)
         if ($null -eq $Content) { return "" }
-        return $Content.ToString() -replace '\|', '\|' -replace '\r?\n', '<br>'
+        # Escape pipe characters. Replace newlines with <br> for multi-line content within a cell.
+        return $Content.ToString() -replace '\|', '\|' -replace '\r?\n', '<br />'
     }
 
+    # Helper function to escape characters for general Markdown code/text blocks (less aggressive than table content)
     $EscapeMarkdownCodeContent = {
         param($Content)
         if ($null -eq $Content) { return "" }
-        return $Content.ToString()
+        # For general text or code blocks, primarily backticks and backslashes might need escaping if intended literally.
+        # However, within fenced code blocks (```), most characters are literal.
+        # For simple text in headings or paragraphs, ensure no unintended Markdown formatting occurs.
+        # This is a basic escape; more complex content might need more robust handling.
+        return $Content.ToString() -replace '`', '\`' -replace '\*', '\*' -replace '_', '\_' -replace '\[', '\[' -replace '\]', '\]'
     }
+    
+    # HTML Encode Helper (re-defined locally if System.Web is not guaranteed for the module)
+    # This is primarily for hook output that might contain HTML-like structures when we embed it raw.
+    $LocalConvertToSafeHtml = {
+        param([string]$TextToEncode)
+        if ($null -eq $TextToEncode) { return '' }
+        # Basic manual HTML encoding
+        return $TextToEncode -replace '&', '&' -replace '<', '<' -replace '>', '>' -replace '"', '"' -replace "'", '&#39;'
+    }
+
 
     & $LocalWriteLog -Message "[INFO] Markdown Report generation process started for job '$JobName'." -Level "INFO"
 
@@ -128,7 +147,8 @@ function Invoke-MdReport {
     $null = $reportContent.AppendLine("")
     $null = $reportContent.AppendLine("| Item                      | Detail |")
     $null = $reportContent.AppendLine("| :------------------------ | :----- |")
-    $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot')} | ForEach-Object {
+    # Exclude TargetTransfers from main summary table
+    $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot', 'TargetTransfers')} | ForEach-Object {
         $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $EscapeMarkdownTableContent.Invoke($_) }) -join '; ' } else { $EscapeMarkdownTableContent.Invoke($_.Value) }
         $null = $reportContent.AppendLine("| $($EscapeMarkdownTableContent.Invoke($_.Name).PadRight(25)) | $value |")
     }
@@ -156,16 +176,42 @@ function Invoke-MdReport {
             $hookOutputMd = if ([string]::IsNullOrWhiteSpace($_.Output)) {
                                 "*(No output recorded)*"
                             } else {
-                                $escapedHtmlOutput = ConvertTo-PoshBackupSafeHtmlInternal -Text $_.Output.TrimEnd()
-                                # For Markdown, we can use fenced code blocks for pre-formatted text.
-                                # Using single quotes for the '`' character to ensure it's literal for PowerShell.
-                                $fencedCodeBlock = '````text' + [Environment]::NewLine + $escapedHtmlOutput + [Environment]::NewLine + '````'
-                                $hookOutputMd = $fencedCodeBlock
+                                # For Markdown, embed raw output in a fenced code block for pre-formatted text.
+                                # Using HTML pre/code for potentially better rendering control by some Markdown viewers.
+                                $escapedHtmlOutput = & $LocalConvertToSafeHtml $_.Output.TrimEnd()
+                                $hookOutputMd = "<pre><code>$($escapedHtmlOutput)</code></pre>"
                             }
             $null = $reportContent.AppendLine("| $(& $EscapeMarkdownTableContent $_.Name) | $hookPathEscaped | **$(& $EscapeMarkdownTableContent $_.Status)** | $hookOutputMd |")
         }
         $null = $reportContent.AppendLine("")
     }
+
+    # --- NEW: Remote Target Transfers Section ---
+    if ($ReportData.ContainsKey('TargetTransfers') -and $null -ne $ReportData.TargetTransfers -and $ReportData.TargetTransfers.Count -gt 0) {
+        $null = $reportContent.AppendLine("## Remote Target Transfers")
+        $null = $reportContent.AppendLine("")
+        $null = $reportContent.AppendLine("| Target Name | Type    | Status  | Remote Path         | Duration | Size   | Error Message |")
+        $null = $reportContent.AppendLine("| :---------- | :------ | :------ | :------------------ | :------- | :----- | :------------ |")
+        
+        foreach ($transferEntry in $ReportData.TargetTransfers) {
+            $targetNameMd = & $EscapeMarkdownTableContent $transferEntry.TargetName
+            $targetTypeMd = & $EscapeMarkdownTableContent $transferEntry.TargetType
+            $targetStatusMd = "**$(& $EscapeMarkdownTableContent $transferEntry.Status)**" # Bold status
+            $remotePathMd = & $EscapeMarkdownTableContent $transferEntry.RemotePath
+            $durationMd = & $EscapeMarkdownTableContent $transferEntry.TransferDuration
+            $sizeFormattedMd = & $EscapeMarkdownTableContent $transferEntry.TransferSizeFormatted
+            $errorMsgMd = if (-not [string]::IsNullOrWhiteSpace($transferEntry.ErrorMessage)) {
+                              # For error messages in tables, replace newlines with <br> and escape pipes.
+                              & $EscapeMarkdownTableContent $transferEntry.ErrorMessage
+                          } else {
+                              "*(N/A)*"
+                          }
+            
+            $null = $reportContent.AppendLine("| $targetNameMd | $targetTypeMd | $targetStatusMd | $remotePathMd | $durationMd | $sizeFormattedMd | $errorMsgMd |")
+        }
+        $null = $reportContent.AppendLine("")
+    }
+    # --- END NEW: Remote Target Transfers Section ---
 
     if ($ReportData.ContainsKey('LogEntries') -and $null -ne $ReportData.LogEntries -and $ReportData.LogEntries.Count -gt 0) {
         $null = $reportContent.AppendLine("## Detailed Log")
@@ -173,9 +219,9 @@ function Invoke-MdReport {
         $ReportData.LogEntries | ForEach-Object {
             $logLine = "$($_.Timestamp) [$($_.Level.ToUpper())] $($_.Message)"
             # Using single quotes for the '`' character to ensure it's literal for PowerShell.
-            $null = $reportContent.AppendLine('```text')
+            $null = $reportContent.AppendLine(('```text')) # PowerShell syntax for literal triple backticks
             $null = $reportContent.AppendLine(($EscapeMarkdownCodeContent.Invoke($logLine)))
-            $null = $reportContent.AppendLine('```')
+            $null = $reportContent.AppendLine(('```'))
             $null = $reportContent.AppendLine("")
         }
     }
@@ -189,10 +235,9 @@ function Invoke-MdReport {
     & $LocalWriteLog -Message "[INFO] Markdown Report generation process finished for job '$JobName'." -Level "INFO"
 }
 
-if (-not (Get-Command ConvertTo-PoshBackupSafeHtmlInternal -ErrorAction SilentlyContinue)) {
-    # Fallback basic HTML encoder (used for hook output if it contains HTML-like chars)
-    Function ConvertTo-PoshBackupSafeHtmlInternal { param([string]$Text) return $Text -replace '&', '&' -replace '<', '<' -replace '>', '>' -replace '"', '"' -replace "'", '&#39;' }
-}
-
+# Remove the fallback ConvertTo-PoshBackupSafeHtmlInternal; $LocalConvertToSafeHtml is defined above.
+# if (-not (Get-Command ConvertTo-PoshBackupSafeHtmlInternal -ErrorAction SilentlyContinue)) {
+#    Function ConvertTo-PoshBackupSafeHtmlInternal { param([string]$Text) return $Text -replace '&', '&' -replace '<', '<' -replace '>', '>' -replace '"', '"' -replace "'", ''' }
+# }
 
 Export-ModuleMember -Function Invoke-MdReport

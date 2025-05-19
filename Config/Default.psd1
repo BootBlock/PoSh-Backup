@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.2.6: Added RetentionConfirmDelete setting.
+# Version 1.3.1: Added CreateJobNameSubdirectory setting for UNC Backup Target.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -46,8 +46,15 @@
     SevenZipPath                    = ""                              # Full path to 7z.exe (e.g., 'C:\Program Files\7-Zip\7z.exe').
                                                                       # Leave empty ("") to allow the script to attempt auto-detection from common installation locations and the system PATH.
                                                                       # If auto-detection fails and this path is empty or invalid, the script will error.
-    DefaultDestinationDir           = "D:\Backups"                    # Default directory where backup archives will be stored if not specified per job.
+    DefaultDestinationDir           = "D:\Backups\LocalStage"         # Default LOCAL STAGING directory where backup archives will be initially created.
+                                                                      # If remote targets (see 'BackupTargets' and 'TargetNames') are specified for a job, this directory
+                                                                      # serves as a temporary holding area before transfer.
+                                                                      # If no remote targets are used for a job, this acts as the final backup destination.
                                                                       # Ensure this path exists, or the script has permissions to create it.
+    DeleteLocalArchiveAfterSuccessfulTransfer = $true                 # Global default. If $true, the local archive in 'DefaultDestinationDir' (or job-specific 'DestinationDir')
+                                                                      # will be deleted AFTER all specified remote target transfers for that job have completed successfully.
+                                                                      # If $false, the local staged copy is kept. If no remote targets are specified for a job, this setting has no effect.
+                                                                      # Can be overridden per job in 'BackupLocations'.
     HideSevenZipOutput              = $true                           # $true (default) to hide 7-Zip's console window during compression and testing operations.
                                                                       # $false to show the 7-Zip console window (can be useful for diagnosing 7-Zip specific issues).
                                                                       # Note: Even if hidden, 7-Zip's STDERR is captured and logged by PoSh-Backup if issues occur. STDOUT is not logged by default when hidden.
@@ -66,7 +73,7 @@
                                                                       # If $false (default), 7-Zip warnings will result in the job status being "WARNINGS".
                                                                       # Useful if backups commonly encounter benign warnings (e.g., files in use that are skipped).
                                                                       # Can be overridden per job or by the -TreatSevenZipWarningsAsSuccessCLI command-line parameter.
-    RetentionConfirmDelete          = $true                           # Global default. $true to prompt for confirmation before deleting old archives during retention.
+    RetentionConfirmDelete          = $true                           # Global default. $true to prompt for confirmation before deleting old LOCAL archives during retention.
                                                                       # Set to $false to automatically delete without prompting (useful for scheduled tasks).
                                                                       # This is overridden by -Confirm:$false on the PoSh-Backup.ps1 command line.
                                                                       # Can also be overridden per job.
@@ -153,7 +160,7 @@
     #endregion
 
     #region --- Destination Free Space Check Settings (Global Defaults) ---
-    MinimumRequiredFreeSpaceGB      = 5                               # Minimum free Gigabytes (GB) required on the destination drive before starting a backup.
+    MinimumRequiredFreeSpaceGB      = 5                               # Minimum free Gigabytes (GB) required on the LOCAL STAGING destination drive before starting a backup.
                                                                       # Set to 0 or a negative value to disable this check.
     ExitOnLowSpaceIfBelowMinimum    = $false                          # $false (default) to only issue a warning and continue with the backup attempt.
                                                                       # $true to abort the job if free space is below the specified minimum.
@@ -190,18 +197,67 @@
     DefaultScriptExcludeSysVolInfo  = '-x!System Volume Information'  # Default 7-Zip exclusion pattern for System Volume Information folders.
     #endregion
 
+    #region --- Backup Target Definitions (Global) ---
+    # Define named remote target configurations here. These can be referenced by jobs in 'BackupLocations'.
+    # Each target instance must have a 'Type' (e.g., "UNC", "FTP", "S3") and 'TargetSpecificSettings'.
+    # 'CredentialsSecretName' is optional for providers that might use PS SecretManagement for auth.
+    # 'RemoteRetentionSettings' is optional and provider-specific for managing retention on the target.
+    BackupTargets = @{
+        "ExampleUNCShare" = @{
+            Type = "UNC" # Provider module 'Modules\Targets\UNC.Target.psm1' will handle this
+            TargetSpecificSettings = @{
+                # The base remote path for this target. 
+                UNCRemotePath = "\\192.168.0.237\UsbVideo"
+                # NEW SETTING: Controls if a JobName subdirectory is created under UNCRemotePath.
+                # $false (default): Archive saved directly into UNCRemotePath (e.g., \\server\share\archive.7z)
+                # $true: Archive saved into UNCRemotePath\JobName\ (e.g., \\server\share\JobName\archive.7z)
+                CreateJobNameSubdirectory = $false 
+            }
+            # Optional: For UNC, if alternate credentials are needed to write to the share.
+            # CredentialsSecretName = "UNCFileServer01Creds" # Name of a Generic Credentials secret in PowerShell SecretManagement.
+
+            # Optional: Provider-specific retention settings for this target.
+            # The structure and meaning of 'RemoteRetentionSettings' are entirely up to the specific target provider module.
+            # Example for a hypothetical UNC provider that supports count-based retention on the remote share:
+            # RemoteRetentionSettings = @{
+            #    KeepCount = 10 # e.g., Keep the last 10 archives for any job using this target, on the remote share.
+            #    # KeepDays  = 0  # e.g., Or keep archives for X days. 0 means not used. (Provider specific)
+            # }
+        }
+        # "ExampleS3Bucket" = @{ # Example for a future S3 target provider
+        #    Type = "S3"
+        #    TargetSpecificSettings = @{
+        #        BucketName = "my-s3-backup-bucket"
+        #        Region     = "eu-west-2"
+        #        AccessKeySecretName = "S3BackupUserAccessKey" # Secret containing AWS Access Key ID
+        #        SecretKeySecretName = "S3BackupUserSecretKey" # Secret containing AWS Secret Access Key
+        #        RemotePathPrefix    = "PoShBackupArchives/"   # Optional prefix within the bucket
+        #    }
+        #    RemoteRetentionSettings = @{ # Example S3 retention settings
+        #        # S3 provider might use this to apply/check an S3 Lifecycle Policy, or manage versions.
+        #        ApplyLifecyclePolicy = $true
+        #        LifecyclePolicyDaysToExpire = 30
+        #        # Or, for versioning-enabled buckets:
+        #        # MaxVersionsToKeep = 5
+        #    }
+        # }
+    }
+    #endregion
+
     #region --- Backup Locations (Job Definitions) ---
     # Define individual backup jobs here. Each key in this hashtable represents a unique job name.
     BackupLocations                 = @{
         "Projects"  = @{
             Path                    = "P:\Images\*"                   # Path(s) to back up. Can be a single string or an array of strings for multiple sources.
-                                                                      # Wildcards are supported as per 7-Zip's capabilities.
             Name                    = "Projects"                      # Base name for the archive file (date stamp and extension will be appended).
-            DestinationDir          = "D:\Backups"                    # Specific destination for this job. If omitted, DefaultDestinationDir is used.
-            RetentionCount          = 3                               # Number of archive versions for this job to keep. Older archives beyond this count will be deleted.
-            DeleteToRecycleBin      = $false                          # $true to send old archives to the Recycle Bin; $false for permanent deletion.
-                                                                      # Note: Using Recycle Bin for network share destinations can be unreliable; permanent deletion is often safer.
-            RetentionConfirmDelete  = $false                          # Job-specific override: $true (default) to prompt, $false to auto-delete.
+            DestinationDir          = "D:\Backups\LocalStage\Projects" # Specific LOCAL STAGING destination for this job.
+            TargetNames             = @("ExampleUNCShare")            # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
+                                                                      # If empty or not present, this job is local-only to DestinationDir.
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override for the global setting.
+
+            LocalRetentionCount     = 3                               # Number of archive versions for this job to keep in 'DestinationDir'. (Previously 'RetentionCount')
+            DeleteToRecycleBin      = $false                          # For local retention in 'DestinationDir'.
+            RetentionConfirmDelete  = $false                          # Job-specific override for local retention: auto-delete old local archives without prompting.
 
             ArchivePasswordMethod   = "None"                          # Password method: "None", "Interactive", "SecretManagement", "SecureStringFile", "PlainText". See instructions at top.
             # CredentialUserNameHint  = "ProjectBackupUser"             # For "Interactive" method.
@@ -217,91 +273,96 @@
             ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
         }
-        "AnExample" = @{
+        "AnExample_WithRemoteTarget" = @{ # THIS IS THE ORIGINAL "AnExample" JOB - MODIFIED
             Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
             Name                       = "MyImportantDocuments"
-            ArchiveType                = "-tzip"                      # Example: Use ZIP format for this job. Overrides DefaultArchiveType.
-            ArchiveExtension           = ".zip"                       # Must match ArchiveType. Overrides DefaultArchiveExtension.
-            ArchiveDateFormat          = "dd-MM-yyyy"                 # Custom date format for this job's archives. Overrides DefaultArchiveDateFormat.
-            RetentionCount             = 5
-            DeleteToRecycleBin         = $true                        # Note: Ensure this is appropriate if DestinationDir is a network share.
-            RetentionConfirmDelete     = $false                       # Example: This job will auto-delete old archives without prompting.
+            DestinationDir             = "D:\Backups\LocalStage\Docs" # LOCAL STAGING directory. Archive is created here first.
+
+            TargetNames                = @("ExampleUNCShare")         # Archive will be sent to "ExampleUNCShare" (defined in BackupTargets) after local creation.
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Delete from local staging after successful transfer to ALL targets.
+
+            LocalRetentionCount        = 5                            # Number of archive versions to keep in the local 'DestinationDir'. (Previously 'RetentionCount')
+            DeleteToRecycleBin         = $true                        # Note: Ensure this is appropriate if 'DestinationDir' is a network share (less common for staging).
+            RetentionConfirmDelete     = $false                       # Example: This job will auto-delete old local archives without prompting.
 
             ArchivePasswordMethod      = "Interactive"                # Example: Prompts for password for this job.
             CredentialUserNameHint     = "DocsUser"
 
-            MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for this job. Overrides global setting.
+            ArchiveType                = "-tzip"                      # Example: Use ZIP format for this job. Overrides DefaultArchiveType.
+            ArchiveExtension           = ".zip"                       # Must match ArchiveType. Overrides DefaultArchiveExtension.
+            ArchiveDateFormat          = "dd-MM-yyyy"                 # Custom date format for this job's archives. Overrides DefaultArchiveDateFormat.
+            MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for local staging. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
             TreatSevenZipWarningsAsSuccess = $true                    # Example: For this job, 7-Zip warnings are considered success.
-            # HtmlReportFaviconPath    = "C:\Path\To\JobSpecificFavicon.ico" # Job-specific favicon
         }
 
         #region --- Comprehensive Example (Commented Out for Reference) ---
         <#
         "ComprehensiveExample_WebApp" = @{
-            "Path"                    = @(                             # Multiple source paths can be specified in an array.
+            Path                    = @(                             # Multiple source paths can be specified in an array.
                                         "C:\inetpub\wwwroot\MyWebApp",
                                         "D:\Databases\MyWebApp_Config.xml"
                                       )
-            "Name"                    = "WebApp_Production"
-            "DestinationDir"          = "\\BACKUPSERVER\Share\WebApps"  # Example: Backup to a network share.
-            "RetentionCount"          = 14                              # Keep two weeks of daily backups.
-            "DeleteToRecycleBin"      = $false                          # Recycle Bin might not be applicable/desired for network shares.
-                                                                      # For network shares, $false (permanent delete) is often more reliable.
-            "RetentionConfirmDelete"  = $false                          # For automated tasks, set to $false to avoid prompts.
+            Name                    = "WebApp_Production"
+            DestinationDir          = "\\BACKUPSERVER\Share\WebApps\LocalStage_WebApp"  # Example: Local staging to a network share (less common, but possible).
+                                                                                      # Or simply "C:\BackupStage\WebApp" for true local staging.
+            LocalRetentionCount     = 1                               # Keep only the latest copy locally in staging after successful transfers. (Previously 'RetentionCount')
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Delete from staging if all remote transfers succeed.
+            RetentionConfirmDelete  = $false                          # For local retention, auto-delete.
 
-            "ArchivePasswordMethod"   = "SecretManagement"
-            "ArchivePasswordSecretName" = "WebAppBackupPassword"        # Name of the secret stored in SecretManagement.
-            # "ArchivePasswordVaultName"= "MyProductionVault"           # Optional: Specify vault if not default.
+            # This job will attempt to send the archive to both "ExampleUNCShare" and "ExampleS3Bucket" (if defined).
+            TargetNames             = @(
+                                        "ExampleUNCShare" # Defined in global BackupTargets
+                                        # "ExampleS3Bucket" # Assumes this is also defined in BackupTargets
+                                      )
 
-            "ArchiveType"             = "-t7z"
-            "ArchiveExtension"        = ".7z"
-            "ArchiveDateFormat"       = "yyyy-MM-dd_HHmm"               # More granular date format for frequent backups.
+            ArchivePasswordMethod   = "SecretManagement"
+            ArchivePasswordSecretName = "WebAppBackupPassword"        # Name of the secret stored in SecretManagement.
+            # ArchivePasswordVaultName= "MyProductionVault"           # Optional: Specify vault if not default.
 
-            "ThreadsToUse"            = 2                               # Override DefaultThreadCount to limit CPU impact.
-            "SevenZipProcessPriority" = "BelowNormal"
-            "CompressionLevel"        = "-mx=5"                         # Balance of speed and compression.
-            "AdditionalExclusions"    = @(                              # Array of 7-Zip exclusion patterns specific to this job.
+            ArchiveType             = "-t7z"
+            ArchiveExtension        = ".7z"
+            ArchiveDateFormat       = "yyyy-MM-dd_HHmm"               # More granular date format for frequent backups.
+
+            ThreadsToUse            = 2                               # Override DefaultThreadCount to limit CPU impact.
+            SevenZipProcessPriority = "BelowNormal"
+            CompressionLevel        = "-mx=5"                         # Balance of speed and compression.
+            AdditionalExclusions    = @(                              # Array of 7-Zip exclusion patterns specific to this job.
                                         "*\logs\*.log",                 # Exclude all .log files in any 'logs' subfolder.
                                         "*\temp\*",                     # Exclude all temp folders and their contents.
                                         "web.config.temp",
                                         "*.TMP"
                                         )
 
-            "EnableVSS"                     = $true
-            "VSSContextOption"              = "Volatile NoWriters"      # Recommended for scripted backups; snapshot auto-deleted.
+            EnableVSS                     = $true
+            VSSContextOption              = "Volatile NoWriters"      # Recommended for scripted backups; snapshot auto-deleted.
 
-            "EnableRetries"                 = $true
-            "MaxRetryAttempts"              = 2
-            "RetryDelaySeconds"             = 120                       # Longer delay, perhaps for transient network issues.
+            EnableRetries                 = $true                     # For 7-Zip operations
+            MaxRetryAttempts              = 2
+            RetryDelaySeconds             = 120                       # Longer delay, perhaps for transient network issues.
 
-            "MinimumRequiredFreeSpaceGB"    = 50
-            "ExitOnLowSpaceIfBelowMinimum"  = $true
-            "TestArchiveAfterCreation"      = $true                     # Always test this critical backup.
-            "TreatSevenZipWarningsAsSuccess" = $false                   # Explicitly keep default behavior for this critical job.
+            MinimumRequiredFreeSpaceGB    = 50                        # For local staging
+            ExitOnLowSpaceIfBelowMinimum  = $true
+            TestArchiveAfterCreation      = $true                     # Always test this critical backup.
+            TreatSevenZipWarningsAsSuccess = $false                   # Explicitly keep default behavior for this critical job.
 
-            "ReportGeneratorType"           = @("HTML", "JSON")         # Generate both HTML and JSON reports.
-            "HtmlReportTheme"               = "Dark"
-            "HtmlReportDirectory"           = "\\SHARE\AdminReports\PoShBackup\WebApp" # Custom directory for this job's HTML reports.
-            "HtmlReportTitlePrefix"         = "Web Application Backup Status"
-            "HtmlReportLogoPath"            = "\\SHARE\Branding\WebAppLogo.png"
-            "HtmlReportFaviconPath"         = "\\SHARE\Branding\WebAppFavicon.ico" # Example job-specific favicon
-            "HtmlReportCustomCssPath"       = "\\SHARE\Branding\WebAppReportOverrides.css"
-            "HtmlReportCompanyName"         = "Production Services Ltd."
-            "HtmlReportOverrideCssVariables" = @{
+            ReportGeneratorType           = @("HTML", "JSON")         # Generate both HTML and JSON reports.
+            HtmlReportTheme               = "Dark"
+            HtmlReportDirectory           = "\\SHARE\AdminReports\PoShBackup\WebApp" # Custom directory for this job's HTML reports.
+            HtmlReportTitlePrefix         = "Web Application Backup Status"
+            HtmlReportLogoPath            = "\\SHARE\Branding\WebAppLogo.png"
+            HtmlReportFaviconPath         = "\\SHARE\Branding\WebAppFavicon.ico" # Example job-specific favicon
+            HtmlReportCustomCssPath       = "\\SHARE\Branding\WebAppReportOverrides.css"
+            HtmlReportCompanyName         = "Production Services Ltd."
+            HtmlReportOverrideCssVariables = @{
                 "--accent-colour"        = "darkred";
                 "--header-border-colour" = "black";
             }
-            # "HtmlReportShowSummary"       = $true # These default to $true if not specified
-            # "HtmlReportShowConfiguration" = $true
-            # "HtmlReportShowHooks"         = $true
-            # "HtmlReportShowLogEntries"     = $true
 
-            # Paths to custom PowerShell scripts to run at different stages of this specific job.
-            "PreBackupScriptPath"           = "C:\Scripts\BackupPrep\WebApp_PreBackup.ps1"
-            "PostBackupScriptOnSuccessPath" = "C:\Scripts\BackupPrep\WebApp_PostSuccess.ps1"
-            "PostBackupScriptOnFailurePath" = "C:\Scripts\BackupPrep\WebApp_PostFailure_Alert.ps1"
-            "PostBackupScriptAlwaysPath"    = "C:\Scripts\BackupPrep\WebApp_PostAlways_Cleanup.ps1"
+            PreBackupScriptPath           = "C:\Scripts\BackupPrep\WebApp_PreBackup.ps1"
+            PostBackupScriptOnSuccessPath = "C:\Scripts\BackupPrep\WebApp_PostSuccess.ps1"
+            PostBackupScriptOnFailurePath = "C:\Scripts\BackupPrep\WebApp_PostFailure_Alert.ps1"
+            PostBackupScriptAlwaysPath    = "C:\Scripts\BackupPrep\WebApp_PostAlways_Cleanup.ps1"
         }
         #>
         #endregion
@@ -314,9 +375,9 @@
     BackupSets                      = @{
         "Daily_Critical_Backups" = @{
             JobNames     = @(                                         # Array of job names (these must be keys from BackupLocations defined above).
-                "Projects",
-                "AnExample"
-                # "ComprehensiveExample_WebApp" # If uncommented and defined above.
+                "Projects", # Was "Projects_LocalOnly", now refers to the modified original "Projects" job.
+                "AnExample_WithRemoteTarget"
+                # "WebApp_Production_To_Multiple_Targets" # If uncommented and defined above.
             )
             OnErrorInJob = "StopSet"                                  # Defines behaviour if a job within this set fails.
                                                                       # "StopSet": (Default) If a job fails, subsequent jobs in THIS SET are skipped. The script may continue to other sets if applicable.
@@ -324,12 +385,12 @@
         }
         "Weekly_User_Data"       = @{
             JobNames = @(
-                "AnExample"
+                "AnExample_WithRemoteTarget"
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
         }
         "Nightly_Full_System_Simulate" = @{                           # Example for a simulation run of multiple jobs.
-            JobNames = @("Projects", "AnExample")
+            JobNames = @("Projects", "AnExample_WithRemoteTarget")
             OnErrorInJob = "ContinueSet"
             # Note: To run this set in simulation mode, you would use:
             # .\PoSh-Backup.ps1 -RunSet "Nightly_Full_System_Simulate" -Simulate

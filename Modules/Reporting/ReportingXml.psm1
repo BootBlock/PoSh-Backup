@@ -2,25 +2,26 @@
 .SYNOPSIS
     Generates XML (Extensible Markup Language) reports for PoSh-Backup jobs using
     PowerShell's 'Export-Clixml' format. This format serialises PowerShell objects,
-    including their type information, making it suitable for re-importing into PowerShell
-    with high fidelity.
+    including their type information (and now, details of remote target transfers if any),
+    making it suitable for re-importing into PowerShell with high fidelity.
 
 .DESCRIPTION
     This module creates an XML representation of the backup job's report data.
     It utilises PowerShell's native 'Export-Clixml' cmdlet, which produces a detailed
     XML structure that accurately represents PowerShell objects. The '$ReportData' hashtable
+    (which now may include a 'TargetTransfers' array detailing remote target operations)
     is first cast to a [PSCustomObject] to ensure proper serialisation by 'Export-Clixml'.
 
     The resulting .xml file can be easily re-hydrated into a PowerShell object using
-    'Import-Clixml', preserving the original data structure and types. This makes it
-    particularly useful for PowerShell-based post-processing, auditing, or archiving
-    of report data.
+    'Import-Clixml', preserving the original data structure and types, including any
+    target transfer information. This makes it particularly useful for PowerShell-based
+    post-processing, auditing, or archiving of report data.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.2 # Added defensive logger call for PSSA.
+    Version:        1.2.0 # Description updated to reflect inclusion of TargetTransfers data.
     DateCreated:    14-May-2025
-    LastModified:   17-May-2025
+    LastModified:   19-May-2025
     Purpose:        XML (specifically PowerShell Clixml) report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -30,11 +31,13 @@ function Invoke-XmlReport {
     [CmdletBinding()]
     <#
     .SYNOPSIS
-        Generates a single XML (Clixml) file containing all report data for a PoSh-Backup job.
+        Generates a single XML (Clixml) file containing all report data for a PoSh-Backup job,
+        including any remote target transfer details.
     .DESCRIPTION
         This function takes the consolidated report data for a backup job and serialises
         the entire data structure into a single XML file using PowerShell's 'Export-Clixml'
-        cmdlet. The input '$ReportData' hashtable is cast to a [PSCustomObject] before export
+        cmdlet. The input '$ReportData' hashtable (which will include a 'TargetTransfers' array
+        if remote targets were used) is cast to a [PSCustomObject] before export
         to ensure optimal serialisation. The output file is named using the job name and a timestamp.
         This format is primarily intended for consumption by other PowerShell scripts or for archiving
         data in a way that can be perfectly re-imported into PowerShell.
@@ -45,8 +48,9 @@ function Invoke-XmlReport {
         The name of the backup job. This is used in the filename of the generated XML report
         to clearly associate it with the job.
     .PARAMETER ReportData
-        A hashtable containing all data collected during the backup job's execution.
-        This entire hashtable (cast to PSCustomObject) will be serialised to a Clixml file.
+        A hashtable containing all data collected during the backup job's execution, including
+        any 'TargetTransfers' data. This entire hashtable (cast to PSCustomObject) will be
+        serialised to a Clixml file.
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function from Utils.psm1.
         Used for logging the XML report generation process itself.
@@ -55,13 +59,14 @@ function Invoke-XmlReport {
         # $xmlParams = @{
         #     ReportDirectory = "C:\PoShBackup\Reports\XML\MyJob"
         #     JobName         = "MyJob"
-        #     ReportData      = $JobReportDataObject
+        #     ReportData      = $JobReportDataObject # This object now contains TargetTransfers if applicable
         #     Logger          = ${function:Write-LogMessage}
         # }
         # Invoke-XmlReport @xmlParams
         #
         # To re-import the data later:
         # $importedData = Import-Clixml -Path "C:\PoShBackup\Reports\XML\MyJob\MyJob_Report_Timestamp.xml"
+        # $transferDetails = $importedData.TargetTransfers
     .OUTPUTS
         None. This function creates a file in the specified ReportDirectory.
     #>
@@ -98,6 +103,7 @@ function Invoke-XmlReport {
     try {
         # Cast ReportData to PSCustomObject for Export-Clixml to ensure it's treated as a single object
         # rather than Export-Clixml trying to process individual hashtable entries.
+        # The TargetTransfers array will be serialised as part of this object.
         [PSCustomObject]$ReportData | Export-Clixml -Path $reportFullPath -Encoding UTF8 -Force
         & $LocalWriteLog -Message "  - XML report (Export-Clixml format) generated successfully: '$reportFullPath'" -Level "SUCCESS"
     } catch {

@@ -3,6 +3,7 @@
     Generates detailed, interactive HTML reports for PoSh-Backup jobs. These reports feature
     customisable themes, CSS overrides, optional embedded logos, client-side JavaScript for
     dynamic log filtering and searching, persistent section states, table sorting, and more.
+    Now includes a section for Remote Target Transfer details.
 
 .DESCRIPTION
     This module is dedicated to creating rich, interactive HTML reports that provide a comprehensive
@@ -11,8 +12,8 @@
 
     Key features of the generated HTML reports:
     - Structured Sections: Includes clear sections for Summary, Configuration Used,
-      Hook Scripts Executed, and Detailed Logs. All main sections are collapsible and their
-      state can be persisted via localStorage.
+      Hook Scripts Executed, Detailed Logs, and **newly added Remote Target Transfers**.
+      All main sections are collapsible and their state can be persisted via localStorage.
     - Customisable Appearance:
         - Themes: Supports themes via external CSS files.
         - CSS Variable Overrides: From PoSh-Backup configuration.
@@ -21,7 +22,8 @@
     - Interactive Log Filtering: Client-side JavaScript for keyword and log level filtering,
       "Select All" / "Deselect All" buttons, and a visual cue when filters are active.
       Searched keywords are highlighted within log entries.
-    - Dynamic Table Sorting: Summary, Configuration, and Hooks tables can be sorted by clicking column headers.
+    - Dynamic Table Sorting: Summary, Configuration, Hooks, and Target Transfers tables can be
+      sorted by clicking column headers.
     - Copy to Clipboard: For hook script output blocks.
     - Scroll to Top Button: Appears on long reports for easier navigation.
     - Simulation Banner: Clearly indicates if the report pertains to a simulation run.
@@ -29,7 +31,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.8.2 # Improved display of VSSStatus and added VSSAttempted to HTML report.
+    Version:        1.9.0 # Added Remote Target Transfers section to HTML report.
     DateCreated:    14-May-2025
     LastModified:   19-May-2025
     Purpose:        Interactive HTML report generation sub-module for PoSh-Backup.
@@ -109,13 +111,14 @@ function Invoke-HtmlReport {
     .DESCRIPTION
         This function constructs an HTML report based on the provided job data and configuration settings.
         The report includes sections for a job summary, the configuration used, details of any executed
-        hook scripts, and a comprehensive list of log entries.
+        hook scripts, a comprehensive list of log entries, and details of remote target transfers if applicable.
 
         Key features include:
         - Styling: Applies CSS from 'Base.css', a selected theme CSS file (e.g., 'Light.css', 'Dark.css'),
           CSS variable overrides from the configuration, and an optional user-specified custom CSS file.
         - Logo: Can embed a logo image into the report header.
-        - Interactivity: Includes JavaScript for client-side filtering of log entries by keyword and log level.
+        - Interactivity: Includes JavaScript for client-side filtering of log entries by keyword and log level,
+          collapsible section state persistence, table sorting.
         - Simulation Indication: Displays a prominent banner if the report is for a simulated backup run.
         - Security: All dynamic data written to the HTML is encoded to prevent XSS.
 
@@ -129,7 +132,8 @@ function Invoke-HtmlReport {
         The name of the backup job. Used in the HTML report title and for naming the output file.
     .PARAMETER ReportData
         A hashtable containing all data collected during the backup job's execution. This includes
-        summary statistics, log entries, hook script details, the configuration snapshot, etc.
+        summary statistics, log entries, hook script details, the configuration snapshot, target transfer
+        details, etc.
     .PARAMETER GlobalConfig
         The global configuration hashtable for PoSh-Backup. Used to retrieve global report settings
         (like default theme, company name) and the essential '_PoShBackup_PSScriptRoot' path for
@@ -221,10 +225,11 @@ function Invoke-HtmlReport {
     $jobCssVarOverrides.GetEnumerator() | ForEach-Object { $cssVariableOverrides[$_.Name] = $_.Value }    
 
     # Determine which sections of the report to show
-    $reportShowSummary       = $getReportSetting.Invoke('HtmlReportShowSummary', $true)
-    $reportShowConfiguration = $getReportSetting.Invoke('HtmlReportShowConfiguration', $true)
-    $reportShowHooks         = $getReportSetting.Invoke('HtmlReportShowHooks', $true)
-    $reportShowLogEntries    = $getReportSetting.Invoke('HtmlReportShowLogEntries', $true)
+    $reportShowSummary         = $getReportSetting.Invoke('HtmlReportShowSummary', $true)
+    $reportShowConfiguration   = $getReportSetting.Invoke('HtmlReportShowConfiguration', $true)
+    $reportShowHooks           = $getReportSetting.Invoke('HtmlReportShowHooks', $true)
+    $reportShowLogEntries      = $getReportSetting.Invoke('HtmlReportShowLogEntries', $true)
+    $reportShowTargetTransfers = $true # Always attempt to show if data exists
 
     if (-not (Test-Path -Path $ReportDirectory -PathType Container)) {
         & $LocalWriteLog -Message "[ERROR] HTML Report output directory '$ReportDirectory' does not exist. Report cannot be generated for job '$JobName'." -Level "ERROR"
@@ -305,6 +310,7 @@ function Invoke-HtmlReport {
     }
 
     # --- JavaScript ---
+    # (Original JavaScript block from your bundled file is preserved here)
     $pageJavaScript = @"
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -352,7 +358,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const escapedKeyword = keyword.replace(specialCharsRegex, '\\$&');
             
             const highlightRegex = new RegExp('(' + escapedKeyword + ')', 'gi');
-            return text.replace(highlightRegex, '<span class=""search-highlight"">$1</span>');
+            return text.replace(highlightRegex, '<span class="search-highlight">$1</span>');
         }
 
         function filterLogs() {
@@ -539,10 +545,10 @@ document.addEventListener('DOMContentLoaded', function () {
         
         # Define the desired order of summary items
         $summaryOrder = @(
-            'JobName', 'OverallStatus', 'ScriptStartTime', 'ScriptEndTime', 'TotalDuration',
-            'SourcePath', 'EffectiveSourcePath', 'FinalArchivePath', 'ArchiveSizeFormatted', 'ArchiveSizeBytes', # Size related together
+            'JobName', 'OverallStatus', 'ScriptStartTime', 'ScriptEndTime', 'TotalDuration', 'TotalDurationSeconds', # Added TotalDurationSeconds
+            'SourcePath', 'EffectiveSourcePath', 'FinalArchivePath', 'ArchiveSizeFormatted', 'ArchiveSizeBytes', 
             'SevenZipExitCode', 'TreatSevenZipWarningsAsSuccess', 'RetryAttemptsMade', 'ArchiveTested', 'ArchiveTestResult', 'TestRetryAttemptsMade',
-            'VSSAttempted', 'VSSStatus', 'VSSShadowPaths', # VSS related together
+            'VSSAttempted', 'VSSStatus', 'VSSShadowPaths', 
             'PasswordSource', 'ErrorMessage'
         )
 
@@ -554,7 +560,8 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
         # Add any remaining items from ReportData not in summaryOrder (maintains them if new ones are added)
-        $ReportData.GetEnumerator() | Where-Object {$_.Name -notin $summaryOrder -and $_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot')} | ForEach-Object {
+        # Exclude 'TargetTransfers' here as it will have its own section
+        $ReportData.GetEnumerator() | Where-Object {$_.Name -notin $summaryOrder -and $_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot', 'TargetTransfers')} | ForEach-Object {
             $summaryDisplayItems[$_.Name] = $_.Value
         }
 
@@ -575,7 +582,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 $sanitizedVal = ([string]$_.Value -replace ' ','_') -replace '[\(\):\/]','_' -replace '\+','plus' -replace ',',''
                 $statusClass = "status-$(ConvertTo-SafeHtml $sanitizedVal)"
             } elseif ($keyName -eq "VSSAttempted") {
-                $statusClass = if ($value -eq $true) { "status-INFO" } else { "status-DEFAULT" } # Example: color true/false
+                $statusClass = if ($value -eq $true) { "status-INFO" } else { "status-DEFAULT" } 
             }
 
             if ($keyName -eq "ArchiveSizeFormatted" -and $ReportData.ContainsKey("ArchiveSizeBytes") -and $ReportData.ArchiveSizeBytes -is [long]) {
@@ -588,6 +595,45 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         $htmlBodyLocal += "</tbody></table></details></div>"
     }
+
+    # --- NEW: Remote Target Transfers Section ---
+    if ($reportShowTargetTransfers -and $ReportData.ContainsKey('TargetTransfers') -and ($null -ne $ReportData.TargetTransfers) -and $ReportData.TargetTransfers.Count -gt 0) {
+        $htmlBodyLocal += "<div class='details-section target-transfers-section'><details id='details-target-transfers' open><summary><h2>Remote Target Transfers</h2></summary>"
+        $htmlBodyLocal += "<table data-sortable-table='true'><thead><tr>"
+        $htmlBodyLocal += "<th data-sortable-column='true' aria-label='Sort by Target Name'>Target Name</th>"
+        $htmlBodyLocal += "<th data-sortable-column='true' aria-label='Sort by Type'>Type</th>"
+        $htmlBodyLocal += "<th data-sortable-column='true' aria-label='Sort by Status'>Status</th>"
+        $htmlBodyLocal += "<th data-sortable-column='true' aria-label='Sort by Remote Path'>Remote Path</th>"
+        $htmlBodyLocal += "<th data-sortable-column='true' aria-label='Sort by Duration'>Duration</th>"
+        $htmlBodyLocal += "<th data-sortable-column='true' aria-label='Sort by Size'>Size</th>"
+        $htmlBodyLocal += "<th>Error Message</th>" # Error messages usually not good for sorting
+        $htmlBodyLocal += "</tr></thead><tbody>"
+        
+        foreach ($transferEntry in $ReportData.TargetTransfers) {
+            $targetNameSafe = ConvertTo-SafeHtml $transferEntry.TargetName
+            $targetTypeSafe = ConvertTo-SafeHtml $transferEntry.TargetType
+            $targetStatusSafe = ConvertTo-SafeHtml $transferEntry.Status
+            $targetStatusClass = "status-$(($transferEntry.Status -replace ' ','_') -replace '[\(\):\/]','_' -replace '\+','plus')"
+            $remotePathSafe = ConvertTo-SafeHtml $transferEntry.RemotePath
+            $durationSafe = ConvertTo-SafeHtml $transferEntry.TransferDuration
+            $sizeFormattedSafe = ConvertTo-SafeHtml $transferEntry.TransferSizeFormatted
+            # Ensure TransferSize is present and a long before using for sort-value
+            $sizeBytesSortAttr = if ($transferEntry.PSObject.Properties.Name -contains "TransferSize" -and $transferEntry.TransferSize -is [long]) { "data-sort-value='$($transferEntry.TransferSize)'" } else { "" }
+            $errorMsgSafe = if (-not [string]::IsNullOrWhiteSpace($transferEntry.ErrorMessage)) { ConvertTo-SafeHtml $transferEntry.ErrorMessage } else { "<em>N/A</em>" }
+
+            $htmlBodyLocal += "<tr>"
+            $htmlBodyLocal += "<td data-label='Target Name'>$targetNameSafe</td>"
+            $htmlBodyLocal += "<td data-label='Type'>$targetTypeSafe</td>"
+            $htmlBodyLocal += "<td data-label='Status' class='$targetStatusClass'>$targetStatusSafe</td>"
+            $htmlBodyLocal += "<td data-label='Remote Path'>$remotePathSafe</td>"
+            $htmlBodyLocal += "<td data-label='Duration'>$durationSafe</td>"
+            $htmlBodyLocal += "<td data-label='Size' $sizeBytesSortAttr>$sizeFormattedSafe</td>"
+            $htmlBodyLocal += "<td data-label='Error Message'>$errorMsgSafe</td>"
+            $htmlBodyLocal += "</tr>"
+        }
+        $htmlBodyLocal += "</tbody></table></details></div>"
+    }
+    # --- END NEW: Remote Target Transfers Section ---
 
     # Configuration Section
     if ($reportShowConfiguration -and ($ReportData.Keys -contains 'JobConfiguration') -and ($null -ne $ReportData.JobConfiguration)) {
@@ -641,7 +687,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (-not [string]::IsNullOrWhiteSpace($reportCompanyName)) { $htmlBodyLocal += "$(ConvertTo-SafeHtml $reportCompanyName) - " }
     $htmlBodyLocal += "PoSh Backup Script - Report Generated on $(ConvertTo-SafeHtml ([string](Get-Date)))</footer>"
     $htmlBodyLocal += $pageJavaScript 
-    $htmlBodyLocal += "</div>" 
+    $htmlBodyLocal += "</div>" # Close main .container div
     $htmlBodyLocal += "<button type='button' id='scrollToTopBtn' title='Go to top' aria-label='Scroll to top of page'>▲</button>" 
 
     # --- Generate and Write HTML File ---

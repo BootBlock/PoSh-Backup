@@ -15,13 +15,22 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.9 # Updated conversation summary for early UNC path checks.
+    Version:        1.1.1 # Updated summary for UNC Target's CreateJobNameSubdirectory option.
     DateCreated:    17-May-2025
     LastModified:   19-May-2025
     Purpose:        AI State generation and final bundle assembly for the AI project bundler.
 #>
 
-# --- Exported Functions ---
+# Explicitly import Utils.psm1 from the parent Meta directory to ensure Get-ScriptVersionFromContent is available
+# $PSScriptRoot here is Meta\BundlerModules
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Modules\Utils.psm1") -Force -ErrorAction Stop -WarningAction SilentlyContinue
+} catch {
+    Write-Warning "Bundle.StateAndAssembly.psm1: Could not import main Utils.psm1 for Get-ConfigValue. This might affect dynamic population if specific config values were needed here (currently not)."
+}
+
+
+#region --- Exported Functions ---
 
 function Get-BundlerAIState {
     [CmdletBinding()]
@@ -29,9 +38,9 @@ function Get-BundlerAIState {
         [Parameter(Mandatory)]
         [string]$ProjectRoot_DisplayName,
         [Parameter(Mandatory)]
-        [string]$PoShBackupVersion,
+        [string]$PoShBackupVersion, # Version of the main PoSh-Backup.ps1 script
         [Parameter(Mandatory)]
-        [string]$BundlerScriptVersion,
+        [string]$BundlerScriptVersion, # Version of Generate-ProjectBundleForAI.ps1
         [Parameter(Mandatory)]
         [hashtable]$AutoDetectedModuleDescriptions,
         [Parameter(Mandatory)]
@@ -57,7 +66,7 @@ function Get-BundlerAIState {
 
     # Populate/Overwrite dynamic fields in the loaded template
     $aiState.bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    $aiState.main_script_poSh_backup_version = $PoShBackupVersion
+    $aiState.main_script_poSh_backup_version = $PoShBackupVersion # e.g., "1.10.0"
     $aiState.bundler_script_version = $BundlerScriptVersion
     $aiState.project_root_folder_name = $ProjectRoot_DisplayName
     $aiState.module_descriptions = $AutoDetectedModuleDescriptions # This is a hashtable itself
@@ -75,38 +84,44 @@ function Get-BundlerAIState {
     $aiState.external_dependencies.powershell_modules = $psModulesForState 
 
     # Dynamically construct the conversation summary
-    # Versions reflect the latest state after the current session's changes:
-    # PoSh-Backup.ps1: v$($PoShBackupVersion) (e.g., 1.9.14 for content, though CBH might be 1.9.13)
-    # Modules\Operations.psm1: v1.14.0 (New: Early UNC path checks)
-    # Modules\RetentionManager.psm1: v1.0.8 (No change this session)
-    # Modules\ConfigManager.psm1: v1.0.5 (No change this session)
-    # Modules\PoShBackupValidator.psm1: v1.2.3 (No change this session)
-    # Config\Default.psd1: v1.2.6 (No change this session)
-    # Modules\Reporting\ReportingHtml.psm1: v1.8.2 (No change this session)
-    # Meta\BundlerModules\Bundle.StateAndAssembly.psm1 (this file): v1.0.9
+    # Reflects state AFTER the current session's changes for Backup Targets
+    # Version of THIS Bundle.StateAndAssembly.psm1 module
+    $thisModuleVersion = "1.1.1" # Version of THIS Bundle.StateAndAssembly.psm1 module
 
     $currentConversationSummary = @(
-        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).", 
+        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).", # e.g. v1.10.0
         "Modular design: Core modules, Reporting sub-modules, Config files, and Meta/ (bundler).",
-        "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.0.9).", # This file version updated
-        "Network Share Handling Improvements:",
-        "  - Added early UNC path accessibility checks in `Operations.psm1` (v1.14.0) for both source and destination paths to provide faster failure feedback.", # NEW ITEM & Operations.psm1 version updated
-        "  - Enhanced VSS status reporting in `Operations.psm1` (v1.14.0) for network paths (e.g., 'Partially Used', 'Not Applicable (All Network)').", # Operations.psm1 version updated
-        "  - Added notes to `Config\\Default.psd1` (v1.2.6) about VSS and Recycle Bin behavior with network shares.",
-        "  - Added warning in `RetentionManager.psm1` (v1.0.8) for Recycle Bin usage on network path destinations.",
-        "Retention Policy Confirmation:",
-        "  - Implemented configurable confirmation for retention policy deletions via `RetentionConfirmDelete` setting.",
-        "  - Updates in `Config\\Default.psd1` (v1.2.6), `ConfigManager.psm1` (v1.0.5), `Operations.psm1` (v1.14.0), `RetentionManager.psm1` (v1.0.8), and `PoShBackupValidator.psm1` (v1.2.3).", # Operations.psm1 version updated
-        "  - Resolved issue where retention was always prompting for deletion confirmation, now respects configuration.",
-        "Reporting Enhancements:",
-        "  - HTML Report (`ReportingHtml.psm1` v1.8.2) updated to display new VSSStatus strings and new VSSAttempted field in the summary table.",
-        "Minor Fixes:",
-        "  - Corrected `Write-LogMessage` color warning by adding 'WARNING' (singular) to `$Global:StatusToColourMap` in `PoSh-Backup.ps1` (v1.9.14).", # Assuming content of PoSh-Backup reflects this
-        "Previous Major HTML Report Enhancements (ReportingHtml.psm1 v1.8.1 and CSS files):",
-        "  - Collapsible sections, localStorage persistence, log filtering, keyword highlighting, table sorting, copy-to-clipboard, scroll-to-top, favicon, print CSS.",
-        "Previous Feature (PoSh-Backup general): Treat 7-Zip Warnings as Success.",
-        "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) is stable.",
-        "General project status: Core functionality stable. PSSA clean. Pester tests non-functional."
+        "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v$($thisModuleVersion)).",
+        "--- Major New Feature: Backup Targets ---",
+        "  - Goal: Allow backups to be sent to remote locations (UNC, FTP, S3, etc.) via an extensible provider model.",
+        "  - Configuration (`Default.psd1` v1.3.1):", # Updated version
+        "    - Added global `BackupTargets` section to define named remote target instances (e.g., Type 'UNC', `TargetSpecificSettings`).",
+        "    - In `BackupLocations` (job definitions): Renamed `RetentionCount` to `LocalRetentionCount`, added `TargetNames` (array), `DeleteLocalArchiveAfterSuccessfulTransfer` (boolean).",
+        "    - For UNC targets, added `CreateJobNameSubdirectory` (boolean, default `$false`) to `TargetSpecificSettings` to control if archives are placed directly in `UNCRemotePath` or in a `JobName` subfolder.", # NEW sub-point
+        "  - `ConfigManager.psm1` (v1.1.0): Updated to load and resolve all new target-related settings.",
+        "  - `PoShBackupValidator.psm1` (v1.3.1): Schema updated for all new target settings, including `CreateJobNameSubdirectory` for UNC.", # Updated version
+        "  - New Target Provider Module (`Modules\\Targets\\UNC.Target.psm1` v1.0.1):", # Updated version
+        "    - Created to handle transfers to UNC paths.",
+        "    - Implements `Invoke-PoShBackupTargetTransfer` function.",
+        "    - Includes logic for creating job-specific subdirectories on the UNC share (now optional via `CreateJobNameSubdirectory`).", # Updated sub-point
+        "    - Implements basic count-based remote retention on the UNC target.",
+        "  - `Operations.psm1` (v1.15.0): Orchestrates the transfer loop, dynamically loads providers, calls `Invoke-PoShBackupTargetTransfer`, handles local staged archive deletion, updates report data.",
+        "  - Reporting Modules Updated:",
+        "    - `ReportingHtml.psm1` (v1.9.1): Added 'Remote Target Transfers' section. Corrected HTML encoder syntax.",
+        "    - `ReportingTxt.psm1` (v1.2.0): Added 'REMOTE TARGET TRANSFERS' section.",
+        "    - `ReportingCsv.psm1` (v1.2.0): Generates `JobName_TargetTransfers_Timestamp.csv`.",
+        "    - `ReportingMd.psm1` (v1.3.0): Added 'Remote Target Transfers' table.",
+        "    - `ReportingXml.psm1` (v1.2.0): `TargetTransfers` data included automatically.",
+        "  - `PoSh-Backup.ps1` (v1.10.0): Synopsis, description, version updated.",
+        "  - `README.md`: Updated to explain the new Backup Target feature, configuration (including `CreateJobNameSubdirectory`), and usage.",
+        "  - `AIState.template.psd1`: Watchlist updated for file truncation, baseline verification, and syntax issues.", # Updated this file
+        "--- Previous Work (Selected Highlights) ---", # Condensed previous work for brevity
+        "Network Share Handling Improvements (`Operations.psm1` pre-v1.15.0, `Config\Default.psd1` pre-v1.3.0).",
+        "Retention Policy Confirmation logic (`RetentionManager.psm1`, etc.).",
+        "HTML Report VSS field updates and general interactivity enhancements (`ReportingHtml.psm1` pre-v1.9.0).",
+        "General stability and PSSA compliance efforts.",
+        "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) is stable.", # Bundler version
+        "Overall project status: Core local backup functionality stable. New Backup Target feature (UNC) implemented. PSSA clean. Pester tests non-functional."
     )
     $aiState.conversation_summary = $currentConversationSummary
 
@@ -184,3 +199,4 @@ function Format-AIBundleContent {
 }
 
 Export-ModuleMember -Function Get-BundlerAIState, Format-AIBundleContent
+#endregion
