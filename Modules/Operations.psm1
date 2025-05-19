@@ -33,9 +33,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.13.2 # Integrate TreatSevenZipWarningsAsSuccess logic.
+    Version:        1.13.3 # Improved VSS status reporting for network paths.
     DateCreated:    10-May-2025
-    LastModified:   18-May-2025
+    LastModified:   19-May-2025
     Purpose:        Handles the execution logic for individual backup jobs.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules.
@@ -221,30 +221,94 @@ function Invoke-PoShBackupJob {
             }
             $VSSPathsInUse = New-VSSShadowCopy @vssParams 
 
-            if ($null -eq $VSSPathsInUse -or $VSSPathsInUse.Count -eq 0) {
-                if (-not $IsSimulateMode.IsPresent) {
-                    & $LocalWriteLog -Message "[ERROR] VSS shadow copy creation failed or returned no usable paths for job '$JobName'. Attempting backup using original source paths." -Level ERROR
-                    $reportData.VSSStatus = "Failed to create/map shadows"
-                    if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
-                } else {
-                     & $LocalWriteLog -Message "SIMULATE: VSS shadow copy creation would have been attempted for job '$JobName'. Simulating use of original paths." -Level SIMULATE
-                     $reportData.VSSStatus = "Simulated (No Shadows Created/Needed)"
-                }
-            } else {
-                & $LocalWriteLog -Message "  - VSS shadow copies successfully created/mapped for job '$JobName'. Using shadow paths for backup." -Level VSS
+            # $currentJobSourcePathFor7Zip remains original path if $VSSPathsInUse is null or doesn't map
+            if ($null -ne $VSSPathsInUse -and $VSSPathsInUse.Count -gt 0) {
+                & $LocalWriteLog -Message "  - VSS shadow copies created/mapped. Attempting to use shadow paths for backup." -Level VSS
                 $currentJobSourcePathFor7Zip = if ($effectiveJobConfig.OriginalSourcePath -is [array]) {
                     $effectiveJobConfig.OriginalSourcePath | ForEach-Object {
-                        if ($VSSPathsInUse.ContainsKey($_)) { $VSSPathsInUse[$_] } else { $_ } 
+                        if ($VSSPathsInUse.ContainsKey($_) -and $VSSPathsInUse[$_] -ne $_) { $VSSPathsInUse[$_] } else { $_ } # Use shadow path if different, else original
                     }
                 } else {
-                    if ($VSSPathsInUse.ContainsKey($effectiveJobConfig.OriginalSourcePath)) { $VSSPathsInUse[$effectiveJobConfig.OriginalSourcePath] } else { $effectiveJobConfig.OriginalSourcePath }
+                    if ($VSSPathsInUse.ContainsKey($effectiveJobConfig.OriginalSourcePath) -and $VSSPathsInUse[$effectiveJobConfig.OriginalSourcePath] -ne $effectiveJobConfig.OriginalSourcePath) {
+                         $VSSPathsInUse[$effectiveJobConfig.OriginalSourcePath]
+                    } else {
+                         $effectiveJobConfig.OriginalSourcePath
+                    }
                 }
-                $reportData.VSSStatus = if ($IsSimulateMode.IsPresent) { "Simulated (Used)" } else { "Used" }
                 $reportData.VSSShadowPaths = $VSSPathsInUse 
             }
-        } else {
+        }
+
+        # Determine and set VSSStatus for the report based on outcomes
+        if ($effectiveJobConfig.JobEnableVSS) {
+            $reportData.VSSAttempted = $true # New field indicating VSS was configured for the job
+
+            $originalSourcePathsForJob = if ($effectiveJobConfig.OriginalSourcePath -is [array]) {
+                                             $effectiveJobConfig.OriginalSourcePath
+                                         } else {
+                                             @($effectiveJobConfig.OriginalSourcePath)
+                                         }
+            
+            $containsUncPath = $false
+            $containsLocalPath = $false
+            $localPathVssUsedSuccessfully = $false # Tracks if VSS was successfully USED for at least one local path
+
+            if ($null -ne $originalSourcePathsForJob) {
+                foreach ($originalPathItem in $originalSourcePathsForJob) {
+                    if (-not [string]::IsNullOrWhiteSpace($originalPathItem)) {
+                        $isUncPath = $false
+                        try {
+                            $uriCheck = [uri]$originalPathItem
+                            if ($uriCheck.IsUnc) { $isUncPath = $true }
+                        } catch {
+                            # Path might not be a valid URI (e.g. simple local path like "C:\Folder")
+                            # Treat as local if not determinable as UNC via URI
+                        }
+                        
+                        if ($isUncPath) {
+                            $containsUncPath = $true
+                        } else {
+                            $containsLocalPath = $true
+                            # Check if VSS was successfully used for this local path
+                            if ($null -ne $VSSPathsInUse -and $VSSPathsInUse.ContainsKey($originalPathItem) -and $VSSPathsInUse[$originalPathItem] -ne $originalPathItem) {
+                                $localPathVssUsedSuccessfully = $true
+                            }
+                        }
+                    }
+                }
+            }
+
+            if ($IsSimulateMode.IsPresent) {
+                if ($containsLocalPath -and $containsUncPath) {
+                    $reportData.VSSStatus = "Simulated (Used for local, Skipped for network)"
+                } elseif ($containsUncPath -and -not $containsLocalPath) { # Only UNC paths
+                    $reportData.VSSStatus = "Simulated (Skipped - All Network Paths)"
+                } elseif ($containsLocalPath) { # Only local paths
+                    $reportData.VSSStatus = "Simulated (Used for local paths)"
+                } else { # No valid source paths provided or determined
+                     $reportData.VSSStatus = "Simulated (No paths processed for VSS)"
+                }
+            } else { # Not Simulate Mode
+                if ($containsLocalPath) {
+                    if ($localPathVssUsedSuccessfully) {
+                        # VSS was successfully used for at least one local path
+                        $reportData.VSSStatus = if ($containsUncPath) { "Partially Used (Local success, Network skipped)" } else { "Used Successfully" }
+                    } else {
+                        # VSS was attempted on local paths but failed for all of them, or no VSS paths were returned for local items.
+                        # $VSSPathsInUse would be null or not contain mappings for local paths.
+                        $reportData.VSSStatus = if ($containsUncPath) { "Failed (Local VSS failed/skipped, Network skipped)" } else { "Failed (Local VSS failed/skipped)" }
+                    }
+                } elseif ($containsUncPath) { # Only UNC paths were provided, no local paths
+                    $reportData.VSSStatus = "Not Applicable (All Source Paths Network)"
+                } else { # No local and no UNC paths (e.g., empty SourcePath array)
+                    $reportData.VSSStatus = "Not Applicable (No Source Paths Specified)"
+                }
+            }
+        } else { # VSS not enabled for the job
+            $reportData.VSSAttempted = $false
             $reportData.VSSStatus = "Not Enabled"
         }
+        # Ensure EffectiveSourcePath is updated in reportData if VSS paths were used
         $reportData.EffectiveSourcePath = if ($currentJobSourcePathFor7Zip -is [array]) {$currentJobSourcePathFor7Zip} else {@($currentJobSourcePathFor7Zip)}
 
         & $LocalWriteLog -Message "`n[INFO] Performing Pre-Backup Operations for job '$JobName'..."

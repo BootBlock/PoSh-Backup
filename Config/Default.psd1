@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.2.3: Added HtmlReportFaviconPath setting.
+# Version 1.2.4: Added note about VSS behavior with network shares.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -100,7 +100,7 @@
     HtmlReportCustomCssPath         = ""                              # Optional: Full path to a user-provided .css file for additional or overriding report styling.
                                                                       # This CSS is loaded *after* the selected theme's CSS and any specific CSS variable overrides from this config.
     HtmlReportCompanyName           = "PoSh Backup Solutions"         # Company name, your name, or any desired text displayed in the report footer.
-    HtmlReportTheme                 = "RetroTerminal"                         # Name of the theme CSS file (without the .css extension) located in the 'Config\Themes' directory
+    HtmlReportTheme                 = "Light"                         # Name of the theme CSS file (without the .css extension) located in the 'Config\Themes' directory
                                                                       # (relative to PoSh-Backup.ps1).
                                                                       # Built-in themes: "Light", "Dark", "HighContrast", "Playful", "RetroTerminal".
                                                                       # A 'Base.css' file in 'Config\Themes' is always loaded first, providing foundational styles.
@@ -123,6 +123,8 @@
     #region --- Volume Shadow Copy Service (VSS) Settings (Global Defaults) ---
     EnableVSS                       = $false                          # Global default. $true to attempt using VSS for backups.
                                                                       # VSS allows backing up files that are open or locked by other processes. Requires Administrator privileges.
+                                                                      # Note: VSS only applies to local volumes. If source paths are on network shares (UNC paths),
+                                                                      # VSS will be skipped for those specific paths even if enabled for the job.
                                                                       # Can be overridden per job or by the -UseVSS command-line parameter.
     DefaultVSSContextOption         = "Persistent NoWriters"          # Default 'SET CONTEXT' option for diskshadow.exe.
                                                                       # "Persistent": Allows writers, snapshot persists after script (needs manual cleanup if script fails before VSS removal).
@@ -212,18 +214,18 @@
         "AnExample" = @{
             Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
             Name                       = "MyImportantDocuments"
-            ArchiveType                = "-tzip"                         # Example: Use ZIP format for this job. Overrides DefaultArchiveType.
-            ArchiveExtension           = ".zip"                          # Must match ArchiveType. Overrides DefaultArchiveExtension.
-            ArchiveDateFormat          = "dd-MM-yyyy"                    # Custom date format for this job's archives. Overrides DefaultArchiveDateFormat.
+            ArchiveType                = "-tzip"                      # Example: Use ZIP format for this job. Overrides DefaultArchiveType.
+            ArchiveExtension           = ".zip"                       # Must match ArchiveType. Overrides DefaultArchiveExtension.
+            ArchiveDateFormat          = "dd-MM-yyyy"                 # Custom date format for this job's archives. Overrides DefaultArchiveDateFormat.
             RetentionCount             = 5
             DeleteToRecycleBin         = $true
 
-            ArchivePasswordMethod      = "Interactive"                   # Example: Prompts for password for this job.
+            ArchivePasswordMethod      = "Interactive"                # Example: Prompts for password for this job.
             CredentialUserNameHint     = "DocsUser"
 
-            MinimumRequiredFreeSpaceGB = 2                               # Custom free space check for this job. Overrides global setting.
-            HtmlReportTheme            = "RetroTerminal"                 # Use a specific HTML report theme for this job.
-            TreatSevenZipWarningsAsSuccess = $true                      # Example: For this job, 7-Zip warnings are considered success.
+            MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for this job. Overrides global setting.
+            HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
+            TreatSevenZipWarningsAsSuccess = $true                    # Example: For this job, 7-Zip warnings are considered success.
             # HtmlReportFaviconPath    = "C:\Path\To\JobSpecificFavicon.ico" # Job-specific favicon
         }
 
@@ -250,7 +252,7 @@
             "ThreadsToUse"            = 2                               # Override DefaultThreadCount to limit CPU impact.
             "SevenZipProcessPriority" = "BelowNormal"
             "CompressionLevel"        = "-mx=5"                         # Balance of speed and compression.
-            "AdditionalExclusions"    = @(                             # Array of 7-Zip exclusion patterns specific to this job.
+            "AdditionalExclusions"    = @(                              # Array of 7-Zip exclusion patterns specific to this job.
                                         "*\logs\*.log",                 # Exclude all .log files in any 'logs' subfolder.
                                         "*\temp\*",                     # Exclude all temp folders and their contents.
                                         "web.config.temp",
@@ -284,7 +286,7 @@
             # "HtmlReportShowSummary"       = $true # These default to $true if not specified
             # "HtmlReportShowConfiguration" = $true
             # "HtmlReportShowHooks"         = $true
-            # "HtmlReportShowLogEntries"    = $true
+            # "HtmlReportShowLogEntries"     = $true
 
             # Paths to custom PowerShell scripts to run at different stages of this specific job.
             "PreBackupScriptPath"           = "C:\Scripts\BackupPrep\WebApp_PreBackup.ps1"
@@ -307,7 +309,7 @@
                 "AnExample"
                 # "ComprehensiveExample_WebApp" # If uncommented and defined above.
             )
-            OnErrorInJob = "StopSet"                                 # Defines behaviour if a job within this set fails.
+            OnErrorInJob = "StopSet"                                  # Defines behaviour if a job within this set fails.
                                                                       # "StopSet": (Default) If a job fails, subsequent jobs in THIS SET are skipped. The script may continue to other sets if applicable.
                                                                       # "ContinueSet": Subsequent jobs in THIS SET will attempt to run even if a prior one fails.
         }
