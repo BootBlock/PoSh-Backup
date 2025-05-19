@@ -1,13 +1,14 @@
 # Meta\AIState.template.psd1
 @{
   bundle_generation_time = "__BUNDLE_GENERATION_TIME_PLACEHOLDER__"
-  bundler_script_version = "__BUNDLER_VERSION_PLACEHOLDER__"
+  bundler_script_version = "__BUNDLER_VERSION_PLACEHOLDER__" # Populated by bundler
 
   ai_development_watch_list = @(
-    "CRITICAL (AI): Ensure full, untruncated files are provided when requested by the user. AI has made this mistake multiple times.",
-    "CRITICAL (AI): Verify line counts and comment integrity when AI provides full script updates; inadvertent removal/truncation has occurred (e.g., missing comments, fewer lines than expected).",
+    "CRITICAL (AI): Ensure full, untruncated files are provided when requested by the user. AI has made this mistake multiple times, including during the most recent session regarding CSS and Validator module updates.", # EMPHASIS ADDED
+    "CRITICAL (AI): Verify line counts and comment integrity when AI provides full script updates; inadvertent removal/truncation has occurred (e.g., missing comments, fewer lines than expected). This was a significant issue in the last session.", # EMPHASIS ADDED
     "CRITICAL (AI): Ensure no extraneous trailing whitespace is introduced on any lines, including apparently blank ones when providing code.",
     "CRITICAL (SYNTAX): For literal triple backticks (```) in PowerShell strings meant for Markdown code fences, use single quotes: '''```'''. For example, using 'theSBvariable.AppendLine('''''''```''''''')' with single quotes for the outer string. Double quotes for the outer string will cause parsing errors or misinterpretation.",
+    "CRITICAL (SYNTAX): Escaping special characters (like `$`, `{`, `}` within regex patterns) in PowerShell here-strings for JavaScript requires extreme care. PowerShell's parser may interpret sequences like `${}` as empty variable expressions. Methods like string concatenation within the JS, or careful backtick escaping (`$`) are needed. This caused multiple iterations in the last session.", # NEW ITEM, specific to JS in PS here-strings
     "SYNTAX: PowerShell ordered dictionaries (`[ordered]@{}`) use `(theDictVariable.PSObject.Properties.Name -contains 'Key')`, NOT `theDictVariable.ContainsKey('Key')`. ",
     "REGEX: Be cautious with string interpolation vs. literal characters in regex patterns. Test regex patterns carefully. Ensure PowerShell string parsing is correct before regex engine sees it (e.g., use single-quoted strings for regex patterns, ensure proper escaping of special characters within the pattern if needed).",
     "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting.",
@@ -18,14 +19,14 @@
     "PSSA (BUNDLER): Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions from `PSScriptAnalyzerSettings.psd1`, even if VS Code (with the settings file) shows no issues. This was observed with unused parameters in closures, requiring defensive code changes.",
     "PSSA (CLOSURES): PSScriptAnalyzer may not always detect parameter/variable usage within scriptblock closures assigned to local variables, potentially leading to false 'unused' warnings that require defensive/explicit calls for PSSA appeasement.",
     "PESTER (SESSION): Current Pester tests are non-functional. Significant issues encountered with Pester v5 environment, cmdlet availability (Get-Mock/Remove-Mock were not exported by Pester 5.7.1), mock scoping, and test logic that could not be resolved during the session. Further Pester work will require a reset or a different diagnostic approach.",
-    "CRITICAL (PSD1_PARSING): `Import-PowerShellDataFile` can unexpectedly fail with 'dynamic expression' errors on double-quoted strings containing backtick-escaped `\$` if the overall string structure is complex (e.g., includes other backticks, parentheses, or special characters that confuse its parser). The safest workaround is to rephrase such strings to avoid literal `\$` characters entirely, or use single-quoted strings if the content's internal quoting allows it simply." # NEW ITEM
+    "CRITICAL (PSD1_PARSING): `Import-PowerShellDataFile` can unexpectedly fail with 'dynamic expression' errors on double-quoted strings containing backtick-escaped `\$` if the overall string structure is complex (e.g., includes other backticks, parentheses, or special characters that confuse its parser). The safest workaround is to rephrase such strings to avoid literal `\$` characters entirely, or use single-quoted strings if the content's internal quoting allows it simply."
   )
 
   conversation_summary = @( 
     "__CONVERSATION_SUMMARY_PLACEHOLDER__" # Dynamically populated by Bundle.StateAndAssembly.psm1
   )
 
-  main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__"
+  main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # PoSh-Backup.ps1 v1.9.13
 
   ai_bundler_update_instructions = @{
     purpose = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
