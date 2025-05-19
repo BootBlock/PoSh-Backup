@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.2.4: Added note about VSS behavior with network shares.
+# Version 1.2.6: Added RetentionConfirmDelete setting.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -66,6 +66,10 @@
                                                                       # If $false (default), 7-Zip warnings will result in the job status being "WARNINGS".
                                                                       # Useful if backups commonly encounter benign warnings (e.g., files in use that are skipped).
                                                                       # Can be overridden per job or by the -TreatSevenZipWarningsAsSuccessCLI command-line parameter.
+    RetentionConfirmDelete          = $true                           # Global default. $true to prompt for confirmation before deleting old archives during retention.
+                                                                      # Set to $false to automatically delete without prompting (useful for scheduled tasks).
+                                                                      # This is overridden by -Confirm:$false on the PoSh-Backup.ps1 command line.
+                                                                      # Can also be overridden per job.
     #endregion
 
     #region --- Logging Settings ---
@@ -196,6 +200,8 @@
             DestinationDir          = "D:\Backups"                    # Specific destination for this job. If omitted, DefaultDestinationDir is used.
             RetentionCount          = 3                               # Number of archive versions for this job to keep. Older archives beyond this count will be deleted.
             DeleteToRecycleBin      = $false                          # $true to send old archives to the Recycle Bin; $false for permanent deletion.
+                                                                      # Note: Using Recycle Bin for network share destinations can be unreliable; permanent deletion is often safer.
+            RetentionConfirmDelete  = $false                          # Job-specific override: $true (default) to prompt, $false to auto-delete.
 
             ArchivePasswordMethod   = "None"                          # Password method: "None", "Interactive", "SecretManagement", "SecureStringFile", "PlainText". See instructions at top.
             # CredentialUserNameHint  = "ProjectBackupUser"             # For "Interactive" method.
@@ -218,7 +224,8 @@
             ArchiveExtension           = ".zip"                       # Must match ArchiveType. Overrides DefaultArchiveExtension.
             ArchiveDateFormat          = "dd-MM-yyyy"                 # Custom date format for this job's archives. Overrides DefaultArchiveDateFormat.
             RetentionCount             = 5
-            DeleteToRecycleBin         = $true
+            DeleteToRecycleBin         = $true                        # Note: Ensure this is appropriate if DestinationDir is a network share.
+            RetentionConfirmDelete     = $false                       # Example: This job will auto-delete old archives without prompting.
 
             ArchivePasswordMethod      = "Interactive"                # Example: Prompts for password for this job.
             CredentialUserNameHint     = "DocsUser"
@@ -240,6 +247,8 @@
             "DestinationDir"          = "\\BACKUPSERVER\Share\WebApps"  # Example: Backup to a network share.
             "RetentionCount"          = 14                              # Keep two weeks of daily backups.
             "DeleteToRecycleBin"      = $false                          # Recycle Bin might not be applicable/desired for network shares.
+                                                                      # For network shares, $false (permanent delete) is often more reliable.
+            "RetentionConfirmDelete"  = $false                          # For automated tasks, set to $false to avoid prompts.
 
             "ArchivePasswordMethod"   = "SecretManagement"
             "ArchivePasswordSecretName" = "WebAppBackupPassword"        # Name of the secret stored in SecretManagement.

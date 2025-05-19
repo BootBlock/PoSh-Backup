@@ -33,7 +33,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.13.3 # Improved VSS status reporting for network paths.
+    Version:        1.13.5 # Pass -Confirm:$false to Invoke-BackupRetentionPolicy if config specifies no prompt.
     DateCreated:    10-May-2025
     LastModified:   19-May-2025
     Purpose:        Handles the execution logic for individual backup jobs.
@@ -134,6 +134,7 @@ function Invoke-PoShBackupJob {
         & $LocalWriteLog -Message "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)"
         & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod)"
         & $LocalWriteLog -Message "   - Treat 7-Zip Warnings as Success: $($effectiveJobConfig.TreatSevenZipWarningsAsSuccess)"
+        & $LocalWriteLog -Message "   - Retention Deletion Confirmation: $($effectiveJobConfig.RetentionConfirmDelete)"
 
 
         if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.DestinationDir)) {
@@ -241,7 +242,7 @@ function Invoke-PoShBackupJob {
 
         # Determine and set VSSStatus for the report based on outcomes
         if ($effectiveJobConfig.JobEnableVSS) {
-            $reportData.VSSAttempted = $true # New field indicating VSS was configured for the job
+            $reportData.VSSAttempted = $true 
 
             $originalSourcePathsForJob = if ($effectiveJobConfig.OriginalSourcePath -is [array]) {
                                              $effectiveJobConfig.OriginalSourcePath
@@ -251,7 +252,7 @@ function Invoke-PoShBackupJob {
             
             $containsUncPath = $false
             $containsLocalPath = $false
-            $localPathVssUsedSuccessfully = $false # Tracks if VSS was successfully USED for at least one local path
+            $localPathVssUsedSuccessfully = $false 
 
             if ($null -ne $originalSourcePathsForJob) {
                 foreach ($originalPathItem in $originalSourcePathsForJob) {
@@ -260,16 +261,12 @@ function Invoke-PoShBackupJob {
                         try {
                             $uriCheck = [uri]$originalPathItem
                             if ($uriCheck.IsUnc) { $isUncPath = $true }
-                        } catch {
-                            # Path might not be a valid URI (e.g. simple local path like "C:\Folder")
-                            # Treat as local if not determinable as UNC via URI
-                        }
+                        } catch { }
                         
                         if ($isUncPath) {
                             $containsUncPath = $true
                         } else {
                             $containsLocalPath = $true
-                            # Check if VSS was successfully used for this local path
                             if ($null -ne $VSSPathsInUse -and $VSSPathsInUse.ContainsKey($originalPathItem) -and $VSSPathsInUse[$originalPathItem] -ne $originalPathItem) {
                                 $localPathVssUsedSuccessfully = $true
                             }
@@ -281,34 +278,30 @@ function Invoke-PoShBackupJob {
             if ($IsSimulateMode.IsPresent) {
                 if ($containsLocalPath -and $containsUncPath) {
                     $reportData.VSSStatus = "Simulated (Used for local, Skipped for network)"
-                } elseif ($containsUncPath -and -not $containsLocalPath) { # Only UNC paths
+                } elseif ($containsUncPath -and -not $containsLocalPath) { 
                     $reportData.VSSStatus = "Simulated (Skipped - All Network Paths)"
-                } elseif ($containsLocalPath) { # Only local paths
+                } elseif ($containsLocalPath) { 
                     $reportData.VSSStatus = "Simulated (Used for local paths)"
-                } else { # No valid source paths provided or determined
+                } else { 
                      $reportData.VSSStatus = "Simulated (No paths processed for VSS)"
                 }
-            } else { # Not Simulate Mode
+            } else { 
                 if ($containsLocalPath) {
                     if ($localPathVssUsedSuccessfully) {
-                        # VSS was successfully used for at least one local path
                         $reportData.VSSStatus = if ($containsUncPath) { "Partially Used (Local success, Network skipped)" } else { "Used Successfully" }
                     } else {
-                        # VSS was attempted on local paths but failed for all of them, or no VSS paths were returned for local items.
-                        # $VSSPathsInUse would be null or not contain mappings for local paths.
                         $reportData.VSSStatus = if ($containsUncPath) { "Failed (Local VSS failed/skipped, Network skipped)" } else { "Failed (Local VSS failed/skipped)" }
                     }
-                } elseif ($containsUncPath) { # Only UNC paths were provided, no local paths
+                } elseif ($containsUncPath) { 
                     $reportData.VSSStatus = "Not Applicable (All Source Paths Network)"
-                } else { # No local and no UNC paths (e.g., empty SourcePath array)
+                } else { 
                     $reportData.VSSStatus = "Not Applicable (No Source Paths Specified)"
                 }
             }
-        } else { # VSS not enabled for the job
+        } else { 
             $reportData.VSSAttempted = $false
             $reportData.VSSStatus = "Not Enabled"
         }
-        # Ensure EffectiveSourcePath is updated in reportData if VSS paths were used
         $reportData.EffectiveSourcePath = if ($currentJobSourcePathFor7Zip -is [array]) {$currentJobSourcePathFor7Zip} else {@($currentJobSourcePathFor7Zip)}
 
         & $LocalWriteLog -Message "`n[INFO] Performing Pre-Backup Operations for job '$JobName'..."
@@ -332,14 +325,27 @@ function Invoke-PoShBackupJob {
         }
         
         if (-not (Get-Command Invoke-BackupRetentionPolicy -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Invoke-BackupRetentionPolicy' from RetentionManager.psm1 is not available."}
-        Invoke-BackupRetentionPolicy -DestinationDirectory $effectiveJobConfig.DestinationDir `
-                                     -ArchiveBaseFileName $effectiveJobConfig.BaseFileName `
-                                     -ArchiveExtension $effectiveJobConfig.JobArchiveExtension `
-                                     -RetentionCountToKeep $effectiveJobConfig.RetentionCount `
-                                     -SendToRecycleBin $effectiveJobConfig.DeleteToRecycleBin `
-                                     -VBAssemblyLoaded $vbLoaded `
-                                     -IsSimulateMode:$IsSimulateMode `
-                                     -Logger $Logger 
+        
+        $retentionPolicyParams = @{
+            DestinationDirectory = $effectiveJobConfig.DestinationDir
+            ArchiveBaseFileName = $effectiveJobConfig.BaseFileName
+            ArchiveExtension = $effectiveJobConfig.JobArchiveExtension
+            RetentionCountToKeep = $effectiveJobConfig.RetentionCount
+            RetentionConfirmDeleteFromConfig = $effectiveJobConfig.RetentionConfirmDelete 
+            SendToRecycleBin = $effectiveJobConfig.DeleteToRecycleBin
+            VBAssemblyLoaded = $vbLoaded
+            IsSimulateMode = $IsSimulateMode.IsPresent
+            Logger = $Logger
+        }
+
+        if (-not $effectiveJobConfig.RetentionConfirmDelete) {
+            $retentionPolicyParams.Confirm = $false # Suppress Invoke-BackupRetentionPolicy's own ShouldProcess prompt
+            & $LocalWriteLog -Message "   - Invoking retention policy with auto-confirmation (due to RetentionConfirmDelete:False targeting Invoke-BackupRetentionPolicy call)." -Level DEBUG
+        } else {
+            & $LocalWriteLog -Message "   - Invoking retention policy with standard confirmation behavior (Invoke-BackupRetentionPolicy call)." -Level DEBUG
+        }
+        
+        Invoke-BackupRetentionPolicy @retentionPolicyParams
 
         if (-not (Get-Command Get-PoShBackup7ZipArgument -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Get-PoShBackup7ZipArgument' from 7ZipManager.psm1 is not available." }
         $sevenZipArgsArray = Get-PoShBackup7ZipArgument -EffectiveConfig $effectiveJobConfig `
@@ -348,7 +354,7 @@ function Invoke-PoShBackupJob {
                                                         -TempPasswordFile $tempPasswordFilePath `
                                                         -Logger $Logger 
 
-        $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath' # Get-ConfigValue from Utils.psm1
+        $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath' 
         if (-not (Get-Command Invoke-7ZipOperation -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Invoke-7ZipOperation' from 7ZipManager.psm1 is not available." }
         $zipOpParams = @{
             SevenZipPathExe = $sevenZipPathGlobal
@@ -358,7 +364,7 @@ function Invoke-PoShBackupJob {
             MaxRetries = $effectiveJobConfig.JobMaxRetryAttempts
             RetryDelaySeconds = $effectiveJobConfig.JobRetryDelaySeconds
             EnableRetries = $effectiveJobConfig.JobEnableRetries
-            TreatWarningsAsSuccess = $effectiveJobConfig.TreatSevenZipWarningsAsSuccess # Pass this new setting
+            TreatWarningsAsSuccess = $effectiveJobConfig.TreatSevenZipWarningsAsSuccess 
             IsSimulateMode = $IsSimulateMode.IsPresent
             Logger = $Logger 
         }
@@ -370,23 +376,20 @@ function Invoke-PoShBackupJob {
 
         $archiveSize = "N/A (Simulated)"
         if (-not $IsSimulateMode.IsPresent -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
-             $archiveSize = Get-ArchiveSizeFormatted -PathToArchive $FinalArchivePath -Logger $Logger # Get-ArchiveSizeFormatted from Utils.psm1
+             $archiveSize = Get-ArchiveSizeFormatted -PathToArchive $FinalArchivePath -Logger $Logger 
         } elseif ($IsSimulateMode.IsPresent) {
             $archiveSize = "0 Bytes (Simulated)" 
         }
         $reportData.ArchiveSizeFormatted = $archiveSize
 
-        # Determine job status based on 7-Zip exit code and TreatSevenZipWarningsAsSuccess
         if ($sevenZipResult.ExitCode -eq 0) { 
-            # $currentJobStatus remains "SUCCESS"
-        } elseif ($sevenZipResult.ExitCode -eq 1) { # Warning
+        } elseif ($sevenZipResult.ExitCode -eq 1) { 
             if ($effectiveJobConfig.TreatSevenZipWarningsAsSuccess) {
                 & $LocalWriteLog -Message "[INFO] 7-Zip returned warning (Exit Code 1) but 'TreatSevenZipWarningsAsSuccess' is true. Job status remains SUCCESS." -Level "INFO"
-                # $currentJobStatus remains "SUCCESS"
             } else {
                 $currentJobStatus = "WARNINGS"
             }
-        } else { # Failure
+        } else { 
             $currentJobStatus = "FAILURE"
         }
 
@@ -402,7 +405,7 @@ function Invoke-PoShBackupJob {
                 MaxRetries = $effectiveJobConfig.JobMaxRetryAttempts
                 RetryDelaySeconds = $effectiveJobConfig.JobRetryDelaySeconds
                 EnableRetries = $effectiveJobConfig.JobEnableRetries
-                TreatWarningsAsSuccess = $effectiveJobConfig.TreatSevenZipWarningsAsSuccess # Pass this new setting
+                TreatWarningsAsSuccess = $effectiveJobConfig.TreatSevenZipWarningsAsSuccess 
                 Logger = $Logger 
             }
             $testResult = Test-7ZipArchive @testArchiveParams

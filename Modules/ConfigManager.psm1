@@ -27,9 +27,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.4 # Process TreatSevenZipWarningsAsSuccess in Get-PoShBackupJobEffectiveConfiguration.
+    Version:        1.0.5 # Process RetentionConfirmDelete in Get-PoShBackupJobEffectiveConfiguration.
     DateCreated:    17-May-2025
-    LastModified:   18-May-2025
+    LastModified:   19-May-2025
     Purpose:        Centralised configuration management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Core PoSh-Backup modules: Utils.psm1, 7ZipManager.psm1.
@@ -576,6 +576,8 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.RetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3)
     if ($effectiveConfig.RetentionCount -lt 0) { $effectiveConfig.RetentionCount = 0 } 
     $effectiveConfig.DeleteToRecycleBin = Get-ConfigValue -ConfigObject $JobConfig -Key 'DeleteToRecycleBin' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDeleteToRecycleBin' -DefaultValue $false)
+    $effectiveConfig.RetentionConfirmDelete = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionConfirmDelete' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetentionConfirmDelete' -DefaultValue $true)
+
 
     $effectiveConfig.ArchivePasswordMethod = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordMethod' -DefaultValue "None"
     $effectiveConfig.CredentialUserNameHint = Get-ConfigValue -ConfigObject $JobConfig -Key 'CredentialUserNameHint' -DefaultValue "BackupUser"
@@ -640,7 +642,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.PostBackupScriptAlwaysPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptAlwaysPath' -DefaultValue $null
 
     $reportData.SourcePath = if ($effectiveConfig.OriginalSourcePath -is [array]) {$effectiveConfig.OriginalSourcePath} else {@($effectiveConfig.OriginalSourcePath)}
-    $reportData.VSSUsed = $effectiveConfig.JobEnableVSS
+    $reportData.VSSUsed = $effectiveConfig.JobEnableVSS # This will be updated by Operations.psm1 later based on actual VSS use
     $reportData.RetriesEnabled = $effectiveConfig.JobEnableRetries
     $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation 
     $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority

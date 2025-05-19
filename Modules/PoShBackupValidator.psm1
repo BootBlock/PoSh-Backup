@@ -30,9 +30,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.2 # Added HtmlReportFaviconPath to schema.
+    Version:        1.2.3 # Added RetentionConfirmDelete to schema.
     DateCreated:    14-May-2025
-    LastModified:   18-May-2025
+    LastModified:   19-May-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     This module is typically invoked by 'ConfigManager.psm1' if schema validation is
@@ -49,7 +49,8 @@ $Script:PoShBackup_ConfigSchema = @{
     HideSevenZipOutput              = @{ Type = 'boolean'; Required = $false }
     PauseBeforeExit                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Always", "Never", "OnFailure", "OnWarning", "OnFailureOrWarning", "True", "False") } # Case-insensitive check for these values
     EnableAdvancedSchemaValidation  = @{ Type = 'boolean'; Required = $false } # Controls if this validator module is used
-    TreatSevenZipWarningsAsSuccess  = @{ Type = 'boolean'; Required = $false } # New global setting
+    TreatSevenZipWarningsAsSuccess  = @{ Type = 'boolean'; Required = $false } 
+    RetentionConfirmDelete          = @{ Type = 'boolean'; Required = $false } # New global setting for retention confirmation
     EnableFileLogging               = @{ Type = 'boolean'; Required = $false }
     LogDirectory                    = @{ Type = 'string'; Required = $false } 
     ReportGeneratorType             = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } # Can be single string or array of these
@@ -65,7 +66,7 @@ $Script:PoShBackup_ConfigSchema = @{
     # HTML report specific settings (global defaults)
     HtmlReportTitlePrefix           = @{ Type = 'string'; Required = $false }
     HtmlReportLogoPath              = @{ Type = 'string'; Required = $false } # Path to a logo file
-    HtmlReportFaviconPath           = @{ Type = 'string'; Required = $false } # New schema entry for favicon path
+    HtmlReportFaviconPath           = @{ Type = 'string'; Required = $false } 
     HtmlReportCustomCssPath         = @{ Type = 'string'; Required = $false } # Path to a custom CSS file
     HtmlReportCompanyName           = @{ Type = 'string'; Required = $false }
     HtmlReportTheme                 = @{ Type = 'string'; Required = $false } # Name of a theme CSS file (e.g., "Dark", "Light")
@@ -125,6 +126,7 @@ $Script:PoShBackup_ConfigSchema = @{
             DestinationDir          = @{ Type = 'string'; Required = $false }         # Job-specific destination
             RetentionCount          = @{ Type = 'int'; Required = $false; Min = 0 }   # Job-specific retention
             DeleteToRecycleBin      = @{ Type = 'boolean'; Required = $false }
+            RetentionConfirmDelete  = @{ Type = 'boolean'; Required = $false }      # Job-level retention confirmation
             
             # Job-specific password settings
             ArchivePasswordMethod   = @{ Type = 'string'; Required = $false; AllowedValues = @("NONE", "INTERACTIVE", "SECRETMANAGEMENT", "SECURESTRINGFILE", "PLAINTEXT") }
@@ -140,7 +142,7 @@ $Script:PoShBackup_ConfigSchema = @{
             VSSContextOption        = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
             SevenZipProcessPriority = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
             ReportGeneratorType     = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } 
-            TreatSevenZipWarningsAsSuccess = @{ Type = 'boolean'; Required = $false } # New job-level setting
+            TreatSevenZipWarningsAsSuccess = @{ Type = 'boolean'; Required = $false } 
             
             # Job-specific report directory overrides
             HtmlReportDirectory     = @{ Type = 'string'; Required = $false }
@@ -172,7 +174,7 @@ $Script:PoShBackup_ConfigSchema = @{
             HtmlReportTheme              = @{ Type = 'string'; Required = $false }
             HtmlReportTitlePrefix        = @{ Type = 'string'; Required = $false }
             HtmlReportLogoPath           = @{ Type = 'string'; Required = $false }
-            HtmlReportFaviconPath        = @{ Type = 'string'; Required = $false } # New schema entry for job-specific favicon
+            HtmlReportFaviconPath        = @{ Type = 'string'; Required = $false } 
             HtmlReportCustomCssPath      = @{ Type = 'string'; Required = $false }
             HtmlReportCompanyName        = @{ Type = 'string'; Required = $false }
             HtmlReportOverrideCssVariables = @{ Type = 'hashtable'; Required = $false }

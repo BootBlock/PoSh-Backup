@@ -182,7 +182,8 @@ $Global:ColourAdmin                         = "Orange"
 
 $Global:StatusToColourMap = @{
     "SUCCESS"           = $Global:ColourSuccess
-    "WARNINGS"          = $Global:ColourWarning
+    "WARNINGS"          = $Global:ColourWarning 
+    "WARNING"           = $Global:ColourWarning
     "FAILURE"           = $Global:ColourError
     "SIMULATED_COMPLETE"= $Global:ColourSimulate
     "INFO"              = $Global:ColourInfo

@@ -29,9 +29,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.8.1 # Corrected PowerShell string escaping in JavaScript for regex.
+    Version:        1.8.2 # Improved display of VSSStatus and added VSSAttempted to HTML report.
     DateCreated:    14-May-2025
-    LastModified:   18-May-2025
+    LastModified:   19-May-2025
     Purpose:        Interactive HTML report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -202,7 +202,7 @@ function Invoke-HtmlReport {
     # Retrieve HTML report customisation settings
     $reportTitlePrefix       = ConvertTo-SafeHtml ($getReportSetting.Invoke('HtmlReportTitlePrefix', "PoSh Backup Status Report"))
     $reportLogoPath          = $getReportSetting.Invoke('HtmlReportLogoPath', "") 
-    $reportFaviconPathUser   = $getReportSetting.Invoke('HtmlReportFaviconPath', "") # New setting for favicon
+    $reportFaviconPathUser   = $getReportSetting.Invoke('HtmlReportFaviconPath', "") 
     $reportCustomCssPathUser = $getReportSetting.Invoke('HtmlReportCustomCssPath', "")
     $reportCompanyName       = ConvertTo-SafeHtml ($getReportSetting.Invoke('HtmlReportCompanyName', "PoSh Backup"))
 
@@ -305,14 +305,6 @@ function Invoke-HtmlReport {
     }
 
     # --- JavaScript ---
-    # Note: Literal `${}` for JS template literals need to be ````${}```` or similar in PS here-strings if used.
-    # For simple regex, `$` doesn't usually need escaping *within JS string literals* unless it's for a JS template literal.
-    # The regex /.../g form usually handles $ fine.
-    # The specific error was PowerShell parsing `${}` in the *PowerShell string itself*.
-    # The problematic regex was: /[.*+?^${}()|[\]\\]/g
-    # PowerShell sees `${}` and expects a variable.
-    # Corrected for PowerShell: /[.*+?^`${}()|[\]\\]/g
-    # The `\\$&` is a JS replace pattern, `$` is fine there.
     $pageJavaScript = @"
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -355,9 +347,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         function highlightText(text, keyword) {
             if (!keyword || !text) return text;
-            // Build the regex pattern string in a way that PowerShell doesn't misinterpret `${}`.
-            // JavaScript will concatenate these strings before creating the RegExp.
-            const specialCharsPattern = '[.*+?^' + '$' + '{' + '}()|[\]\\\\]'; // Concatenate '$' and '{'
+            const specialCharsPattern = '[.*+?^' + '$' + '{' + '}()|[\]\\\\]'; 
             const specialCharsRegex = new RegExp(specialCharsPattern, 'g');
             const escapedKeyword = keyword.replace(specialCharsRegex, '\\$&');
             
@@ -412,10 +402,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
             let keywordFilterActive = (keywordSearchInput && keywordSearchInput.value.trim() !== '');
             let levelFilterActive = (levelFilterCheckboxes.length > 0 && !defaultLevelsAreChecked); 
-            if (levelFilterCheckboxes.length > 0 && allLevelsUnchecked) { // If all are unchecked, it's an active filter state
+            if (levelFilterCheckboxes.length > 0 && allLevelsUnchecked) { 
                 levelFilterActive = true;
             }
-            // If all checkboxes exist AND all are checked (initial state), level filter is not "active" from user interaction.
             if (levelFilterCheckboxes.length > 0 && defaultLevelsAreChecked && !allLevelsUnchecked && activeLevelFilters.size === levelFilterCheckboxes.length) {
                  levelFilterActive = false;
             }
@@ -490,7 +479,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     const valA = (cellA_element.dataset.sortValue || cellA_element.textContent || '').trim().toLowerCase();
                     const valB = (cellB_element.dataset.sortValue || cellB_element.textContent || '').trim().toLowerCase();
                     
-                    const numA = parseFloat(valA.replace(/,/g, '')); // Handle numbers with commas
+                    const numA = parseFloat(valA.replace(/,/g, '')); 
                     const numB = parseFloat(valB.replace(/,/g, ''));
 
                     let comparison = 0;
@@ -547,17 +536,54 @@ document.addEventListener('DOMContentLoaded', function () {
     if ($reportShowSummary -and ($ReportData.Keys -contains 'OverallStatus') ) {
         $htmlBodyLocal += "<div class='details-section summary-section'><details id='details-summary' open><summary><h2>Summary</h2></summary>"
         $htmlBodyLocal += "<table data-sortable-table='true'><thead><tr><th data-sortable-column='true' aria-label='Sort by Item'>Item</th><th data-sortable-column='true' aria-label='Sort by Detail'>Detail</th></tr></thead><tbody>"
-        $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot')} | ForEach-Object {
-            $keyName = ConvertTo-SafeHtml $_.Name; $value = $_.Value
-            $displayValue = if ($value -is [array]) { ($value | ForEach-Object { ConvertTo-SafeHtml ([string]$_) }) -join '<br>' } else { ConvertTo-SafeHtml ([string]$value) }
-            $statusClass = ""; if ($_.Name -in @("OverallStatus", "ArchiveTestResult", "VSSStatus")) { $sanitizedVal = ([string]$_.Value -replace ' ','_') -replace '[\(\):\/]','_' -replace '\+','plus'; $statusClass = "status-$(ConvertTo-SafeHtml $sanitizedVal)" }
-            # For sorting size, store bytes in data-sort-value
+        
+        # Define the desired order of summary items
+        $summaryOrder = @(
+            'JobName', 'OverallStatus', 'ScriptStartTime', 'ScriptEndTime', 'TotalDuration',
+            'SourcePath', 'EffectiveSourcePath', 'FinalArchivePath', 'ArchiveSizeFormatted', 'ArchiveSizeBytes', # Size related together
+            'SevenZipExitCode', 'TreatSevenZipWarningsAsSuccess', 'RetryAttemptsMade', 'ArchiveTested', 'ArchiveTestResult', 'TestRetryAttemptsMade',
+            'VSSAttempted', 'VSSStatus', 'VSSShadowPaths', # VSS related together
+            'PasswordSource', 'ErrorMessage'
+        )
+
+        # Create a temporary ordered dictionary for sorted display
+        $summaryDisplayItems = [ordered]@{}
+        foreach($key in $summaryOrder) {
+            if ($ReportData.ContainsKey($key)) {
+                $summaryDisplayItems[$key] = $ReportData[$key]
+            }
+        }
+        # Add any remaining items from ReportData not in summaryOrder (maintains them if new ones are added)
+        $ReportData.GetEnumerator() | Where-Object {$_.Name -notin $summaryOrder -and $_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot')} | ForEach-Object {
+            $summaryDisplayItems[$_.Name] = $_.Value
+        }
+
+        $summaryDisplayItems.GetEnumerator() | ForEach-Object {
+            $keyName = ConvertTo-SafeHtml $_.Name
+            $value = $_.Value
+            $displayValue = ""
+            $statusClass = ""
             $sortAttr = ""
+
+            if ($value -is [array]) { 
+                $displayValue = ($value | ForEach-Object { ConvertTo-SafeHtml ([string]$_) }) -join '<br>' 
+            } else { 
+                $displayValue = ConvertTo-SafeHtml ([string]$value) 
+            }
+
+            if ($keyName -eq "OverallStatus" -or $keyName -eq "ArchiveTestResult" -or $keyName -eq "VSSStatus") {
+                $sanitizedVal = ([string]$_.Value -replace ' ','_') -replace '[\(\):\/]','_' -replace '\+','plus' -replace ',',''
+                $statusClass = "status-$(ConvertTo-SafeHtml $sanitizedVal)"
+            } elseif ($keyName -eq "VSSAttempted") {
+                $statusClass = if ($value -eq $true) { "status-INFO" } else { "status-DEFAULT" } # Example: color true/false
+            }
+
             if ($keyName -eq "ArchiveSizeFormatted" -and $ReportData.ContainsKey("ArchiveSizeBytes") -and $ReportData.ArchiveSizeBytes -is [long]) {
                 $sortAttr = "data-sort-value='$($ReportData.ArchiveSizeBytes)'"
             } elseif ($keyName -eq "TotalDuration" -and $ReportData.ContainsKey("TotalDurationSeconds") -and $ReportData.TotalDurationSeconds -is [double]) {
                 $sortAttr = "data-sort-value='$($ReportData.TotalDurationSeconds)'"
             }
+            
             $htmlBodyLocal += "<tr><td data-label='Item'>$($keyName)</td><td data-label='Detail' class='$($statusClass)' $sortAttr>$($displayValue)</td></tr>"
         }
         $htmlBodyLocal += "</tbody></table></details></div>"
@@ -616,12 +642,12 @@ document.addEventListener('DOMContentLoaded', function () {
     $htmlBodyLocal += "PoSh Backup Script - Report Generated on $(ConvertTo-SafeHtml ([string](Get-Date)))</footer>"
     $htmlBodyLocal += $pageJavaScript 
     $htmlBodyLocal += "</div>" 
-    $htmlBodyLocal += "<button type='button' id='scrollToTopBtn' title='Go to top' aria-label='Scroll to top of page'>▲</button>" # Unicode Up Arrow
+    $htmlBodyLocal += "<button type='button' id='scrollToTopBtn' title='Go to top' aria-label='Scroll to top of page'>▲</button>" 
 
     # --- Generate and Write HTML File ---
     try {
         ConvertTo-Html -Head $htmlHead -Body $htmlBodyLocal -Title "$($reportTitlePrefix) - $(ConvertTo-SafeHtml $JobName)" |
-        Set-Content -Path $reportFullPath -Encoding UTF8 -Force -ErrorAction Stop
+        Set-Content -Path $reportFullPath -Encoding UTF8 -Force -ErrorAction Stop # Ensure BOM with UTF8 for broad compatibility
         & $LocalWriteLog -Message "  - HTML report generated successfully: '$reportFullPath'" -Level "SUCCESS"
     } catch {
         & $LocalWriteLog -Message "[ERROR] Failed to generate HTML report '$reportFullPath' for job '$JobName'. Error: $($_.Exception.Message)" -Level "ERROR"
