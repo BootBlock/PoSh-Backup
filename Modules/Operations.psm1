@@ -4,8 +4,8 @@
     This includes gathering effective job configurations (via ConfigManager.psm1), handling VSS
     (via VssManager.psm1), executing 7-Zip (via 7ZipManager.psm1), applying local retention policies
     (via RetentionManager.psm1), checking destination free space (via Utils.psm1), orchestrating
-    hook script execution (via HookManager.psm1), and now, orchestrating the transfer of archives
-    to remote Backup Targets.
+    hook script execution (via HookManager.psm1), and orchestrating the transfer of archives
+    to remote Backup Targets, passing additional metadata like archive size and creation time.
 
 .DESCRIPTION
     The Operations module encapsulates the entire lifecycle of processing a single, defined backup job.
@@ -26,13 +26,14 @@
     10. Optionally tests local archive integrity (7ZipManager.psm1).
     11. Applies local retention policy to the local staging directory (RetentionManager.psm1)
         using 'LocalRetentionCount'.
-    12. **NEW**: If remote targets are defined for the job:
+    12. If remote targets are defined for the job:
         a.  Loops through each specified target instance.
         b.  Dynamically loads the appropriate target provider module (e.g., from 'Modules\Targets\').
         c.  Calls 'Invoke-PoShBackupTargetTransfer' in the provider module to send the local archive
-            to the remote target. The provider module is responsible for its own remote retention.
+            to the remote target. Passes local archive metadata (size, creation time, password status).
+            The provider module is responsible for its own remote retention.
         d.  Logs the outcome of each transfer and updates reporting data.
-    13. **NEW**: If 'DeleteLocalArchiveAfterSuccessfulTransfer' is true and all remote transfers
+    13. If 'DeleteLocalArchiveAfterSuccessfulTransfer' is true and all remote transfers
         were successful (or no targets were specified but the setting implies intent),
         deletes the local staged archive.
     14. Cleans up VSS shadow copies (VssManager.psm1).
@@ -46,7 +47,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.15.0 # Integrated Backup Target transfer orchestration.
+    Version:        1.16.0 # Pass LocalArchiveSizeBytes, CreationTimestamp, PasswordInUse to Target Providers. Renamed Get-UtilityArchiveSizeFormattedFromBytes.
     DateCreated:    10-May-2025
     LastModified:   19-May-2025
     Purpose:        Handles the execution logic for individual backup jobs, including remote target transfers.
@@ -258,7 +259,7 @@ function Invoke-PoShBackupJob {
 
                 if ($null -ne $passwordResult -and (-not [string]::IsNullOrWhiteSpace($passwordResult.PlainTextPassword))) {
                     $plainTextPasswordForJob = $passwordResult.PlainTextPassword
-                    $effectiveJobConfig.PasswordInUseFor7Zip = $true
+                    $effectiveJobConfig.PasswordInUseFor7Zip = $true # Set this flag based on actual password acquisition
                     if ($IsSimulateMode.IsPresent) {
                         $tempPasswordFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "simulated_poshbackup_pass.tmp") 
                         & $LocalWriteLog -Message "SIMULATE: Would write password (obtained via $($reportData.PasswordSource)) to temporary file '$tempPasswordFilePath' for 7-Zip." -Level SIMULATE
@@ -279,6 +280,7 @@ function Invoke-PoShBackupJob {
             }
         } elseif ($effectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -eq "NONE") {
             $reportData.PasswordSource = "None (Explicitly Configured)"
+            $effectiveJobConfig.PasswordInUseFor7Zip = $false # Ensure it's false if method is None
         }
 
         Invoke-PoShBackupHook -ScriptPath $effectiveJobConfig.PreBackupScriptPath -HookType "PreBackup" `
@@ -467,8 +469,23 @@ function Invoke-PoShBackupJob {
             if (-not $IsSimulateMode.IsPresent -and -not (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
                 & $LocalWriteLog -Message "[ERROR] Operations: Local staged archive '$FinalArchivePath' not found. Cannot proceed with remote target transfers." -Level "ERROR"
                 $allTargetTransfersSuccessfulOverall = $false
-                if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" } # Or FAILURE depending on how critical this is.
+                if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" } 
             } else {
+                # Get LocalArchiveCreationTimestamp
+                $LocalArchiveCreationTimestamp = $null
+                if (-not $IsSimulateMode.IsPresent -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
+                    try { $LocalArchiveCreationTimestamp = (Get-Item -LiteralPath $FinalArchivePath).CreationTime }
+                    catch {
+                        & $LocalWriteLog -Message "[WARNING] Operations: Could not get CreationTime for local archive '$FinalArchivePath' prior to target transfer. Error: $($_.Exception.Message)" -Level "WARNING"
+                    }
+                } elseif ($IsSimulateMode.IsPresent) {
+                    $LocalArchiveCreationTimestamp = (Get-Date).AddMinutes(-5) # Simulated timestamp for when archive would have been created
+                }
+                if ($null -eq $LocalArchiveCreationTimestamp) { # Fallback if Get-Item failed or not simulated and archive not found (though checked above)
+                    $LocalArchiveCreationTimestamp = (Get-Date) # Use current time as a fallback
+                    & $LocalWriteLog -Message "[DEBUG] Operations: Using current time as fallback for LocalArchiveCreationTimestamp for target transfers." -Level "DEBUG"
+                }
+
                 foreach ($targetInstanceConfig in $effectiveJobConfig.ResolvedTargetInstances) {
                     $targetInstanceName = $targetInstanceConfig._TargetInstanceName_ 
                     $targetInstanceType = $targetInstanceConfig.Type
@@ -495,30 +512,33 @@ function Invoke-PoShBackupJob {
                         }
 
                         $transferParams = @{
-                            LocalArchivePath          = $FinalArchivePath # The locally staged archive
+                            LocalArchivePath            = $FinalArchivePath 
                             TargetInstanceConfiguration = $targetInstanceConfig 
-                            JobName                   = $JobName
-                            ArchiveFileName           = $ArchiveFileNameOnly
-                            ArchiveBaseName           = $effectiveJobConfig.BaseFileName
-                            ArchiveExtension          = $effectiveJobConfig.JobArchiveExtension
-                            IsSimulateMode            = $IsSimulateMode.IsPresent
-                            Logger                    = $Logger
-                            EffectiveJobConfig        = $effectiveJobConfig 
+                            JobName                     = $JobName
+                            ArchiveFileName             = $ArchiveFileNameOnly
+                            ArchiveBaseName             = $effectiveJobConfig.BaseFileName
+                            ArchiveExtension            = $effectiveJobConfig.JobArchiveExtension
+                            IsSimulateMode              = $IsSimulateMode.IsPresent
+                            Logger                      = $Logger
+                            EffectiveJobConfig          = $effectiveJobConfig
+                            LocalArchiveSizeBytes       = $reportData.ArchiveSizeBytes # Pass size in bytes
+                            LocalArchiveCreationTimestamp = $LocalArchiveCreationTimestamp
+                            PasswordInUse               = $effectiveJobConfig.PasswordInUseFor7Zip
                         }
-                        $transferOutcome = & $invokeTargetTransferCmd @transferParams # Invoke the function
+                        $transferOutcome = & $invokeTargetTransferCmd @transferParams 
                         
                         $currentTransferReport.Status = if($transferOutcome.Success){"Success"}else{"Failure"}
                         $currentTransferReport.RemotePath = $transferOutcome.RemotePath
                         $currentTransferReport.ErrorMessage = $transferOutcome.ErrorMessage
                         $currentTransferReport.TransferDuration = if ($null -ne $transferOutcome.TransferDuration) {$transferOutcome.TransferDuration.ToString()} else {"N/A"}
-                        $currentTransferReport.TransferSize = $transferOutcome.TransferSize # In bytes
-                        # Get formatted size for report, handling potential null/empty remote path if transfer failed early
+                        $currentTransferReport.TransferSize = $transferOutcome.TransferSize 
+                        
                         if (-not [string]::IsNullOrWhiteSpace($transferOutcome.RemotePath) -and $transferOutcome.Success -and (-not $IsSimulateMode.IsPresent)) {
-                             if (Test-Path -LiteralPath $transferOutcome.RemotePath -ErrorAction SilentlyContinue) { # Check if remote path is accessible for size check (might not be for some providers)
+                             if (Test-Path -LiteralPath $transferOutcome.RemotePath -ErrorAction SilentlyContinue) { 
                                  $currentTransferReport.TransferSizeFormatted = Get-ArchiveSizeFormatted -PathToArchive $transferOutcome.RemotePath -Logger $Logger
-                             } else { $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromBytes -Bytes $transferOutcome.TransferSize }
+                             } else { $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromByte -Bytes $transferOutcome.TransferSize } # RENAMED FUNCTION
                         } elseif ($IsSimulateMode.IsPresent -and $transferOutcome.TransferSize -gt 0) {
-                            $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromBytes -Bytes $transferOutcome.TransferSize
+                            $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromByte -Bytes $transferOutcome.TransferSize # RENAMED FUNCTION
                         }
                          else { $currentTransferReport.TransferSizeFormatted = "N/A" }
 
@@ -539,16 +559,15 @@ function Invoke-PoShBackupJob {
                         if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
                     }
                     $reportData.TargetTransfers.Add($currentTransferReport)
-                } # End foreach target instance
-            } # End if local archive exists
+                } 
+            } 
 
-            if ($allTargetTransfersSuccessfulOverall -and $effectiveJobConfig.ResolvedTargetInstances.Count -gt 0) { # Only log general success if targets were attempted
+            if ($allTargetTransfersSuccessfulOverall -and $effectiveJobConfig.ResolvedTargetInstances.Count -gt 0) { 
                 & $LocalWriteLog -Message "[INFO] Operations: All attempted remote target transfers for job '$JobName' completed successfully." -Level "SUCCESS"
-            } elseif ($effectiveJobConfig.ResolvedTargetInstances.Count -gt 0) { # Log general warning if targets were attempted and not all succeeded
+            } elseif ($effectiveJobConfig.ResolvedTargetInstances.Count -gt 0) { 
                 & $LocalWriteLog -Message "[WARNING] Operations: One or more remote target transfers for job '$JobName' FAILED or were skipped due to errors." -Level "WARNING"
             }
 
-            # Delete local staged archive if configured and all transfers were successful
             if ($effectiveJobConfig.DeleteLocalArchiveAfterSuccessfulTransfer -and $allTargetTransfersSuccessfulOverall -and $effectiveJobConfig.ResolvedTargetInstances.Count -gt 0) {
                 if ((-not $IsSimulateMode.IsPresent) -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
                     if ($PSCmdlet.ShouldProcess($FinalArchivePath, "Delete Local Staged Archive (Post-All-Successful-Transfers)")) {
@@ -647,7 +666,7 @@ function Invoke-PoShBackupJob {
 #region --- Helper Function for Formatted Size from Bytes (used by Operations if target provider does not return formatted size) ---
 # This is added here because Get-ArchiveSizeFormatted in Utils.psm1 expects a path,
 # but target providers return raw bytes for TransferSize.
-function Get-UtilityArchiveSizeFormattedFromBytes {
+function Get-UtilityArchiveSizeFormattedFromByte { # RENAMED
     param(
         [long]$Bytes
     )

@@ -2,6 +2,7 @@
 .SYNOPSIS
     PoSh-Backup Target Provider for UNC (Universal Naming Convention) paths.
     Handles transferring backup archives to network shares and managing retention on those shares.
+    Accepts additional metadata about the local archive, such as size and creation time.
     Allows configurable creation of a job-specific subdirectory on the target.
 
 .DESCRIPTION
@@ -19,6 +20,8 @@
         (currently a placeholder for full implementation).
     -   Ensures the final remote destination directory exists, creating it if necessary.
     -   Copies the local backup archive file to the determined remote destination.
+    -   Logs information received about the local archive, such as its size, creation time,
+        and password protection status.
     -   If 'RemoteRetentionSettings' (e.g., 'KeepCount') are defined in the target configuration,
         it applies a count-based retention policy to archives for the current job within the
         final remote destination directory.
@@ -28,7 +31,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Added CreateJobNameSubdirectory setting.
+    Version:        1.1.0 # Added LocalArchiveSizeBytes, CreationTimestamp, PasswordInUse params. Log EffectiveJobConfig.BaseFileName.
     DateCreated:    19-May-2025
     LastModified:   19-May-2025
     Purpose:        UNC Target Provider for PoSh-Backup.
@@ -37,6 +40,20 @@
                     to read/write/delete on the target UNC path.
                     For credentialed access (future enhancement), PowerShell SecretManagement would be required.
 #>
+
+#region --- Private Helper: Format Bytes ---
+# Internal helper function to format byte sizes into human-readable strings (KB, MB, GB).
+function Format-BytesInternal {
+    param(
+        [Parameter(Mandatory=$true)]
+        [long]$Bytes
+    )
+    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
+    elseif ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
+    elseif ($Bytes -ge 1KB) { return "{0:N2} KB" -f ($Bytes / 1KB) }
+    else { return "$Bytes Bytes" }
+}
+#endregion
 
 #region --- UNC Target Transfer Function ---
 function Invoke-PoShBackupTargetTransfer {
@@ -49,6 +66,7 @@ function Invoke-PoShBackupTargetTransfer {
         of the local archive to the specified UNC remote path and applies any configured
         remote retention policy. The creation of a job-specific subdirectory on the remote
         target is controllable via the 'CreateJobNameSubdirectory' setting.
+        It receives and logs additional metadata about the local archive.
     .PARAMETER LocalArchivePath
         The full path to the local backup archive file that needs to be transferred.
     .PARAMETER TargetInstanceConfiguration
@@ -76,14 +94,20 @@ function Invoke-PoShBackupTargetTransfer {
         A mandatory scriptblock reference to the 'Write-LogMessage' function from Utils.psm1.
     .PARAMETER EffectiveJobConfig
         The fully resolved effective configuration hashtable for the current PoSh-Backup job.
-        May be used for advanced conditional logic within the provider if necessary.
+        This is logged for diagnostic purposes by this provider.
+    .PARAMETER LocalArchiveSizeBytes
+        The size of the local archive in bytes. This is logged by the provider.
+    .PARAMETER LocalArchiveCreationTimestamp
+        The creation timestamp of the local archive. This is logged by the provider.
+    .PARAMETER PasswordInUse
+        A boolean indicating if the local archive was password protected. This is logged by the provider.
     .OUTPUTS
         System.Collections.Hashtable
         Returns a hashtable with the following keys:
         - Success (boolean): $true if the transfer (and remote retention, if applicable) was successful or simulated successfully.
         - RemotePath (string): The full UNC path to where the archive was (or would have been) copied.
         - ErrorMessage (string): An error message if an operation failed.
-        - TransferSize (long): Size of the transferred file in bytes. 0 in simulation or if transfer failed before copy.
+        - TransferSize (long): Size of the transferred file in bytes. 0 in simulation (unless file exists for size check) or if transfer failed before copy.
         - TransferDuration (System.TimeSpan): Duration of the file copy operation.
     #>
     param(
@@ -104,7 +128,13 @@ function Invoke-PoShBackupTargetTransfer {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory=$true)]
-        [hashtable]$EffectiveJobConfig 
+        [hashtable]$EffectiveJobConfig,
+        [Parameter(Mandatory=$true)]
+        [long]$LocalArchiveSizeBytes,
+        [Parameter(Mandatory=$true)]
+        [datetime]$LocalArchiveCreationTimestamp,
+        [Parameter(Mandatory=$true)]
+        [bool]$PasswordInUse
     )
 
     # Defensive PSSA appeasement line
@@ -157,7 +187,6 @@ function Invoke-PoShBackupTargetTransfer {
         $remoteFinalDirectoryForArchiveAndRetention = $uncRemoteBasePathFromConfig
     }
     
-    # This $fullRemoteArchivePath is the final, specific path where the archive file itself will be placed.
     $fullRemoteArchivePath = Join-Path -Path $remoteFinalDirectoryForArchiveAndRetention -ChildPath $ArchiveFileName
     $result.RemotePath = $fullRemoteArchivePath # Store the intended final path in the result
 
@@ -176,6 +205,12 @@ function Invoke-PoShBackupTargetTransfer {
     }
 
     & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': Local archive source: '$LocalArchivePath'" -Level "DEBUG"
+    & $LocalWriteLog -Message "    - Local Archive Size (Bytes): $LocalArchiveSizeBytes ($(Format-BytesInternal -Bytes $LocalArchiveSizeBytes))" -Level "DEBUG"
+    & $LocalWriteLog -Message "    - Local Archive Created: $LocalArchiveCreationTimestamp" -Level "DEBUG"
+    & $LocalWriteLog -Message "    - Local Archive Password Protected: $PasswordInUse" -Level "DEBUG"
+    $jobBaseFileNameFromConfig = if ($EffectiveJobConfig.ContainsKey('BaseFileName')) { $EffectiveJobConfig.BaseFileName } else { 'N/A' } # Accessing EffectiveJobConfig
+    & $LocalWriteLog -Message "    - Job BaseFileName (from EffectiveJobConfig for this job): $jobBaseFileNameFromConfig" -Level "DEBUG"
+
     & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': Final remote directory for archive & retention operations: '$remoteFinalDirectoryForArchiveAndRetention'" -Level "DEBUG"
     & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': Full remote archive destination path: '$fullRemoteArchivePath'" -Level "DEBUG"
 
@@ -183,10 +218,8 @@ function Invoke-PoShBackupTargetTransfer {
         & $LocalWriteLog -Message "SIMULATE: UNC Target '$targetNameForLog': Would ensure remote directory exists: '$remoteFinalDirectoryForArchiveAndRetention'." -Level "SIMULATE"
         & $LocalWriteLog -Message "SIMULATE: UNC Target '$targetNameForLog': Would copy '$LocalArchivePath' to '$fullRemoteArchivePath'." -Level "SIMULATE"
         $result.Success = $true
-        # Simulate transfer size if local file exists for more realistic reporting
-        if (Test-Path -LiteralPath $LocalArchivePath -PathType Leaf) {
-            try { $result.TransferSize = (Get-Item -LiteralPath $LocalArchivePath).Length } catch {}
-        }
+        # Use the passed LocalArchiveSizeBytes for simulated transfer size
+        $result.TransferSize = $LocalArchiveSizeBytes
     } else {
         # Ensure the final remote directory (which might be the base path or a job sub-path) exists
         if (-not $PSCmdlet.ShouldProcess($remoteFinalDirectoryForArchiveAndRetention, "Ensure Remote Directory Exists")) {
@@ -283,6 +316,7 @@ function Invoke-PoShBackupTargetTransfer {
                     }
                 }
             } catch {
+                # Catch block for Get-ChildItem or other errors during remote retention setup
                 & $LocalWriteLog -Message "[WARNING] UNC Target '$targetNameForLog': Error during remote retention policy for job '$JobName' in '$remoteFinalDirectoryForArchiveAndRetention'. Error: $($_.Exception.Message)" -Level "WARNING"
                 if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = "Error during remote retention: $($_.Exception.Message)" }
                 else { $result.ErrorMessage += " Additionally, error during remote retention: $($_.Exception.Message)"}
