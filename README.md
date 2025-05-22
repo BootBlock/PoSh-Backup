@@ -12,10 +12,12 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   If no remote targets are specified for a job, the local staging directory serves as the final backup location.
 *   **Granular Backup Job Control:** Precisely define sources, destinations (local staging), archive names, local retention policies, 7-Zip parameters, and **remote target assignments** for each individual backup job.
 *   **Backup Sets:** Group multiple jobs to run sequentially, with set-level error handling (stop on error or continue) for automated workflows.
-*   **Extensible Backup Target Providers:** A modular system (located in `Modules\Targets\`) allows for adding support for various remote storage types (a UNC provider is included initially). Each provider module is responsible for its specific transfer protocol and can implement its own remote retention logic.
+*   **Extensible Backup Target Providers:** A modular system (located in `Modules\Targets\`) allows for adding support for various remote storage types.
+    *   **UNC Provider:** Transfers archives to standard network shares.
+    *   **Replicate Provider (New):** Copies an archive to multiple specified local or UNC paths, with individual retention settings per destination.
 *   **Configurable Retention Policies:**
     *   **Local Retention:** Manage archive versions in the local staging directory (`DestinationDir`) using the `LocalRetentionCount` setting per job.
-    *   **Remote Retention:** Each Backup Target provider can, if designed to do so, implement its own retention logic on the remote storage (e.g., keep last X versions, delete after Y days). This is configured within the target's definition in the `BackupTargets` section (e.g., via `RemoteRetentionSettings`).
+    *   **Remote Retention:** Each Backup Target provider can, if designed to do so, implement its own retention logic on the remote storage (e.g., keep last X versions, delete after Y days). This is configured within the target's definition in the `BackupTargets` section (e.g., via `RemoteRetentionSettings` or per-destination settings for providers like "Replicate").
 *   **Live File Backups with VSS:** Utilise the Windows Volume Shadow Copy Service (VSS) to seamlessly back up open or locked files (requires Administrator privileges). Features configurable VSS context, reliable shadow copy creation, and a configurable metadata cache path.
 *   **Advanced 7-Zip Integration:** Leverage 7-Zip for efficient, highly configurable compression. Customise archive type, compression level, method, dictionary/word/solid block sizes, thread count, and file exclusions for local archive creation.
 *   **Secure Password Protection:** Encrypt local backup archives with passwords, handled securely via temporary files (using 7-Zip's `-spf` switch) to prevent command-line exposure. Multiple password sources supported (Interactive, PowerShell SecretManagement, Encrypted File, Plaintext).
@@ -62,7 +64,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   `User.psd1`: (Will be created on first run if it doesn't exist) This is where your custom settings go.
         *   `Themes/`: Contains CSS files for different HTML report themes.
     *   `Modules/`: Contains PowerShell modules that provide the core functionality.
-        *   `Targets/`: **New sub-directory for Backup Target provider modules** (e.g., `UNC.Target.psm1`).
+        *   `Targets/`: **New sub-directory for Backup Target provider modules** (e.g., `UNC.Target.psm1`, `Replicate.Target.psm1`).
     *   `Meta/`: Contains scripts related to the development of PoSh-Backup itself (like the script to generate bundles for AI).
     *   `Logs/`: Default directory where text log files will be stored for each job run (if file logging is enabled in the configuration).
     *   `Reports/`: Default directory where generated backup reports (HTML, CSV, etc.) will be saved.
@@ -90,20 +92,38 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   Defaults to `$false`. If set to `$true`, 7-Zip warnings (like skipped files) will still result in a "SUCCESS" job status.
     *   **`BackupTargets` (New Global Section):**
         *   This is where you define your reusable, named remote target configurations.
-        *   Each entry (a "target instance") specifies a `Type` (like "UNC", which corresponds to a provider module, e.g., `Modules\Targets\UNC.Target.psm1`) and `TargetSpecificSettings` for that type.
-        *   Optionally, you can include `CredentialsSecretName` if the provider supports credentialed access via PowerShell SecretManagement, and `RemoteRetentionSettings` for provider-specific retention on the target.
-        *   Example of defining a UNC target instance in `User.psd1` (or `Default.psd1`):
+        *   Each entry (a "target instance") specifies a `Type` (like "UNC", "Replicate") and `TargetSpecificSettings` for that type.
+        *   Optionally, you can include `CredentialsSecretName` if the provider supports credentialed access via PowerShell SecretManagement, and `RemoteRetentionSettings` for provider-specific retention on the target (or per-destination for "Replicate" type).
+        *   Example of defining a UNC target instance:
             ```powershell
             # Inside User.psd1 or Default.psd1, within the main @{ ... }
             BackupTargets = @{
                 "MyMainUNCShare" = @{
                     Type = "UNC" # Refers to Modules\Targets\UNC.Target.psm1
                     TargetSpecificSettings = @{
-                        UNCRemotePath = "\\fileserver01\backups\MyPoShBackups" # Base path on the UNC share
-                        # Optional: CredentialsSecretName = "UNCShareCredentials" # For future credentialed access by provider
+                        UNCRemotePath = "\\fileserver01\backups\MyPoShBackups"
+                        CreateJobNameSubdirectory = $false # Optional, default is $false
                     }
-                    # Optional: Provider-specific remote retention (structure depends on the provider)
-                    # RemoteRetentionSettings = @{ KeepCount = 7 } 
+                    # Optional: RemoteRetentionSettings = @{ KeepCount = 7 } 
+                }
+                # Example for the "Replicate" target type
+                "MyReplicatedBackups" = @{
+                    Type = "Replicate" # Refers to Modules\Targets\Replicate.Target.psm1
+                    TargetSpecificSettings = @( # Array of destination configurations
+                        @{ # Destination 1
+                            Path = "E:\SecondaryCopies\CriticalData"
+                            CreateJobNameSubdirectory = $true # Archives for job "JobA" go to E:\SecondaryCopies\CriticalData\JobA
+                            RetentionSettings = @{ KeepCount = 5 } # Keep 5 versions at this specific destination
+                        },
+                        @{ # Destination 2
+                            Path = "\\NAS\ArchiveMirror\Important"
+                            # CreateJobNameSubdirectory defaults to $false if not specified
+                            RetentionSettings = @{ KeepCount = 10 } # Keep 10 versions at this specific destination
+                        },
+                        @{ # Destination 3 (simple, no job subdir, no specific retention here)
+                            Path = "F:\USBStick\QuickAccess"
+                        }
+                    )
                 }
                 # Add other targets, e.g., for FTP, S3, etc. as providers become available.
             }
@@ -123,26 +143,26 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             ```powershell
             # Inside BackupLocations in User.psd1 or Default.psd1
             "MyDocumentsBackup" = @{
-                Path           = @( # Array of paths to back up
+                Path           = @( 
                                  "C:\Users\YourUserName\Documents",
                                  "E:\WorkProjects\CriticalData"
                                )
-                Name           = "UserDocumentsArchive" # Base name for the archive file
-                DestinationDir = "E:\BackupStaging\MyDocs"   # Local staging location for this job.
-                LocalRetentionCount = 3                     # Keep 3 versions in staging.
+                Name           = "UserDocumentsArchive" 
+                DestinationDir = "E:\BackupStaging\MyDocs"   
+                LocalRetentionCount = 3                     
 
-                TargetNames = @("MyMainUNCShare") # Send to the 'MyMainUNCShare' target defined in BackupTargets.
-                DeleteLocalArchiveAfterSuccessfulTransfer = $true # Delete from E:\BackupStaging after successful UNC transfer.
-                
-                # Other job-specific settings like EnableVSS, ArchivePasswordMethod, etc.
+                TargetNames = @("MyMainUNCShare") 
+                DeleteLocalArchiveAfterSuccessfulTransfer = $true 
             }
 
-            "ImportantProject_LocalOnly" = @{
+            "ImportantProject_Replicated" = @{
                 Path           = "D:\Projects\CriticalProject"
-                Name           = "CriticalProjectArchive"
-                DestinationDir = "E:\FinalBackups\Projects" # This acts as the final local destination.
-                LocalRetentionCount = 10                   # Keep 10 versions locally.
-                # No TargetNames specified, so this is a local-only backup.
+                Name           = "CriticalProject_MultiCopy"
+                DestinationDir = "C:\Temp\StagingArea"    
+                LocalRetentionCount = 1 # Keep only 1 in staging after successful replication
+
+                TargetNames = @("MyReplicatedBackups") # Uses the "Replicate" target defined above
+                DeleteLocalArchiveAfterSuccessfulTransfer = $true
             }
             ```
 3.  **Explore `Config\Default.psd1` for All Options:**
@@ -165,7 +185,7 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
 
 *   **Simulate a backup job (local archive creation and any remote transfers will be simulated):**
     ```powershell
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackup" -Simulate
+    .\PoSh-Backup.ps1 -BackupLocationName "ImportantProject_Replicated" -Simulate
     ```
 
 *   **Run a job and treat 7-Zip warnings from local archiving as success for status reporting:**

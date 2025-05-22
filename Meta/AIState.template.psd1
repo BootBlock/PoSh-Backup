@@ -4,25 +4,26 @@
   bundler_script_version = "__BUNDLER_VERSION_PLACEHOLDER__" # Populated by bundler
 
   ai_development_watch_list = @(
-    "CRITICAL (AI): Ensure full, untruncated files are provided when requested by the user. AI has made this mistake multiple times, including during the most recent session regarding CSS and Validator module updates, and most recently with RetentionManager.psm1. THIS WAS A REPEATED, SIGNIFICANT ISSUE IN THE CURRENT SESSION WITH README.md, Default.psd1, AND OTHER MODULES. EXTREME VIGILANCE REQUIRED.", # RE-EMPHASIZED + CURRENT SESSION
-    "CRITICAL (AI): Verify line counts and comment integrity when AI provides full script updates; inadvertent removal/truncation has occurred (e.g., missing comments, fewer lines than expected). This was a significant issue in the last session, particularly with RetentionManager.psm1. This was also an issue in the current session with multiple files. EXTREME VIGILANCE REQUIRED.", # RE-EMPHASIZED + CURRENT SESSION
+    "CRITICAL (AI): ENSURE FULL, UNTRUNCATED FILES ARE PROVIDED WHEN REQUESTED. This was a REPEATED, CATASTROPHIC FAILURE during the 'Replicate' target provider development, affecting Operations.psm1, PoShBackupValidator.psm1, Default.psd1, and UNC.Target.psm1 across multiple attempts. EXTREME VIGILANCE AND A CHANGE IN AI STRATEGY (e.g., providing diffs for complex files) IS REQUIRED. User had to provide baselines multiple times.", # RE-EMPHASIZED + CURRENT SESSION MAJOR FAILURE
+    "CRITICAL (AI): VERIFY LINE COUNTS AND COMMENT INTEGRITY when AI provides full script updates. Inadvertent removal/truncation has occurred repeatedly. This was a significant issue in the last session and a CATASTROPHIC issue in the current session. EXTREME VIGILANCE REQUIRED.", # RE-EMPHASIZED + CURRENT SESSION MAJOR FAILURE
     "CRITICAL (AI): Ensure no extraneous trailing whitespace is introduced on any lines, including apparently blank ones when providing code.",
-    "CRITICAL (AI): When modifying existing files, explicitly confirm the baseline version/content if there's any ambiguity (e.g., discrepancy between AI's understanding of a file's length/content and the user's current version). This caused confusion with README.md length and other files during the Backup Target feature development.", # UPDATED
+    "CRITICAL (AI): When modifying existing files, EXPLICITLY CONFIRM THE BASELINE VERSION/CONTENT if there's ANY ambiguity. If providing full files, state the assumed baseline. If errors persist, switch to providing diffs/patches against a user-provided baseline.", # UPDATED with strategy
     "CRITICAL (SYNTAX): For literal triple backticks (```) in PowerShell strings meant for Markdown code fences, use single quotes: '''```'''. For example, using 'theSBvariable.AppendLine('''''''```''''''')' with single quotes for the outer string. Double quotes for the outer string will cause parsing errors or misinterpretation.",
-    "CRITICAL (SYNTAX): Escaping special characters (like `$`, `{`, `}` within regex patterns) in PowerShell here-strings for JavaScript requires extreme care. PowerShell's parser may interpret sequences like `${}` as empty variable expressions. Methods like string concatenation within the JS, or careful backtick escaping (`$`) are needed. This caused multiple iterations in a previous session.",
-    "CRITICAL (SYNTAX): When providing replacement strings for PowerShell's -replace operator that include special characters (e.g., HTML entities like '<'), ensure these replacement strings are correctly quoted (typically single quotes) to be treated as literal strings by PowerShell. Failure to do so caused parsing errors in ReportingHtml.psm1.", 
+    "CRITICAL (SYNTAX): Escaping special characters (like `$`, `{`, `}` within regex patterns) in PowerShell here-strings for JavaScript requires extreme care. PowerShell's parser may interpret sequences like `${}` as empty variable expressions. Methods like string concatenation within the JS, or careful backtick escaping (`$`) are needed.",
+    "CRITICAL (SYNTAX): When providing replacement strings for PowerShell's -replace operator that include special characters (e.g., HTML entities like '<'), ensure these replacement strings are correctly quoted (typically single quotes) to be treated as literal strings by PowerShell.", 
     "SYNTAX: PowerShell ordered dictionaries (`[ordered]@{}`) use `(theDictVariable.PSObject.Properties.Name -contains 'Key')`, NOT `theDictVariable.ContainsKey('Key')`. ",
-    "REGEX: Be cautious with string interpolation vs. literal characters in regex patterns. Test regex patterns carefully. Ensure PowerShell string parsing is correct before regex engine sees it (e.g., use single-quoted strings for regex patterns, ensure proper escaping of special characters within the pattern if needed).",
-    "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting, including through new Backup Target provider models.", # UPDATED
-    "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`, `VSSStatus`, `VSSAttempted`, and new `TargetTransfers` array) is correctly set in `theReportDataRefVariable` (a ref object) *before* report generation functions are called.", # UPDATED
-    "SCOPE: Double-check variable scopes when helper functions modify collections intended for wider use (prefer passing by ref or using script scope explicitly and carefully, e.g., `script:varName`). Consider returning values from helper functions instead of direct script-scope modification for cleaner data flow, especially in modularized scripts.",
-    "STRUCTURE: Respect the modular design (PoSh-Backup core modules, Reporting sub-modules, Bundler sub-modules, new Target Provider sub-modules in `Modules\Targets\`). Ensure functions are placed in the most logical module.", # UPDATED
-    "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code, especially in complex `if/try/catch/finally` blocks and `param()` blocks.",
-    "PSSA (BUNDLER): Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions from `PSScriptAnalyzerSettings.psd1`, even if VS Code (with the settings file) shows no issues. This was observed with unused parameters in closures, requiring defensive code changes.",
-    "PSSA (CLOSURES): PSScriptAnalyzer may not always detect parameter/variable usage within scriptblock closures assigned to local variables, potentially leading to false 'unused' warnings that require defensive/explicit calls for PSSA appeasement.",
-    "PESTER (SESSION): Current Pester tests are non-functional. Significant issues encountered with Pester v5 environment, cmdlet availability (Get-Mock/Remove-Mock were not exported by Pester 5.7.1), mock scoping, and test logic that could not be resolved during the session. Further Pester work will require a reset or a different diagnostic approach.",
-    "CRITICAL (PSD1_PARSING): `Import-PowerShellDataFile` can unexpectedly fail with 'dynamic expression' errors on double-quoted strings containing backtick-escaped `\$` if the overall string structure is complex (e.g., includes other backticks, parentheses, or special characters that confuse its parser). The safest workaround is to rephrase such strings to avoid literal `\$` characters entirely, or use single-quoted strings if the content's internal quoting allows it simply.",
-    "LOGIC (CONFIRMATION): The interaction between `[CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='...')`, `$PSCmdlet.ShouldProcess()`, `$ConfirmPreference`, and explicit `-Confirm` parameters on both the function call and internal cmdlets (like `Remove-Item`) is complex. Carefully test confirmation flows, especially when aiming for conditional suppression of prompts based on configuration." 
+    "REGEX: Be cautious with string interpolation vs. literal characters in regex patterns. Test regex patterns carefully. Ensure PowerShell string parsing is correct before regex engine sees it.",
+    "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting, including through new Backup Target provider models.", 
+    "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`, `VSSStatus`, `VSSAttempted`, and new `TargetTransfers` array with its `ReplicationDetails`) is correctly set in `theReportDataRefVariable` (a ref object) *before* report generation functions are called.", # UPDATED
+    "SCOPE: Double-check variable scopes. `$Global:StatusToColourMap` and associated `$Global:Colour<Name>` variables in `PoSh-Backup.ps1` must be correctly defined and accessible when `Write-LogMessage` (from `Utils.psm1`) is invoked, even during early module loading or from deeply nested calls. An explicit 'ERROR' key in the map resolved a color issue.", # NEW/UPDATED
+    "STRUCTURE: Respect the modular design. Ensure functions are placed in the most logical module. New target providers go in `Modules\Targets\`.", 
+    "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code.",
+    "PSSA (BUNDLER): Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions from `PSScriptAnalyzerSettings.psd1` or inline suppressions, even if VS Code shows no issues. This was observed with `PSUseApprovedVerbs` which required careful inline suppression.", # UPDATED
+    "PSSA (CLOSURES): PSScriptAnalyzer may not always detect parameter/variable usage within scriptblock closures assigned to local variables (e.g., `$LocalWriteLog` wrappers using a `$Logger` parameter from parent scope). Explicit, direct calls to the parameter within the main function body might be needed for PSSA appeasement.", # UPDATED
+    "PESTER (SESSION): Current Pester tests are non-functional. No work done in this session.",
+    "CRITICAL (PSD1_PARSING): `Import-PowerShellDataFile` can unexpectedly fail with 'dynamic expression' errors on double-quoted strings containing backtick-escaped `\$` if the overall string structure is complex. Safest to rephrase or use single-quoted strings.",
+    "LOGIC (CONFIRMATION): The interaction between `[CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='...')`, `$PSCmdlet.ShouldProcess()`, `$ConfirmPreference`, and explicit `-Confirm` parameters is complex. Test confirmation flows carefully.",
+    "LOGIC (PATH_CREATION): `New-Item -ItemType Directory -Force` on UNC paths may not create intermediate parent directories robustly. Iterative path component creation is more reliable for UNC destinations (as implemented in `UNC.Target.psm1`'s `Initialize-RemotePathInternal`)." # NEW
   )
 
   conversation_summary = @( 
@@ -40,10 +41,10 @@
     fields_to_update_by_ai = @( 
       "ai_development_watch_list",
       "ai_bundler_update_instructions", 
-      "external_dependencies.executables" # AI can update this if it knows a new tool was explicitly added and configured
+      "external_dependencies.executables" 
     )
     fields_to_be_updated_by_user = @( 
-      "external_dependencies.executables (if new external tools are added - AI cannot auto-detect this reliably if path is not hardcoded/standard)" # User primarily responsible
+      "external_dependencies.executables (if new external tools are added - AI cannot auto-detect this reliably if path is not hardcoded/standard)" 
     )
     example_of_ai_provided_block_end = "}" 
   }
@@ -58,13 +59,9 @@
   external_dependencies = @{
     executables = @( 
       "7z.exe (7-Zip command-line tool - path configurable or auto-detected)"
-      # USER/AI: Add other executables if new target providers require them (e.g., rclone.exe, aws.exe, azcopy.exe).
-      # The bundler cannot reliably auto-detect these unless their paths are hardcoded or found via standard means.
     )
     powershell_modules = @( 
-      "__PS_DEPENDENCIES_PLACEHOLDER__" # Dynamically populated by bundler based on #Requires
-      # USER/AI: Add PowerShell modules required by specific target providers if they are not declared with #Requires -Module
-      # (e.g., AWSPowerShell, Az.Storage). The bundler will pick up #Requires, but verify.
+      "__PS_DEPENDENCIES_PLACEHOLDER__" 
     )
   }
 }

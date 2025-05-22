@@ -19,7 +19,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Description updated to reflect inclusion of TargetTransfers data.
+    Version:        1.2.1
     DateCreated:    14-May-2025
     LastModified:   19-May-2025
     Purpose:        XML (specifically PowerShell Clixml) report generation sub-module for PoSh-Backup.
@@ -84,9 +84,10 @@ function Invoke-XmlReport {
     # Defensive PSSA appeasement line:
     & $Logger -Message "Invoke-XmlReport: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level

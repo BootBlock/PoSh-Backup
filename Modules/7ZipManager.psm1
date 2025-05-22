@@ -19,7 +19,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.5 # Implement TreatSevenZipWarningsAsSuccess logic and hide STDOUT when HideSevenZipOutput is true.
+    Version:        1.0.6
     DateCreated:    17-May-2025
     LastModified:   18-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
@@ -70,7 +70,7 @@ function Find-SevenZipExecutable {
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level

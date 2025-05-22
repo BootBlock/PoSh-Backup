@@ -47,7 +47,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.16.0 # Pass LocalArchiveSizeBytes, CreationTimestamp, PasswordInUse to Target Providers. Renamed Get-UtilityArchiveSizeFormattedFromBytes.
+    Version:        1.17.1
     DateCreated:    10-May-2025
     LastModified:   19-May-2025
     Purpose:        Handles the execution logic for individual backup jobs, including remote target transfers.
@@ -87,21 +87,21 @@ function Invoke-PoShBackupJob {
         [Parameter(Mandatory=$false)]
         [switch]$IsSimulateMode,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger # Added Logger parameter
+        [scriptblock]$Logger 
     )
 
-    # Internal helper to use the passed-in logger consistently
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level
         }
     }
+
     # Defensive PSSA appeasement line
     & $LocalWriteLog -Message "Invoke-PoShBackupJob: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
 
     $currentJobStatus = "SUCCESS" 
     $tempPasswordFilePath = $null
@@ -521,7 +521,7 @@ function Invoke-PoShBackupJob {
                             IsSimulateMode              = $IsSimulateMode.IsPresent
                             Logger                      = $Logger
                             EffectiveJobConfig          = $effectiveJobConfig
-                            LocalArchiveSizeBytes       = $reportData.ArchiveSizeBytes # Pass size in bytes
+                            LocalArchiveSizeBytes       = $reportData.ArchiveSizeBytes 
                             LocalArchiveCreationTimestamp = $LocalArchiveCreationTimestamp
                             PasswordInUse               = $effectiveJobConfig.PasswordInUseFor7Zip
                         }
@@ -536,13 +536,24 @@ function Invoke-PoShBackupJob {
                         if (-not [string]::IsNullOrWhiteSpace($transferOutcome.RemotePath) -and $transferOutcome.Success -and (-not $IsSimulateMode.IsPresent)) {
                              if (Test-Path -LiteralPath $transferOutcome.RemotePath -ErrorAction SilentlyContinue) { 
                                  $currentTransferReport.TransferSizeFormatted = Get-ArchiveSizeFormatted -PathToArchive $transferOutcome.RemotePath -Logger $Logger
-                             } else { $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromByte -Bytes $transferOutcome.TransferSize } # RENAMED FUNCTION
+                             } else { $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromByte -Bytes $transferOutcome.TransferSize } 
                         } elseif ($IsSimulateMode.IsPresent -and $transferOutcome.TransferSize -gt 0) {
-                            $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromByte -Bytes $transferOutcome.TransferSize # RENAMED FUNCTION
+                            $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromByte -Bytes $transferOutcome.TransferSize 
+                        } else { 
+                            $currentTransferReport.TransferSizeFormatted = "N/A" 
                         }
-                         else { $currentTransferReport.TransferSizeFormatted = "N/A" }
 
-
+                        # Log ReplicationDetails if present (e.g., from "Replicate" provider)
+                        if ($transferOutcome.ContainsKey('ReplicationDetails') -and $transferOutcome.ReplicationDetails -is [array] -and $transferOutcome.ReplicationDetails.Count -gt 0) {
+                            & $LocalWriteLog -Message "    - Operations: Replication Details for Target '$targetInstanceName':" -Level "INFO"
+                            foreach ($detail in $transferOutcome.ReplicationDetails) {
+                                $detailStatusText = if ($null -ne $detail.Status) { $detail.Status } else { "N/A" } 
+                                $detailPathText   = if ($null -ne $detail.Path)   { $detail.Path   } else { "N/A" } 
+                                $detailErrorText  = if ($null -ne $detail.Error -and -not [string]::IsNullOrWhiteSpace($detail.Error)) { $detail.Error } else { "None" } 
+                                & $LocalWriteLog -Message "      - Dest: '$detailPathText', Status: $detailStatusText, Error: $detailErrorText" -Level "INFO"
+                            }
+                        }
+                        
                         if (-not $transferOutcome.Success) {
                             $allTargetTransfersSuccessfulOverall = $false
                             if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" } 
@@ -633,7 +644,7 @@ function Invoke-PoShBackupJob {
         if (($reportData.PSObject.Properties.Name -contains 'ScriptStartTime') -and ($null -ne $reportData.ScriptStartTime)) {
             $reportData.TotalDuration = $reportData.ScriptEndTime - $reportData.ScriptStartTime
             if ($reportData.PSObject.Properties.Name -contains 'TotalDurationSeconds' -and $reportData.TotalDuration -is [System.TimeSpan]) {
-                $reportData.TotalDurationSeconds = $reportData.TotalDuration.TotalSeconds # Ensure this is updated for reporting
+                $reportData.TotalDurationSeconds = $reportData.TotalDuration.TotalSeconds 
             } elseif ($reportData.TotalDuration -is [System.TimeSpan]) {
                  $reportData.TotalDurationSeconds = $reportData.TotalDuration.TotalSeconds
             }
@@ -643,10 +654,9 @@ function Invoke-PoShBackupJob {
         }
 
         $hookArgsForExternalScript = @{
-            JobName = $JobName; Status = $reportData.OverallStatus; ArchivePath = $FinalArchivePath # Local ArchivePath
+            JobName = $JobName; Status = $reportData.OverallStatus; ArchivePath = $FinalArchivePath 
             ConfigFile = $ActualConfigFile; SimulateMode = $IsSimulateMode.IsPresent
         }
-        # Add target transfer results to hook parameters if any transfers were attempted
         if ($reportData.TargetTransfers.Count -gt 0) {
             $hookArgsForExternalScript.TargetTransferResults = $reportData.TargetTransfers
         }
@@ -666,7 +676,7 @@ function Invoke-PoShBackupJob {
 #region --- Helper Function for Formatted Size from Bytes (used by Operations if target provider does not return formatted size) ---
 # This is added here because Get-ArchiveSizeFormatted in Utils.psm1 expects a path,
 # but target providers return raw bytes for TransferSize.
-function Get-UtilityArchiveSizeFormattedFromByte { # RENAMED
+function Get-UtilityArchiveSizeFormattedFromByte { # Name changed from ...FromBytes
     param(
         [long]$Bytes
     )

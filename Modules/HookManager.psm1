@@ -23,7 +23,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1
     DateCreated:    18-May-2025
     LastModified:   18-May-2025
     Purpose:        Centralised management of user-defined hook script execution.
@@ -83,7 +83,7 @@ function Invoke-PoShBackupHook {
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level

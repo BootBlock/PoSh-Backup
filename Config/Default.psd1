@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.3.1: Added CreateJobNameSubdirectory setting for UNC Backup Target.
+# Version 1.3.3: Enabled Advanced Schema Validation by default.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -66,7 +66,7 @@
                                                                       #   "OnFailure": Pause only if the overall script status is FAILURE.
                                                                       #   "OnWarning": Pause only if the overall script status is WARNINGS.
                                                                       #   "OnFailureOrWarning": (Default) Pause if status is FAILURE OR WARNINGS.
-    EnableAdvancedSchemaValidation  = $false                          # $true to enable detailed schema-based validation of this configuration file's structure and values.
+    EnableAdvancedSchemaValidation  = $true                           # $true to enable detailed schema-based validation of this configuration file's structure and values.
                                                                       # If $true, the 'PoShBackupValidator.psm1' module must be present in the '.\Modules' folder.
                                                                       # Recommended for advanced users or when troubleshooting configuration issues.
     TreatSevenZipWarningsAsSuccess  = $false                          # Global default. $true to treat 7-Zip exit code 1 (Warning) as a success for the job's status.
@@ -199,15 +199,14 @@
 
     #region --- Backup Target Definitions (Global) ---
     # Define named remote target configurations here. These can be referenced by jobs in 'BackupLocations'.
-    # Each target instance must have a 'Type' (e.g., "UNC", "FTP", "S3") and 'TargetSpecificSettings'.
+    # Each target instance must have a 'Type' (e.g., "UNC", "Replicate", "FTP", "S3") and 'TargetSpecificSettings'.
     # 'CredentialsSecretName' is optional for providers that might use PS SecretManagement for auth.
     # 'RemoteRetentionSettings' is optional and provider-specific for managing retention on the target.
     BackupTargets = @{
         "ExampleUNCShare" = @{
             Type = "UNC" # Provider module 'Modules\Targets\UNC.Target.psm1' will handle this
             TargetSpecificSettings = @{
-                # The base remote path for this target. 
-                UNCRemotePath = "\\192.168.0.237\UsbVideo"
+                UNCRemotePath = "\\fileserver01\backups\MyPoShBackups" # Base path on the UNC share
                 # NEW SETTING: Controls if a JobName subdirectory is created under UNCRemotePath.
                 # $false (default): Archive saved directly into UNCRemotePath (e.g., \\server\share\archive.7z)
                 # $true: Archive saved into UNCRemotePath\JobName\ (e.g., \\server\share\JobName\archive.7z)
@@ -224,6 +223,30 @@
             #    # KeepDays  = 0  # e.g., Or keep archives for X days. 0 means not used. (Provider specific)
             # }
         }
+        "ExampleReplicatedStorage" = @{ # NEW EXAMPLE FOR REPLICATE PROVIDER
+            Type = "Replicate" # Provider module 'Modules\Targets\Replicate.Target.psm1' will handle this
+            TargetSpecificSettings = @( # This MUST be an array of hashtables, each defining one destination
+                @{ # First destination for replication
+                    Path = "E:\LocalReplicas\MainServer" # Can be a local path (e.g., another internal drive)
+                    CreateJobNameSubdirectory = $true # Archives for a job (e.g., "WebServer") go to E:\LocalReplicas\MainServer\WebServer
+                    RetentionSettings = @{ KeepCount = 7 } # Keep 7 versions of archives for this job in this specific location
+                },
+                @{ # Second destination for replication
+                    Path = "\\NAS-BACKUP\OffsiteReplicas\SQL" # Can be a UNC path
+                    CreateJobNameSubdirectory = $false # Archives for job "SQLBackup" go directly into \\NAS-BACKUP\OffsiteReplicas\SQL
+                    RetentionSettings = @{ KeepCount = 30 } # Keep 30 versions of archives for this job in this specific location
+                },
+                @{ # Third destination (simple, no job subdir, no specific retention configured for this path)
+                    Path = "F:\ExternalHDD\ArchiveMirror" # e.g., a USB drive
+                    # CreateJobNameSubdirectory defaults to $false if not specified
+                    # RetentionSettings is not specified, so no retention will be applied by the Replicate provider for this path
+                }
+            )
+            # Note: 'CredentialsSecretName' or global 'RemoteRetentionSettings' are generally not applicable
+            # at the top level of a "Replicate" target instance. Credentials and retention are typically
+            # configured per-destination-path if needed by the underlying mechanism (though this simple
+            # Replicate provider uses standard Copy-Item and its own retention).
+        }
         # "ExampleS3Bucket" = @{ # Example for a future S3 target provider
         #    Type = "S3"
         #    TargetSpecificSettings = @{
@@ -237,8 +260,6 @@
         #        # S3 provider might use this to apply/check an S3 Lifecycle Policy, or manage versions.
         #        ApplyLifecyclePolicy = $true
         #        LifecyclePolicyDaysToExpire = 30
-        #        # Or, for versioning-enabled buckets:
-        #        # MaxVersionsToKeep = 5
         #    }
         # }
     }
@@ -251,7 +272,7 @@
             Path                    = "P:\Images\*"                   # Path(s) to back up. Can be a single string or an array of strings for multiple sources.
             Name                    = "Projects"                      # Base name for the archive file (date stamp and extension will be appended).
             DestinationDir          = "D:\Backups\LocalStage\Projects" # Specific LOCAL STAGING destination for this job.
-            TargetNames             = @("ExampleUNCShare")            # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
+            #TargetNames             = @("ExampleUNCShare")            # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
                                                                       # If empty or not present, this job is local-only to DestinationDir.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override for the global setting.
 
@@ -294,6 +315,22 @@
             MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for local staging. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
             TreatSevenZipWarningsAsSuccess = $true                    # Example: For this job, 7-Zip warnings are considered success.
+        }
+        "Docs_Replicated_Example" = @{ # NEW EXAMPLE JOB USING THE REPLICATE TARGET
+            Path                       = @("C:\Users\YourUser\Documents\Reports", "C:\Users\YourUser\Pictures\Screenshots")
+            Name                       = "UserDocs_MultiCopy" # Example: base name for the archive
+            DestinationDir             = "C:\BackupStaging\UserDocs" # Local staging directory before replication
+            
+            TargetNames                = @("ExampleReplicatedStorage") # Reference the "Replicate" target instance defined in BackupTargets
+            
+            # This setting applies to deleting the archive from "C:\BackupStaging\UserDocs" AFTER
+            # the "ExampleReplicatedStorage" target (which involves multiple copies) completes successfully.
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true 
+            
+            LocalRetentionCount        = 2 # Keep very few archive versions in the local staging area "C:\BackupStaging\UserDocs"
+            
+            ArchivePasswordMethod      = "None" # Or any other valid password method
+            EnableVSS                  = $true  # Example: Use VSS for source files
         }
 
         #region --- Comprehensive Example (Commented Out for Reference) ---
@@ -375,9 +412,9 @@
     BackupSets                      = @{
         "Daily_Critical_Backups" = @{
             JobNames     = @(                                         # Array of job names (these must be keys from BackupLocations defined above).
-                "Projects", # Was "Projects_LocalOnly", now refers to the modified original "Projects" job.
-                "AnExample_WithRemoteTarget"
-                # "WebApp_Production_To_Multiple_Targets" # If uncommented and defined above.
+                "Projects", 
+                "AnExample_WithRemoteTarget",
+                "Docs_Replicated_Example" # Added the new replicated job example to this set
             )
             OnErrorInJob = "StopSet"                                  # Defines behaviour if a job within this set fails.
                                                                       # "StopSet": (Default) If a job fails, subsequent jobs in THIS SET are skipped. The script may continue to other sets if applicable.
@@ -385,12 +422,13 @@
         }
         "Weekly_User_Data"       = @{
             JobNames = @(
-                "AnExample_WithRemoteTarget"
+                "AnExample_WithRemoteTarget",
+                "Docs_Replicated_Example" # Added the new replicated job example here too
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
         }
         "Nightly_Full_System_Simulate" = @{                           # Example for a simulation run of multiple jobs.
-            JobNames = @("Projects", "AnExample_WithRemoteTarget")
+            JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example")
             OnErrorInJob = "ContinueSet"
             # Note: To run this set in simulation mode, you would use:
             # .\PoSh-Backup.ps1 -RunSet "Nightly_Full_System_Simulate" -Simulate

@@ -22,7 +22,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2 # PSSA: Use direct $Logger call for initial debug messages.
+    Version:        1.0.3
     DateCreated:    17-May-2025
     LastModified:   18-May-2025
     Purpose:        Centralised VSS management for PoSh-Backup.
@@ -54,7 +54,7 @@ function Remove-VssManagerShadowCopyByIdInternal {
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level

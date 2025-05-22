@@ -26,7 +26,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.3.2 # Added explicit Import-Module for Utils.psm1. (Diagnostic: Modified catch block for Utils import)
+    Version:        2.3.3
     DateCreated:    10-May-2025
     LastModified:   18-May-2025
     Purpose:        Manages and dispatches report generation to format-specific reporting sub-modules.
@@ -108,15 +108,16 @@ function Invoke-ReportGenerator {
         [scriptblock]$Logger
     )
 
-    # Internal helper to use the passed-in logger consistently
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level
         }
     }
+    
     # Defensive PSSA appeasement line
     & $LocalWriteLog -Message "Invoke-ReportGenerator: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
 

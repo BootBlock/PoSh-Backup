@@ -22,7 +22,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.11.1 # Added safety net for ForegroundColor in Write-LogMessage.
+    Version:        1.11.3
     DateCreated:    10-May-2025
     LastModified:   18-May-2025
     Purpose:        Core utility functions for the PoSh-Backup solution.
@@ -55,33 +55,57 @@ function Write-LogMessage {
 
     # Safety check: If $effectiveConsoleColour somehow became an empty string (and is not a ConsoleColor object), default it.
     if (($effectiveConsoleColour -is [string]) -and ([string]::IsNullOrWhiteSpace($effectiveConsoleColour))) {
-        Write-Warning "Write-LogMessage: Resolved foreground colour was empty or whitespace for Level '$Level', Message: '$Message'. Defaulting to Host's current colour."
+        # DIAGNOSTIC START - Enhanced
+        Write-Warning "Write-LogMessage (SAFETY CHECK TRIGGERED - IsNullOrWhiteSpace):"
+        Write-Warning "  -> Original Level string passed: '$Level' (Length: $($Level.Length))"
+        $levelBytes = [System.Text.Encoding]::UTF8.GetBytes($Level)
+        $levelHex = ($levelBytes | ForEach-Object { $_.ToString("X2") }) -join " "
+        Write-Warning "  -> Level string as Hex: $levelHex"
+        Write-Warning "  -> Level.ToUpperInvariant(): '$($Level.ToUpperInvariant())'"
+        Write-Warning "  -> ForegroundColour param was: '$ForegroundColour'"
+        Write-Warning "  -> effectiveConsoleColour before this safety check: '$effectiveConsoleColour'"
+        Write-Warning "  -> Message: '$Message'. Defaulting to Host's current colour."
+        # DIAGNOSTIC END
         $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
-    } elseif (($null -eq $effectiveConsoleColour) -and ($Level.ToUpperInvariant() -ne 'NONE')) {
-        # This case should be rare if defaults are working, but protects against $ForegroundColour being null and no map entry
-        Write-Warning "Write-LogMessage: Resolved foreground colour was null for Level '$Level', Message: '$Message'. Defaulting to Host's current colour."
+    }
+    elseif (($null -eq $effectiveConsoleColour) -and ($Level.ToUpperInvariant() -ne 'NONE')) {
+        # DIAGNOSTIC START - Enhanced
+        Write-Warning "Write-LogMessage (SAFETY CHECK TRIGGERED - Null effectiveConsoleColour):"
+        Write-Warning "  -> Original Level string passed: '$Level' (Length: $($Level.Length))"
+        $levelBytes = [System.Text.Encoding]::UTF8.GetBytes($Level)
+        $levelHex = ($levelBytes | ForEach-Object { $_.ToString("X2") }) -join " "
+        Write-Warning "  -> Level string as Hex: $levelHex"
+        Write-Warning "  -> Level.ToUpperInvariant(): '$($Level.ToUpperInvariant())'"
+        Write-Warning "  -> ForegroundColour param was: '$ForegroundColour'"
+        Write-Warning "  -> Global:StatusToColourMap contains key '$($Level.ToUpperInvariant())': $($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant()))"
+        if ($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
+            Write-Warning "  -> Value from StatusToColourMap for '$($Level.ToUpperInvariant())': '$($Global:StatusToColourMap[$Level.ToUpperInvariant()])'"
+        }
+        Write-Warning "  -> Message: '$Message'. Defaulting to Host's current colour."
+        # DIAGNOSTIC END
         $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
     }
 
-
     if ($NoNewLine) {
         Write-Host $consoleMessage -ForegroundColor $effectiveConsoleColour -NoNewline
-    } else {
+    }
+    else {
         Write-Host $consoleMessage -ForegroundColor $effectiveConsoleColour
     }
 
     if ($Global:GlobalJobLogEntries -is [System.Collections.Generic.List[object]]) {
         $Global:GlobalJobLogEntries.Add([PSCustomObject]@{
-            Timestamp = if($NoTimestampToLogFile -and $Global:GlobalJobLogEntries.Count -gt 0) { "" } else { $timestamp } 
-            Level     = $Level
-            Message   = $Message
-        })
+                Timestamp = if ($NoTimestampToLogFile -and $Global:GlobalJobLogEntries.Count -gt 0) { "" } else { $timestamp } 
+                Level     = $Level
+                Message   = $Message
+            })
     }
 
     if ($Global:GlobalEnableFileLogging -and $Global:GlobalLogFile -and $Level -ne "NONE") {
         try {
             Add-Content -Path $Global:GlobalLogFile -Value $logMessage -ErrorAction Stop
-        } catch {
+        }
+        catch {
             Write-Host "CRITICAL: Failed to write to log file '$($Global:GlobalLogFile)'. Error: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
@@ -110,7 +134,7 @@ function Get-ConfigValue {
 function Test-AdminPrivilege {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
@@ -119,7 +143,7 @@ function Test-AdminPrivilege {
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level
@@ -131,7 +155,8 @@ function Test-AdminPrivilege {
     $isAdmin = $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($isAdmin) {
         & $LocalWriteLog -Message "  - Script is running with Administrator privileges." -Level "SUCCESS"
-    } else {
+    }
+    else {
         & $LocalWriteLog -Message "  - Script is NOT running with Administrator privileges. VSS functionality will be unavailable." -Level "WARNING"
     }
     return $isAdmin
@@ -143,7 +168,7 @@ function Get-ArchiveSizeFormatted {
     [CmdletBinding()]
     param(
         [string]$PathToArchive,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
@@ -152,7 +177,7 @@ function Get-ArchiveSizeFormatted {
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level
@@ -168,11 +193,13 @@ function Get-ArchiveSizeFormatted {
             elseif ($Size -ge 1MB) { $FormattedSize = "{0:N2} MB" -f ($Size / 1MB) }
             elseif ($Size -ge 1KB) { $FormattedSize = "{0:N2} KB" -f ($Size / 1KB) }
             else { $FormattedSize = "$Size Bytes" }
-        } else {
+        }
+        else {
             & $LocalWriteLog -Message "[DEBUG] File not found at '$PathToArchive' for size formatting." -Level "DEBUG"
             $FormattedSize = "File not found"
         }
-    } catch {
+    }
+    catch {
         & $LocalWriteLog -Message "[WARNING] Error getting file size for '$PathToArchive': $($_.Exception.Message)" -Level "WARNING"
         $FormattedSize = "Error getting size"
     }
@@ -221,7 +248,7 @@ function Test-DestinationFreeSpace {
         [int]$MinRequiredGB,
         [bool]$ExitOnLow, 
         [switch]$IsSimulateMode,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
@@ -230,7 +257,7 @@ function Test-DestinationFreeSpace {
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level
@@ -263,10 +290,12 @@ function Test-DestinationFreeSpace {
                 & $LocalWriteLog -Message "FATAL: Utils: Exiting job due to insufficient free disk space (ExitOnLowSpaceIfBelowMinimum is true)." -Level ERROR
                 return $false 
             }
-        } else {
+        }
+        else {
             & $LocalWriteLog -Message "   - Utils: Free space check: OK (Available: $freeSpaceGB GB, Required: $MinRequiredGB GB)" -Level SUCCESS
         }
-    } catch {
+    }
+    catch {
         & $LocalWriteLog -Message "[WARNING] Utils: Could not determine free space for destination '$DestDir'. Check skipped. Error: $($_.Exception.Message)" -Level WARNING
     }
     return $true 

@@ -189,6 +189,7 @@ $Global:StatusToColourMap = @{
     "WARNINGS"          = $Global:ColourWarning 
     "WARNING"           = $Global:ColourWarning # Allow singular form
     "FAILURE"           = $Global:ColourError
+    "ERROR"             = $Global:ColourError
     "SIMULATED_COMPLETE"= $Global:ColourSimulate
     "INFO"              = $Global:ColourInfo
     "DEBUG"             = $Global:ColourDebug

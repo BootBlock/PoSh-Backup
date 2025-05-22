@@ -23,7 +23,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Added Remote Target Transfers section.
+    Version:        1.2.1
     DateCreated:    14-May-2025
     LastModified:   19-May-2025
     Purpose:        Plain text summary report generation sub-module for PoSh-Backup.
@@ -80,9 +80,10 @@ function Invoke-TxtReport {
     # but this direct call ensures PSSA sees it explicitly.
     & $Logger -Message "Invoke-TxtReport: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level

@@ -3,8 +3,7 @@
     (Optional Module) Provides advanced, schema-based validation for PoSh-Backup configuration files.
     It checks for correct data structure, data types, presence of required keys, and adherence
     to allowed values, helping to ensure configuration integrity before a backup job is run.
-    Now includes schema validation for Backup Target configurations, including the
-    'CreateJobNameSubdirectory' setting for UNC targets.
+    Includes schema validation for "UNC" and "Replicate" Backup Target configurations.
 
 .DESCRIPTION
     This PowerShell module contains a detailed schema definition that mirrors the expected structure
@@ -17,27 +16,13 @@
     - Missing mandatory configuration settings.
     - Use of unsupported or invalid values for specific settings.
     - Incorrect structure or missing required fields in 'BackupTargets' definitions,
-      including the optional 'CreateJobNameSubdirectory' for UNC targets.
-
-    This module is intended to be optionally enabled via the 'EnableAdvancedSchemaValidation' setting
-    within the main PoSh-Backup configuration file. If enabled, the 'Import-AppConfiguration' function
-    in 'ConfigManager.psm1' will invoke the validation process.
-
-    The schema itself ($Script:PoShBackup_ConfigSchema) defines properties for each configuration key, including:
-    - 'Type': Expected data type (e.g., 'string', 'boolean', 'int', 'hashtable', 'array', 'string_or_array').
-    - 'Required': A boolean indicating if the key must be present.
-    - 'AllowedValues': An array of permissible string values (case-insensitive) for a key.
-    - 'Min'/'Max': For integer types, defines the minimum and maximum allowed values.
-    - 'ValidateScript': A scriptblock for custom validation logic.
-    - 'Schema': For 'hashtable' types that have nested structures, this contains a sub-schema.
-    - 'ItemSchema': For 'array' types where each item in the array should conform to a specific schema
-      (currently used to validate string items in TargetNames).
-    - 'DynamicKeySchema': For 'hashtable' types where keys are dynamic (like BackupTargets names),
-      this specifies the schema for the *value* of each dynamic key.
+      including for UNC targets ('CreateJobNameSubdirectory') and "Replicate"
+      target type (validating its array of destination settings). The base 'TargetSpecificSettings'
+      type is 'object' to allow flexibility, with type-specific validation in a ValidateScript.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.1 # Added CreateJobNameSubdirectory to UNC target schema.
+    Version:        1.3.3 # Confirmed TargetSpecificSettings base type as 'object' for provider flexibility.
     DateCreated:    14-May-2025
     LastModified:   19-May-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
@@ -133,7 +118,7 @@ $Script:PoShBackup_ConfigSchema = @{
             Required = $true    # If a target instance is defined, it must have content.
             Schema = @{         # Schema for the keys within a single target instance
                 Type = @{ Type = 'string'; Required = $true } # E.g., "UNC", "FTP", "S3"
-                TargetSpecificSettings = @{ Type = 'hashtable'; Required = $true } # Settings specific to the 'Type'
+                TargetSpecificSettings = @{ Type = 'object'; Required = $true } # Allow any object type, ValidateScript will handle specifics
                 CredentialsSecretName  = @{ Type = 'string'; Required = $false } # Optional common setting for targets needing auth
                 RemoteRetentionSettings= @{ Type = 'hashtable'; Required = $false } # Optional provider-specific retention
             }
@@ -144,23 +129,67 @@ $Script:PoShBackup_ConfigSchema = @{
             $isValidOverall = $true
             foreach ($targetInstanceNameKey in $BackupTargetsHashtable.Keys) {
                 $targetInstanceValue = $BackupTargetsHashtable[$targetInstanceNameKey]
-                if ($targetInstanceValue -is [hashtable] -and $targetInstanceValue.ContainsKey('Type') -and $targetInstanceValue.Type -is [string] -and $targetInstanceValue.TargetSpecificSettings -is [hashtable]) {
+                if ($targetInstanceValue -is [hashtable] -and $targetInstanceValue.ContainsKey('Type') -and $targetInstanceValue.Type -is [string] -and $targetInstanceValue.ContainsKey('TargetSpecificSettings')) {
                     $instanceType = $targetInstanceValue.Type.ToUpperInvariant()
                     $instanceSettings = $targetInstanceValue.TargetSpecificSettings
-                    $instancePath = "$CurrentPathForTarget.$targetInstanceNameKey.TargetSpecificSettings"
+                    $instancePath = "$CurrentPathForTarget.$targetInstanceNameKey.TargetSpecificSettings" # Base path for settings of this instance
 
                     if ($instanceType -eq "UNC") {
+                        if (-not ($instanceSettings -is [hashtable])) {
+                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: UNC): 'TargetSpecificSettings' must be a Hashtable. Path: '$instancePath'.")
+                            $isValidOverall = $false
+                            continue # Skip further checks for this malformed UNC instance
+                        }
                         if (-not $instanceSettings.ContainsKey('UNCRemotePath') -or -not ($instanceSettings.UNCRemotePath -is [string]) -or [string]::IsNullOrWhiteSpace($instanceSettings.UNCRemotePath)) {
-                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: UNC) is missing 'UNCRemotePath' in 'TargetSpecificSettings', or it's not a non-empty string at path '$instancePath.UNCRemotePath'.")
+                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: UNC): 'UNCRemotePath' in 'TargetSpecificSettings' is missing, not a string, or empty. Path: '$instancePath.UNCRemotePath'.")
                             $isValidOverall = $false
                         }
-                        # Validate CreateJobNameSubdirectory if it exists for UNC type
                         if ($instanceSettings.ContainsKey('CreateJobNameSubdirectory') -and -not ($instanceSettings.CreateJobNameSubdirectory -is [boolean])) {
                             $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: UNC): 'CreateJobNameSubdirectory' in 'TargetSpecificSettings' must be a boolean (`$true` or `$false`) if defined. Path: '$instancePath.CreateJobNameSubdirectory'.")
                             $isValidOverall = $false
                         }
+                    } elseif ($instanceType -eq "REPLICATE") { # VALIDATION FOR REPLICATE TYPE
+                        if (-not ($instanceSettings -is [array])) {
+                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): 'TargetSpecificSettings' must be an Array of destination configurations. Path: '$instancePath'.")
+                            $isValidOverall = $false
+                            continue # Skip further checks for this malformed Replicate instance
+                        }
+                        if ($instanceSettings.Count -eq 0) {
+                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): 'TargetSpecificSettings' array is empty. At least one destination configuration is required. Path: '$instancePath'.")
+                            $isValidOverall = $false
+                        }
+                        for ($i = 0; $i -lt $instanceSettings.Count; $i++) {
+                            $destConfig = $instanceSettings[$i]
+                            $destConfigPath = "$instancePath[$i]" # Path to the current destination config in the array
+                            if (-not ($destConfig -is [hashtable])) {
+                                $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Item at index $i in 'TargetSpecificSettings' is not a Hashtable. Path: '$destConfigPath'.")
+                                $isValidOverall = $false; continue # Move to next item in array
+                            }
+                            # Validate 'Path' for each destination
+                            if (-not $destConfig.ContainsKey('Path') -or -not ($destConfig.Path -is [string]) -or [string]::IsNullOrWhiteSpace($destConfig.Path)) {
+                                $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i is missing 'Path', or it's not a non-empty string. Path: '$destConfigPath.Path'.")
+                                $isValidOverall = $false
+                            }
+                            # Validate 'CreateJobNameSubdirectory' for each destination (optional boolean)
+                            if ($destConfig.ContainsKey('CreateJobNameSubdirectory') -and -not ($destConfig.CreateJobNameSubdirectory -is [boolean])) {
+                                $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i 'CreateJobNameSubdirectory' must be a boolean (`$true` or `$false`) if defined. Path: '$destConfigPath.CreateJobNameSubdirectory'.")
+                                $isValidOverall = $false
+                            }
+                            # Validate 'RetentionSettings' for each destination (optional hashtable)
+                            if ($destConfig.ContainsKey('RetentionSettings')) {
+                                if (-not ($destConfig.RetentionSettings -is [hashtable])) {
+                                    $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i 'RetentionSettings' must be a Hashtable if defined. Path: '$destConfigPath.RetentionSettings'.")
+                                    $isValidOverall = $false
+                                } elseif ($destConfig.RetentionSettings.ContainsKey('KeepCount')) { # If RetentionSettings is a hashtable, check KeepCount
+                                    if (-not ($destConfig.RetentionSettings.KeepCount -is [int]) -or $destConfig.RetentionSettings.KeepCount -le 0) {
+                                        $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i 'RetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$destConfigPath.RetentionSettings.KeepCount'.")
+                                        $isValidOverall = $false
+                                    }
+                                }
+                            }
+                        }
                     }
-                    # Add 'elseif ($instanceType -eq "FTP") { # Add FTP specific TargetSpecificSettings validation here }' for other known types.
+                    # Add 'elseif ($instanceType -eq "OTHER_TYPE") { # Add validation for other known types here }'
                 }
             }
             return $isValidOverall 
@@ -257,7 +286,6 @@ $Script:PoShBackup_ConfigSchema = @{
 #endregion
 
 #region --- Private Validation Logic ---
-# Internal recursive function to validate a configuration object against a given schema.
 # PSScriptAnalyzer Suppress PSUseApprovedVerbs[Validate-AgainstSchemaRecursiveInternal] - 'Validate' is descriptive for this internal schema helper.
 function Validate-AgainstSchemaRecursiveInternal { 
     param(
@@ -309,6 +337,7 @@ function Validate-AgainstSchemaRecursiveInternal {
             "hashtable"        { if ($configValue -is [hashtable]) { $typeMatch = $true } }
             "array"            { if ($configValue -is [array]) { $typeMatch = $true } }
             "string_or_array"  { if (($configValue -is [string]) -or ($configValue -is [array])) { $typeMatch = $true } }
+            "object"           { $typeMatch = $true } # For 'object' type, we assume type match and let ValidateScript handle specifics
             default            { $ValidationMessages.Value.Add("Schema Error: Unknown expected type '$($keyDefinition.Type)' defined in schema for '$fullKeyPath'. Contact script developer."); continue }
         }
 
@@ -359,14 +388,16 @@ function Validate-AgainstSchemaRecursiveInternal {
         }
 
         if ($keyDefinition.ContainsKey("ValidateScript") -and $keyDefinition.ValidateScript -is [scriptblock]) {
-            if (-not ([string]::IsNullOrWhiteSpace($configValue)) -or ($configValue -is [hashtable]) -or ($configValue -is [array]) ) { # Check if there's actually a value to validate
+            if (-not ([string]::IsNullOrWhiteSpace($configValue)) -or ($configValue -is [hashtable]) -or ($configValue -is [array]) ) { 
                 try {
                     if ($keyDefinition.Type -eq 'hashtable' -and $schemaKey -eq 'BackupTargets') { 
-                        # For BackupTargets, pass the $ValidationMessages ref and current path to its ValidateScript
                         if (-not (& $keyDefinition.ValidateScript $configValue $ValidationMessages "$fullKeyPath")) {
-                            # The scriptblock is expected to add messages directly if it returns $false, or just return $true.
-                            # No need to add a generic message here if it returns $false.
+                            # Validation script should add messages directly.
                         }
+                    } elseif ($keyDefinition.Type -eq 'object' -and $schemaKey -eq 'TargetSpecificSettings') { 
+                        # This case might not be needed if ValidateScript for BackupTargets handles everything.
+                        # However, if we wanted a specific ValidateScript AT the TargetSpecificSettings level (which we don't currently have),
+                        # it would go here. The current ValidateScript is on BackupTargets itself.
                     } elseif (-not (& $keyDefinition.ValidateScript $configValue)) {
                         $ValidationMessages.Value.Add("Custom validation failed for configuration key '$fullKeyPath' with value '$configValue'. Check constraints (e.g., path existence for SevenZipPath).")
                     }
@@ -381,13 +412,10 @@ function Validate-AgainstSchemaRecursiveInternal {
         }
     }
 
-    # Check for any keys present in the configuration object that are not defined in the schema
-    # This check should only run if the current $Schema does not define DynamicKeySchema,
-    # because if it does, all keys are considered "dynamic" and validated by the DynamicKeySchema's sub-schema.
     if ($ConfigObject -is [hashtable] -and (-not $Schema.ContainsKey('DynamicKeySchema'))) {
         foreach ($configKeyInObject in $ConfigObject.Keys) {
             if (-not $Schema.ContainsKey($configKeyInObject)) {
-                if ($configKeyInObject -ne '_PoShBackup_PSScriptRoot') { # Allow this internally added key
+                if ($configKeyInObject -ne '_PoShBackup_PSScriptRoot') { 
                      $ValidationMessages.Value.Add("Unknown configuration key '$CurrentPath.$configKeyInObject' found. This key is not defined in the schema. Check for typos or if it's a deprecated/unsupported setting.")
                 }
             }

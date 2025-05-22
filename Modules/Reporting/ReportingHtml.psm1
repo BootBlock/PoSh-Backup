@@ -31,7 +31,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.0 # Added Remote Target Transfers section to HTML report.
+    Version:        1.9.1
     DateCreated:    14-May-2025
     LastModified:   19-May-2025
     Purpose:        Interactive HTML report generation sub-module for PoSh-Backup.
@@ -182,9 +182,10 @@ function Invoke-HtmlReport {
     # but this direct call ensures PSSA sees it explicitly.
     & $Logger -Message "Invoke-HtmlReport: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
+    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level

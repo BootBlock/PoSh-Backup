@@ -31,7 +31,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added LocalArchiveSizeBytes, CreationTimestamp, PasswordInUse params. Log EffectiveJobConfig.BaseFileName.
+    Version:        1.1.2
     DateCreated:    19-May-2025
     LastModified:   19-May-2025
     Purpose:        UNC Target Provider for PoSh-Backup.
@@ -45,7 +45,7 @@
 # Internal helper function to format byte sizes into human-readable strings (KB, MB, GB).
 function Format-BytesInternal {
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [long]$Bytes
     )
     if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
@@ -55,9 +55,113 @@ function Format-BytesInternal {
 }
 #endregion
 
+#region --- Private Helper: Ensure Remote Path Exists ---
+function Initialize-RemotePathInternal {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')] 
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [Parameter(Mandatory)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory)]
+        [switch]$IsSimulateMode,
+        [Parameter(Mandatory)] 
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance 
+    )
+
+    # Internal helper to use the passed-in logger consistently for other messages
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+
+    if (Test-Path -LiteralPath $Path -PathType Container) {
+        & $LocalWriteLog -Message "  - Ensure-RemotePath: Path '$Path' already exists." -Level "DEBUG"
+        return @{ Success = $true }
+    }
+
+    if ($IsSimulateMode.IsPresent) {
+        & $LocalWriteLog -Message "SIMULATE: Ensure-RemotePath: Would ensure path '$Path' exists (creating if necessary)." -Level "SIMULATE"
+        return @{ Success = $true }
+    }
+
+    $pathComponents = $Path.Split([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    
+    if ($Path.StartsWith("\\")) {
+        # UNC Path
+        if ($pathComponents.Count -lt 2) {
+            return @{ Success = $false; ErrorMessage = "Invalid UNC path structure: '$Path'. Needs at least server and share." }
+        }
+        $baseSharePath = "\\$($pathComponents[0])\$($pathComponents[1])"
+        
+        if (-not $PSCmdletInstance.ShouldProcess($baseSharePath, "Test UNC Share Accessibility")) {
+            return @{ Success = $false; ErrorMessage = "UNC Share accessibility test for '$baseSharePath' skipped by user." }
+        }
+        if (-not (Test-Path -LiteralPath $baseSharePath -PathType Container)) {
+            return @{ Success = $false; ErrorMessage = "Base UNC share '$baseSharePath' not found or inaccessible." }
+        }
+        
+        $currentPathToBuild = $baseSharePath
+        for ($i = 2; $i -lt $pathComponents.Count; $i++) {
+            $currentPathToBuild = Join-Path -Path $currentPathToBuild -ChildPath $pathComponents[$i]
+            if (-not (Test-Path -LiteralPath $currentPathToBuild -PathType Container)) {
+                if (-not $PSCmdletInstance.ShouldProcess($currentPathToBuild, "Create Remote Directory Component")) {
+                    return @{ Success = $false; ErrorMessage = "Directory component creation for '$currentPathToBuild' skipped by user." }
+                }
+                & $LocalWriteLog -Message "  - Ensure-RemotePath: Creating directory component '$currentPathToBuild'." -Level "INFO"
+                try {
+                    New-Item -Path $currentPathToBuild -ItemType Directory -Force -ErrorAction Stop | Out-Null
+                }
+                catch {
+                    return @{ Success = $false; ErrorMessage = "Failed to create directory component '$currentPathToBuild'. Error: $($_.Exception.Message)" }
+                }
+            }
+        }
+    }
+    else {
+        # Local Path
+        $currentPathToBuild = ""
+        if ($pathComponents[0] -match '^[a-zA-Z]:$') {
+            $currentPathToBuild = $pathComponents[0] + [System.IO.Path]::DirectorySeparatorChar
+            $startIndex = 1
+        }
+        else {
+            $startIndex = 0 
+        }
+
+        for ($i = $startIndex; $i -lt $pathComponents.Count; $i++) {
+            if ($currentPathToBuild -eq "" -and $i -eq 0) { 
+                $currentPathToBuild = $pathComponents[$i]
+            }
+            else {
+                $currentPathToBuild = Join-Path -Path $currentPathToBuild -ChildPath $pathComponents[$i]
+            }
+
+            if (-not (Test-Path -LiteralPath $currentPathToBuild -PathType Container)) {
+                if (-not $PSCmdletInstance.ShouldProcess($currentPathToBuild, "Create Local Directory Component")) {
+                    return @{ Success = $false; ErrorMessage = "Directory component creation for '$currentPathToBuild' skipped by user." }
+                }
+                & $LocalWriteLog -Message "  - Ensure-RemotePath: Creating directory component '$currentPathToBuild'." -Level "INFO"
+                try {
+                    New-Item -Path $currentPathToBuild -ItemType Directory -Force -ErrorAction Stop | Out-Null
+                }
+                catch {
+                    return @{ Success = $false; ErrorMessage = "Failed to create directory component '$currentPathToBuild'. Error: $($_.Exception.Message)" }
+                }
+            }
+        }
+    }
+    return @{ Success = $true }
+}
+#endregion
+
 #region --- UNC Target Transfer Function ---
 function Invoke-PoShBackupTargetTransfer {
-    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')]
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     <#
     .SYNOPSIS
         Transfers a local backup archive to a UNC path and manages remote retention.
@@ -111,29 +215,29 @@ function Invoke-PoShBackupTargetTransfer {
         - TransferDuration (System.TimeSpan): Duration of the file copy operation.
     #>
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$LocalArchivePath,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [hashtable]$TargetInstanceConfiguration,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$JobName,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$ArchiveFileName,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$ArchiveBaseName,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$ArchiveExtension,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [switch]$IsSimulateMode,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [hashtable]$EffectiveJobConfig,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [long]$LocalArchiveSizeBytes,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [datetime]$LocalArchiveCreationTimestamp,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [bool]$PasswordInUse
     )
 
@@ -144,7 +248,8 @@ function Invoke-PoShBackupTargetTransfer {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -162,7 +267,7 @@ function Invoke-PoShBackupTargetTransfer {
 
     # --- Validate Target Specific Settings ---
     if (-not $TargetInstanceConfiguration.TargetSpecificSettings.ContainsKey('UNCRemotePath') -or `
-        [string]::IsNullOrWhiteSpace($TargetInstanceConfiguration.TargetSpecificSettings.UNCRemotePath)) {
+            [string]::IsNullOrWhiteSpace($TargetInstanceConfiguration.TargetSpecificSettings.UNCRemotePath)) {
         $result.ErrorMessage = "UNC Target '$targetNameForLog': 'UNCRemotePath' is missing or empty in TargetSpecificSettings."
         & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"
         return $result
@@ -174,7 +279,8 @@ function Invoke-PoShBackupTargetTransfer {
     if ($TargetInstanceConfiguration.TargetSpecificSettings.ContainsKey('CreateJobNameSubdirectory')) {
         if ($TargetInstanceConfiguration.TargetSpecificSettings.CreateJobNameSubdirectory -is [boolean]) {
             $createJobSubDir = $TargetInstanceConfiguration.TargetSpecificSettings.CreateJobNameSubdirectory
-        } else {
+        }
+        else {
             & $LocalWriteLog -Message "[WARNING] UNC Target '$targetNameForLog': 'CreateJobNameSubdirectory' in TargetSpecificSettings is not a boolean. Defaulting to `$false (no job subdirectory will be created)." -Level "WARNING"
         }
     }
@@ -183,7 +289,8 @@ function Invoke-PoShBackupTargetTransfer {
     $remoteFinalDirectoryForArchiveAndRetention = ""
     if ($createJobSubDir) {
         $remoteFinalDirectoryForArchiveAndRetention = Join-Path -Path $uncRemoteBasePathFromConfig -ChildPath $JobName
-    } else {
+    }
+    else {
         $remoteFinalDirectoryForArchiveAndRetention = $uncRemoteBasePathFromConfig
     }
     
@@ -220,23 +327,21 @@ function Invoke-PoShBackupTargetTransfer {
         $result.Success = $true
         # Use the passed LocalArchiveSizeBytes for simulated transfer size
         $result.TransferSize = $LocalArchiveSizeBytes
-    } else {
-        # Ensure the final remote directory (which might be the base path or a job sub-path) exists
-        if (-not $PSCmdlet.ShouldProcess($remoteFinalDirectoryForArchiveAndRetention, "Ensure Remote Directory Exists")) {
-            $result.ErrorMessage = "UNC Target '$targetNameForLog': Directory creation/check at '$remoteFinalDirectoryForArchiveAndRetention' skipped by user (ShouldProcess)."
-            & $LocalWriteLog -Message "[WARNING] $($result.ErrorMessage)" -Level "WARNING"
-            return $result
+    }
+    else {
+        # Ensure the final remote directory exists using the robust helper
+        $ensurePathParams = @{
+            Path             = $remoteFinalDirectoryForArchiveAndRetention
+            Logger           = $Logger
+            IsSimulateMode   = $IsSimulateMode.IsPresent # Will be $false here as this block is inside 'else' for IsSimulateMode
+            PSCmdletInstance = $PSCmdlet # Pass the automatic variable for ShouldProcess
         }
-        if (-not (Test-Path -LiteralPath $remoteFinalDirectoryForArchiveAndRetention -PathType Container)) {
-            & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': Remote directory '$remoteFinalDirectoryForArchiveAndRetention' does not exist. Attempting to create." -Level "INFO"
-            try {
-                New-Item -Path $remoteFinalDirectoryForArchiveAndRetention -ItemType Directory -Force -ErrorAction Stop | Out-Null
-                & $LocalWriteLog -Message "    - UNC Target '$targetNameForLog': Successfully created remote directory '$remoteFinalDirectoryForArchiveAndRetention'." -Level "SUCCESS"
-            } catch {
-                $result.ErrorMessage = "UNC Target '$targetNameForLog': Failed to create remote directory '$remoteFinalDirectoryForArchiveAndRetention'. Error: $($_.Exception.Message)"
-                & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"
-                return $result
-            }
+        $ensurePathResult = Initialize-RemotePathInternal @ensurePathParams
+    
+        if (-not $ensurePathResult.Success) {
+            $result.ErrorMessage = "UNC Target '$targetNameForLog': Failed to ensure remote directory '$remoteFinalDirectoryForArchiveAndRetention' exists. Error: $($ensurePathResult.ErrorMessage)"
+            & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"
+            return $result
         }
 
         # Perform the copy to the full remote archive path
@@ -252,11 +357,13 @@ function Invoke-PoShBackupTargetTransfer {
             $copyStopwatch.Stop()
             $result.TransferDuration = $copyStopwatch.Elapsed
             $result.Success = $true
-            if (Test-Path -LiteralPath $fullRemoteArchivePath -PathType Leaf) { # Verify file exists at destination before getting size
+            if (Test-Path -LiteralPath $fullRemoteArchivePath -PathType Leaf) {
+                # Verify file exists at destination before getting size
                 $result.TransferSize = (Get-Item -LiteralPath $fullRemoteArchivePath).Length
             }
             & $LocalWriteLog -Message "    - UNC Target '$targetNameForLog': Archive copied successfully. Duration: $($result.TransferDuration)." -Level "SUCCESS"
-        } catch {
+        }
+        catch {
             $copyStopwatch.Stop()
             $result.TransferDuration = $copyStopwatch.Elapsed # Record duration even on failure
             $result.ErrorMessage = "UNC Target '$targetNameForLog': Failed to copy archive to '$fullRemoteArchivePath'. Error: $($_.Exception.Message)"
@@ -268,11 +375,11 @@ function Invoke-PoShBackupTargetTransfer {
     # --- Remote Retention (if configured for this target instance and transfer was successful or simulated successfully) ---
     # Remote retention operates within $remoteFinalDirectoryForArchiveAndRetention
     if (($result.Success) -and `
-        $TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and `
-        $TargetInstanceConfiguration.RemoteRetentionSettings -is [hashtable] -and `
-        $TargetInstanceConfiguration.RemoteRetentionSettings.ContainsKey('KeepCount') -and `
-        $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -is [int] -and `
-        $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
+            $TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and `
+            $TargetInstanceConfiguration.RemoteRetentionSettings -is [hashtable] -and `
+            $TargetInstanceConfiguration.RemoteRetentionSettings.ContainsKey('KeepCount') -and `
+            $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -is [int] -and `
+            $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
         
         $remoteKeepCount = $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount
         & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': Applying remote retention policy (KeepCount: $remoteKeepCount) in directory '$remoteFinalDirectoryForArchiveAndRetention'." -Level "INFO"
@@ -283,11 +390,13 @@ function Invoke-PoShBackupTargetTransfer {
 
         if ($IsSimulateMode.IsPresent) {
             & $LocalWriteLog -Message "SIMULATE: UNC Target '$targetNameForLog': Would list files matching '$remoteFilePattern' in '$remoteFinalDirectoryForArchiveAndRetention' and delete oldest exceeding $remoteKeepCount." -Level "SIMULATE"
-        } else {
+        }
+        else {
             try {
                 if (-not (Test-Path -LiteralPath $remoteFinalDirectoryForArchiveAndRetention -PathType Container)) {
                     & $LocalWriteLog -Message "    - UNC Target '$targetNameForLog': Remote directory '$remoteFinalDirectoryForArchiveAndRetention' not found for retention. Skipping remote retention for this cycle." -Level "WARNING"
-                } else {
+                }
+                else {
                     $existingRemoteBackups = Get-ChildItem -Path $remoteFinalDirectoryForArchiveAndRetention -Filter $remoteFilePattern -File -ErrorAction SilentlyContinue | Sort-Object CreationTime -Descending
 
                     if (($null -ne $existingRemoteBackups) -and ($existingRemoteBackups.Count -gt $remoteKeepCount)) {
@@ -303,27 +412,31 @@ function Invoke-PoShBackupTargetTransfer {
                             try {
                                 Remove-Item -LiteralPath $remoteBackupFile.FullName -Force -ErrorAction Stop
                                 & $LocalWriteLog -Message "        - Status: DELETED (Remote Retention)" -Level "SUCCESS"
-                            } catch {
+                            }
+                            catch {
                                 & $LocalWriteLog -Message "        - Status: FAILED to delete remote archive! Error: $($_.Exception.Message)" -Level "ERROR"
                                 # Non-fatal for the overall transfer if copy succeeded, but mark overall result as problematic.
                                 if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = "One or more remote retention deletions failed." }
-                                else { $result.ErrorMessage += " Additionally, one or more remote retention deletions failed."}
+                                else { $result.ErrorMessage += " Additionally, one or more remote retention deletions failed." }
                                 $result.Success = $false # If retention fails, the overall target operation is not fully successful.
                             }
                         }
-                    } else {
+                    }
+                    else {
                         & $LocalWriteLog -Message "    - UNC Target '$targetNameForLog': Number of existing remote archives ($($existingRemoteBackups.Count)) is at or below remote retention count ($remoteKeepCount). No remote archives to delete." -Level "INFO"
                     }
                 }
-            } catch {
+            }
+            catch {
                 # Catch block for Get-ChildItem or other errors during remote retention setup
                 & $LocalWriteLog -Message "[WARNING] UNC Target '$targetNameForLog': Error during remote retention policy for job '$JobName' in '$remoteFinalDirectoryForArchiveAndRetention'. Error: $($_.Exception.Message)" -Level "WARNING"
                 if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = "Error during remote retention: $($_.Exception.Message)" }
-                else { $result.ErrorMessage += " Additionally, error during remote retention: $($_.Exception.Message)"}
+                else { $result.ErrorMessage += " Additionally, error during remote retention: $($_.Exception.Message)" }
                 $result.Success = $false # Mark overall success as false if retention encounters an exception
             }
         }
-    } elseif (($result.Success) -and $TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings')) {
+    }
+    elseif (($result.Success) -and $TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings')) {
         # This case handles if RemoteRetentionSettings exists but is not properly configured (e.g., missing KeepCount or KeepCount not > 0)
         & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': RemoteRetentionSettings found but KeepCount is invalid or not greater than 0. Remote retention skipped for this target instance." -Level "INFO"
     }
