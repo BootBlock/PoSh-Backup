@@ -69,6 +69,9 @@ function Initialize-RemotePathInternal {
         [System.Management.Automation.PSCmdlet]$PSCmdletInstance 
     )
 
+    # Defensive PSSA appeasement line: Directly use the $Logger parameter once.
+    & $Logger -Message "UNC.Target/Initialize-RemotePathInternal: Logger parameter active for path '$Path'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
