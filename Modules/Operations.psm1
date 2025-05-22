@@ -1,3 +1,4 @@
+# Modules\Operations.psm1
 <#
 .SYNOPSIS
     Manages the core backup operations for a single backup job within the PoSh-Backup solution.
@@ -14,7 +15,7 @@
     defined remote targets.
 
     The primary exported function, Invoke-PoShBackupJob, performs the following sequence:
-    1.  Gathers effective configuration (ConfigManager.psm1), including resolved target instances.
+    1.  Receives the effective configuration (calculated by PoSh-Backup.ps1 using ConfigManager.psm1).
     2.  Performs early accessibility checks for UNC source and destination paths.
     3.  Validates/creates local staging destination directory.
     4.  Retrieves archive password (PasswordManager.psm1).
@@ -47,9 +48,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.17.1
+    Version:        1.17.2 # Removed redundant call to Get-PoShBackupJobEffectiveConfiguration.
     DateCreated:    10-May-2025
-    LastModified:   19-May-2025
+    LastModified:   22-May-2025
     Purpose:        Handles the execution logic for individual backup jobs, including remote target transfers.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules and target provider modules.
@@ -73,7 +74,7 @@ function Invoke-PoShBackupJob {
         [Parameter(Mandatory=$true)]
         [string]$JobName,
         [Parameter(Mandatory=$true)]
-        [hashtable]$JobConfig, 
+        [hashtable]$JobConfig, # This is now expected to be the *effective* job configuration
         [Parameter(Mandatory=$true)]
         [hashtable]$GlobalConfig, 
         [Parameter(Mandatory=$true)]
@@ -105,11 +106,10 @@ function Invoke-PoShBackupJob {
 
     $currentJobStatus = "SUCCESS" 
     $tempPasswordFilePath = $null
-    $FinalArchivePath = $null # Path to the locally staged archive
+    $FinalArchivePath = $null 
     $VSSPathsInUse = $null 
     $reportData = $JobReportDataRef.Value 
     $reportData.IsSimulationReport = $IsSimulateMode.IsPresent 
-    # Initialize array for storing results of each target transfer
     $reportData.TargetTransfers = [System.Collections.Generic.List[object]]::new() 
 
     if (-not ($reportData.PSObject.Properties.Name -contains 'ScriptStartTime')) {
@@ -137,20 +137,17 @@ function Invoke-PoShBackupJob {
             throw "CRITICAL: Operations: Function 'Invoke-PoShBackupHook' from HookManager.psm1 is definitively not available even after import attempt."
         }
 
-
-        if (-not (Get-Command Get-PoShBackupJobEffectiveConfiguration -ErrorAction SilentlyContinue)) {
-            throw "CRITICAL: Function 'Get-PoShBackupJobEffectiveConfiguration' from ConfigManager.psm1 is not available."
-        }
-        # Pass the logger to Get-PoShBackupJobEffectiveConfiguration
-        $effectiveJobConfig = Get-PoShBackupJobEffectiveConfiguration -JobConfig $JobConfig -GlobalConfig $GlobalConfig -CliOverrides $CliOverrides -JobReportDataRef $JobReportDataRef -Logger $Logger
+        # The $JobConfig parameter received by this function IS NOW THE EFFECTIVE CONFIG.
+        # No need to call Get-PoShBackupJobEffectiveConfiguration again.
+        $effectiveJobConfig = $JobConfig 
 
         & $LocalWriteLog -Message " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
         & $LocalWriteLog -Message "   - Effective Source Path(s): $(if ($effectiveJobConfig.OriginalSourcePath -is [array]) {$effectiveJobConfig.OriginalSourcePath -join '; '} else {$effectiveJobConfig.OriginalSourcePath})"
-        & $LocalWriteLog -Message "   - Local Staging Directory: $($effectiveJobConfig.DestinationDir)" # Clarified role
+        & $LocalWriteLog -Message "   - Local Staging Directory: $($effectiveJobConfig.DestinationDir)" 
         & $LocalWriteLog -Message "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)"
         & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod)"
         & $LocalWriteLog -Message "   - Treat 7-Zip Warnings as Success: $($effectiveJobConfig.TreatSevenZipWarningsAsSuccess)"
-        & $LocalWriteLog -Message "   - Local Retention Deletion Confirmation: $($effectiveJobConfig.RetentionConfirmDelete)" # Clarified "Local"
+        & $LocalWriteLog -Message "   - Local Retention Deletion Confirmation: $($effectiveJobConfig.RetentionConfirmDelete)" 
         if ($effectiveJobConfig.TargetNames.Count -gt 0) {
             & $LocalWriteLog -Message "   - Remote Target Name(s)  : $($effectiveJobConfig.TargetNames -join ', ')"
             & $LocalWriteLog -Message "   - Delete Local Staged Archive After Successful Transfer(s): $($effectiveJobConfig.DeleteLocalArchiveAfterSuccessfulTransfer)"
@@ -195,10 +192,9 @@ function Invoke-PoShBackupJob {
             }
         }
 
-        # Check UNC Destination Path (now refers to local staging destination)
-        if ($effectiveJobConfig.DestinationDir -match '^\\\\') { # Is UNC Local Staging Destination
+        if ($effectiveJobConfig.DestinationDir -match '^\\\\') { 
             $uncDestinationBasePathToTest = $null
-            if ($effectiveJobConfig.DestinationDir -match '^(\\\\\\[^\\]+\\[^\\]+)') { # Extract \\server\share part
+            if ($effectiveJobConfig.DestinationDir -match '^(\\\\\\[^\\]+\\[^\\]+)') { 
                 $uncDestinationBasePathToTest = $matches[1]
             } 
 
@@ -259,7 +255,7 @@ function Invoke-PoShBackupJob {
 
                 if ($null -ne $passwordResult -and (-not [string]::IsNullOrWhiteSpace($passwordResult.PlainTextPassword))) {
                     $plainTextPasswordForJob = $passwordResult.PlainTextPassword
-                    $effectiveJobConfig.PasswordInUseFor7Zip = $true # Set this flag based on actual password acquisition
+                    $effectiveJobConfig.PasswordInUseFor7Zip = $true 
                     if ($IsSimulateMode.IsPresent) {
                         $tempPasswordFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "simulated_poshbackup_pass.tmp") 
                         & $LocalWriteLog -Message "SIMULATE: Would write password (obtained via $($reportData.PasswordSource)) to temporary file '$tempPasswordFilePath' for 7-Zip." -Level SIMULATE
@@ -276,11 +272,11 @@ function Invoke-PoShBackupJob {
                 }
             } catch {
                 & $LocalWriteLog -Message "FATAL: Error during password retrieval process for job '$JobName'. Error: $($_.Exception.ToString())" -Level ERROR
-                throw # Re-throw to be caught by the main try/catch block
+                throw 
             }
         } elseif ($effectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -eq "NONE") {
             $reportData.PasswordSource = "None (Explicitly Configured)"
-            $effectiveJobConfig.PasswordInUseFor7Zip = $false # Ensure it's false if method is None
+            $effectiveJobConfig.PasswordInUseFor7Zip = $false 
         }
 
         Invoke-PoShBackupHook -ScriptPath $effectiveJobConfig.PreBackupScriptPath -HookType "PreBackup" `
@@ -291,7 +287,7 @@ function Invoke-PoShBackupJob {
         $currentJobSourcePathFor7Zip = $effectiveJobConfig.OriginalSourcePath 
         if ($effectiveJobConfig.JobEnableVSS) {
             & $LocalWriteLog -Message "`n[INFO] VSS (Volume Shadow Copy Service) is enabled for job '$JobName'." -Level "VSS"
-            if (-not (Test-AdminPrivilege -Logger $Logger)) { # Test-AdminPrivilege is from Utils.psm1
+            if (-not (Test-AdminPrivilege -Logger $Logger)) { 
                 & $LocalWriteLog -Message "FATAL: VSS requires Administrator privileges for job '$JobName', but script is not running as Admin." -Level ERROR
                 throw "VSS requires Administrator privileges for job '$JobName'."
             }
@@ -352,9 +348,9 @@ function Invoke-PoShBackupJob {
         }
 
         $DateString = Get-Date -Format $effectiveJobConfig.JobArchiveDateFormat
-        $ArchiveFileNameOnly = "$($effectiveJobConfig.BaseFileName) [$DateString]$($effectiveJobConfig.JobArchiveExtension)" # Filename part only
-        $FinalArchivePath = Join-Path -Path $effectiveJobConfig.DestinationDir -ChildPath $ArchiveFileNameOnly # Full path to LOCAL STAGED archive
-        $reportData.FinalArchivePath = $FinalArchivePath # Report the local path where archive was created
+        $ArchiveFileNameOnly = "$($effectiveJobConfig.BaseFileName) [$DateString]$($effectiveJobConfig.JobArchiveExtension)" 
+        $FinalArchivePath = Join-Path -Path $effectiveJobConfig.DestinationDir -ChildPath $ArchiveFileNameOnly 
+        $reportData.FinalArchivePath = $FinalArchivePath 
         & $LocalWriteLog -Message "`n[INFO] Target LOCAL STAGED Archive for job '$JobName': $FinalArchivePath"
 
         $vbLoaded = $false 
@@ -366,10 +362,10 @@ function Invoke-PoShBackupJob {
         if (-not (Get-Command Invoke-BackupRetentionPolicy -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Invoke-BackupRetentionPolicy' from RetentionManager.psm1 is not available."}
         
         $retentionPolicyParams = @{
-            DestinationDirectory = $effectiveJobConfig.DestinationDir # Local staging directory
+            DestinationDirectory = $effectiveJobConfig.DestinationDir 
             ArchiveBaseFileName = $effectiveJobConfig.BaseFileName
             ArchiveExtension = $effectiveJobConfig.JobArchiveExtension
-            RetentionCountToKeep = $effectiveJobConfig.LocalRetentionCount # Use LocalRetentionCount for local staging
+            RetentionCountToKeep = $effectiveJobConfig.LocalRetentionCount 
             RetentionConfirmDeleteFromConfig = $effectiveJobConfig.RetentionConfirmDelete 
             SendToRecycleBin = $effectiveJobConfig.DeleteToRecycleBin
             VBAssemblyLoaded = $vbLoaded
@@ -383,7 +379,7 @@ function Invoke-PoShBackupJob {
         } else {
             & $LocalWriteLog -Message "   - Invoking local retention policy with standard confirmation behavior." -Level DEBUG
         }
-        Invoke-BackupRetentionPolicy @retentionPolicyParams # This applies to the LOCAL staging directory
+        Invoke-BackupRetentionPolicy @retentionPolicyParams 
 
         if (-not (Get-Command Get-PoShBackup7ZipArgument -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Get-PoShBackup7ZipArgument' from 7ZipManager.psm1 is not available." }
         $sevenZipArgsArray = Get-PoShBackup7ZipArgument -EffectiveConfig $effectiveJobConfig `
@@ -413,7 +409,7 @@ function Invoke-PoShBackupJob {
         $reportData.RetryAttemptsMade = $sevenZipResult.AttemptsMade
 
         if (-not $IsSimulateMode.IsPresent -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
-             $reportData.ArchiveSizeBytes = (Get-Item -LiteralPath $FinalArchivePath).Length # Store raw bytes
+             $reportData.ArchiveSizeBytes = (Get-Item -LiteralPath $FinalArchivePath).Length 
              $reportData.ArchiveSizeFormatted = Get-ArchiveSizeFormatted -PathToArchive $FinalArchivePath -Logger $Logger 
         } elseif ($IsSimulateMode.IsPresent) {
             $reportData.ArchiveSizeBytes = 0
@@ -423,11 +419,10 @@ function Invoke-PoShBackupJob {
              $reportData.ArchiveSizeFormatted = "N/A (Archive not found after creation)"
         }
 
-        if ($sevenZipResult.ExitCode -ne 0) { # Error or Warning from 7zip
+        if ($sevenZipResult.ExitCode -ne 0) { 
             if ($sevenZipResult.ExitCode -eq 1 -and $effectiveJobConfig.TreatSevenZipWarningsAsSuccess) {
                 & $LocalWriteLog -Message "[INFO] 7-Zip returned warning (Exit Code 1) but 'TreatSevenZipWarningsAsSuccess' is true. Job status remains SUCCESS for local archive creation." -Level "INFO"
             } else {
-                # If not treating warning as success, or it's a fatal error
                 $currentJobStatus = if ($sevenZipResult.ExitCode -eq 1) { "WARNINGS" } else { "FAILURE" }
                 & $LocalWriteLog -Message "[$(if($currentJobStatus -eq 'FAILURE') {'ERROR'} else {'WARNING'})] 7-Zip operation for local archive creation resulted in Exit Code $($sevenZipResult.ExitCode). This impacts overall job status." -Level $currentJobStatus
             }
@@ -460,18 +455,15 @@ function Invoke-PoShBackupJob {
             $reportData.ArchiveTestResult = "Not Configured" 
         }
 
-        # --- Backup Target Transfer Logic ---
-        $allTargetTransfersSuccessfulOverall = $true # Assume success if no targets or all succeed
+        $allTargetTransfersSuccessfulOverall = $true 
         if ($currentJobStatus -ne "FAILURE" -and $effectiveJobConfig.ResolvedTargetInstances.Count -gt 0) {
             & $LocalWriteLog -Message "`n[INFO] Operations: Starting remote target transfers for job '$JobName'..." -Level "INFO"
             
-            # Ensure the local archive exists before attempting transfers
             if (-not $IsSimulateMode.IsPresent -and -not (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
                 & $LocalWriteLog -Message "[ERROR] Operations: Local staged archive '$FinalArchivePath' not found. Cannot proceed with remote target transfers." -Level "ERROR"
                 $allTargetTransfersSuccessfulOverall = $false
                 if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" } 
             } else {
-                # Get LocalArchiveCreationTimestamp
                 $LocalArchiveCreationTimestamp = $null
                 if (-not $IsSimulateMode.IsPresent -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
                     try { $LocalArchiveCreationTimestamp = (Get-Item -LiteralPath $FinalArchivePath).CreationTime }
@@ -479,10 +471,10 @@ function Invoke-PoShBackupJob {
                         & $LocalWriteLog -Message "[WARNING] Operations: Could not get CreationTime for local archive '$FinalArchivePath' prior to target transfer. Error: $($_.Exception.Message)" -Level "WARNING"
                     }
                 } elseif ($IsSimulateMode.IsPresent) {
-                    $LocalArchiveCreationTimestamp = (Get-Date).AddMinutes(-5) # Simulated timestamp for when archive would have been created
+                    $LocalArchiveCreationTimestamp = (Get-Date).AddMinutes(-5) 
                 }
-                if ($null -eq $LocalArchiveCreationTimestamp) { # Fallback if Get-Item failed or not simulated and archive not found (though checked above)
-                    $LocalArchiveCreationTimestamp = (Get-Date) # Use current time as a fallback
+                if ($null -eq $LocalArchiveCreationTimestamp) { 
+                    $LocalArchiveCreationTimestamp = (Get-Date) 
                     & $LocalWriteLog -Message "[DEBUG] Operations: Using current time as fallback for LocalArchiveCreationTimestamp for target transfers." -Level "DEBUG"
                 }
 
@@ -543,7 +535,6 @@ function Invoke-PoShBackupJob {
                             $currentTransferReport.TransferSizeFormatted = "N/A" 
                         }
 
-                        # Log ReplicationDetails if present (e.g., from "Replicate" provider)
                         if ($transferOutcome.ContainsKey('ReplicationDetails') -and $transferOutcome.ReplicationDetails -is [array] -and $transferOutcome.ReplicationDetails.Count -gt 0) {
                             & $LocalWriteLog -Message "    - Operations: Replication Details for Target '$targetInstanceName':" -Level "INFO"
                             foreach ($detail in $transferOutcome.ReplicationDetails) {
@@ -595,7 +586,6 @@ function Invoke-PoShBackupJob {
         } elseif ($currentJobStatus -eq "FAILURE") {
             & $LocalWriteLog -Message "[WARNING] Operations: Remote target transfers skipped for job '$JobName' due to failure in local archive creation/testing." -Level "WARNING"
         }
-        # --- End Backup Target Transfer Logic ---
 
     } catch {
         & $LocalWriteLog -Message "ERROR during processing of job '$JobName': $($_.Exception.ToString())" -Level ERROR

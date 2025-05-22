@@ -1,10 +1,11 @@
+# Modules\ConfigManager.psm1
 <#
 .SYNOPSIS
     Manages the loading, validation, and interpretation of PoSh-Backup configurations.
     This includes merging default and user configurations, handling 7-Zip path detection,
     validating configuration structure, determining which jobs/sets to process, and
     calculating the effective configuration for individual backup jobs, including new
-    Backup Target settings.
+    Backup Target and PostRunAction settings.
 
 .DESCRIPTION
     The ConfigManager module is a central component for handling all aspects of PoSh-Backup's
@@ -15,15 +16,15 @@
     Key Functions:
     - Import-AppConfiguration: Loads base (Default.psd1) and user (User.psd1) configurations,
       merges them, handles 7-Zip path auto-detection (via 7ZipManager.psm1), loads and performs
-      basic validation on the new 'BackupTargets' global configuration section (now more flexible
-      for TargetSpecificSettings type), and can invoke advanced schema validation (via
-      PoShBackupValidator.psm1).
+      basic validation on the new 'BackupTargets' global configuration section, and can invoke
+      advanced schema validation (via PoShBackupValidator.psm1).
     - Get-JobsToProcess: Determines the list of backup jobs to execute based on command-line
-      parameters or default configuration rules.
+      parameters or default configuration rules. It now also resolves 'PostRunAction' settings
+      for Backup Sets.
     - Get-PoShBackupJobEffectiveConfiguration: Calculates the final, effective settings for a
       single backup job by merging global settings, job-specific settings, and command-line
-      overrides. This now includes resolving 'LocalRetentionCount', 'TargetNames' (and their
-      corresponding full target configurations from 'BackupTargets'), and 'DeleteLocalArchiveAfterSuccessfulTransfer'.
+      overrides. This now includes resolving 'LocalRetentionCount', 'TargetNames',
+      'DeleteLocalArchiveAfterSuccessfulTransfer', and 'PostRunAction' settings.
 
     This module relies on Utils.psm1 (for Write-LogMessage, Get-ConfigValue),
     7ZipManager.psm1 (for Find-SevenZipExecutable), and optionally PoShBackupValidator.psm1.
@@ -31,9 +32,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.2 # Corrected $LocalWriteLog wrapper to handle empty ForegroundColour param.
+    Version:        1.1.4 # Added debug for job config path/name.
     DateCreated:    17-May-2025
-    LastModified:   19-May-2025
+    LastModified:   22-May-2025
     Purpose:        Centralised configuration management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Core PoSh-Backup modules: Utils.psm1, 7ZipManager.psm1.
@@ -469,7 +470,7 @@ function Get-JobsToProcess {
         - If neither is specified:
             - If only one job is defined in the configuration, it returns that job.
             - Otherwise (zero or multiple jobs defined), it returns an error indicating the ambiguity.
-        It also determines the 'StopSetOnError' policy for the resolved set.
+        It also determines the 'StopSetOnError' policy and 'PostRunAction' for the resolved set.
     .PARAMETER Config
         The loaded PoSh-Backup configuration hashtable.
     .PARAMETER SpecifiedJobName
@@ -480,7 +481,7 @@ function Get-JobsToProcess {
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .OUTPUTS
         System.Collections.Hashtable
-        Returns a hashtable with keys: Success, JobsToRun, SetName, StopSetOnErrorPolicy, ErrorMessage.
+        Returns a hashtable with keys: Success, JobsToRun, SetName, StopSetOnErrorPolicy, SetPostRunAction, ErrorMessage.
     #>
     param(
         [hashtable]$Config,
@@ -507,6 +508,7 @@ function Get-JobsToProcess {
     $jobsToRun = [System.Collections.Generic.List[string]]::new()
     $setName = $null
     $stopSetOnErrorPolicy = $true # Default for StopSetOnError is "StopSet", hence $true
+    $setPostRunAction = $null # NEW: To store PostRunAction for the set
 
     if (-not [string]::IsNullOrWhiteSpace($SpecifiedSetName)) {
         & $LocalWriteLog -Message "`n[INFO] ConfigManager: Backup Set specified by user: '$SpecifiedSetName'" -Level "INFO"
@@ -521,6 +523,13 @@ function Get-JobsToProcess {
                     return @{ Success = $false; ErrorMessage = "ConfigManager: Backup Set '$setName' defined but 'JobNames' list is empty/invalid." }
                 }
                 $stopSetOnErrorPolicy = if (((Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue "StopSet") -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
+                
+                # NEW: Resolve PostRunAction for the set
+                if ($setDefinition.ContainsKey('PostRunAction') -and $setDefinition.PostRunAction -is [hashtable]) {
+                    $setPostRunAction = $setDefinition.PostRunAction # Store the hashtable itself
+                    & $LocalWriteLog -Message "  - ConfigManager: Set '$setName' has specific PostRunAction settings." -Level "DEBUG"
+                }
+
                 & $LocalWriteLog -Message "  - ConfigManager: Jobs in set '$setName': $($jobsToRun -join ', ')" -Level "INFO"
                 & $LocalWriteLog -Message "  - ConfigManager: Policy for set on job failure: $(if($stopSetOnErrorPolicy){'StopSet'}else{'ContinueSet'})" -Level "INFO"
             }
@@ -589,7 +598,8 @@ function Get-JobsToProcess {
         Success              = $true;
         JobsToRun            = $jobsToRun;
         SetName              = $setName;
-        StopSetOnErrorPolicy = $stopSetOnErrorPolicy
+        StopSetOnErrorPolicy = $stopSetOnErrorPolicy;
+        SetPostRunAction     = $setPostRunAction # NEW: Return set-level PostRunAction
     }
 }
 #endregion
@@ -600,18 +610,19 @@ function Get-PoShBackupJobEffectiveConfiguration {
     <#
     .SYNOPSIS
         Gathers the effective configuration for a single backup job by merging global,
-        job-specific, and command-line override settings, including Backup Target resolution.
+        job-specific, and command-line override settings, including Backup Target and PostRunAction resolution.
     .DESCRIPTION
         This function takes a specific job's raw configuration, the global configuration,
         and any command-line overrides, then resolves the final settings that will be
         used for that job. It prioritizes settings in the order: CLI overrides, then
         job-specific settings, then global settings.
         It now also resolves 'TargetNames' specified in the job configuration by looking up
-        the full definitions of those targets in the global 'BackupTargets' section.
+        the full definitions of those targets in the global 'BackupTargets' section, and
+        resolves 'PostRunAction' settings.
     .PARAMETER JobConfig
         A hashtable containing the specific configuration settings for this backup job.
     .PARAMETER GlobalConfig
-        A hashtable containing the global configuration settings for PoSh-Backup, including 'BackupTargets'.
+        A hashtable containing the global configuration settings for PoSh-Backup, including 'BackupTargets' and 'PostRunActionDefaults'.
     .PARAMETER CliOverrides
         A hashtable containing command-line parameter overrides.
     .PARAMETER JobReportDataRef
@@ -622,7 +633,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     .OUTPUTS
         System.Collections.Hashtable
         A hashtable representing the effective configuration for the job, including an array
-        of 'ResolvedTargetInstances' if 'TargetNames' were specified.
+        of 'ResolvedTargetInstances' if 'TargetNames' were specified, and a 'PostRunAction' hashtable.
     #>
     param(
         [Parameter(Mandatory)] [hashtable]$JobConfig,
@@ -641,8 +652,9 @@ function Get-PoShBackupJobEffectiveConfiguration {
 
     $effectiveConfig.OriginalSourcePath = $JobConfig.Path
     $effectiveConfig.BaseFileName = $JobConfig.Name
-    $reportData.JobConfiguration = $JobConfig 
+    $reportData.JobConfiguration = $JobConfig # Store raw job config for reporting
 
+    # Destination and Target settings
     $effectiveConfig.DestinationDir = Get-ConfigValue -ConfigObject $JobConfig -Key 'DestinationDir' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDestinationDir' -DefaultValue $null)
     
     $effectiveConfig.TargetNames = @(Get-ConfigValue -ConfigObject $JobConfig -Key 'TargetNames' -DefaultValue @())
@@ -659,8 +671,8 @@ function Get-PoShBackupJobEffectiveConfiguration {
                 if ($globalBackupTargets.ContainsKey($targetNameRef)) {
                     $targetInstanceConfig = $globalBackupTargets[$targetNameRef]
                     if ($targetInstanceConfig -is [hashtable]) {
-                        $targetInstanceConfigWithName = $targetInstanceConfig.Clone() 
-                        $targetInstanceConfigWithName['_TargetInstanceName_'] = $targetNameRef 
+                        $targetInstanceConfigWithName = $targetInstanceConfig.Clone() # Clone to avoid modifying global config
+                        $targetInstanceConfigWithName['_TargetInstanceName_'] = $targetNameRef # Add friendly name for logging
                         $effectiveConfig.ResolvedTargetInstances.Add($targetInstanceConfigWithName)
                         & $Logger -Message "  - ConfigManager: Resolved Target Instance '$targetNameRef' (Type: $($targetInstanceConfig.Type)) for job." -Level DEBUG
                     }
@@ -675,25 +687,30 @@ function Get-PoShBackupJobEffectiveConfiguration {
         }
     }
 
-    $effectiveConfig.LocalRetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'LocalRetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3) 
-    if ($effectiveConfig.LocalRetentionCount -lt 0) { $effectiveConfig.LocalRetentionCount = 0 } 
+    # Local Retention settings
+    $effectiveConfig.LocalRetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'LocalRetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3) # DefaultRetentionCount is legacy, but keep for fallback if LocalRetentionCount is missing
+    if ($effectiveConfig.LocalRetentionCount -lt 0) { $effectiveConfig.LocalRetentionCount = 0 } # Ensure non-negative
     $effectiveConfig.DeleteToRecycleBin = Get-ConfigValue -ConfigObject $JobConfig -Key 'DeleteToRecycleBin' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDeleteToRecycleBin' -DefaultValue $false)
     $effectiveConfig.RetentionConfirmDelete = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionConfirmDelete' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetentionConfirmDelete' -DefaultValue $true)
 
+    # Password settings
     $effectiveConfig.ArchivePasswordMethod = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordMethod' -DefaultValue "None"
     $effectiveConfig.CredentialUserNameHint = Get-ConfigValue -ConfigObject $JobConfig -Key 'CredentialUserNameHint' -DefaultValue "BackupUser"
     $effectiveConfig.ArchivePasswordSecretName = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordSecretName' -DefaultValue $null
     $effectiveConfig.ArchivePasswordVaultName = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordVaultName' -DefaultValue $null
     $effectiveConfig.ArchivePasswordSecureStringPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordSecureStringPath' -DefaultValue $null
     $effectiveConfig.ArchivePasswordPlainText = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordPlainText' -DefaultValue $null
-    $effectiveConfig.UsePassword = Get-ConfigValue -ConfigObject $JobConfig -Key 'UsePassword' -DefaultValue $false
+    $effectiveConfig.UsePassword = Get-ConfigValue -ConfigObject $JobConfig -Key 'UsePassword' -DefaultValue $false # Legacy
 
+    # 7-Zip Output
     $effectiveConfig.HideSevenZipOutput = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'HideSevenZipOutput' -DefaultValue $true
 
+    # Archive Naming and Type
     $effectiveConfig.JobArchiveType = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveType' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveType' -DefaultValue "-t7z")
     $effectiveConfig.JobArchiveExtension = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveExtension' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveExtension' -DefaultValue ".7z")
     $effectiveConfig.JobArchiveDateFormat = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveDateFormat' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd")
 
+    # 7-Zip Compression Parameters
     $effectiveConfig.JobCompressionLevel = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressionLevel' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressionLevel' -DefaultValue "-mx=7")
     $effectiveConfig.JobCompressionMethod = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressionMethod' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressionMethod' -DefaultValue "-m0=LZMA2")
     $effectiveConfig.JobDictionarySize = Get-ConfigValue -ConfigObject $JobConfig -Key 'DictionarySize' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDictionarySize' -DefaultValue "-md=128m")
@@ -702,11 +719,13 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.JobCompressOpenFiles = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressOpenFiles' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressOpenFiles' -DefaultValue $true)
     $effectiveConfig.JobAdditionalExclusions = @(Get-ConfigValue -ConfigObject $JobConfig -Key 'AdditionalExclusions' -DefaultValue @())
 
+    # Thread Count for 7-Zip
     $_globalConfigThreads = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultThreadCount' -DefaultValue 0
-    $_jobSpecificThreadsToUse = Get-ConfigValue -ConfigObject $JobConfig -Key 'ThreadsToUse' -DefaultValue 0
-    $_threadsFor7Zip = if ($_jobSpecificThreadsToUse -gt 0) { $_jobSpecificThreadsToUse } elseif ($_globalConfigThreads -gt 0) { $_globalConfigThreads } else { 0 } 
-    $effectiveConfig.ThreadsSetting = if ($_threadsFor7Zip -gt 0) { "-mmt=$($_threadsFor7Zip)" } else { "-mmt" } 
+    $_jobSpecificThreadsToUse = Get-ConfigValue -ConfigObject $JobConfig -Key 'ThreadsToUse' -DefaultValue 0 # Note: Key in Default.psd1 is 'DefaultThreadCount' for global, 'ThreadsToUse' for job
+    $_threadsFor7Zip = if ($_jobSpecificThreadsToUse -gt 0) { $_jobSpecificThreadsToUse } elseif ($_globalConfigThreads -gt 0) { $_globalConfigThreads } else { 0 } # Job overrides global
+    $effectiveConfig.ThreadsSetting = if ($_threadsFor7Zip -gt 0) { "-mmt=$($_threadsFor7Zip)" } else { "-mmt" } # 7-Zip auto-detects if 0 or just -mmt
 
+    # VSS Settings
     $effectiveConfig.JobEnableVSS = if ($CliOverrides.UseVSS) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableVSS' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableVSS' -DefaultValue $false) }
     $effectiveConfig.JobVSSContextOption = Get-ConfigValue -ConfigObject $JobConfig -Key 'VSSContextOption' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVSSContextOption' -DefaultValue "Persistent NoWriters")
     $_vssCachePathFromConfig = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab"
@@ -714,18 +733,21 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.VSSPollingTimeoutSeconds = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSPollingTimeoutSeconds' -DefaultValue 120
     $effectiveConfig.VSSPollingIntervalSeconds = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSPollingIntervalSeconds' -DefaultValue 5
 
+    # Retry Settings
     $effectiveConfig.JobEnableRetries = if ($CliOverrides.EnableRetries) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableRetries' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableRetries' -DefaultValue $true) }
     $effectiveConfig.JobMaxRetryAttempts = Get-ConfigValue -ConfigObject $JobConfig -Key 'MaxRetryAttempts' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MaxRetryAttempts' -DefaultValue 3)
     $effectiveConfig.JobRetryDelaySeconds = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetryDelaySeconds' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetryDelaySeconds' -DefaultValue 60)
 
+    # Treat 7-Zip Warnings as Success
     if ($null -ne $CliOverrides.TreatSevenZipWarningsAsSuccess) {
         $effectiveConfig.TreatSevenZipWarningsAsSuccess = $CliOverrides.TreatSevenZipWarningsAsSuccess
     }
     else {
         $effectiveConfig.TreatSevenZipWarningsAsSuccess = Get-ConfigValue -ConfigObject $JobConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue $false)
     }
-    $reportData.TreatSevenZipWarningsAsSuccess = $effectiveConfig.TreatSevenZipWarningsAsSuccess
+    $reportData.TreatSevenZipWarningsAsSuccess = $effectiveConfig.TreatSevenZipWarningsAsSuccess # For reporting
 
+    # 7-Zip Process Priority
     $effectiveConfig.JobSevenZipProcessPriority = if (-not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipPriority)) {
         $CliOverrides.SevenZipPriority
     }
@@ -733,22 +755,55 @@ function Get-PoShBackupJobEffectiveConfiguration {
         Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipProcessPriority' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipProcessPriority' -DefaultValue "Normal")
     }
 
+    # Archive Testing
     $effectiveConfig.JobTestArchiveAfterCreation = if ($CliOverrides.TestArchive) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'TestArchiveAfterCreation' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultTestArchiveAfterCreation' -DefaultValue $false) }
 
+    # Free Space Check
     $effectiveConfig.JobMinimumRequiredFreeSpaceGB = Get-ConfigValue -ConfigObject $JobConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue 0)
     $effectiveConfig.JobExitOnLowSpace = Get-ConfigValue -ConfigObject $JobConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue $false)
 
+    # Hook Script Paths
     $effectiveConfig.PreBackupScriptPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PreBackupScriptPath' -DefaultValue $null
     $effectiveConfig.PostBackupScriptOnSuccessPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptOnSuccessPath' -DefaultValue $null
     $effectiveConfig.PostBackupScriptOnFailurePath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptOnFailurePath' -DefaultValue $null
     $effectiveConfig.PostBackupScriptAlwaysPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptAlwaysPath' -DefaultValue $null
 
-    $reportData.SourcePath = if ($effectiveConfig.OriginalSourcePath -is [array]) { $effectiveConfig.OriginalSourcePath } else { @($effectiveConfig.OriginalSourcePath) }
-    $reportData.VSSUsed = $effectiveJobConfig.JobEnableVSS 
-    $reportData.RetriesEnabled = $effectiveJobConfig.JobEnableRetries
-    $reportData.ArchiveTested = $effectiveJobConfig.JobTestArchiveAfterCreation 
-    $reportData.SevenZipPriority = $effectiveJobConfig.JobSevenZipProcessPriority
+    # --- NEW: Resolve PostRunAction for the job ---
+    $jobPostRunActionConfig = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostRunAction' -DefaultValue $null
+    $globalPostRunActionDefaults = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'PostRunActionDefaults' -DefaultValue @{}
 
+    # Start with a clone of the global defaults to ensure all keys are present
+    $effectivePostRunAction = $globalPostRunActionDefaults.Clone() 
+
+    # Override with job-specific settings if they exist and are valid
+    if ($null -ne $jobPostRunActionConfig -and $jobPostRunActionConfig -is [hashtable]) {
+        if ($jobPostRunActionConfig.ContainsKey('Enabled') -and $jobPostRunActionConfig.Enabled -is [boolean]) { 
+            $effectivePostRunAction.Enabled = $jobPostRunActionConfig.Enabled 
+        }
+        if ($jobPostRunActionConfig.ContainsKey('Action') -and $jobPostRunActionConfig.Action -is [string]) { 
+            $effectivePostRunAction.Action = $jobPostRunActionConfig.Action 
+        }
+        if ($jobPostRunActionConfig.ContainsKey('DelaySeconds') -and $jobPostRunActionConfig.DelaySeconds -is [int]) { 
+            $effectivePostRunAction.DelaySeconds = $jobPostRunActionConfig.DelaySeconds 
+        }
+        if ($jobPostRunActionConfig.ContainsKey('TriggerOnStatus') -and $jobPostRunActionConfig.TriggerOnStatus -is [array]) { 
+            $effectivePostRunAction.TriggerOnStatus = @($jobPostRunActionConfig.TriggerOnStatus) 
+        }
+        if ($jobPostRunActionConfig.ContainsKey('ForceAction') -and $jobPostRunActionConfig.ForceAction -is [boolean]) { 
+            $effectivePostRunAction.ForceAction = $jobPostRunActionConfig.ForceAction 
+        }
+    }
+    $effectiveConfig.PostRunAction = $effectivePostRunAction
+    # --- END NEW: Resolve PostRunAction ---
+
+    # Populate some initial report data based on effective settings
+    $reportData.SourcePath = if ($effectiveConfig.OriginalSourcePath -is [array]) { $effectiveConfig.OriginalSourcePath } else { @($effectiveConfig.OriginalSourcePath) }
+    $reportData.VSSUsed = $effectiveConfig.JobEnableVSS 
+    $reportData.RetriesEnabled = $effectiveConfig.JobEnableRetries
+    $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation 
+    $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority
+
+    # Store a reference to the global config for modules that might need it (e.g., 7ZipManager for default exclusions)
     $effectiveConfig.GlobalConfigRef = $GlobalConfig 
 
     return $effectiveConfig

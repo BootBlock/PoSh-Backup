@@ -1,17 +1,17 @@
 # PoSh-Backup
-A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets.
+A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets and optional post-run system actions.
 
 > **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
 ## Features
 *   **Enterprise-Grade PowerShell Solution:** Robust, modular design built with dedicated PowerShell modules for reliability, maintainability, and clarity.
-*   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, and remote **Backup Target** definitions via a human-readable `.psd1` configuration file.
+*   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
 *   **Local and Remote Backups:**
     *   Archives are initially created in a **local staging directory** (defined by `DestinationDir` in job settings).
     *   Jobs can be configured to additionally transfer these archives to one or more **remote Backup Targets** (e.g., UNC shares, with future support for FTP, S3, etc., via an extensible provider model).
     *   If no remote targets are specified for a job, the local staging directory serves as the final backup location.
-*   **Granular Backup Job Control:** Precisely define sources, destinations (local staging), archive names, local retention policies, 7-Zip parameters, and **remote target assignments** for each individual backup job.
-*   **Backup Sets:** Group multiple jobs to run sequentially, with set-level error handling (stop on error or continue) for automated workflows.
+*   **Granular Backup Job Control:** Precisely define sources, destinations (local staging), archive names, local retention policies, **remote target assignments**, and **post-run actions** for each individual backup job.
+*   **Backup Sets:** Group multiple jobs to run sequentially, with set-level error handling (stop on error or continue) and **set-level post-run actions** for automated workflows.
 *   **Extensible Backup Target Providers:** A modular system (located in `Modules\Targets\`) allows for adding support for various remote storage types.
     *   **UNC Provider:** Transfers archives to standard network shares.
     *   **Replicate Provider (New):** Copies an archive to multiple specified local or UNC paths, with individual retention settings per destination.
@@ -38,19 +38,20 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   **Simulation Banner:** Clearly distinguishes reports generated from simulation runs.
     *   **Other Formats:** CSV, JSON, XML (CliXml), Plain Text (TXT), and Markdown (MD) also supported for data export and integration, updated to include target transfer details where appropriate.
 *   **Comprehensive Logging:** Get detailed, colour-coded console output and optional per-job text file logs for easy monitoring and troubleshooting of both local operations and remote transfers.
-*   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, and retention actions without making any actual changes.
+*   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention, and **post-run system actions** without making any actual changes.
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`), including basic validation of Backup Target definitions. Optional advanced schema validation available.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the local staging directory before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives.
 *   **Flexible 7-Zip Warning Handling:** Option to treat 7-Zip warnings (exit code 1, e.g., from skipped open files) as a success for job status reporting, configurable globally, per-job, or via CLI.
 *   **Exit Pause Control:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
+*   **NEW: Post-Run System Actions:** Optionally configure the script to perform system actions like Shutdown, Restart, Hibernate, LogOff, Sleep, or Lock Workstation after a job or set completes. This is configurable based on the final status (Success, Warnings, Failure, Any), can include a delay with a cancellation prompt, and can be forced via CLI parameters.
 
 ## Getting Started
 
 ### 1. Prerequisites
 *   **PowerShell:** Version 5.1 or higher.
 *   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
-*   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files.
+*   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files, and potentially for some Post-Run System Actions (e.g., Shutdown, Restart, Hibernate).
 *   **Network/Remote Access:** For using Backup Targets, appropriate permissions and connectivity to the remote locations (e.g., UNC shares) are necessary for the user account running PoSh-Backup.
 
 ### 2. Installation & Initial Setup
@@ -65,6 +66,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   `Themes/`: Contains CSS files for different HTML report themes.
     *   `Modules/`: Contains PowerShell modules that provide the core functionality.
         *   `Targets/`: **New sub-directory for Backup Target provider modules** (e.g., `UNC.Target.psm1`, `Replicate.Target.psm1`).
+        *   `SystemStateManager.psm1`: **New module for handling post-run system actions.**
     *   `Meta/`: Contains scripts related to the development of PoSh-Backup itself (like the script to generate bundles for AI).
     *   `Logs/`: Default directory where text log files will be stored for each job run (if file logging is enabled in the configuration).
     *   `Reports/`: Default directory where generated backup reports (HTML, CSV, etc.) will be saved.
@@ -165,6 +167,55 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 DeleteLocalArchiveAfterSuccessfulTransfer = $true
             }
             ```
+    *   **NEW: `PostRunActionDefaults` (Global Post-Run System Action Settings):**
+        *   Located in `Config\Default.psd1` (and copied to `User.psd1`), this section defines the default behavior for actions to take after the script finishes processing a job or set.
+        *   Example structure in `PostRunActionDefaults`:
+            ```powershell
+            PostRunActionDefaults = @{
+                Enabled         = $false # Default: $false (disabled)
+                Action          = "None" # Default: "None". Others: "Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock"
+                DelaySeconds    = 0      # Default: 0 (immediate action if enabled)
+                TriggerOnStatus = @("SUCCESS") # Default: Only on "SUCCESS". Can be array: @("SUCCESS", "WARNINGS"), or @("ANY")
+                ForceAction     = $false # Default: $false. If $true, attempts to force Shutdown/Restart.
+            }
+            ```
+    *   **NEW: `PostRunAction` in `BackupLocations` (Job-Specific Post-Run Actions):**
+        *   Each job defined under `BackupLocations` can have its own `PostRunAction` hashtable.
+        *   This allows you to specify a particular system action to occur *after that specific job completes* (and its hooks run).
+        *   These job-level settings override `PostRunActionDefaults`.
+        *   Example for a job:
+            ```powershell
+            "MyCriticalJob" = @{
+                Path = "C:\Data\Critical"
+                Name = "CriticalDataBackup"
+                # ... other job settings ...
+                PostRunAction = @{
+                    Enabled         = $true
+                    Action          = "Shutdown"
+                    DelaySeconds    = 120 # 2-minute delay with cancel prompt
+                    TriggerOnStatus = @("SUCCESS")
+                    ForceAction     = $false
+                }
+            }
+            ```
+    *   **NEW: `PostRunAction` in `BackupSets` (Set-Specific Post-Run Actions):**
+        *   Each set defined under `BackupSets` can also have its own `PostRunAction` hashtable.
+        *   This action occurs *after all jobs in the set have completed* (and the set's final hooks, if any, run).
+        *   A `PostRunAction` defined at the set level *overrides* any `PostRunAction` settings from individual jobs within that set, and also overrides `PostRunActionDefaults`.
+        *   Example for a set:
+            ```powershell
+            "NightlyServerMaintenance" = @{
+                JobNames     = @("WebAppBackup", "SQLBackup")
+                OnErrorInJob = "StopSet"
+                PostRunAction = @{
+                    Enabled         = $true
+                    Action          = "Restart"
+                    DelaySeconds    = 300 # 5-minute delay
+                    TriggerOnStatus = @("SUCCESS", "WARNINGS") # Restart even if there were warnings
+                    ForceAction     = $true
+                }
+            }
+            ```
 3.  **Explore `Config\Default.psd1` for All Options:**
     *   Open `Config\Default.psd1` (but don't edit it for your settings). This file serves as a comprehensive reference. It contains detailed comments explaining every available global and job-specific setting.
 
@@ -175,15 +226,15 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     ```powershell
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackup"
     ```
-    (Replace `"MyDocumentsBackup"` with the actual name of a job you defined in `BackupLocations`.)
+    (Replace `"MyDocumentsBackup"` with the actual name of a job you defined in `BackupLocations`. If "MyDocumentsBackup" has a `PostRunAction` configured, it will be evaluated after the job.)
 
 *   **Run a predefined Backup Set:** (Backup Sets group multiple jobs and are defined in `User.psd1` or `Default.psd1`.)
     ```powershell
     .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups"
     ```
-    (Replace `"DailyCriticalBackups"` with the name of a defined set.)
+    (Replace `"DailyCriticalBackups"` with the name of a defined set. If the "DailyCriticalBackups" set has a `PostRunAction`, it will be evaluated after all jobs in the set complete. This set-level action overrides any job-level post-run actions within the set.)
 
-*   **Simulate a backup job (local archive creation and any remote transfers will be simulated):**
+*   **Simulate a backup job (local archive creation, any remote transfers, and post-run actions will be simulated):**
     ```powershell
     .\PoSh-Backup.ps1 -BackupLocationName "ImportantProject_Replicated" -Simulate
     ```
@@ -193,7 +244,7 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     .\PoSh-Backup.ps1 -BackupLocationName "MyFrequentlySkippedFilesJob" -TreatSevenZipWarningsAsSuccessCLI
     ```
 
-*   **Test your configuration file for errors and view a summary of loaded settings:**
+*   **Test your configuration file for errors and view a summary of loaded settings (post-run actions also simulated):**
     ```powershell
     .\PoSh-Backup.ps1 -TestConfig
     ```
@@ -209,14 +260,28 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     .\PoSh-Backup.ps1 -ListBackupSets
     ```
 
+*   **CLI Override for Post-Run Action:** Force a shutdown after any job/set, regardless of configuration, with a 60-second delay, only if the overall status is SUCCESS or WARNINGS:
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "MyImportantJob" -PostRunActionCli "Shutdown" -PostRunActionDelaySecondsCli 60 -PostRunActionTriggerOnStatusCli @("SUCCESS", "WARNINGS")
+    ```
+    To prevent any post-run action, even if configured:
+    ```powershell
+    .\PoSh-Backup.ps1 -RunSet "NightlyServerMaintenance" -PostRunActionCli "None"
+    ```
+
 ### 5. Key Operational Command-Line Parameters
 These parameters allow you to override certain configuration settings for a specific run:
 
 *   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges).
 *   `-TestArchive`: Forces an integrity test of newly created *local* archives for all processed jobs.
-*   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, and retention actions are logged but not actually executed.
+*   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions, and post-run system actions are logged but not actually executed.
 *   `-TreatSevenZipWarningsAsSuccessCLI`: Forces 7-Zip exit code 1 (Warning) from *local* archiving to be treated as a success for the job status, overriding any configuration settings.
 *   `-PauseBehaviourCLI <Always|Never|OnFailure|OnWarning|OnFailureOrWarning>`: Controls if the script pauses with a "Press any key to continue" message before exiting. Overrides the `PauseBeforeExit` setting in the configuration file.
+*   **NEW: `-PostRunActionCli <Action>`**: Overrides all configured post-run actions.
+    *   Valid `<Action>`: "None", "Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock".
+*   **NEW: `-PostRunActionDelaySecondsCli <Seconds>`**: Delay for the CLI-specified action. Defaults to 0 if `-PostRunActionCli` is used but this parameter is not.
+*   **NEW: `-PostRunActionForceCli`**: Switch to force Shutdown/Restart for the CLI-specified action.
+*   **NEW: `-PostRunActionTriggerOnStatusCli <StatusArray>`**: Status(es) to trigger CLI action. Defaults to `@("ANY")` if `-PostRunActionCli` is used but this parameter is not. Valid: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
 
 For a full list of all command-line parameters and their descriptions, use PowerShell's built-in help:
 ```powershell

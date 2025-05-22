@@ -4,7 +4,7 @@
   bundler_script_version = "__BUNDLER_VERSION_PLACEHOLDER__" # Populated by bundler
 
   ai_development_watch_list = @(
-    "CRITICAL (AI): ENSURE FULL, UNTRUNCATED FILES ARE PROVIDED WHEN REQUESTED. This was a REPEATED, CATASTROPHIC FAILURE during the 'Replicate' target provider development, affecting Operations.psm1, PoShBackupValidator.psm1, Default.psd1, and UNC.Target.psm1 across multiple attempts. EXTREME VIGILANCE AND A CHANGE IN AI STRATEGY (e.g., providing diffs for complex files) IS REQUIRED. User had to provide baselines multiple times.", # RE-EMPHASIZED + CURRENT SESSION MAJOR FAILURE
+    "CRITICAL (AI): ENSURE FULL, UNTRUNCATED FILES ARE PROVIDED WHEN REQUESTED. This was a REPEATED, CATASTROPHIC FAILURE during the 'Replicate' target provider development, and AGAIN during 'PostRunAction' (README.md, Default.psd1, ConfigManager.psm1). EXTREME VIGILANCE AND A CHANGE IN AI STRATEGY (e.g., providing diffs for complex files, or AI requesting user to verify line counts before proceeding) IS REQUIRED. User had to provide baselines multiple times.", # RE-EMPHASIZED + CURRENT SESSION MAJOR FAILURE
     "CRITICAL (AI): VERIFY LINE COUNTS AND COMMENT INTEGRITY when AI provides full script updates. Inadvertent removal/truncation has occurred repeatedly. This was a significant issue in the last session and a CATASTROPHIC issue in the current session. EXTREME VIGILANCE REQUIRED.", # RE-EMPHASIZED + CURRENT SESSION MAJOR FAILURE
     "CRITICAL (AI): Ensure no extraneous trailing whitespace is introduced on any lines, including apparently blank ones when providing code.",
     "CRITICAL (AI): When modifying existing files, EXPLICITLY CONFIRM THE BASELINE VERSION/CONTENT if there's ANY ambiguity. If providing full files, state the assumed baseline. If errors persist, switch to providing diffs/patches against a user-provided baseline.", # UPDATED with strategy
@@ -13,17 +13,18 @@
     "CRITICAL (SYNTAX): When providing replacement strings for PowerShell's -replace operator that include special characters (e.g., HTML entities like '<'), ensure these replacement strings are correctly quoted (typically single quotes) to be treated as literal strings by PowerShell.", 
     "SYNTAX: PowerShell ordered dictionaries (`[ordered]@{}`) use `(theDictVariable.PSObject.Properties.Name -contains 'Key')`, NOT `theDictVariable.ContainsKey('Key')`. ",
     "REGEX: Be cautious with string interpolation vs. literal characters in regex patterns. Test regex patterns carefully. Ensure PowerShell string parsing is correct before regex engine sees it.",
-    "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting, including through new Backup Target provider models.", 
-    "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`, `VSSStatus`, `VSSAttempted`, and new `TargetTransfers` array with its `ReplicationDetails`) is correctly set in `theReportDataRefVariable` (a ref object) *before* report generation functions are called.", # UPDATED
-    "SCOPE: Double-check variable scopes. `$Global:StatusToColourMap` and associated `$Global:Colour<Name>` variables in `PoSh-Backup.ps1` must be correctly defined and accessible when `Write-LogMessage` (from `Utils.psm1`) is invoked, even during early module loading or from deeply nested calls. An explicit 'ERROR' key in the map resolved a color issue.", # NEW/UPDATED
-    "STRUCTURE: Respect the modular design. Ensure functions are placed in the most logical module. New target providers go in `Modules\Targets\`.", 
+    "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting, including through new Backup Target provider models and PostRunAction feature.", # UPDATED
+    "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`, `VSSStatus`, `VSSAttempted`, and new `TargetTransfers` array with its `ReplicationDetails`) is correctly set in `theReportDataRefVariable` (a ref object) *before* report generation functions are called.", 
+    "SCOPE: Double-check variable scopes. `$Global:StatusToColourMap` and associated `$Global:Colour<Name>` variables in `PoSh-Backup.ps1` must be correctly defined and accessible when `Write-LogMessage` (from `Utils.psm1`) is invoked, even during early module loading or from deeply nested calls. An explicit 'ERROR' key in the map resolved a color issue.", 
+    "STRUCTURE: Respect the modular design. Ensure functions are placed in the most logical module. New target providers go in `Modules\Targets\`. New system state functions in `Modules\SystemStateManager.psm1`.", # UPDATED
     "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code.",
-    "PSSA (BUNDLER): Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions from `PSScriptAnalyzerSettings.psd1` or inline suppressions, even if VS Code shows no issues. This was observed with `PSUseApprovedVerbs` which required careful inline suppression.", # UPDATED
-    "PSSA (CLOSURES): PSScriptAnalyzer may not always detect parameter/variable usage within scriptblock closures assigned to local variables (e.g., `$LocalWriteLog` wrappers using a `$Logger` parameter from parent scope). Explicit, direct calls to the parameter within the main function body might be needed for PSSA appeasement.", # UPDATED
+    "PSSA (BUNDLER): Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions from `PSScriptAnalyzerSettings.psd1` or inline suppressions, even if VS Code shows no issues. This was observed with `PSUseApprovedVerbs` which required careful inline suppression.", 
+    "PSSA (CLOSURES): PSScriptAnalyzer may not always detect parameter/variable usage within scriptblock closures assigned to local variables (e.g., `$LocalWriteLog` wrappers using a `$Logger` parameter from parent scope). Explicit, direct calls to the parameter within the main function body might be needed for PSSA appeasement.", 
     "PESTER (SESSION): Current Pester tests are non-functional. No work done in this session.",
     "CRITICAL (PSD1_PARSING): `Import-PowerShellDataFile` can unexpectedly fail with 'dynamic expression' errors on double-quoted strings containing backtick-escaped `\$` if the overall string structure is complex. Safest to rephrase or use single-quoted strings.",
-    "LOGIC (CONFIRMATION): The interaction between `[CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='...')`, `$PSCmdlet.ShouldProcess()`, `$ConfirmPreference`, and explicit `-Confirm` parameters is complex. Test confirmation flows carefully.",
-    "LOGIC (PATH_CREATION): `New-Item -ItemType Directory -Force` on UNC paths may not create intermediate parent directories robustly. Iterative path component creation is more reliable for UNC destinations (as implemented in `UNC.Target.psm1`'s `Initialize-RemotePathInternal`)." # NEW
+    "LOGIC (CONFIRMATION): The interaction between `[CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='...')`, `$PSCmdlet.ShouldProcess()`, `$ConfirmPreference`, and explicit `-Confirm` parameters is complex. Test confirmation flows carefully, especially for new PostRunAction feature.", # UPDATED
+    "LOGIC (PATH_CREATION): `New-Item -ItemType Directory -Force` on UNC paths may not create intermediate parent directories robustly. Iterative path component creation is more reliable for UNC destinations (as implemented in `UNC.Target.psm1`'s `Initialize-RemotePathInternal`).",
+    "LOGIC (POST_RUN_ACTION): Ensure the hierarchy for PostRunAction (CLI > Set > Job > Global Defaults) is correctly implemented and that `-Simulate` and `-TestConfig` modes properly simulate without executing system state changes." # NEW
   )
 
   conversation_summary = @( 
@@ -58,7 +59,10 @@
 
   external_dependencies = @{
     executables = @( 
-      "7z.exe (7-Zip command-line tool - path configurable or auto-detected)"
+      "7z.exe (7-Zip command-line tool - path configurable or auto-detected)",
+      "powercfg.exe (Windows Power Configuration Utility - for Hibernate check)", # NEW
+      "rundll32.exe (Windows utility - for Hibernate, Sleep, Lock actions)", # NEW
+      "shutdown.exe (Windows utility - for Shutdown, Restart, LogOff actions)" # NEW
     )
     powershell_modules = @( 
       "__PS_DEPENDENCIES_PLACEHOLDER__" 

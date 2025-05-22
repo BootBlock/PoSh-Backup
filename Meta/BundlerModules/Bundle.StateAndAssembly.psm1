@@ -15,9 +15,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.3 # Gemini being bad at remembering anything
+    Version:        1.1.4 # Gemini being bad at remembering anything
     DateCreated:    17-May-2025
-    LastModified:   19-May-2025
+    LastModified:   22-May-2025
     Purpose:        AI State generation and final bundle assembly for the AI project bundler.
 #>
 
@@ -25,7 +25,8 @@
 # $PSScriptRoot here is Meta\BundlerModules
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\..\Modules\Utils.psm1") -Force -ErrorAction Stop -WarningAction SilentlyContinue
-} catch {
+}
+catch {
     Write-Warning "Bundle.StateAndAssembly.psm1: Could not import main Utils.psm1 for Get-ConfigValue. This might affect dynamic population if specific config values were needed here (currently not)."
 }
 
@@ -54,12 +55,13 @@ function Get-BundlerAIState {
     $aiState = $null
     try {
         $aiState = Import-PowerShellDataFile -LiteralPath $aiStateTemplatePath -ErrorAction Stop
-    } catch {
+    }
+    catch {
         Write-Error "FATAL (Bundler StateAndAssembly): Could not load AI State template from '$aiStateTemplatePath'. Error: $($_.Exception.Message)"
         # Return a minimal error state or re-throw, depending on desired bundler robustness
         return @{
-            error = "Failed to load AIState.template.psd1"
-            details = $_.Exception.Message
+            error                  = "Failed to load AIState.template.psd1"
+            details                = $_.Exception.Message
             bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
         }
     }
@@ -75,7 +77,8 @@ function Get-BundlerAIState {
     if ($null -ne $AutoDetectedPsDependencies) {
         try {
             $psModulesForState = @($AutoDetectedPsDependencies | Sort-Object -Unique)
-        } catch {
+        }
+        catch {
             Write-Warning "Bundler StateAndAssembly: Could not process AutoDetectedPsDependencies. Defaulting to empty list for AI State. Type was: $($AutoDetectedPsDependencies.GetType().FullName)"
         }
     }
@@ -89,63 +92,87 @@ function Get-BundlerAIState {
     $thisModuleVersion = "1.1.3" # Version of THIS Bundle.StateAndAssembly.psm1 module
     
         $currentConversationSummary = @(
-        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).", 
+        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.10.1).", # Updated version
         "Modular design: Core modules, Reporting sub-modules, Config files, and Meta/ (bundler).",
-        "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v$($thisModuleVersion)).", # $thisModuleVersion will be 1.1.3
-        "--- Major New Feature: Backup Targets (Expanded) ---", 
+        "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v$($thisModuleVersion)).", # Uses the updated $thisModuleVersion
+        "--- Major New Feature: Post-Run System Actions (Shutdown, Restart, etc.) ---",
+        "  - Goal: Allow PoSh-Backup to perform system state changes after job/set completion.",
+        "  - New Module (`Modules\\SystemStateManager.psm1` v1.0.0):",
+        "    - Created to handle system state changes (Shutdown, Restart, Hibernate, LogOff, Sleep, Lock).",
+        "    - Includes `Invoke-SystemStateAction` function.",
+        "    - Supports delayed execution with a cancellable console countdown.",
+        "    - Checks for hibernation support before attempting hibernate.",
+        "    - Handles simulation mode for all actions.",
+        "  - Configuration (`Config\\Default.psd1` v1.3.4):",
+        "    - Added global `PostRunActionDefaults` section.",
+        "    - Added `PostRunAction` hashtable to `BackupLocations` (job-level) and `BackupSets` (set-level).",
+        "    - Settings include `Enabled`, `Action`, `DelaySeconds`, `TriggerOnStatus` (SUCCESS, WARNINGS, FAILURE, ANY), `ForceAction`.",
+        "  - Schema Validation (`Modules\\PoShBackupValidator.psm1` v1.3.4):",
+        "    - Updated schema to validate new `PostRunAction` settings at global, job, and set levels.",
+        "  - Config Management (`Modules\\ConfigManager.psm1` v1.1.3):",
+        "    - `Get-PoShBackupJobEffectiveConfiguration` now resolves `PostRunAction` for jobs.",
+        "    - `Get-JobsToProcess` now resolves `PostRunAction` for sets.",
+        "  - Main Script (`PoSh-Backup.ps1` v1.10.1):", # Updated version
+        "    - Imports and uses `SystemStateManager.psm1`.",
+        "    - Added CLI parameters for `PostRunAction` overrides.",
+        "    - Implements logic to determine and execute the effective `PostRunAction` after all other operations.",
+        "    - Handles simulation and test config modes for post-run actions.",
+        "  - Documentation (`README.md`): Updated to explain the new Post-Run System Action feature, configuration, and CLI parameters.",
+        "--- Previous Major Feature: Backup Targets (Expanded) ---", 
         "  - Goal: Allow backups to be sent to remote locations via an extensible provider model.",
-        "  - Configuration (`Default.psd1` v1.3.3):", # MODIFIED version
-        "    - Added global `BackupTargets` section to define named remote target instances.", # Kept from your baseline
-        "    - In `BackupLocations` (job definitions): Renamed `RetentionCount` to `LocalRetentionCount`, added `TargetNames` (array), `DeleteLocalArchiveAfterSuccessfulTransfer` (boolean).", # Kept
-        "    - For UNC targets, added `CreateJobNameSubdirectory` (boolean, default `$false`) to `TargetSpecificSettings`.", # Kept & slightly rephrased for clarity
-        "    - Example added for new 'Replicate' target type, allowing multiple destinations per target instance, each with optional subdirectories and retention.", # Kept
-        "    - Advanced Schema Validation now enabled by default.", # NEW from this session
-        "  - `ConfigManager.psm1` (v1.1.1):", # MODIFIED version
-        "    - Basic validation for `TargetSpecificSettings` made more flexible to support array types (for 'Replicate').", # NEW from this session
-        "  - `PoShBackupValidator.psm1` (v1.3.3):", # MODIFIED version
-        "    - Schema for `BackupTargets.DynamicKeySchema.Schema.TargetSpecificSettings` changed `Type` to 'object'.", # NEW from this session
-        "    - `ValidateScript` for `BackupTargets` now correctly handles type validation for 'UNC' (hashtable) and 'Replicate' (array) `TargetSpecificSettings`.", # NEW from this session
-        "  - Target Provider (`Modules\\Targets\\UNC.Target.psm1` v1.1.2):", # MODIFIED version
-        "    - Created to handle transfers to UNC paths.", # Kept
-        "    - Implements `Invoke-PoShBackupTargetTransfer` function.", # Kept
-        "    - Includes logic for creating job-specific subdirectories on the UNC share (now optional via `CreateJobNameSubdirectory`).", # Kept
-        "    - Implements basic count-based remote retention on the UNC target.", # Kept
-        "    - Now accepts and logs additional local archive metadata (size, creation time, password status).", # Kept
-        "    - Implemented robust `Initialize-RemotePathInternal` helper for iterative UNC parent directory creation.", # NEW from this session
-        "    - Addressed PSSA warning for `PSUseApprovedVerbs` by renaming helper function.", # NEW from this session
-        "  - NEW Target Provider (`Modules\\Targets\\Replicate.Target.psm1` v1.0.2):", # MODIFIED version
-        "    - Created to handle replication of an archive to multiple destinations (local or UNC paths).", # Kept
-        "    - Each destination within the 'Replicate' target's `TargetSpecificSettings` (an array) can have its own `Path`, `CreateJobNameSubdirectory`, and `RetentionSettings` (supporting `KeepCount`).", # Kept
-        "    - Implements `Invoke-PoShBackupTargetTransfer` to manage all configured replications and returns detailed results for each.", # Kept
-        "    - Accepts and logs additional local archive metadata.", # NEW from this session
-        "    - Addressed PSSA warning for unused `Logger` parameter.", # NEW from this session
-        "  - `Operations.psm1` (v1.17.0):", 
-        "    - Orchestrates the transfer loop, dynamically loads providers, calls `Invoke-PoShBackupTargetTransfer`.", # Kept
-        "    - Passes additional local archive metadata (size, creation time, password status) to target providers.", # Kept
-        "    - Logs detailed `ReplicationDetails` if returned by providers like 'Replicate'.", # Kept
-        "    - Handles local staged archive deletion, updates report data.", # Kept
-        "  - `Utils.psm1` (v1.11.3):", # NEW section for Utils.psm1
-        "    - Corrected `$LocalWriteLog` wrapper logic to properly handle empty `ForegroundColour` parameters, resolving console color warnings for ERROR level.", # NEW from this session
-        "    - Added enhanced diagnostics to `Write-LogMessage`'s safety checks for color resolution.", # NEW from this session
-        "  - `PoSh-Backup.ps1` (v1.10.0 - main script version not yet incremented in this session, but globals updated):", # MODIFIED
-        "    - Ensured `$Global:ColourHeading` is defined.", # NEW from this session
-        "    - Explicitly added 'ERROR' key to `$Global:StatusToColourMap` to fix console color warnings.", # NEW from this session
-        "  - Reporting Modules Updated (previously for UNC, now generic for TargetTransfers):", # Kept
-        "    - `ReportingHtml.psm1` (v1.9.1): Added 'Remote Target Transfers' section. Corrected HTML encoder syntax.", # Kept
-        "    - `ReportingTxt.psm1` (v1.2.0): Added 'REMOTE TARGET TRANSFERS' section.", # Kept
-        "    - `ReportingCsv.psm1` (v1.2.0): Generates `JobName_TargetTransfers_Timestamp.csv`.", # Kept
-        "    - `ReportingMd.psm1` (v1.3.0): Added 'Remote Target Transfers' table.", # Kept
-        "    - `ReportingXml.psm1` (v1.2.0): `TargetTransfers` data included automatically.", # Kept
-        "  - `README.md`: Updated to explain the new 'Replicate' target provider and its configuration.", # MODIFIED (was more generic before)
-        "  - `AIState.template.psd1`: Watchlist updated for file integrity failures, PSSA closure issues, UNC path creation, and logging color resolution.", # MODIFIED
-        "--- Previous Work (Selected Highlights) ---", 
-        "Network Share Handling Improvements (`Operations.psm1` pre-v1.15.0, `Config\Default.psd1` pre-v1.3.0).", # Kept from your baseline
-        "Retention Policy Confirmation logic (`RetentionManager.psm1`, etc.).",  # Kept from your baseline
-        "HTML Report VSS field updates and general interactivity enhancements (`ReportingHtml.psm1` pre-v1.9.0).", # Kept from your baseline
-        "General stability and PSSA compliance efforts.", # Kept from your baseline
-        "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) is stable.", # Kept
-        "Overall project status: Core local backup stable. Backup Target feature significantly expanded (UNC improvements, new Replicate provider). Logging and validation improved. PSSA clean. Pester tests non-functional." # MODIFIED (more specific)
+        "  - Configuration (Default.psd1 v1.3.3):",
+        "    - Added global BackupTargets section to define named remote target instances.",
+        "    - In BackupLocations (job definitions): Renamed RetentionCount to LocalRetentionCount, added TargetNames (array), DeleteLocalArchiveAfterSuccessfulTransfer (boolean).",
+        "    - For UNC targets, added CreateJobNameSubdirectory (boolean, default $false) to TargetSpecificSettings.",
+        "    - Example added for new 'Replicate' target type, allowing multiple destinations per target instance, each with optional subdirectories and retention.",
+        "    - Advanced Schema Validation now enabled by default.",
+        "  - ConfigManager.psm1 (v1.1.2):", # This was the version before PostRunAction changes
+        "    - Basic validation for TargetSpecificSettings made more flexible to support array types (for 'Replicate').",
+        "  - PoShBackupValidator.psm1 (v1.3.3):", # This was the version before PostRunAction changes
+        "    - Schema for BackupTargets.DynamicKeySchema.Schema.TargetSpecificSettings changed Type to 'object'.",
+        "    - ValidateScript for BackupTargets now correctly handles type validation for 'UNC' (hashtable) and 'Replicate' (array) TargetSpecificSettings.",
+        "  - Target Provider (Modules\\\\Targets\\\\UNC.Target.psm1 v1.1.2):",
+        "    - Created to handle transfers to UNC paths.",
+        "    - Implements Invoke-PoShBackupTargetTransfer function.",
+        "    - Includes logic for creating job-specific subdirectories on the UNC share (now optional via CreateJobNameSubdirectory).",
+        "    - Implements basic count-based remote retention on the UNC target.",
+        "    - Now accepts and logs additional local archive metadata (size, creation time, password status).",
+        "    - Implemented robust Initialize-RemotePathInternal helper for iterative UNC parent directory creation.",
+        "    - Addressed PSSA warning for PSUseApprovedVerbs by renaming helper function.",
+        "  - NEW Target Provider (Modules\\\\Targets\\\\Replicate.Target.psm1 v1.0.2):",
+        "    - Created to handle replication of an archive to multiple destinations (local or UNC paths).",
+        "    - Each destination within the 'Replicate' target's TargetSpecificSettings (an array) can have its own Path, CreateJobNameSubdirectory, and RetentionSettings (supporting KeepCount).",
+        "    - Implements Invoke-PoShBackupTargetTransfer to manage all configured replications and returns detailed results for each.",
+        "    - Accepts and logs additional local archive metadata.",
+        "    - Addressed PSSA warning for unused Logger parameter.",
+        "  - Operations.psm1 (v1.17.1):", # Assuming this version is correct from previous work
+        "    - Orchestrates the transfer loop, dynamically loads providers, calls Invoke-PoShBackupTargetTransfer.",
+        "    - Passes additional local archive metadata (size, creation time, password status) to target providers.",
+        "    - Logs detailed ReplicationDetails if returned by providers like 'Replicate'.",
+        "    - Handles local staged archive deletion, updates report data.",
+        "  - Utils.psm1 (v1.11.3):",
+        "    - Corrected $LocalWriteLog wrapper logic to properly handle empty ForegroundColour parameters, resolving console color warnings for ERROR level.",
+        "    - Added enhanced diagnostics to Write-LogMessage's safety checks for color resolution.",
+        "  - PoSh-Backup.ps1 (v1.10.0 - for Backup Targets):", # This refers to the version when Backup Targets was added
+        "    - Ensured $Global:ColourHeading is defined.",
+        "    - Explicitly added 'ERROR' key to $Global:StatusToColourMap to fix console color warnings.",
+        "  - Reporting Modules Updated (previously for UNC, now generic for TargetTransfers):",
+        "    - ReportingHtml.psm1 (v1.9.1): Added 'Remote Target Transfers' section. Corrected HTML encoder syntax.",
+        "    - ReportingTxt.psm1 (v1.2.0): Added 'REMOTE TARGET TRANSFERS' section.",
+        "    - ReportingCsv.psm1 (v1.2.0): Generates JobName_TargetTransfers_Timestamp.csv.",
+        "    - ReportingMd.psm1 (v1.3.0): Added 'Remote Target Transfers' table.",
+        "    - ReportingXml.psm1 (v1.2.0): TargetTransfers data included automatically.",
+        "  - README.md: Updated to explain the new 'Replicate' target provider and its configuration (before PostRunAction updates).",
+        "  - AIState.template.psd1: Watchlist updated for file integrity failures, PSSA issues, path creation, logging colors, PostRunAction logic, and new executable dependencies.",
+        "--- Previous Work (Selected Highlights) ---",
+        "Network Share Handling Improvements (Operations.psm1 pre-v1.15.0, Config\\Default.psd1 pre-v1.3.0).",
+        "Retention Policy Confirmation logic (RetentionManager.psm1, etc.).",
+        "HTML Report VSS field updates and general interactivity enhancements (ReportingHtml.psm1 pre-v1.9.0).",
+        "General stability and PSSA compliance efforts.",
+        "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) is stable.", # Bundler version placeholder
+        "Overall project status: Core local backup stable. Backup Target feature significantly expanded. New Post-Run System Action feature added. Logging and validation improved. PSSA clean. Pester tests non-functional." # MODIFIED
     )
+
     $aiState.conversation_summary = $currentConversationSummary
 
     return $aiState
@@ -160,9 +187,9 @@ function Format-AIBundleContent {
         [hashtable]$AIStateHashtable,
         [Parameter(Mandatory)]
         [string]$ProjectStructureContent,
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory = $false)]
         [string]$AnalyzerSettingsFileContent, 
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory = $false)]
         [string]$PSSASummaryOutputContent,
         [Parameter(Mandatory)]
         [string]$BundledFilesContent
@@ -178,7 +205,8 @@ function Format-AIBundleContent {
     $null = $finalOutputBuilder.AppendLine('```json')
     if ($null -ne $AIStateHashtable) {
         $null = $finalOutputBuilder.AppendLine(($AIStateHashtable | ConvertTo-Json -Depth 10 -Compress)) # Added -Compress
-    } else {
+    }
+    else {
         $null = $finalOutputBuilder.AppendLine("(AI State Hashtable was null and could not be converted to JSON)")
     }
     $null = $finalOutputBuilder.AppendLine('```')

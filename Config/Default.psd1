@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.3.3: Enabled Advanced Schema Validation by default.
+# Version 1.3.4: Added PostRunAction settings for jobs, sets, and global defaults.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -264,6 +264,22 @@
         # }
     }
     #endregion
+    
+    #region --- Post-Run Action Defaults (Global) ---
+    # NEW SECTION: Defines default behavior for actions to take after a job or set completes.
+    # These can be overridden at the job or set level.
+    # A CLI parameter will override all configured PostRunActions.
+    PostRunActionDefaults = @{
+        Enabled         = $false # $true to enable post-run actions by default.
+        Action          = "None" # Default action. Valid: "None", "Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock".
+        DelaySeconds    = 0      # Delay in seconds before performing the action. 0 for immediate.
+                                 # During the delay, a message will show with a countdown, allowing cancellation by pressing 'C'.
+        TriggerOnStatus = @("SUCCESS") # Array of job/set statuses that will trigger the action.
+                                       # Valid: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
+                                       # "ANY" means the action triggers if Enabled=$true, regardless of status.
+        ForceAction     = $false # For "Shutdown" or "Restart", $true attempts to force the operation (e.g., closing apps without saving).
+    }
+    #endregion
 
     #region --- Backup Locations (Job Definitions) ---
     # Define individual backup jobs here. Each key in this hashtable represents a unique job name.
@@ -293,6 +309,15 @@
             SevenZipProcessPriority = "Normal"                        # Override global 7-Zip priority for this specific job.
             ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
+        
+            # NEW: Job-specific PostRunAction settings. Overrides PostRunActionDefaults.
+            # PostRunAction = @{
+            #     Enabled         = $true
+            #     Action          = "Shutdown" 
+            #     DelaySeconds    = 60
+            #     TriggerOnStatus = @("SUCCESS", "WARNINGS") 
+            #     ForceAction     = $false
+            # }
         }
         "AnExample_WithRemoteTarget" = @{ # THIS IS THE ORIGINAL "AnExample" JOB - MODIFIED
             Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
@@ -315,6 +340,7 @@
             MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for local staging. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
             TreatSevenZipWarningsAsSuccess = $true                    # Example: For this job, 7-Zip warnings are considered success.
+            # PostRunAction = @{ Enabled = $false } # Example: Explicitly disable for this job
         }
         "Docs_Replicated_Example" = @{ # NEW EXAMPLE JOB USING THE REPLICATE TARGET
             Path                       = @("C:\Users\YourUser\Documents\Reports", "C:\Users\YourUser\Pictures\Screenshots")
@@ -331,6 +357,7 @@
             
             ArchivePasswordMethod      = "None" # Or any other valid password method
             EnableVSS                  = $true  # Example: Use VSS for source files
+            # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
         }
 
         #region --- Comprehensive Example (Commented Out for Reference) ---
@@ -400,6 +427,13 @@
             PostBackupScriptOnSuccessPath = "C:\Scripts\BackupPrep\WebApp_PostSuccess.ps1"
             PostBackupScriptOnFailurePath = "C:\Scripts\BackupPrep\WebApp_PostFailure_Alert.ps1"
             PostBackupScriptAlwaysPath    = "C:\Scripts\BackupPrep\WebApp_PostAlways_Cleanup.ps1"
+            
+            # PostRunAction = @{
+            #     Enabled         = $true
+            #     Action          = "LogOff" 
+            #     DelaySeconds    = 300 # 5 minutes
+            #     TriggerOnStatus = @("ANY") 
+            # }
         }
         #>
         #endregion
@@ -419,6 +453,16 @@
             OnErrorInJob = "StopSet"                                  # Defines behaviour if a job within this set fails.
                                                                       # "StopSet": (Default) If a job fails, subsequent jobs in THIS SET are skipped. The script may continue to other sets if applicable.
                                                                       # "ContinueSet": Subsequent jobs in THIS SET will attempt to run even if a prior one fails.
+            # NEW: Set-specific PostRunAction. Overrides job-level PostRunActions within this set,
+            # and also overrides PostRunActionDefaults.
+            # This action applies AFTER the entire set (and its final hooks) completes.
+            # PostRunAction = @{
+            #     Enabled         = $true
+            #     Action          = "Restart"
+            #     DelaySeconds    = 120
+            #     TriggerOnStatus = @("SUCCESS") # Only restart if the entire set was successful
+            #     ForceAction     = $true
+            # }
         }
         "Weekly_User_Data"       = @{
             JobNames = @(
@@ -426,6 +470,7 @@
                 "Docs_Replicated_Example" # Added the new replicated job example here too
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
+            # PostRunAction = @{ Enabled = $false } # Example: No post-run action for this set
         }
         "Nightly_Full_System_Simulate" = @{                           # Example for a simulation run of multiple jobs.
             JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example")
