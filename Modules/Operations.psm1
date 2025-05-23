@@ -48,7 +48,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.17.2 # Removed redundant call to Get-PoShBackupJobEffectiveConfiguration.
+    Version:        1.17.3 # Removed cliOverrides or whatever
     DateCreated:    10-May-2025
     LastModified:   22-May-2025
     Purpose:        Handles the execution logic for individual backup jobs, including remote target transfers.
@@ -77,8 +77,6 @@ function Invoke-PoShBackupJob {
         [hashtable]$JobConfig, # This is now expected to be the *effective* job configuration
         [Parameter(Mandatory=$true)]
         [hashtable]$GlobalConfig, 
-        [Parameter(Mandatory=$true)]
-        [hashtable]$CliOverrides,
         [Parameter(Mandatory=$true)]
         [string]$PSScriptRootForPaths, # PSScriptRoot of the main PoSh-Backup.ps1
         [Parameter(Mandatory=$true)]

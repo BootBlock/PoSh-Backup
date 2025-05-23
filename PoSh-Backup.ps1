@@ -585,7 +585,6 @@ foreach ($currentJobName in $jobsToProcess) {
             JobName              = $currentJobName
             JobConfig            = $effectiveJobConfigForThisJob # Pass the resolved effective config
             GlobalConfig         = $Configuration 
-            CliOverrides         = $cliOverrideSettings
             PSScriptRootForPaths = $PSScriptRoot 
             ActualConfigFile     = $ActualConfigFile
             JobReportDataRef     = ([ref]$currentJobReportData) 
