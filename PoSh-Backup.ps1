@@ -746,11 +746,11 @@ if ($null -ne $cliOverrideSettings.PostRunActionCli) {
     }
     $actionSource = "CLI Override"
 } elseif ($null -ne $setSpecificPostRunAction) {
-    & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from Backup Set '$currentSetName'." -Level "INFO"
+    & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from Backup Set '$currentSetName'." -Level "DEBUG"
     $finalPostRunActionSettings = $setSpecificPostRunAction
     $actionSource = "Backup Set '$currentSetName'"
 } elseif ($null -ne $jobSpecificPostRunAction) { 
-    & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from single Job '$($jobsToProcess[0])'." -Level "INFO"
+    & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from single Job '$($jobsToProcess[0])'." -Level "DEBUG"
     $finalPostRunActionSettings = $jobSpecificPostRunAction
     $actionSource = "Job '$($jobsToProcess[0])'"
 } else {
