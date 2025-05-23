@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.3.4: Added PostRunAction settings for jobs, sets, and global defaults.
+# Version 1.3.5: Added example for SFTP Backup Target type.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -247,6 +247,32 @@
             # configured per-destination-path if needed by the underlying mechanism (though this simple
             # Replicate provider uses standard Copy-Item and its own retention).
         }
+        "ExampleSFTPServer" = @{
+            Type = "SFTP" # Provider module 'Modules\Targets\SFTP.Target.psm1' will handle this
+            TargetSpecificSettings = @{
+                SFTPServerAddress   = "sftp.example.com"    # Mandatory: SFTP server hostname or IP
+                SFTPPort            = 22                    # Optional: Defaults to 22 if not specified
+                SFTPRemotePath      = "/backups/poshbackup" # Mandatory: Base path on the SFTP server
+                SFTPUserName        = "backupuser"          # Mandatory: Username for SFTP authentication
+                
+                # --- Authentication Methods (choose one or rely on agent if Posh-SSH supports it) ---
+                # Option 1: Password-based (using PowerShell SecretManagement)
+                SFTPPasswordSecretName = "MySftpUserPassword" # Optional: Name of secret storing the password
+
+                # Option 2: Key-based (private key file path stored in SecretManagement, passphrase optional)
+                # SFTPKeyFileSecretName = "MySftpPrivateKeyPath" # Optional: Name of secret storing the *path* to the private key file (e.g., C:\Keys\sftp_rsa)
+                # SFTPKeyFilePassphraseSecretName = "MySftpKeyPassphrase" # Optional: Name of secret storing the key's passphrase, if any
+
+                # --- Other SFTP Settings ---
+                CreateJobNameSubdirectory = $true # Optional: If $true, creates /backups/poshbackup/JobName/ on the SFTP server. Default is $false.
+                SkipHostKeyCheck    = $false      # Optional: Default $false. If $true, skips SSH host key verification (INSECURE - use with extreme caution).
+            }
+            # Optional: Remote retention settings for this SFTP target.
+            # The SFTP provider will implement logic based on these settings (e.g., KeepCount).
+            RemoteRetentionSettings = @{
+                KeepCount = 7 # e.g., Keep the last 7 archives for any job using this target, on the SFTP server.
+            }
+        }
         # "ExampleS3Bucket" = @{ # Example for a future S3 target provider
         #    Type = "S3"
         #    TargetSpecificSettings = @{
@@ -359,6 +385,28 @@
             EnableVSS                  = $true  # Example: Use VSS for source files
             # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
         }
+        "CriticalData_To_SFTP_Example" = @{
+            Path                    = "E:\CriticalApplication\Data"
+            Name                    = "AppCriticalData_SFTP"
+            DestinationDir          = "D:\BackupStaging\SFTP_Stage" # Local staging before SFTP transfer
+            
+            TargetNames             = @("ExampleSFTPServer") # Reference the SFTP target instance
+            
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true # Delete from C:\BackupStaging after successful SFTP
+            LocalRetentionCount     = 1 # Keep only 1 in local staging
+            
+            ArchivePasswordMethod   = "SecretManagement"
+            ArchivePasswordSecretName = "MyArchiveEncryptionPassword" # Password for the 7z archive itself
+            
+            EnableVSS               = $true
+            TestArchiveAfterCreation= $true # Good practice for critical data
+            
+            PostRunAction = @{
+                Enabled         = $true
+                Action          = "Lock"
+                TriggerOnStatus = @("SUCCESS")
+            }
+        }
 
         #region --- Comprehensive Example (Commented Out for Reference) ---
         <#
@@ -449,6 +497,7 @@
                 "Projects", 
                 "AnExample_WithRemoteTarget",
                 "Docs_Replicated_Example" # Added the new replicated job example to this set
+                "CriticalData_To_SFTP_Example"
             )
             OnErrorInJob = "StopSet"                                  # Defines behaviour if a job within this set fails.
                                                                       # "StopSet": (Default) If a job fails, subsequent jobs in THIS SET are skipped. The script may continue to other sets if applicable.
@@ -473,7 +522,7 @@
             # PostRunAction = @{ Enabled = $false } # Example: No post-run action for this set
         }
         "Nightly_Full_System_Simulate" = @{                           # Example for a simulation run of multiple jobs.
-            JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example")
+            JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example", "CriticalData_To_SFTP_Example")
             OnErrorInJob = "ContinueSet"
             # Note: To run this set in simulation mode, you would use:
             # .\PoSh-Backup.ps1 -RunSet "Nightly_Full_System_Simulate" -Simulate

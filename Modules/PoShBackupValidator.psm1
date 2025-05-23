@@ -4,7 +4,7 @@
     (Optional Module) Provides advanced, schema-based validation for PoSh-Backup configuration files.
     It checks for correct data structure, data types, presence of required keys, and adherence
     to allowed values, helping to ensure configuration integrity before a backup job is run.
-    Includes schema validation for "UNC" and "Replicate" Backup Target configurations,
+    Includes schema validation for "UNC", "Replicate", and "SFTP" Backup Target configurations,
     and new PostRunAction settings.
 
 .DESCRIPTION
@@ -18,14 +18,13 @@
     - Missing mandatory configuration settings.
     - Use of unsupported or invalid values for specific settings.
     - Incorrect structure or missing required fields in 'BackupTargets' definitions,
-      including for UNC targets ('CreateJobNameSubdirectory') and "Replicate"
-      target type (validating its array of destination settings). The base 'TargetSpecificSettings'
+      including for UNC, "Replicate", and "SFTP" target types. The base 'TargetSpecificSettings'
       type is 'object' to allow flexibility, with type-specific validation in a ValidateScript.
     - Incorrect structure or values for the new 'PostRunAction' settings at global, job, and set levels.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.4 # Added schema for PostRunAction settings.
+    Version:        1.3.5 # Added schema validation for SFTP Backup Target type.
     DateCreated:    14-May-2025
     LastModified:   22-May-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
@@ -39,18 +38,18 @@
 # It is used by the validation functions to check the integrity of a loaded configuration.
 $Script:PoShBackup_ConfigSchema = @{
     # Top-level global settings
-    SevenZipPath                    = @{ Type = 'string'; Required = $true; ValidateScript = { Test-Path -LiteralPath $_ -PathType Leaf } } 
-    DefaultDestinationDir           = @{ Type = 'string'; Required = $false } 
-    DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false } 
+    SevenZipPath                    = @{ Type = 'string'; Required = $true; ValidateScript = { Test-Path -LiteralPath $_ -PathType Leaf } }
+    DefaultDestinationDir           = @{ Type = 'string'; Required = $false }
+    DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false }
     HideSevenZipOutput              = @{ Type = 'boolean'; Required = $false }
-    PauseBeforeExit                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Always", "Never", "OnFailure", "OnWarning", "OnFailureOrWarning", "True", "False") } 
-    EnableAdvancedSchemaValidation  = @{ Type = 'boolean'; Required = $false } 
-    TreatSevenZipWarningsAsSuccess  = @{ Type = 'boolean'; Required = $false } 
-    RetentionConfirmDelete          = @{ Type = 'boolean'; Required = $false } 
+    PauseBeforeExit                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Always", "Never", "OnFailure", "OnWarning", "OnFailureOrWarning", "True", "False") }
+    EnableAdvancedSchemaValidation  = @{ Type = 'boolean'; Required = $false }
+    TreatSevenZipWarningsAsSuccess  = @{ Type = 'boolean'; Required = $false }
+    RetentionConfirmDelete          = @{ Type = 'boolean'; Required = $false }
     EnableFileLogging               = @{ Type = 'boolean'; Required = $false }
-    LogDirectory                    = @{ Type = 'string'; Required = $false } 
-    ReportGeneratorType             = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } 
-    
+    LogDirectory                    = @{ Type = 'string'; Required = $false }
+    ReportGeneratorType             = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
+
     HtmlReportDirectory             = @{ Type = 'string'; Required = $false }
     CsvReportDirectory              = @{ Type = 'string'; Required = $false }
     JsonReportDirectory             = @{ Type = 'string'; Required = $false }
@@ -59,12 +58,12 @@ $Script:PoShBackup_ConfigSchema = @{
     MdReportDirectory               = @{ Type = 'string'; Required = $false }
 
     HtmlReportTitlePrefix           = @{ Type = 'string'; Required = $false }
-    HtmlReportLogoPath              = @{ Type = 'string'; Required = $false } 
-    HtmlReportFaviconPath           = @{ Type = 'string'; Required = $false } 
-    HtmlReportCustomCssPath         = @{ Type = 'string'; Required = $false } 
+    HtmlReportLogoPath              = @{ Type = 'string'; Required = $false }
+    HtmlReportFaviconPath           = @{ Type = 'string'; Required = $false }
+    HtmlReportCustomCssPath         = @{ Type = 'string'; Required = $false }
     HtmlReportCompanyName           = @{ Type = 'string'; Required = $false }
-    HtmlReportTheme                 = @{ Type = 'string'; Required = $false } 
-    HtmlReportOverrideCssVariables  = @{ Type = 'hashtable'; Required = $false } 
+    HtmlReportTheme                 = @{ Type = 'string'; Required = $false }
+    HtmlReportOverrideCssVariables  = @{ Type = 'hashtable'; Required = $false }
     HtmlReportShowSummary           = @{ Type = 'boolean'; Required = $false }
     HtmlReportShowConfiguration     = @{ Type = 'boolean'; Required = $false }
     HtmlReportShowHooks             = @{ Type = 'boolean'; Required = $false }
@@ -72,65 +71,65 @@ $Script:PoShBackup_ConfigSchema = @{
 
     EnableVSS                       = @{ Type = 'boolean'; Required = $false }
     DefaultVSSContextOption         = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
-    VSSMetadataCachePath            = @{ Type = 'string'; Required = $false } 
-    VSSPollingTimeoutSeconds        = @{ Type = 'int'; Required = $false; Min = 1; Max = 3600 } 
-    VSSPollingIntervalSeconds       = @{ Type = 'int'; Required = $false; Min = 1; Max = 600 }  
+    VSSMetadataCachePath            = @{ Type = 'string'; Required = $false }
+    VSSPollingTimeoutSeconds        = @{ Type = 'int'; Required = $false; Min = 1; Max = 3600 }
+    VSSPollingIntervalSeconds       = @{ Type = 'int'; Required = $false; Min = 1; Max = 600 }
 
     EnableRetries                   = @{ Type = 'boolean'; Required = $false }
-    MaxRetryAttempts                = @{ Type = 'int'; Required = $false; Min = 0 } 
+    MaxRetryAttempts                = @{ Type = 'int'; Required = $false; Min = 0 }
     RetryDelaySeconds               = @{ Type = 'int'; Required = $false; Min = 0 }
 
     DefaultSevenZipProcessPriority  = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
-    
-    MinimumRequiredFreeSpaceGB      = @{ Type = 'int'; Required = $false; Min = 0 } 
+
+    MinimumRequiredFreeSpaceGB      = @{ Type = 'int'; Required = $false; Min = 0 }
     ExitOnLowSpaceIfBelowMinimum    = @{ Type = 'boolean'; Required = $false }
 
     DefaultTestArchiveAfterCreation = @{ Type = 'boolean'; Required = $false }
 
-    DefaultArchiveDateFormat        = @{ Type = 'string'; Required = $false } 
-    
-    DefaultThreadCount              = @{ Type = 'int'; Required = $false; Min = 0 } 
-    DefaultArchiveType              = @{ Type = 'string'; Required = $false } 
-    DefaultArchiveExtension         = @{ Type = 'string'; Required = $false } 
-    DefaultCompressionLevel         = @{ Type = 'string'; Required = $false } 
-    DefaultCompressionMethod        = @{ Type = 'string'; Required = $false } 
-    DefaultDictionarySize           = @{ Type = 'string'; Required = $false } 
-    DefaultWordSize                 = @{ Type = 'string'; Required = $false } 
-    DefaultSolidBlockSize           = @{ Type = 'string'; Required = $false } 
-    DefaultCompressOpenFiles        = @{ Type = 'boolean'; Required = $false } 
-    DefaultScriptExcludeRecycleBin  = @{ Type = 'string'; Required = $false } 
-    DefaultScriptExcludeSysVolInfo  = @{ Type = 'string'; Required = $false } 
-    
-    _PoShBackup_PSScriptRoot        = @{ Type = 'string'; Required = $false } 
+    DefaultArchiveDateFormat        = @{ Type = 'string'; Required = $false }
+
+    DefaultThreadCount              = @{ Type = 'int'; Required = $false; Min = 0 }
+    DefaultArchiveType              = @{ Type = 'string'; Required = $false }
+    DefaultArchiveExtension         = @{ Type = 'string'; Required = $false }
+    DefaultCompressionLevel         = @{ Type = 'string'; Required = $false }
+    DefaultCompressionMethod        = @{ Type = 'string'; Required = $false }
+    DefaultDictionarySize           = @{ Type = 'string'; Required = $false }
+    DefaultWordSize                 = @{ Type = 'string'; Required = $false }
+    DefaultSolidBlockSize           = @{ Type = 'string'; Required = $false }
+    DefaultCompressOpenFiles        = @{ Type = 'boolean'; Required = $false }
+    DefaultScriptExcludeRecycleBin  = @{ Type = 'string'; Required = $false }
+    DefaultScriptExcludeSysVolInfo  = @{ Type = 'string'; Required = $false }
+
+    _PoShBackup_PSScriptRoot        = @{ Type = 'string'; Required = $false }
 
     BackupTargets = @{
-        Type = 'hashtable'      
-        Required = $false       
-        DynamicKeySchema = @{   
-            Type = "hashtable"  
-            Required = $true    
-            Schema = @{         
-                Type = @{ Type = 'string'; Required = $true } 
-                TargetSpecificSettings = @{ Type = 'object'; Required = $true } 
-                CredentialsSecretName  = @{ Type = 'string'; Required = $false } 
-                RemoteRetentionSettings= @{ Type = 'hashtable'; Required = $false } 
+        Type = 'hashtable'
+        Required = $false
+        DynamicKeySchema = @{
+            Type = "hashtable"
+            Required = $true
+            Schema = @{
+                Type = @{ Type = 'string'; Required = $true }
+                TargetSpecificSettings = @{ Type = 'object'; Required = $true } # Type 'object' allows flexibility for different providers
+                CredentialsSecretName  = @{ Type = 'string'; Required = $false }
+                RemoteRetentionSettings= @{ Type = 'hashtable'; Required = $false }
             }
         }
         ValidateScript = {
-            param($BackupTargetsHashtable, [ref]$ValidationMessagesListRef, [string]$CurrentPathForTarget) 
+            param($BackupTargetsHashtable, [ref]$ValidationMessagesListRef, [string]$CurrentPathForTarget)
             $isValidOverall = $true
             foreach ($targetInstanceNameKey in $BackupTargetsHashtable.Keys) {
                 $targetInstanceValue = $BackupTargetsHashtable[$targetInstanceNameKey]
                 if ($targetInstanceValue -is [hashtable] -and $targetInstanceValue.ContainsKey('Type') -and $targetInstanceValue.Type -is [string] -and $targetInstanceValue.ContainsKey('TargetSpecificSettings')) {
                     $instanceType = $targetInstanceValue.Type.ToUpperInvariant()
                     $instanceSettings = $targetInstanceValue.TargetSpecificSettings
-                    $instancePath = "$CurrentPathForTarget.$targetInstanceNameKey.TargetSpecificSettings" 
+                    $instancePath = "$CurrentPathForTarget.$targetInstanceNameKey.TargetSpecificSettings"
 
                     if ($instanceType -eq "UNC") {
                         if (-not ($instanceSettings -is [hashtable])) {
                             $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: UNC): 'TargetSpecificSettings' must be a Hashtable. Path: '$instancePath'.")
                             $isValidOverall = $false
-                            continue 
+                            continue
                         }
                         if (-not $instanceSettings.ContainsKey('UNCRemotePath') -or -not ($instanceSettings.UNCRemotePath -is [string]) -or [string]::IsNullOrWhiteSpace($instanceSettings.UNCRemotePath)) {
                             $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: UNC): 'UNCRemotePath' in 'TargetSpecificSettings' is missing, not a string, or empty. Path: '$instancePath.UNCRemotePath'.")
@@ -140,11 +139,11 @@ $Script:PoShBackup_ConfigSchema = @{
                             $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: UNC): 'CreateJobNameSubdirectory' in 'TargetSpecificSettings' must be a boolean (`$true` or `$false`) if defined. Path: '$instancePath.CreateJobNameSubdirectory'.")
                             $isValidOverall = $false
                         }
-                    } elseif ($instanceType -eq "REPLICATE") { 
+                    } elseif ($instanceType -eq "REPLICATE") {
                         if (-not ($instanceSettings -is [array])) {
                             $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): 'TargetSpecificSettings' must be an Array of destination configurations. Path: '$instancePath'.")
                             $isValidOverall = $false
-                            continue 
+                            continue
                         }
                         if ($instanceSettings.Count -eq 0) {
                             $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): 'TargetSpecificSettings' array is empty. At least one destination configuration is required. Path: '$instancePath'.")
@@ -152,10 +151,10 @@ $Script:PoShBackup_ConfigSchema = @{
                         }
                         for ($i = 0; $i -lt $instanceSettings.Count; $i++) {
                             $destConfig = $instanceSettings[$i]
-                            $destConfigPath = "$instancePath[$i]" 
+                            $destConfigPath = "$instancePath[$i]"
                             if (-not ($destConfig -is [hashtable])) {
                                 $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Item at index $i in 'TargetSpecificSettings' is not a Hashtable. Path: '$destConfigPath'.")
-                                $isValidOverall = $false; continue 
+                                $isValidOverall = $false; continue
                             }
                             if (-not $destConfig.ContainsKey('Path') -or -not ($destConfig.Path -is [string]) -or [string]::IsNullOrWhiteSpace($destConfig.Path)) {
                                 $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i is missing 'Path', or it's not a non-empty string. Path: '$destConfigPath.Path'.")
@@ -169,7 +168,7 @@ $Script:PoShBackup_ConfigSchema = @{
                                 if (-not ($destConfig.RetentionSettings -is [hashtable])) {
                                     $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i 'RetentionSettings' must be a Hashtable if defined. Path: '$destConfigPath.RetentionSettings'.")
                                     $isValidOverall = $false
-                                } elseif ($destConfig.RetentionSettings.ContainsKey('KeepCount')) { 
+                                } elseif ($destConfig.RetentionSettings.ContainsKey('KeepCount')) {
                                     if (-not ($destConfig.RetentionSettings.KeepCount -is [int]) -or $destConfig.RetentionSettings.KeepCount -le 0) {
                                         $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i 'RetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$destConfigPath.RetentionSettings.KeepCount'.")
                                         $isValidOverall = $false
@@ -177,14 +176,57 @@ $Script:PoShBackup_ConfigSchema = @{
                                 }
                             }
                         }
+                    } elseif ($instanceType -eq "SFTP") { # NEW VALIDATION FOR SFTP
+                        if (-not ($instanceSettings -is [hashtable])) {
+                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): 'TargetSpecificSettings' must be a Hashtable. Path: '$instancePath'.")
+                            $isValidOverall = $false
+                            continue
+                        }
+                        # Mandatory SFTP settings
+                        foreach ($sftpKey in @('SFTPServerAddress', 'SFTPRemotePath', 'SFTPUserName')) {
+                            if (-not $instanceSettings.ContainsKey($sftpKey) -or -not ($instanceSettings.$sftpKey -is [string]) -or [string]::IsNullOrWhiteSpace($instanceSettings.$sftpKey)) {
+                                $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): '$sftpKey' in 'TargetSpecificSettings' is missing, not a string, or empty. Path: '$instancePath.$sftpKey'.")
+                                $isValidOverall = $false
+                            }
+                        }
+                        # Optional SFTP settings with type checks
+                        if ($instanceSettings.ContainsKey('SFTPPort') -and -not ($instanceSettings.SFTPPort -is [int] -and $instanceSettings.SFTPPort -gt 0 -and $instanceSettings.SFTPPort -le 65535)) {
+                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): 'SFTPPort' in 'TargetSpecificSettings' must be an integer between 1 and 65535 if defined. Path: '$instancePath.SFTPPort'.")
+                            $isValidOverall = $false
+                        }
+                        foreach ($sftpOptionalStringKey in @('SFTPPasswordSecretName', 'SFTPKeyFileSecretName', 'SFTPKeyFilePassphraseSecretName')) {
+                            if ($instanceSettings.ContainsKey($sftpOptionalStringKey) -and (-not ($instanceSettings.$sftpOptionalStringKey -is [string]) -or [string]::IsNullOrWhiteSpace($instanceSettings.$sftpOptionalStringKey)) ) {
+                                $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): '$sftpOptionalStringKey' in 'TargetSpecificSettings' must be a non-empty string if defined. Path: '$instancePath.$sftpOptionalStringKey'.")
+                                $isValidOverall = $false
+                            }
+                        }
+                        foreach ($sftpOptionalBoolKey in @('CreateJobNameSubdirectory', 'SkipHostKeyCheck')) {
+                            if ($instanceSettings.ContainsKey($sftpOptionalBoolKey) -and -not ($instanceSettings.$sftpOptionalBoolKey -is [boolean])) {
+                                $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): '$sftpOptionalBoolKey' in 'TargetSpecificSettings' must be a boolean (`$true` or `$false`) if defined. Path: '$instancePath.$sftpOptionalBoolKey'.")
+                                $isValidOverall = $false
+                            }
+                        }
+                        # Validate RemoteRetentionSettings for SFTP if present
+                        if ($targetInstanceValue.ContainsKey('RemoteRetentionSettings')) {
+                            $retentionSettings = $targetInstanceValue.RemoteRetentionSettings
+                            if (-not ($retentionSettings -is [hashtable])) {
+                                $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): 'RemoteRetentionSettings' must be a Hashtable if defined. Path: '$CurrentPathForTarget.$targetInstanceNameKey.RemoteRetentionSettings'.")
+                                $isValidOverall = $false
+                            } elseif ($retentionSettings.ContainsKey('KeepCount')) {
+                                if (-not ($retentionSettings.KeepCount -is [int]) -or $retentionSettings.KeepCount -le 0) {
+                                    $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): 'RemoteRetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$CurrentPathForTarget.$targetInstanceNameKey.RemoteRetentionSettings.KeepCount'.")
+                                    $isValidOverall = $false
+                                }
+                            }
+                        }
                     }
+                    # Add other target type validations here as 'elseif' blocks
                 }
             }
-            return $isValidOverall 
+            return $isValidOverall
         }
     }
 
-    # --- NEW: Schema for PostRunActionDefaults (Global) ---
     PostRunActionDefaults = @{
         Type = 'hashtable'
         Required = $false
@@ -198,35 +240,35 @@ $Script:PoShBackup_ConfigSchema = @{
     }
 
     BackupLocations = @{
-        Type = 'hashtable' 
-        Required = $true   
-        DynamicKeySchema = @{ 
+        Type = 'hashtable'
+        Required = $true
+        DynamicKeySchema = @{
             Type = "hashtable"
             Required = $true
-            Schema = @{ 
-                Path                    = @{ Type = 'string_or_array'; Required = $true } 
-                Name                    = @{ Type = 'string'; Required = $true }        
-                DestinationDir          = @{ Type = 'string'; Required = $false }       
-                LocalRetentionCount     = @{ Type = 'int'; Required = $false; Min = 0 } 
-                TargetNames             = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } } 
-                DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false } 
+            Schema = @{
+                Path                    = @{ Type = 'string_or_array'; Required = $true }
+                Name                    = @{ Type = 'string'; Required = $true }
+                DestinationDir          = @{ Type = 'string'; Required = $false }
+                LocalRetentionCount     = @{ Type = 'int'; Required = $false; Min = 0 }
+                TargetNames             = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } }
+                DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false }
                 DeleteToRecycleBin      = @{ Type = 'boolean'; Required = $false }
-                RetentionConfirmDelete  = @{ Type = 'boolean'; Required = $false }      
-                
+                RetentionConfirmDelete  = @{ Type = 'boolean'; Required = $false }
+
                 ArchivePasswordMethod   = @{ Type = 'string'; Required = $false; AllowedValues = @("NONE", "INTERACTIVE", "SECRETMANAGEMENT", "SECURESTRINGFILE", "PLAINTEXT") }
                 CredentialUserNameHint  = @{ Type = 'string'; Required = $false }
-                ArchivePasswordSecretName = @{ Type = 'string'; Required = $false } 
-                ArchivePasswordVaultName  = @{ Type = 'string'; Required = $false } 
-                ArchivePasswordSecureStringPath = @{ Type = 'string'; Required = $false } 
-                ArchivePasswordPlainText  = @{ Type = 'string'; Required = $false }     
-                UsePassword             = @{ Type = 'boolean'; Required = $false }      
+                ArchivePasswordSecretName = @{ Type = 'string'; Required = $false }
+                ArchivePasswordVaultName  = @{ Type = 'string'; Required = $false }
+                ArchivePasswordSecureStringPath = @{ Type = 'string'; Required = $false }
+                ArchivePasswordPlainText  = @{ Type = 'string'; Required = $false }
+                UsePassword             = @{ Type = 'boolean'; Required = $false }
 
                 EnableVSS               = @{ Type = 'boolean'; Required = $false }
                 VSSContextOption        = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
                 SevenZipProcessPriority = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
-                ReportGeneratorType     = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") } 
-                TreatSevenZipWarningsAsSuccess = @{ Type = 'boolean'; Required = $false } 
-                
+                ReportGeneratorType     = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
+                TreatSevenZipWarningsAsSuccess = @{ Type = 'boolean'; Required = $false }
+
                 HtmlReportDirectory     = @{ Type = 'string'; Required = $false }
                 CsvReportDirectory      = @{ Type = 'string'; Required = $false }
                 JsonReportDirectory     = @{ Type = 'string'; Required = $false }
@@ -235,9 +277,9 @@ $Script:PoShBackup_ConfigSchema = @{
                 MdReportDirectory       = @{ Type = 'string'; Required = $false }
 
                 ArchiveType             = @{ Type = 'string'; Required = $false }
-                ArchiveExtension        = @{ Type = 'string'; Required = $false } 
-                ArchiveDateFormat       = @{ Type = 'string'; Required = $false } 
-                ThreadsToUse            = @{ Type = 'int'; Required = $false; Min = 0 } 
+                ArchiveExtension        = @{ Type = 'string'; Required = $false }
+                ArchiveDateFormat       = @{ Type = 'string'; Required = $false }
+                ThreadsToUse            = @{ Type = 'int'; Required = $false; Min = 0 }
                 CompressionLevel        = @{ Type = 'string'; Required = $false }
                 CompressionMethod       = @{ Type = 'string'; Required = $false }
                 DictionarySize          = @{ Type = 'string'; Required = $false }
@@ -253,7 +295,7 @@ $Script:PoShBackup_ConfigSchema = @{
                 HtmlReportTheme              = @{ Type = 'string'; Required = $false }
                 HtmlReportTitlePrefix        = @{ Type = 'string'; Required = $false }
                 HtmlReportLogoPath           = @{ Type = 'string'; Required = $false }
-                HtmlReportFaviconPath        = @{ Type = 'string'; Required = $false } 
+                HtmlReportFaviconPath        = @{ Type = 'string'; Required = $false }
                 HtmlReportCustomCssPath      = @{ Type = 'string'; Required = $false }
                 HtmlReportCompanyName        = @{ Type = 'string'; Required = $false }
                 HtmlReportOverrideCssVariables = @{ Type = 'hashtable'; Required = $false }
@@ -262,16 +304,15 @@ $Script:PoShBackup_ConfigSchema = @{
                 HtmlReportShowHooks          = @{ Type = 'boolean'; Required = $false }
                 HtmlReportShowLogEntries     = @{ Type = 'boolean'; Required = $false }
 
-                PreBackupScriptPath          = @{ Type = 'string'; Required = $false } 
+                PreBackupScriptPath          = @{ Type = 'string'; Required = $false }
                 PostBackupScriptOnSuccessPath= @{ Type = 'string'; Required = $false }
                 PostBackupScriptOnFailurePath= @{ Type = 'string'; Required = $false }
                 PostBackupScriptAlwaysPath   = @{ Type = 'string'; Required = $false }
 
-                # --- NEW: Schema for PostRunAction (Job-specific) ---
                 PostRunAction = @{
                     Type = 'hashtable'
                     Required = $false
-                    Schema = @{ # Same structure as PostRunActionDefaults
+                    Schema = @{
                         Enabled         = @{ Type = 'boolean'; Required = $false }
                         Action          = @{ Type = 'string'; Required = $false; AllowedValues = @("None", "Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock") }
                         DelaySeconds    = @{ Type = 'int'; Required = $false; Min = 0 }
@@ -284,20 +325,19 @@ $Script:PoShBackup_ConfigSchema = @{
     }
 
     BackupSets = @{
-        Type = 'hashtable' 
-        Required = $false  
-        DynamicKeySchema = @{ 
+        Type = 'hashtable'
+        Required = $false
+        DynamicKeySchema = @{
             Type = "hashtable"
             Required = $true
-            Schema = @{ 
+            Schema = @{
                 JobNames     = @{ Type = 'array'; Required = $true; ItemSchema = @{ Type = 'string'} }
-                OnErrorInJob = @{ Type = 'string'; Required = $false; AllowedValues = @("StopSet", "ContinueSet") } 
-                
-                # --- NEW: Schema for PostRunAction (Set-specific) ---
+                OnErrorInJob = @{ Type = 'string'; Required = $false; AllowedValues = @("StopSet", "ContinueSet") }
+
                 PostRunAction = @{
                     Type = 'hashtable'
                     Required = $false
-                    Schema = @{ # Same structure as PostRunActionDefaults
+                    Schema = @{
                         Enabled         = @{ Type = 'boolean'; Required = $false }
                         Action          = @{ Type = 'string'; Required = $false; AllowedValues = @("None", "Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock") }
                         DelaySeconds    = @{ Type = 'int'; Required = $false; Min = 0 }
@@ -313,47 +353,47 @@ $Script:PoShBackup_ConfigSchema = @{
 
 #region --- Private Validation Logic ---
 # PSScriptAnalyzer Suppress PSUseApprovedVerbs[Validate-AgainstSchemaRecursiveInternal] - 'Validate' is descriptive for this internal schema helper.
-function Validate-AgainstSchemaRecursiveInternal { 
+function Validate-AgainstSchemaRecursiveInternal {
     param(
         [Parameter(Mandatory)]
-        [object]$ConfigObject, 
+        [object]$ConfigObject,
         [Parameter(Mandatory)]
-        [hashtable]$Schema,    
+        [hashtable]$Schema,
         [Parameter(Mandatory)]
-        [ref]$ValidationMessages, 
-        [string]$CurrentPath = "Configuration" 
+        [ref]$ValidationMessages,
+        [string]$CurrentPath = "Configuration"
     )
 
-    if ($ConfigObject -isnot [hashtable] -and $Schema.Type -ne 'array' -and $Schema.Type -ne 'string_or_array' -and $Schema.Type -ne 'object') { 
+    if ($ConfigObject -isnot [hashtable] -and $Schema.Type -ne 'array' -and $Schema.Type -ne 'string_or_array' -and $Schema.Type -ne 'object') {
         $ValidationMessages.Value.Add("Configuration path '$CurrentPath' is expected to be a Hashtable (or match schema type), but found type '$($ConfigObject.GetType().Name)'.")
         return
     }
 
     foreach ($schemaKey in $Schema.Keys) {
-        $keyDefinition = $Schema[$schemaKey] 
+        $keyDefinition = $Schema[$schemaKey]
         $fullKeyPath = "$CurrentPath.$schemaKey"
 
-        if ($schemaKey -eq 'DynamicKeySchema') { 
+        if ($schemaKey -eq 'DynamicKeySchema') {
             if ($ConfigObject -isnot [hashtable]) {
                 $ValidationMessages.Value.Add("Configuration path '$CurrentPath' (expected to contain dynamic keys) is not a Hashtable, but '$($ConfigObject.GetType().Name)'.")
                 continue
             }
-            $dynamicKeySubSchema = $keyDefinition 
+            $dynamicKeySubSchema = $keyDefinition
             foreach ($itemKeyInConfig in $ConfigObject.Keys) {
                 $itemValueFromConfig = $ConfigObject[$itemKeyInConfig]
                 Validate-AgainstSchemaRecursiveInternal -ConfigObject $itemValueFromConfig -Schema $dynamicKeySubSchema.Schema -ValidationMessages $ValidationMessages -CurrentPath "$CurrentPath.$itemKeyInConfig"
             }
-            continue 
+            continue
         }
-        
+
         if (-not $ConfigObject.ContainsKey($schemaKey)) {
             if ($keyDefinition.Required -eq $true) {
                 $ValidationMessages.Value.Add("Required configuration key '$fullKeyPath' is missing.")
             }
-            continue 
+            continue
         }
 
-        $configValue = $ConfigObject[$schemaKey] 
+        $configValue = $ConfigObject[$schemaKey]
         $expectedType = $keyDefinition.Type.ToLowerInvariant()
         $typeMatch = $false
         switch ($expectedType) {
@@ -363,25 +403,25 @@ function Validate-AgainstSchemaRecursiveInternal {
             "hashtable"        { if ($configValue -is [hashtable]) { $typeMatch = $true } }
             "array"            { if ($configValue -is [array]) { $typeMatch = $true } }
             "string_or_array"  { if (($configValue -is [string]) -or ($configValue -is [array])) { $typeMatch = $true } }
-            "object"           { $typeMatch = $true } 
+            "object"           { $typeMatch = $true }
             default            { $ValidationMessages.Value.Add("Schema Error: Unknown expected type '$($keyDefinition.Type)' defined in schema for '$fullKeyPath'. Contact script developer."); continue }
         }
 
         if (-not $typeMatch) {
             $ValidationMessages.Value.Add("Type mismatch for configuration key '$fullKeyPath'. Expected type '$($keyDefinition.Type)', but found type '$($configValue.GetType().Name)'.")
-            continue 
+            continue
         }
 
         if ($keyDefinition.ContainsKey("AllowedValues")) {
             $valuesToCheckAgainstAllowed = @()
-            if ($configValue -is [array] -and ($expectedType -eq 'string_or_array' -or $expectedType -eq 'array')){ 
+            if ($configValue -is [array] -and ($expectedType -eq 'string_or_array' -or $expectedType -eq 'array')){
                  # If the schema expects an array and the config value is an array, check each item.
                 if ($keyDefinition.ContainsKey("ItemSchema") -and $keyDefinition.ItemSchema.ContainsKey("AllowedValues")) {
                     $valuesToCheckAgainstAllowed = $configValue
                 } elseif (-not $keyDefinition.ContainsKey("ItemSchema")) { # If no ItemSchema, it's an array of simple types with AllowedValues at the array level (less common)
                      $valuesToCheckAgainstAllowed = $configValue
                 }
-            } elseif ($configValue -is [string]) { 
+            } elseif ($configValue -is [string]) {
                 $valuesToCheckAgainstAllowed = @($configValue)
             }
 
@@ -400,7 +440,7 @@ function Validate-AgainstSchemaRecursiveInternal {
                 }
             }
         }
-        
+
         if ($expectedType -eq "array" -and $keyDefinition.ContainsKey("ItemSchema") -and -not $keyDefinition.ItemSchema.ContainsKey("AllowedValues")) { # Check ItemSchema type if not already handled by AllowedValues
             foreach ($arrayItem in $configValue) {
                 $itemSchemaDef = $keyDefinition.ItemSchema
@@ -426,9 +466,9 @@ function Validate-AgainstSchemaRecursiveInternal {
         }
 
         if ($keyDefinition.ContainsKey("ValidateScript") -and $keyDefinition.ValidateScript -is [scriptblock]) {
-            if (-not ([string]::IsNullOrWhiteSpace($configValue)) -or ($configValue -is [hashtable]) -or ($configValue -is [array]) ) { 
+            if (-not ([string]::IsNullOrWhiteSpace($configValue)) -or ($configValue -is [hashtable]) -or ($configValue -is [array]) ) {
                 try {
-                    if ($keyDefinition.Type -eq 'hashtable' -and $schemaKey -eq 'BackupTargets') { 
+                    if ($keyDefinition.Type -eq 'hashtable' -and $schemaKey -eq 'BackupTargets') {
                         if (-not (& $keyDefinition.ValidateScript $configValue $ValidationMessages "$fullKeyPath")) {
                             # Validation script should add messages directly.
                         }
@@ -449,7 +489,7 @@ function Validate-AgainstSchemaRecursiveInternal {
     if ($ConfigObject -is [hashtable] -and (-not $Schema.ContainsKey('DynamicKeySchema'))) {
         foreach ($configKeyInObject in $ConfigObject.Keys) {
             if (-not $Schema.ContainsKey($configKeyInObject)) {
-                if ($configKeyInObject -ne '_PoShBackup_PSScriptRoot') { 
+                if ($configKeyInObject -ne '_PoShBackup_PSScriptRoot') {
                      $ValidationMessages.Value.Add("Unknown configuration key '$CurrentPath.$configKeyInObject' found. This key is not defined in the schema. Check for typos or if it's a deprecated/unsupported setting.")
                 }
             }
@@ -465,7 +505,7 @@ function Invoke-PoShBackupConfigValidation {
         [Parameter(Mandatory)]
         [hashtable]$ConfigurationToValidate,
         [Parameter(Mandatory)]
-        [ref]$ValidationMessagesListRef 
+        [ref]$ValidationMessagesListRef
     )
     Validate-AgainstSchemaRecursiveInternal -ConfigObject $ConfigurationToValidate -Schema $Script:PoShBackup_ConfigSchema -ValidationMessages $ValidationMessagesListRef -CurrentPath "Configuration"
 }

@@ -15,6 +15,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Extensible Backup Target Providers:** A modular system (located in `Modules\Targets\`) allows for adding support for various remote storage types.
     *   **UNC Provider:** Transfers archives to standard network shares.
     *   **Replicate Provider (New):** Copies an archive to multiple specified local or UNC paths, with individual retention settings per destination.
+    *   **SFTP Provider (via Posh-SSH module) (New):** Transfers archives to SFTP servers, supporting password and key-based authentication.
 *   **Configurable Retention Policies:**
     *   **Local Retention:** Manage archive versions in the local staging directory (`DestinationDir`) using the `LocalRetentionCount` setting per job.
     *   **Remote Retention:** Each Backup Target provider can, if designed to do so, implement its own retention logic on the remote storage (e.g., keep last X versions, delete after Y days). This is configured within the target's definition in the `BackupTargets` section (e.g., via `RemoteRetentionSettings` or per-destination settings for providers like "Replicate").
@@ -51,7 +52,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 ### 1. Prerequisites
 *   **PowerShell:** Version 5.1 or higher.
 *   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
-*   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files, and potentially for some Post-Run System Actions (e.g., Shutdown, Restart, Hibernate).
+*   **Posh-SSH Module (New):** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).*   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files, and potentially for some Post-Run System Actions (e.g., Shutdown, Restart, Hibernate).
 *   **Network/Remote Access:** For using Backup Targets, appropriate permissions and connectivity to the remote locations (e.g., UNC shares) are necessary for the user account running PoSh-Backup.
 
 ### 2. Installation & Initial Setup
@@ -65,7 +66,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   `User.psd1`: (Will be created on first run if it doesn't exist) This is where your custom settings go.
         *   `Themes/`: Contains CSS files for different HTML report themes.
     *   `Modules/`: Contains PowerShell modules that provide the core functionality.
-        *   `Targets/`: **New sub-directory for Backup Target provider modules** (e.g., `UNC.Target.psm1`, `Replicate.Target.psm1`).
+        *   `Targets/`: **Sub-directory for Backup Target provider modules** (e.g., `UNC.Target.psm1`, `Replicate.Target.psm1`, `SFTP.Target.psm1` (New)).
         *   `SystemStateManager.psm1`: **New module for handling post-run system actions.**
     *   `Meta/`: Contains scripts related to the development of PoSh-Backup itself (like the script to generate bundles for AI).
     *   `Logs/`: Default directory where text log files will be stored for each job run (if file logging is enabled in the configuration).
@@ -127,7 +128,30 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                         }
                     )
                 }
-                # Add other targets, e.g., for FTP, S3, etc. as providers become available.
+                "MySecureFTPServer" = @{ # NEW SFTP Target Example
+                    Type = "SFTP" # Refers to Modules\Targets\SFTP.Target.psm1
+                    TargetSpecificSettings = @{
+                        SFTPServerAddress   = "sftp.yourdomain.com"    # Mandatory: SFTP server hostname or IP
+                        SFTPPort            = 22                       # Optional: Defaults to 22
+                        SFTPRemotePath      = "/remote/backup/path"    # Mandatory: Base path on SFTP server
+                        SFTPUserName        = "sftp_backup_user"       # Mandatory: SFTP username
+
+                        # --- Authentication: Choose one method ---
+                        # 1. Password-based (password stored in PowerShell SecretManagement)
+                        SFTPPasswordSecretName = "SftpUserPasswordSecret" # Name of the secret for the user's password
+
+                        # 2. Key-based (private key file *path* stored in SecretManagement)
+                        # SFTPKeyFileSecretName = "SftpUserPrivateKeyPathSecret" # Name of secret for the private key file path (e.g., C:\path\to\id_rsa)
+                        # SFTPKeyFilePassphraseSecretName = "SftpKeyPassphraseSecret" # Optional: Name of secret for the key's passphrase
+
+                        # --- Other SFTP Settings ---
+                        CreateJobNameSubdirectory = $true # Optional: Default $false. If $true, creates /remote/backup/path/JobName/
+                        SkipHostKeyCheck    = $false      # Optional: Default $false. If $true, skips SSH host key verification (INSECURE).
+                    }
+                    RemoteRetentionSettings = @{ # Optional: Retention on the SFTP server
+                        KeepCount = 5 # Keep the last 5 archives for this job on this SFTP target
+                    }
+                }                # Add other targets, e.g., for FTP, S3, etc. as providers become available.
             }
             ```
     *   **`BackupLocations` (Job Definitions):**
@@ -165,6 +189,19 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 
                 TargetNames = @("MyReplicatedBackups") # Uses the "Replicate" target defined above
                 DeleteLocalArchiveAfterSuccessfulTransfer = $true
+            }
+
+            "MyDocumentsToSFTP" = @{
+                Path           = "C:\Users\YourUserName\Documents"
+                Name           = "UserDocuments_SFTP"
+                DestinationDir = "E:\BackupStaging\MyDocsSFTP"
+                LocalRetentionCount = 2
+
+                TargetNames = @("MySecureFTPServer") # Uses the SFTP target defined above
+                DeleteLocalArchiveAfterSuccessfulTransfer = $true
+
+                ArchivePasswordMethod = "SecretManagement" # For the 7z archive itself
+                ArchivePasswordSecretName = "MyArchiveEncryptionKey"
             }
             ```
     *   **NEW: `PostRunActionDefaults` (Global Post-Run System Action Settings):**
@@ -224,9 +261,9 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
 
 *   **Run a specific backup job (it may be local-only or also send to remote targets based on its configuration):**
     ```powershell
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackup"
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsToSFTP"
     ```
-    (Replace `"MyDocumentsBackup"` with the actual name of a job you defined in `BackupLocations`. If "MyDocumentsBackup" has a `PostRunAction` configured, it will be evaluated after the job.)
+    (Replace `"MyDocumentsToSFTP"` with the actual name of a job you defined in `BackupLocations`. If this job has a `PostRunAction` configured, it will be evaluated after the job.)
 
 *   **Run a predefined Backup Set:** (Backup Sets group multiple jobs and are defined in `User.psd1` or `Default.psd1`.)
     ```powershell
@@ -236,7 +273,7 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
 
 *   **Simulate a backup job (local archive creation, any remote transfers, and post-run actions will be simulated):**
     ```powershell
-    .\PoSh-Backup.ps1 -BackupLocationName "ImportantProject_Replicated" -Simulate
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsToSFTP" -Simulate
     ```
 
 *   **Run a job and treat 7-Zip warnings from local archiving as success for status reporting:**
