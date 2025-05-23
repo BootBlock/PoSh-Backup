@@ -14,7 +14,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Added PSSA suppression for internal helper.
+    Version:        1.0.2 # Added ShouldProcess support to Start-CancellableCountdownInternal.
     DateCreated:    22-May-2025
     LastModified:   22-May-2025
     Purpose:        To provide controlled system state change capabilities for PoSh-Backup.
@@ -72,14 +72,16 @@ function Test-HibernateEnabledInternal {
 #region --- Internal Helper: Start Cancellable Countdown ---
 # PSScriptAnalyzer Suppress PSUseApprovedVerbs[Start-CancellableCountdownInternal] - 'Start' is descriptive for this internal helper that manages a countdown process, not directly a state-changing verb for end-user.
 function Start-CancellableCountdownInternal {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')] # Added SupportsShouldProcess
     param(
         [Parameter(Mandatory = $true)]
         [int]$DelaySeconds,
         [Parameter(Mandatory = $true)]
         [string]$ActionDisplayName,
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)] # Added PSCmdletInstance
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
     # Defensive PSSA appeasement
     & $Logger -Message "SystemStateManager/Start-CancellableCountdownInternal: Logger parameter active for action '$ActionDisplayName'." -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -88,6 +90,12 @@ function Start-CancellableCountdownInternal {
 
     if ($DelaySeconds -le 0) {
         return $true # No delay, proceed with action
+    }
+
+    # Respect -WhatIf and -Confirm before starting the countdown
+    if (-not $PSCmdletInstance.ShouldProcess("System (Action: $ActionDisplayName)", "Display $DelaySeconds-second Cancellable Countdown")) {
+        & $LocalWriteLog -Message "SystemStateManager: Cancellable countdown for action '$ActionDisplayName' skipped by user (ShouldProcess)." -Level "INFO"
+        return $false # Indicate that the countdown (and thus the action) should not proceed
     }
 
     & $LocalWriteLog -Message "SystemStateManager: Action '$ActionDisplayName' will occur in $DelaySeconds seconds. Press 'C' to cancel." -Level "WARNING"
@@ -199,8 +207,9 @@ function Invoke-SystemStateAction {
 
     # Proceed with countdown if delay is configured
     if ($DelaySeconds -gt 0) {
-        if (-not (Start-CancellableCountdownInternal -DelaySeconds $DelaySeconds -ActionDisplayName $actionDisplayName -Logger $Logger)) {
-            return $false # Action was cancelled
+        # Pass PSCmdletInstance to the countdown function
+        if (-not (Start-CancellableCountdownInternal -DelaySeconds $DelaySeconds -ActionDisplayName $actionDisplayName -Logger $Logger -PSCmdletInstance $PSCmdletInstance)) {
+            return $false # Action was cancelled or skipped by ShouldProcess in countdown
         }
     }
 
