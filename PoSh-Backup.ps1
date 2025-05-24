@@ -13,7 +13,7 @@
     Core logic is managed by the main script, which orchestrates operations performed by dedicated
     PowerShell modules for utility functions, configuration management, backup operations,
     password management, 7-Zip interaction, VSS management, retention policy management,
-    hook script management, reporting, and system state management.
+    hook script management, system state management, and script mode handling.
 
     Key Features:
     - Modular Design, External Configuration, Local and Remote Backups, Granular Job Control.
@@ -113,13 +113,13 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.11.4 # Post-Run Action logging silent if no action taken.
+    Version:        1.11.5 # Modularised informational script modes.
     Date:           24-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1, ConfigManager.psm1, Operations.psm1,
                     Reporting.psm1, PasswordManager.psm1, 7ZipManager.psm1, VssManager.psm1,
                     RetentionManager.psm1, HookManager.psm1, SystemStateManager.psm1,
-                    and reporting sub-modules in '.\Modules\Reporting\'.
+                    ScriptModeHandler.psm1, and reporting sub-modules in '.\Modules\Reporting\'.
                     Optional: 'PoShBackupValidator.psm1'.
     Configuration:  Via '.\Config\Default.psd1' and '.\Config\User.psd1'.
     Script Name:    PoSh-Backup.ps1
@@ -203,7 +203,7 @@ $cliOverrideSettings = @{
     TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
     SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
     PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
-    # NEW: Store CLI PostRunAction overrides
+    # Store CLI PostRunAction overrides
     PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
     PostRunActionDelaySecondsCli       = if ($PSBoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $PostRunActionDelaySecondsCli } else { $null } 
     PostRunActionForceCli              = if ($PSBoundParameters.ContainsKey('PostRunActionForceCli')) { $PostRunActionForceCli.IsPresent } else { $null }
@@ -264,8 +264,9 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\RetentionManager.psm1") -Force -ErrorAction Stop 
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\HookManager.psm1") -Force -ErrorAction Stop 
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\SystemStateManager.psm1") -Force -ErrorAction Stop 
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop # NEW
     
-    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including SystemStateManager." -Level "INFO"
+    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including SystemStateManager and ScriptModeHandler." -Level "INFO"
 
 } catch {
     & $LoggerScriptBlock -Message "[FATAL] Failed to import one or more required script modules." -Level "ERROR"
@@ -276,7 +277,7 @@ try {
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.11.4 (Post-Run Action logging silent if no action taken)" -Level "HEADING" 
+& $LoggerScriptBlock -Message " Script Version: v1.11.5 (Modularised informational script modes)" -Level "HEADING" 
 if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
@@ -369,166 +370,63 @@ if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
     exit 1
 }
 
-if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent -or $TestConfig.IsPresent)) {
-    $sevenZipPathFromFinalConfig = if ($Configuration.ContainsKey('SevenZipPath')) { $Configuration.SevenZipPath } else { $null }
-    if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
-        & $LoggerScriptBlock -Message "FATAL: 7-Zip executable path ('$sevenZipPathFromFinalConfig') is invalid or not found after configuration loading and auto-detection attempts." -Level "ERROR"
-        & $LoggerScriptBlock -Message "       Please ensure 'SevenZipPath' is correctly set in your configuration (Default.psd1 or User.psd1)," -Level "ERROR"
-        & $LoggerScriptBlock -Message "       or that 7z.exe is available in standard Program Files locations or your system PATH for auto-detection." -Level "ERROR"
+# --- Invoke Script Mode Handler ---
+# This function will exit the script if -ListBackupLocations, -ListBackupSets, or -TestConfig is active.
+Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
+                            -ListBackupSetsSwitch $ListBackupSets.IsPresent `
+                            -TestConfigSwitch $TestConfig.IsPresent `
+                            -Configuration $Configuration `
+                            -ActualConfigFile $ActualConfigFile `
+                            -ConfigLoadResult $configResult `
+                            -Logger $LoggerScriptBlock
+# If the script reaches here, it means no informational mode was handled, and we proceed to normal backup operations.
 
-        $_earlyExitPauseSetting = if ($Configuration.ContainsKey('PauseBeforeExit')) { $Configuration.PauseBeforeExit } else { "Always" } 
-        $_shouldEarlyExitPause = $false
-        if ($_earlyExitPauseSetting -is [bool]) {
-            $_shouldEarlyExitPause = $_earlyExitPauseSetting
-        } elseif ($_earlyExitPauseSetting -is [string]) {
-            if ($_earlyExitPauseSetting.ToLowerInvariant() -in @("always", "onfailure", "onfailureorwarning", "true")) { $_shouldEarlyExitPause = $true }
-        }
-        if ($cliOverrideSettings.PauseBehaviour) { 
-            if ($cliOverrideSettings.PauseBehaviour.ToLowerInvariant() -in @("always", "onfailure", "onfailureorwarning", "true")) { $_shouldEarlyExitPause = $true }
-            elseif ($cliOverrideSettings.PauseBehaviour.ToLowerInvariant() -in @("never", "false")) { $_shouldEarlyExitPause = $false }
-        }
 
-        if ($_shouldEarlyExitPause -and ($Host.Name -eq "ConsoleHost")) {
-            & $LoggerScriptBlock -Message "`nPress any key to exit..." -Level "WARNING"
-            try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
-            catch { Write-Warning "Failed to read key for pause: $($_.Exception.Message)" }
+# --- 7-Zip Path and Log Directory Setup (only if not in an informational mode that would have exited) ---
+$sevenZipPathFromFinalConfig = if ($Configuration.ContainsKey('SevenZipPath')) { $Configuration.SevenZipPath } else { $null }
+if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
+    & $LoggerScriptBlock -Message "FATAL: 7-Zip executable path ('$sevenZipPathFromFinalConfig') is invalid or not found after configuration loading and auto-detection attempts." -Level "ERROR"
+    & $LoggerScriptBlock -Message "       Please ensure 'SevenZipPath' is correctly set in your configuration (Default.psd1 or User.psd1)," -Level "ERROR"
+    & $LoggerScriptBlock -Message "       or that 7z.exe is available in standard Program Files locations or your system PATH for auto-detection." -Level "ERROR"
+
+    $_earlyExitPauseSetting = if ($Configuration.ContainsKey('PauseBeforeExit')) { $Configuration.PauseBeforeExit } else { "Always" } 
+    $_shouldEarlyExitPause = $false
+    if ($_earlyExitPauseSetting -is [bool]) {
+        $_shouldEarlyExitPause = $_earlyExitPauseSetting
+    } elseif ($_earlyExitPauseSetting -is [string]) {
+        if ($_earlyExitPauseSetting.ToLowerInvariant() -in @("always", "onfailure", "onfailureorwarning", "true")) { $_shouldEarlyExitPause = $true }
+    }
+    if ($cliOverrideSettings.PauseBehaviour) { 
+        if ($cliOverrideSettings.PauseBehaviour.ToLowerInvariant() -in @("always", "onfailure", "onfailureorwarning", "true")) { $_shouldEarlyExitPause = $true }
+        elseif ($cliOverrideSettings.PauseBehaviour.ToLowerInvariant() -in @("never", "false")) { $_shouldEarlyExitPause = $false }
+    }
+
+    if ($_shouldEarlyExitPause -and ($Host.Name -eq "ConsoleHost")) {
+        & $LoggerScriptBlock -Message "`nPress any key to exit..." -Level "WARNING"
+        try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
+        catch { Write-Warning "Failed to read key for pause: $($_.Exception.Message)" }
+    }
+    exit 3 
+} else {
+    & $LoggerScriptBlock -Message "[INFO] Effective 7-Zip executable path confirmed: '$sevenZipPathFromFinalConfig'" -Level "INFO"
+}
+
+$Global:GlobalEnableFileLogging = if ($Configuration.ContainsKey('EnableFileLogging')) { $Configuration.EnableFileLogging } else { $false }
+if ($Global:GlobalEnableFileLogging) {
+    $logDirConfig = if ($Configuration.ContainsKey('LogDirectory')) { $Configuration.LogDirectory } else { "Logs" }
+    $Global:GlobalLogDirectory = if ([System.IO.Path]::IsPathRooted($logDirConfig)) { $logDirConfig } else { Join-Path -Path $PSScriptRoot -ChildPath $logDirConfig }
+
+    if (-not (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
+        try {
+            New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
+            & $LoggerScriptBlock -Message "[INFO] Log directory '$Global:GlobalLogDirectory' created." -Level "INFO"
+        } catch {
+            & $LoggerScriptBlock -Message "[WARNING] Failed to create log directory '$Global:GlobalLogDirectory'. File logging may be impacted. Error: $($_.Exception.Message)" -Level "WARNING"
+            $Global:GlobalEnableFileLogging = $false 
         }
-        exit 3 
-    } else {
-        & $LoggerScriptBlock -Message "[INFO] Effective 7-Zip executable path confirmed: '$sevenZipPathFromFinalConfig'" -Level "INFO"
     }
 }
 
-if (-not ($ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent)) {
-    $Global:GlobalEnableFileLogging = if ($Configuration.ContainsKey('EnableFileLogging')) { $Configuration.EnableFileLogging } else { $false }
-    if ($Global:GlobalEnableFileLogging) {
-        $logDirConfig = if ($Configuration.ContainsKey('LogDirectory')) { $Configuration.LogDirectory } else { "Logs" }
-        $Global:GlobalLogDirectory = if ([System.IO.Path]::IsPathRooted($logDirConfig)) { $logDirConfig } else { Join-Path -Path $PSScriptRoot -ChildPath $logDirConfig }
-
-        if (-not (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
-            try {
-                New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
-                & $LoggerScriptBlock -Message "[INFO] Log directory '$Global:GlobalLogDirectory' created." -Level "INFO"
-            } catch {
-                & $LoggerScriptBlock -Message "[WARNING] Failed to create log directory '$Global:GlobalLogDirectory'. File logging may be impacted. Error: $($_.Exception.Message)" -Level "WARNING"
-                $Global:GlobalEnableFileLogging = $false 
-            }
-        }
-    }
-}
-
-if ($ListBackupLocations.IsPresent) {
-    & $LoggerScriptBlock -Message "`n--- Defined Backup Locations (Jobs) from '$($ActualConfigFile)' ---" -Level "HEADING"
-    if ($configResult.UserConfigLoaded) {
-        & $LoggerScriptBlock -Message "    (Includes overrides from '$($configResult.UserConfigPath)')" -Level "INFO"
-    }
-    if ($Configuration.BackupLocations -is [hashtable] -and $Configuration.BackupLocations.Count -gt 0) {
-        $Configuration.BackupLocations.GetEnumerator() | Sort-Object Name | ForEach-Object {
-            & $LoggerScriptBlock -Message ("`n  Job Name      : " + $_.Name) -Level "NONE"
-            $sourcePaths = if ($_.Value.Path -is [array]) { ($_.Value.Path | ForEach-Object { "                  `"$_`"" }) -join [Environment]::NewLine } else { "                  `"$($_.Value.Path)`"" }
-            & $LoggerScriptBlock -Message ("  Source Path(s):`n" + $sourcePaths) -Level "NONE"
-            $archiveNameDisplay = if ($_.Value.ContainsKey('Name')) { $_.Value.Name } else { 'N/A (Uses Job Name)' }
-            & $LoggerScriptBlock -Message ("  Archive Name  : " + $archiveNameDisplay) -Level "NONE"
-            $destDirDisplay = if ($_.Value.ContainsKey('DestinationDir')) { $_.Value.DestinationDir } elseif ($Configuration.ContainsKey('DefaultDestinationDir')) { $Configuration.DefaultDestinationDir } else { 'N/A' }
-            & $LoggerScriptBlock -Message ("  Destination   : " + $destDirDisplay) -Level "NONE"
-            if ($_.Value.ContainsKey('TargetNames') -and $_.Value.TargetNames -is [array] -and $_.Value.TargetNames.Count -gt 0) {
-                & $LoggerScriptBlock -Message ("  Remote Targets: " + ($_.Value.TargetNames -join ", ")) -Level "NONE"
-            }
-        }
-    } else {
-        & $LoggerScriptBlock -Message "No Backup Locations are defined in the configuration." -Level "WARNING"
-    }
-    & $LoggerScriptBlock -Message "`n--- Listing Complete ---" -Level "HEADING"
-    exit 0
-}
-
-if ($ListBackupSets.IsPresent) {
-    & $LoggerScriptBlock -Message "`n--- Defined Backup Sets from '$($ActualConfigFile)' ---" -Level "HEADING"
-    if ($configResult.UserConfigLoaded) {
-        & $LoggerScriptBlock -Message "    (Includes overrides from '$($configResult.UserConfigPath)')" -Level "INFO"
-    }
-    if ($Configuration.BackupSets -is [hashtable] -and $Configuration.BackupSets.Count -gt 0) {
-        $Configuration.BackupSets.GetEnumerator() | Sort-Object Name | ForEach-Object {
-            & $LoggerScriptBlock -Message ("`n  Set Name     : " + $_.Name) -Level "NONE"
-            $jobsInSet = if ($_.Value.JobNames -is [array]) { ($_.Value.JobNames | ForEach-Object { "                 $_" }) -join [Environment]::NewLine } else { "                 None listed" }
-            & $LoggerScriptBlock -Message ("  Jobs in Set  :`n" + $jobsInSet) -Level "NONE"
-            $onErrorDisplay = if ($_.Value.ContainsKey('OnErrorInJob')) { $_.Value.OnErrorInJob } else { 'StopSet' } 
-            & $LoggerScriptBlock -Message ("  On Error     : " + $onErrorDisplay) -Level "NONE"
-        }
-    } else {
-        & $LoggerScriptBlock -Message "No Backup Sets are defined in the configuration." -Level "WARNING"
-    }
-    & $LoggerScriptBlock -Message "`n--- Listing Complete ---" -Level "HEADING"
-    exit 0
-}
-
-if ($TestConfig.IsPresent) {
-    & $LoggerScriptBlock -Message "`n[INFO] --- Configuration Test Mode Summary ---" -Level "CONFIG_TEST"
-    & $LoggerScriptBlock -Message "[SUCCESS] Configuration file(s) loaded and validated successfully from '$($ActualConfigFile)'" -Level "CONFIG_TEST"
-    if ($configResult.UserConfigLoaded) {
-        & $LoggerScriptBlock -Message "          (User overrides from '$($configResult.UserConfigPath)' were applied)" -Level "CONFIG_TEST"
-    }
-    & $LoggerScriptBlock -Message "`n  --- Key Global Settings ---" -Level "CONFIG_TEST"
-    $sevenZipPathDisplay = if($Configuration.ContainsKey('SevenZipPath')){ $Configuration.SevenZipPath } else { 'N/A' }
-    & $LoggerScriptBlock -Message ("    7-Zip Path              : {0}" -f $sevenZipPathDisplay) -Level "CONFIG_TEST"
-    $defaultDestDirDisplay = if($Configuration.ContainsKey('DefaultDestinationDir')){ $Configuration.DefaultDestinationDir } else { 'N/A' }
-    & $LoggerScriptBlock -Message ("    Default Staging Dir     : {0}" -f $defaultDestDirDisplay) -Level "CONFIG_TEST" 
-    $delLocalArchiveDisplay = if($Configuration.ContainsKey('DeleteLocalArchiveAfterSuccessfulTransfer')){ $Configuration.DeleteLocalArchiveAfterSuccessfulTransfer } else { '$true (default)' }
-    & $LoggerScriptBlock -Message ("    Del. Local Post Transfer: {0}" -f $delLocalArchiveDisplay) -Level "CONFIG_TEST" 
-    $logDirDisplay = if($Configuration.ContainsKey('LogDirectory')){ $Configuration.LogDirectory } else { 'N/A (File Logging Disabled)' }
-    & $LoggerScriptBlock -Message ("    Log Directory           : {0}" -f $logDirDisplay) -Level "CONFIG_TEST"
-    $htmlReportDirDisplay = if($Configuration.ContainsKey('HtmlReportDirectory')){ $Configuration.HtmlReportDirectory } else { 'N/A' }
-    & $LoggerScriptBlock -Message ("    Default Report Dir (HTML): {0}" -f $htmlReportDirDisplay) -Level "CONFIG_TEST"
-    $vssEnabledDisplayGlobal = if($Configuration.ContainsKey('EnableVSS')){ $Configuration.EnableVSS } else { $false }
-    & $LoggerScriptBlock -Message ("    Default VSS Enabled     : {0}" -f $vssEnabledDisplayGlobal) -Level "CONFIG_TEST"
-    $retriesEnabledDisplayGlobal = if($Configuration.ContainsKey('EnableRetries')){ $Configuration.EnableRetries } else { $false }
-    & $LoggerScriptBlock -Message ("    Default Retries Enabled : {0}" -f $retriesEnabledDisplayGlobal) -Level "CONFIG_TEST"
-    $treatWarningsAsSuccessDisplayGlobal = if($Configuration.ContainsKey('TreatSevenZipWarningsAsSuccess')){ $Configuration.TreatSevenZipWarningsAsSuccess } else { $false }
-    & $LoggerScriptBlock -Message ("    Treat 7-Zip Warns as OK : {0}" -f $treatWarningsAsSuccessDisplayGlobal) -Level "CONFIG_TEST"
-    $pauseExitDisplayGlobal = if($Configuration.ContainsKey('PauseBeforeExit')){ $Configuration.PauseBeforeExit } else { 'OnFailureOrWarning' }
-    & $LoggerScriptBlock -Message ("    Pause Before Exit       : {0}" -f $pauseExitDisplayGlobal) -Level "CONFIG_TEST"
-
-    if ($Configuration.ContainsKey('BackupTargets') -and $Configuration.BackupTargets -is [hashtable] -and $Configuration.BackupTargets.Count -gt 0) {
-        & $LoggerScriptBlock -Message "`n  --- Defined Backup Targets ---" -Level "CONFIG_TEST"
-        foreach ($targetNameKey in ($Configuration.BackupTargets.Keys | Sort-Object)) {
-            $targetConf = $Configuration.BackupTargets[$targetNameKey]
-            & $LoggerScriptBlock -Message ("    Target: {0} (Type: {1})" -f $targetNameKey, $targetConf.Type) -Level "CONFIG_TEST"
-            if ($targetConf.TargetSpecificSettings) {
-                $targetConf.TargetSpecificSettings.GetEnumerator() | ForEach-Object {
-                    & $LoggerScriptBlock -Message ("      -> {0} : {1}" -f $_.Name, $_.Value) -Level "CONFIG_TEST"
-                }
-            }
-        }
-    } else { & $LoggerScriptBlock -Message "`n  --- Defined Backup Targets ---`n    (None defined)" -Level "CONFIG_TEST" }
-
-
-    if ($Configuration.BackupLocations -is [hashtable] -and $Configuration.BackupLocations.Count -gt 0) {
-        & $LoggerScriptBlock -Message "`n  --- Defined Backup Locations (Jobs) ---" -Level "CONFIG_TEST"
-        foreach ($jobNameKey in ($Configuration.BackupLocations.Keys | Sort-Object)) { 
-            $jobConf = $Configuration.BackupLocations[$jobNameKey]
-            & $LoggerScriptBlock -Message ("    Job: {0}" -f $jobNameKey) -Level "CONFIG_TEST" 
-            $sourcePathsDisplay = if ($jobConf.Path -is [array]) { $jobConf.Path -join "; " } else { $jobConf.Path }; & $LoggerScriptBlock -Message ("      Source(s)    : {0}" -f $sourcePathsDisplay) -Level "CONFIG_TEST"
-            $destDirDisplayJob = if ($jobConf.ContainsKey('DestinationDir')) { $jobConf.DestinationDir } elseif ($Configuration.ContainsKey('DefaultDestinationDir')) { $Configuration.DefaultDestinationDir } else { 'N/A' }; & $LoggerScriptBlock -Message ("      Staging Dir  : {0}" -f $destDirDisplayJob) -Level "CONFIG_TEST" 
-            if ($jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array] -and $jobConf.TargetNames.Count -gt 0) { & $LoggerScriptBlock -Message ("      Remote Targets: {0}" -f ($jobConf.TargetNames -join ", ")) -Level "CONFIG_TEST" } 
-            $archiveNameDisplayJob = if ($jobConf.ContainsKey('Name')) { $jobConf.Name } else { 'N/A (Uses Job Name)' }; & $LoggerScriptBlock -Message ("      Archive Name : {0}" -f $archiveNameDisplayJob) -Level "CONFIG_TEST"
-            $vssEnabledDisplayJob = if ($jobConf.ContainsKey('EnableVSS')) { $jobConf.EnableVSS } elseif ($Configuration.ContainsKey('EnableVSS')) { $Configuration.EnableVSS } else { $false }; & $LoggerScriptBlock -Message ("      VSS Enabled  : {0}" -f $vssEnabledDisplayJob) -Level "CONFIG_TEST"
-            $treatWarnDisplayJob = if ($jobConf.ContainsKey('TreatSevenZipWarningsAsSuccess')) { $jobConf.TreatSevenZipWarningsAsSuccess } elseif ($Configuration.ContainsKey('TreatSevenZipWarningsAsSuccess')) { $Configuration.TreatSevenZipWarningsAsSuccess } else { $false }; & $LoggerScriptBlock -Message ("      Treat Warn OK: {0}" -f $treatWarnDisplayJob) -Level "CONFIG_TEST"
-            $retentionDisplayJob = if ($jobConf.ContainsKey('LocalRetentionCount')) { $jobConf.LocalRetentionCount } else { 'N/A' }; & $LoggerScriptBlock -Message ("      LocalRetain  : {0}" -f $retentionDisplayJob) -Level "CONFIG_TEST" 
-        }
-    } else { & $LoggerScriptBlock -Message "`n  --- Defined Backup Locations (Jobs) ---`n    No Backup Locations defined." -Level "CONFIG_TEST" }
-
-    if ($Configuration.BackupSets -is [hashtable] -and $Configuration.BackupSets.Count -gt 0) {
-        & $LoggerScriptBlock -Message "`n  --- Defined Backup Sets ---" -Level "CONFIG_TEST"
-        foreach ($setNameKey in ($Configuration.BackupSets.Keys | Sort-Object)) { 
-            $setConf = $Configuration.BackupSets[$setNameKey]
-            & $LoggerScriptBlock -Message ("    Set: {0}" -f $setNameKey) -Level "CONFIG_TEST" 
-            $jobsInSetDisplay = if ($setConf.JobNames -is [array]) { $setConf.JobNames -join ", " } else { "None listed" }; & $LoggerScriptBlock -Message ("      Jobs in Set  : {0}" -f $jobsInSetDisplay) -Level "CONFIG_TEST"
-            $onErrorDisplaySet = if ($setConf.ContainsKey('OnErrorInJob')) { $setConf.OnErrorInJob } else { 'StopSet' }; & $LoggerScriptBlock -Message ("      On Error     : {0}" -f $onErrorDisplaySet) -Level "CONFIG_TEST"
-        }
-    } else { & $LoggerScriptBlock -Message "`n  --- Defined Backup Sets ---`n    No Backup Sets defined." -Level "CONFIG_TEST" }
-    & $LoggerScriptBlock -Message "`n[INFO] --- Configuration Test Mode Finished ---" -Level "CONFIG_TEST"
-    exit 0
-}
 
 $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
 if (-not $jobResolutionResult.Success) {
@@ -723,8 +621,11 @@ switch ($effectivePauseBehaviour) {
     }
 }
 if (($IsSimulateMode.IsPresent -or $TestConfig.IsPresent) -and $effectivePauseBehaviour -ne "always") { 
+    # If in Simulate or TestConfig mode, only pause if 'always' is explicitly set.
+    # This was the previous behaviour for TestConfig, extending to Simulate for consistency.
     $shouldPhysicallyPause = $false
 }
+
 
 if ($shouldPhysicallyPause) {
     & $LoggerScriptBlock -Message "`nPress any key to exit..." -Level "WARNING"
