@@ -100,6 +100,9 @@ function Get-BundlerAIState {
         "    - Stage 1: Client-side JavaScript externalised to `Modules\\Reporting\\Assets\\ReportingHtml.Client.js`.",
         "    - Stage 2: Static HTML structure aggressively externalised to `Modules\\Reporting\\Assets\\ReportingHtml.template.html`.",
         "    - `ReportingHtml.psm1` now primarily handles data processing and injection into the HTML template, significantly reducing its line count.",
+        "  - `Modules\\PoShBackupValidator.psm1` (v1.3.6 -> v1.4.0) refactored:",
+        "    - Embedded schema definition (`$Script:PoShBackup_ConfigSchema`) moved to an external file: `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`.",
+        "    - `PoShBackupValidator.psm1` now loads the schema from this external file, significantly reducing its own size.",
         "  - PSSA warning for unused Logger parameter in `ReportingHtml.psm1` (v1.9.10) addressed by adding a direct call to the logger.",
         "  - Console blank line issue during HTML report generation investigated and resolved by refactoring internal logger helper in `ReportingHtml.psm1` and removing temporary diagnostic lines.",
         "--- Major Refactoring: Modularisation of Operations.psm1 and ConfigManager.psm1 (Previous Session) ---",
@@ -144,7 +147,7 @@ function Get-BundlerAIState {
         "--- Previous Work (Selected Highlights) ---",
         "Network Share Handling Improvements, Retention Policy Confirmation, HTML Report Enhancements, PSSA compliance.",
         "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) is stable.",
-        "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums features added. Major refactorings completed. `PoSh-Backup.ps1` and `ReportingHtml.psm1` significantly reduced in size. PSSA summary expected to be clean except for known SFTP `ConvertTo-SecureString` items and the `Operations.psm1` empty catch block anomaly. Pester tests non-functional."
+        "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums features added. Major refactorings completed. PoSh-Backup.ps1, ReportingHtml.psm1, and PoShBackupValidator.psm1significantly reduced in size. PSSA summary expected to be clean except for known SFTPConvertTo-SecureStringitems and theOperations.psm1 empty catch block anomaly. Pester tests non-functional."
     )
 
     $aiState.conversation_summary = $currentConversationSummary

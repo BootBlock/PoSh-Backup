@@ -34,8 +34,8 @@
 
   conversation_summary = @(
     "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.11.5).",
-    "Modular design: Core modules, Reporting sub-modules (including new Modules\Reporting\Assets directory for HTML report assets), Config files, and Meta/ (bundler).",
-    "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.1.7 - to be updated to v1.1.8).",
+    "Modular design: Core modules, Reporting sub-modules (including Modules\Reporting\Assets and Modules\ConfigManagement\Assets directories), Config files, and Meta/ (bundler).",
+    "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.1.8).",
     "--- Further Modularisation of PoSh-Backup.ps1 and ReportingHtml.psm1 (Current Session) ---",
     "  - Goal: Reduce size of larger script files for AI efficiency and improve maintainability.",
     "  - `PoSh-Backup.ps1` (v1.11.4 -> v1.11.5) refactored:",
@@ -46,6 +46,9 @@
     "    - Stage 1: Client-side JavaScript externalised to `Modules\\Reporting\\Assets\\ReportingHtml.Client.js`.",
     "    - Stage 2: Static HTML structure aggressively externalised to `Modules\\Reporting\\Assets\\ReportingHtml.template.html`.",
     "    - `ReportingHtml.psm1` now primarily handles data processing and injection into the HTML template, significantly reducing its line count.",
+    "  - `Modules\\PoShBackupValidator.psm1` (v1.3.6 -> v1.4.0) refactored:",
+    "    - Embedded schema definition (`$Script:PoShBackup_ConfigSchema`) moved to an external file: `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`.",
+    "    - `PoShBackupValidator.psm1` now loads the schema from this external file, significantly reducing its own size.",
     "  - PSSA warning for unused Logger parameter in `ReportingHtml.psm1` (v1.9.10) addressed by adding a direct call to the logger.",
     "  - Console blank line issue during HTML report generation investigated and resolved by refactoring internal logger helper in `ReportingHtml.psm1` and removing temporary diagnostic lines.",
     "--- Major Refactoring: Modularisation of Operations.psm1 and ConfigManager.psm1 (Previous Session) ---",
@@ -78,7 +81,7 @@
     "  - Reporting Modules Updated (v1.9.2 for HTML, v1.2.2 for TXT/CSV, v1.3.2 for MD, v1.1.4 for JSON, v1.2.2 for XML):",
     "    - HTML, TXT, MD, CSV reports now display checksum information in the summary section.",
     "    - JSON and XML reports implicitly include checksum data as part of the main report object.",
-    "  - Main Script (`PoSh-Backup.ps1` v1.11.0 - for checksums, v1.11.4 current):",
+    "  - Main Script (PoSh-Backup.ps1 v1.11.0 - for checksums, current v1.11.5):",
     "    - Synopsis and description updated to reflect the new checksum feature.",
     "  - Documentation (`README.md`): Updated to explain the new Checksum feature, configuration, and impact on archive testing.",
     "--- Previous Major Feature: Post-Run System Actions (Shutdown, Restart, etc.) ---",
@@ -102,10 +105,10 @@
     "--- Previous Work (Selected Highlights) ---",
     "Network Share Handling Improvements, Retention Policy Confirmation, HTML Report Enhancements, PSSA compliance.",
     "Bundler Script (Generate-ProjectBundleForAI.ps1 v1.25.2) is stable.",
-    "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums features added. Major refactorings completed. PoSh-Backup.ps1andReportingHtml.psm1significantly reduced in size. PSSA summary expected to be clean except for known SFTPConvertTo-SecureStringitems and theOperations.psm1 empty catch block anomaly. Pester tests non-functional."
+    "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums features added. Major refactorings completed. PoSh-Backup.ps1, ReportingHtml.psm1, and PoShBackupValidator.psm1significantly reduced in size. PSSA summary expected to be clean except for known SFTPConvertTo-SecureStringitems and theOperations.psm1 empty catch block anomaly. Pester tests non-functional."
   )
 
-  main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.11.4
+  main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.11.5
 
   ai_bundler_update_instructions = @{
     purpose = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
