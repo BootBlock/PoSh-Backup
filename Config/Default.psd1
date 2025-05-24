@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.3.6: Added Checksum Generation & Verification settings.
+# Version 1.3.7: Validator changes.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -176,7 +176,7 @@
                                                                       # Examples: "yyyy-MM-dd", "dd-MMM-yyyy_HH-mm-ss" (includes time), "yyMMdd".
     #endregion
 
-    #region --- Checksum Settings (Global Defaults) --- NEW REGION
+    #region --- Checksum Settings (Global Defaults) ---
     DefaultGenerateArchiveChecksum      = $false                      # Global default. $true to generate a checksum file for the local archive.
     DefaultChecksumAlgorithm            = "SHA256"                    # Global default. Algorithm for checksum. Valid: "SHA1", "SHA256", "SHA384", "SHA512", "MD5".
     DefaultVerifyArchiveChecksumOnTest  = $false                      # Global default. $true to verify checksum during archive test (if TestArchiveAfterCreation is also true).
@@ -214,7 +214,7 @@
             Type = "UNC" # Provider module 'Modules\Targets\UNC.Target.psm1' will handle this
             TargetSpecificSettings = @{
                 UNCRemotePath = "\\fileserver01\backups\MyPoShBackups" # Base path on the UNC share
-                # NEW SETTING: Controls if a JobName subdirectory is created under UNCRemotePath.
+                # Controls if a JobName subdirectory is created under UNCRemotePath.
                 # $false (default): Archive saved directly into UNCRemotePath (e.g., \\server\share\archive.7z)
                 # $true: Archive saved into UNCRemotePath\JobName\ (e.g., \\server\share\JobName\archive.7z)
                 CreateJobNameSubdirectory = $false 
@@ -230,7 +230,7 @@
             #    # KeepDays  = 0  # e.g., Or keep archives for X days. 0 means not used. (Provider specific)
             # }
         }
-        "ExampleReplicatedStorage" = @{ # NEW EXAMPLE FOR REPLICATE PROVIDER
+        "ExampleReplicatedStorage" = @{
             Type = "Replicate" # Provider module 'Modules\Targets\Replicate.Target.psm1' will handle this
             TargetSpecificSettings = @( # This MUST be an array of hashtables, each defining one destination
                 @{ # First destination for replication
@@ -299,7 +299,7 @@
     #endregion
     
     #region --- Post-Run Action Defaults (Global) ---
-    # NEW SECTION: Defines default behavior for actions to take after a job or set completes.
+    # Defines default behavior for actions to take after a job or set completes.
     # These can be overridden at the job or set level.
     # A CLI parameter will override all configured PostRunActions.
     PostRunActionDefaults = @{
@@ -320,8 +320,8 @@
         "Projects"  = @{
             Path                    = "P:\Images\*"                   # Path(s) to back up. Can be a single string or an array of strings for multiple sources.
             Name                    = "Projects"                      # Base name for the archive file (date stamp and extension will be appended).
-            DestinationDir          = "D:\Backups\LocalStage\Projects" # Specific LOCAL STAGING destination for this job.
-            #TargetNames             = @("ExampleUNCShare")            # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
+            DestinationDir          = "D:\Backups"                    # Specific LOCAL STAGING destination for this job.
+            #TargetNames             = @("ExampleUNCShare")           # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
                                                                       # If empty or not present, this job is local-only to DestinationDir.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override for the global setting.
 
@@ -330,25 +330,24 @@
             RetentionConfirmDelete  = $false                          # Job-specific override for local retention: auto-delete old local archives without prompting.
 
             ArchivePasswordMethod   = "None"                          # Password method: "None", "Interactive", "SecretManagement", "SecureStringFile", "PlainText". See instructions at top.
-            # CredentialUserNameHint  = "ProjectBackupUser"             # For "Interactive" method.
-            # ArchivePasswordSecretName = ""                            # For "SecretManagement" method.
-            # ArchivePasswordVaultName  = ""                            # Optional for "SecretManagement".
-            # ArchivePasswordSecureStringPath = ""                      # For "SecureStringFile" method.
-            # ArchivePasswordPlainText  = ""                            # For "PlainText" method (INSECURE).
+            # CredentialUserNameHint  = "ProjectBackupUser"           # For "Interactive" method.
+            # ArchivePasswordSecretName = ""                          # For "SecretManagement" method.
+            # ArchivePasswordVaultName  = ""                          # Optional for "SecretManagement".
+            # ArchivePasswordSecureStringPath = ""                    # For "SecureStringFile" method.
+            # ArchivePasswordPlainText  = ""                          # For "PlainText" method (INSECURE).
 
-            # UsePassword             = $false                          # Legacy. If ArchivePasswordMethod is "None" and this is $true, "Interactive" is used.
+            # UsePassword             = $false                        # Legacy. If ArchivePasswordMethod is "None" and this is $true, "Interactive" is used.
 
             EnableVSS               = $false                          # $true to use VSS for this job (requires Admin). Overrides global EnableVSS.
             SevenZipProcessPriority = "Normal"                        # Override global 7-Zip priority for this specific job.
             ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
             
-            # NEW Checksum Settings for this job
             GenerateArchiveChecksum     = $true                       # Example: Enable checksum generation for this job
             ChecksumAlgorithm           = "SHA256"                    # Use SHA256
             VerifyArchiveChecksumOnTest = $true                       # Verify checksum if TestArchiveAfterCreation is also true
 
-            # NEW: Job-specific PostRunAction settings. Overrides PostRunActionDefaults.
+            # Job-specific PostRunAction settings. Overrides PostRunActionDefaults.
             # PostRunAction = @{
             #     Enabled         = $true
             #     Action          = "Shutdown" 
@@ -357,10 +356,10 @@
             #     ForceAction     = $false
             # }
         }
-        "AnExample_WithRemoteTarget" = @{ # THIS IS THE ORIGINAL "AnExample" JOB - MODIFIED
+        "AnExample_WithRemoteTarget" = @{
             Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
             Name                       = "MyImportantDocuments"
-            DestinationDir             = "D:\Backups\LocalStage\Docs" # LOCAL STAGING directory. Archive is created here first.
+            DestinationDir             = "D:\Backups\LocalStage"      # LOCAL STAGING directory. Archive is created here first.
 
             TargetNames                = @("ExampleUNCShare")         # Archive will be sent to "ExampleUNCShare" (defined in BackupTargets) after local creation.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Delete from local staging after successful transfer to ALL targets.
@@ -383,12 +382,12 @@
             # GenerateArchiveChecksum     = $false 
             # VerifyArchiveChecksumOnTest = $false
 
-            # PostRunAction = @{ Enabled = $false } # Example: Explicitly disable for this job
+            # PostRunAction = @{ Enabled = $false }                   # Example: Explicitly disable for this job
         }
-        "Docs_Replicated_Example" = @{ # NEW EXAMPLE JOB USING THE REPLICATE TARGET
+        "Docs_Replicated_Example" = @{
             Path                       = @("C:\Users\YourUser\Documents\Reports", "C:\Users\YourUser\Pictures\Screenshots")
-            Name                       = "UserDocs_MultiCopy" # Example: base name for the archive
-            DestinationDir             = "C:\BackupStaging\UserDocs" # Local staging directory before replication
+            Name                       = "UserDocs_MultiCopy"         # Example: base name for the archive
+            DestinationDir             = "C:\BackupStaging\UserDocs"  # Local staging directory before replication
             
             TargetNames                = @("ExampleReplicatedStorage") # Reference the "Replicate" target instance defined in BackupTargets
             
@@ -396,14 +395,14 @@
             # the "ExampleReplicatedStorage" target (which involves multiple copies) completes successfully.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true 
             
-            LocalRetentionCount        = 2 # Keep very few archive versions in the local staging area "C:\BackupStaging\UserDocs"
+            LocalRetentionCount        = 2                            # Keep very few archive versions in the local staging area "C:\BackupStaging\UserDocs"
             
-            ArchivePasswordMethod      = "None" # Or any other valid password method
-            EnableVSS                  = $true  # Example: Use VSS for source files
+            ArchivePasswordMethod      = "None"                       # Or any other valid password method
+            EnableVSS                  = $true                        # Example: Use VSS for source files
 
             # Checksum settings for this job
             GenerateArchiveChecksum     = $true
-            ChecksumAlgorithm           = "MD5" # Example: Using MD5 for this job
+            ChecksumAlgorithm           = "MD5"                       # Example: Using MD5 for this job
             VerifyArchiveChecksumOnTest = $true
 
             # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
@@ -411,18 +410,18 @@
         "CriticalData_To_SFTP_Example" = @{
             Path                    = "E:\CriticalApplication\Data"
             Name                    = "AppCriticalData_SFTP"
-            DestinationDir          = "D:\BackupStaging\SFTP_Stage" # Local staging before SFTP transfer
+            DestinationDir          = "D:\BackupStaging\SFTP_Stage"   # Local staging before SFTP transfer
             
-            TargetNames             = @("ExampleSFTPServer") # Reference the SFTP target instance
+            TargetNames             = @("ExampleSFTPServer")          # Reference the SFTP target instance
             
-            DeleteLocalArchiveAfterSuccessfulTransfer = $true # Delete from C:\BackupStaging after successful SFTP
-            LocalRetentionCount     = 1 # Keep only 1 in local staging
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Delete from C:\BackupStaging after successful SFTP
+            LocalRetentionCount     = 1                               # Keep only 1 in local staging
             
             ArchivePasswordMethod   = "SecretManagement"
             ArchivePasswordSecretName = "MyArchiveEncryptionPassword" # Password for the 7z archive itself
             
             EnableVSS               = $true
-            TestArchiveAfterCreation= $true # Good practice for critical data
+            TestArchiveAfterCreation= $true                           # Good practice for critical data
 
             # Checksum settings for this job
             GenerateArchiveChecksum     = $true
@@ -468,8 +467,8 @@
             SevenZipProcessPriority = "BelowNormal"
             CompressionLevel        = "-mx=5"                         # Balance of speed and compression.
             AdditionalExclusions    = @(                              # Array of 7-Zip exclusion patterns specific to this job.
-                                        "*\logs\*.log",                 # Exclude all .log files in any 'logs' subfolder.
-                                        "*\temp\*",                     # Exclude all temp folders and their contents.
+                                        "*\logs\*.log",               # Exclude all .log files in any 'logs' subfolder.
+                                        "*\temp\*",                   # Exclude all temp folders and their contents.
                                         "web.config.temp",
                                         "*.TMP"
                                         )
@@ -535,7 +534,8 @@
             OnErrorInJob = "StopSet"                                  # Defines behaviour if a job within this set fails.
                                                                       # "StopSet": (Default) If a job fails, subsequent jobs in THIS SET are skipped. The script may continue to other sets if applicable.
                                                                       # "ContinueSet": Subsequent jobs in THIS SET will attempt to run even if a prior one fails.
-            # NEW: Set-specific PostRunAction. Overrides job-level PostRunActions within this set,
+
+            # Set-specific PostRunAction. Overrides job-level PostRunActions within this set,
             # and also overrides PostRunActionDefaults.
             # This action applies AFTER the entire set (and its final hooks) completes.
             # PostRunAction = @{
@@ -552,7 +552,7 @@
                 "Docs_Replicated_Example" 
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
-            # PostRunAction = @{ Enabled = $false } # Example: No post-run action for this set
+            # PostRunAction = @{ Enabled = $false }                   # Example: No post-run action for this set
         }
         "Nightly_Full_System_Simulate" = @{                           # Example for a simulation run of multiple jobs.
             JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example", "CriticalData_To_SFTP_Example")

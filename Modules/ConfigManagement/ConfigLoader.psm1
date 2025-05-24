@@ -208,9 +208,6 @@ function Import-AppConfiguration {
                 if (-not $targetInstance.ContainsKey('Type') -or [string]::IsNullOrWhiteSpace($targetInstance.Type)) {
                     $validationMessages.Add("ConfigLoader: BackupTarget instance '$targetName' is missing a 'Type' or it is empty.")
                 }
-                if (-not $targetInstance.ContainsKey('TargetSpecificSettings')) {
-                    $validationMessages.Add("ConfigLoader: BackupTarget instance '$targetName' is missing 'TargetSpecificSettings'.")
-                }
             }
         }
     }

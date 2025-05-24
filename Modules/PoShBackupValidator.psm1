@@ -26,7 +26,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.1 # Added PSSA suppressions for internal Validate-* functions.
+    Version:        1.5.2 # Removed ValidateScript handling for BackupTargets from Test-SchemaRecursiveInternal.
     DateCreated:    14-May-2025
     LastModified:   24-May-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
@@ -71,13 +71,13 @@ function Test-SchemaRecursiveInternal {
         [Parameter(Mandatory)]
         [object]$ConfigObject,
         [Parameter(Mandatory)]
-        [hashtable]$Schema, # This will be a sub-part of $Script:LoadedConfigSchema
+        [hashtable]$Schema, 
         [Parameter(Mandatory)]
         [ref]$ValidationMessages,
         [string]$CurrentPath = "Configuration"
     )
 
-    if ($null -eq $Schema) { # Guard against null schema passed in, possibly due to load failure
+    if ($null -eq $Schema) { 
         $ValidationMessages.Value.Add("Schema Error: The schema definition for path '$CurrentPath' is missing or invalid. Cannot perform validation for this part. This might indicate a problem with ConfigSchema.psd1.")
         return
     }
@@ -99,7 +99,6 @@ function Test-SchemaRecursiveInternal {
             $dynamicKeySubSchema = $keyDefinition
             foreach ($itemKeyInConfig in $ConfigObject.Keys) {
                 $itemValueFromConfig = $ConfigObject[$itemKeyInConfig]
-                # Ensure the sub-schema for dynamic keys is valid before recursing
                 if ($null -ne $dynamicKeySubSchema.Schema -and $dynamicKeySubSchema.Schema -is [hashtable]) {
                     Test-SchemaRecursiveInternal -ConfigObject $itemValueFromConfig -Schema $dynamicKeySubSchema.Schema -ValidationMessages $ValidationMessages -CurrentPath "$CurrentPath.$itemKeyInConfig"
                 } else {
@@ -126,13 +125,13 @@ function Test-SchemaRecursiveInternal {
             "hashtable"        { if ($configValue -is [hashtable]) { $typeMatch = $true } }
             "array"            { if ($configValue -is [array]) { $typeMatch = $true } }
             "string_or_array"  { if (($configValue -is [string]) -or ($configValue -is [array])) { $typeMatch = $true } }
-            "object"           { $typeMatch = $true } # 'object' type always matches for structure, specific validation via ValidateScript
+            "object"           { $typeMatch = $true } 
             default            { $ValidationMessages.Value.Add("Schema Error: Unknown expected type '$($keyDefinition.Type)' defined in schema for '$fullKeyPath'. Contact script developer."); continue }
         }
 
         if (-not $typeMatch) {
             $ValidationMessages.Value.Add("Type mismatch for configuration key '$fullKeyPath'. Expected type '$($keyDefinition.Type)', but found type '$($configValue.GetType().Name)'.")
-            continue
+            continue 
         }
 
         if ($keyDefinition.ContainsKey("AllowedValues")) {
@@ -170,6 +169,7 @@ function Test-SchemaRecursiveInternal {
                 $itemTypeMatch = $false
                 switch ($itemExpectedType) {
                     "string" { if ($arrayItem -is [string] -and -not ([string]::IsNullOrWhiteSpace($arrayItem)) ) { $itemTypeMatch = $true } }
+                    # Add other types as needed for array item validation
                 }
                 if (-not $itemTypeMatch) {
                     $ValidationMessages.Value.Add("Type mismatch for an item in array '$fullKeyPath'. Expected item type '$($itemSchemaDef.Type)', but found '$($arrayItem.GetType().Name)' or item is empty/whitespace.")
@@ -186,36 +186,53 @@ function Test-SchemaRecursiveInternal {
             }
         }
 
-        if ($keyDefinition.ContainsKey("ValidateScript") -and $keyDefinition.ValidateScript -is [scriptblock]) {
-            if (-not ([string]::IsNullOrWhiteSpace($configValue)) -or ($configValue -is [hashtable]) -or ($configValue -is [array]) ) {
-                try {
-                    # The ValidateScript for BackupTargets is now simplified in ConfigSchema.psd1.
-                    # Detailed target-specific validation is handled after this main schema pass.
-                    if (-not (& $keyDefinition.ValidateScript $configValue $ValidationMessages "$fullKeyPath")) {
-                        # General ValidateScript (not the BackupTargets one specifically, as it's simplified)
-                        # $ValidationMessages.Value.Add("Custom validation failed for configuration key '$fullKeyPath' with value '$configValue'.")
-                        # The ValidateScript itself should add messages to $ValidationMessages.
-                    }
-                } catch {
-                     $ValidationMessages.Value.Add("Error executing custom validation script for '$fullKeyPath' on value '$configValue'. Error: $($_.Exception.Message)")
+        # Execute ValidateScript for keys other than BackupTargets (which is handled by specific validators now)
+        if ($schemaKey -ne 'BackupTargets' -and $keyDefinition.ContainsKey("ValidateScript") -and $keyDefinition.ValidateScript -is [scriptblock]) {
+            $scriptBlockFromPsd1 = $keyDefinition.ValidateScript 
+            try {
+                # Simple ValidateScripts (like for SevenZipPath) usually take one $configValue argument.
+                # If they need more, this invocation might need adjustment or the scriptblock itself needs to be robust.
+                $validationResult = Invoke-Command -ScriptBlock $scriptBlockFromPsd1 -ArgumentList $configValue
+                if (-not $validationResult) { # Assuming the script returns $true for pass, $false for fail
+                     $ValidationMessages.Value.Add("Custom validation failed for configuration key '$fullKeyPath' with value '$configValue'.")
                 }
+            } catch {
+                 $ValidationMessages.Value.Add("Error executing custom validation script for '$fullKeyPath' on value '$configValue'. Error: $($_.Exception.Message)")
             }
         }
 
-        if ($configValue -is [hashtable] -and $keyDefinition.ContainsKey("Schema") -and (-not $keyDefinition.ContainsKey("DynamicKeySchema"))) {
-            # Ensure the sub-schema is valid before recursing
+        # ... (after ValidateScript logic for non-BackupTargets keys)
+
+        # Check if the current key's definition specifies a DynamicKeySchema for its children
+        if ($configValue -is [hashtable] -and $keyDefinition.ContainsKey("DynamicKeySchema")) {
+            $dynamicKeySubSchemaDefinition = $keyDefinition.DynamicKeySchema
+            if ($null -ne $dynamicKeySubSchemaDefinition.Schema -and $dynamicKeySubSchemaDefinition.Schema -is [hashtable]) {
+                # $configValue is the hashtable whose keys are dynamic (e.g., $Configuration.BackupTargets)
+                # $dynamicKeySubSchemaDefinition.Schema is the schema to apply to each item within $configValue
+                foreach ($dynamicItemKeyInConfig in $configValue.Keys) {
+                    $dynamicItemValueFromConfig = $configValue[$dynamicItemKeyInConfig]
+                    Test-SchemaRecursiveInternal -ConfigObject $dynamicItemValueFromConfig -Schema $dynamicKeySubSchemaDefinition.Schema -ValidationMessages $ValidationMessages -CurrentPath "$fullKeyPath.$dynamicItemKeyInConfig"
+                }
+            } else {
+                $ValidationMessages.Value.Add("Schema Error: DynamicKeySchema.Schema definition for '$fullKeyPath' is missing or invalid in ConfigSchema.psd1.")
+            }
+        }
+        # Else, if it's a regular nested hashtable with a direct "Schema"
+        elseif ($configValue -is [hashtable] -and $keyDefinition.ContainsKey("Schema")) { # Removed: (-not $keyDefinition.ContainsKey("DynamicKeySchema"))
             if ($null -ne $keyDefinition.Schema -and $keyDefinition.Schema -is [hashtable]) {
                 Test-SchemaRecursiveInternal -ConfigObject $configValue -Schema $keyDefinition.Schema -ValidationMessages $ValidationMessages -CurrentPath "$fullKeyPath"
             } else {
                 $ValidationMessages.Value.Add("Schema Error: Sub-schema definition for '$fullKeyPath' is missing or invalid in ConfigSchema.psd1.")
             }
         }
-    }
+    } # End foreach ($schemaKey in $Schema.Keys)
 
+    # Check for unknown keys in the current ConfigObject, but only if it's not a level where dynamic keys are expected
     if ($ConfigObject -is [hashtable] -and (-not $Schema.ContainsKey('DynamicKeySchema'))) {
         foreach ($configKeyInObject in $ConfigObject.Keys) {
             if (-not $Schema.ContainsKey($configKeyInObject)) {
-                if ($configKeyInObject -ne '_PoShBackup_PSScriptRoot') { # Allow internal key
+                # Allow internal _PoShBackup_PSScriptRoot key without raising an error
+                if ($configKeyInObject -ne '_PoShBackup_PSScriptRoot') { 
                      $ValidationMessages.Value.Add("Unknown configuration key '$CurrentPath.$configKeyInObject' found. This key is not defined in the schema. Check for typos or if it's a deprecated/unsupported setting.")
                 }
             }
@@ -224,16 +241,19 @@ function Test-SchemaRecursiveInternal {
 }
 #endregion
 
-#region --- NEW: Target-Specific Validation Helpers ---
-
+#region --- Target-Specific Validation Helpers ---
 # PSScriptAnalyzer Suppress PSUseApprovedVerbs[Validate-UNCBackupTargetSettingsInternal] - Justification: Internal helper function for schema validation.
 function Validate-UNCBackupTargetSettingsInternal {
     param(
-        [hashtable]$Settings,
+        [object]$Settings,
         [string]$TargetInstanceName,
         [string]$FullPathToSettings, # e.g., Configuration.BackupTargets.MyUNC.TargetSpecificSettings
         [ref]$ValidationMessagesListRef
     )
+    if (-not ($Settings -is [hashtable])) {
+        $ValidationMessagesListRef.Value.Add("BackupTarget instance '$TargetInstanceName' (Type: UNC): 'TargetSpecificSettings' must be a Hashtable, but found type '$($Settings.GetType().Name)'. Path: '$FullPathToSettings'.")
+        return
+    }
     if (-not ($Settings -is [hashtable])) {
         $ValidationMessagesListRef.Value.Add("BackupTarget instance '$TargetInstanceName' (Type: UNC): 'TargetSpecificSettings' must be a Hashtable. Path: '$FullPathToSettings'.")
         return
@@ -289,13 +309,13 @@ function Validate-ReplicateBackupTargetSettingsInternal {
 # PSScriptAnalyzer Suppress PSUseApprovedVerbs[Validate-SFTPBackupTargetSettingsInternal] - Justification: Internal helper function for schema validation.
 function Validate-SFTPBackupTargetSettingsInternal {
     param(
-        [hashtable]$Settings,
+        [object]$Settings,
         [string]$TargetInstanceName,
         [string]$FullPathToSettings,
         [ref]$ValidationMessagesListRef
     )
     if (-not ($Settings -is [hashtable])) {
-        $ValidationMessagesListRef.Value.Add("BackupTarget instance '$TargetInstanceName' (Type: SFTP): 'TargetSpecificSettings' must be a Hashtable. Path: '$FullPathToSettings'.")
+        $ValidationMessagesListRef.Value.Add("BackupTarget instance '$TargetInstanceName' (Type: SFTP): 'TargetSpecificSettings' must be a Hashtable, but found type '$($Settings.GetType().Name)'. Path: '$FullPathToSettings'.")
         return
     }
     foreach ($sftpKey in @('SFTPServerAddress', 'SFTPRemotePath', 'SFTPUserName')) {
@@ -342,14 +362,19 @@ function Invoke-PoShBackupConfigValidation {
         foreach ($targetName in $ConfigurationToValidate.BackupTargets.Keys) {
             $targetInstance = $ConfigurationToValidate.BackupTargets[$targetName]
 
-            # Basic structure should have been validated by Test-SchemaRecursiveInternal based on ConfigSchema.psd1.
-            # We proceed if Type and TargetSpecificSettings are present and have basic validity.
+            # Generic schema validation (Test-SchemaRecursiveInternal) should have already ensured:
+            # - $targetInstance is a hashtable.
+            # - $targetInstance.Type is a string.
+            # - $targetInstance.TargetSpecificSettings exists and is an object (hashtable or array).
+            # So, we can proceed with type-specific validation if these basic checks passed.
+            
             if ($targetInstance -is [hashtable] -and 
                 $targetInstance.ContainsKey('Type') -and $targetInstance.Type -is [string] -and 
-                $targetInstance.ContainsKey('TargetSpecificSettings')) { # TargetSpecificSettings type (object) is checked by schema
+                (-not ([string]::IsNullOrWhiteSpace($targetInstance.Type))) -and # Ensure Type is not empty string
+                $targetInstance.ContainsKey('TargetSpecificSettings')) { 
 
                 $targetType = $targetInstance.Type.ToUpperInvariant()
-                $targetSettings = $targetInstance.TargetSpecificSettings # This is of type 'object' per schema, could be hashtable or array
+                $targetSettings = $targetInstance.TargetSpecificSettings 
                 $currentPathToTargetSettings = "Configuration.BackupTargets.$targetName.TargetSpecificSettings"
                 $currentPathToTargetInstance = "Configuration.BackupTargets.$targetName"
 
@@ -362,12 +387,11 @@ function Invoke-PoShBackupConfigValidation {
                     }
                     "SFTP" {
                         Validate-SFTPBackupTargetSettingsInternal -Settings $targetSettings -TargetInstanceName $targetName -FullPathToSettings $currentPathToTargetSettings -ValidationMessagesListRef $ValidationMessagesListRef
-                        # Also validate RemoteRetentionSettings for SFTP here, as it was in the old schema's ValidateScript
+                        # Validate RemoteRetentionSettings for SFTP (as it was in the old schema's ValidateScript)
                         if ($targetInstance.ContainsKey('RemoteRetentionSettings')) {
                             $retentionSettings = $targetInstance.RemoteRetentionSettings
                             $retentionPath = "$currentPathToTargetInstance.RemoteRetentionSettings"
-                            # The schema already checks if RemoteRetentionSettings is a hashtable.
-                            # We only need to check specific keys within it if they are SFTP-specific.
+                            # Schema ensures RemoteRetentionSettings is a hashtable if it exists.
                             if ($retentionSettings -is [hashtable] -and $retentionSettings.ContainsKey('KeepCount')) {
                                 if (-not ($retentionSettings.KeepCount -is [int]) -or $retentionSettings.KeepCount -le 0) {
                                     $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetName' (Type: SFTP): 'RemoteRetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$retentionPath.KeepCount'.")
@@ -376,14 +400,14 @@ function Invoke-PoShBackupConfigValidation {
                         }
                     }
                     default {
-                        # This message is useful if the schema for BackupTargets.Type doesn't have AllowedValues,
-                        # or if a new, unhandled type is introduced without updating this switch.
+                        # This message is for types that are valid strings but not one of the known, specifically handled types.
                         $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetName' has a Type: '$($targetInstance.Type)' for which no specific validation rules are defined in PoShBackupValidator.psm1. Generic schema validation still applies. Path: '$currentPathToTargetInstance.Type'.")
                     }
                 }
             }
-            # If $targetInstance is not a hashtable, or missing Type/TargetSpecificSettings,
-            # Test-SchemaRecursiveInternal (based on ConfigSchema.psd1) should have already added messages.
+            # If $targetInstance is not a hashtable, or missing Type (or Type not string/empty), or missing TargetSpecificSettings,
+            # Test-SchemaRecursiveInternal (based on ConfigSchema.psd1's DynamicKeySchema for BackupTargets)
+            # should have already added relevant error messages to $ValidationMessagesListRef.
         }
     }
 }
