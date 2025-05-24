@@ -34,9 +34,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.25.1 # Add Meta\AIState.template.psd1 to bundle. AI State loaded from this file.
+    Version:        1.25.2 # Updated for new AI state items and checksum feature summary.
     DateCreated:    15-May-2025
-    LastModified:   18-May-2025
+    LastModified:   24-May-2025
 #>
 
 param (
@@ -64,7 +64,7 @@ try {
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.Utils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.FileProcessor.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.ExternalTools.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.StateAndAssembly.psm1") -Force -ErrorAction Stop # Version 1.0.7
+    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.StateAndAssembly.psm1") -Force -ErrorAction Stop 
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.ProjectScanner.psm1") -Force -ErrorAction Stop
     Write-Verbose "Bundler utility modules loaded."
 } catch {
@@ -175,7 +175,7 @@ try {
                                                    -ExcludedFolders $ExcludedFolders `
                                                    -ExcludedFileExtensions $ExcludedFileExtensions `
                                                    -FileContentBuilder $fileContentBuilder `
-                                                   -MetaFilesToExcludeExplicitly @($aiStateTemplateFile) # Exclude AIState.template.psd1 from general scan of Meta (if Meta wasn't excluded)
+                                                   -MetaFilesToExcludeExplicitly @($aiStateTemplateFile) 
     
     if ($null -ne $projectScanResult) {
         if ($null -ne $projectScanResult.ModuleDescriptions) {
@@ -209,7 +209,7 @@ finally {
 
     Write-Verbose "Reading bundler script for its own version information..."
     $thisBundlerScriptFileObjectForVersion = Get-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue 
-    $bundlerScriptVersionForState = "1.25.1" # New version for this change
+    $bundlerScriptVersionForState = "1.25.2" # Updated version for this change
     if ($thisBundlerScriptFileObjectForVersion) {
         $readBundlerVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content -LiteralPath $thisBundlerScriptFileObjectForVersion.FullName -Raw -ErrorAction SilentlyContinue) -ScriptNameForWarning $thisBundlerScriptFileObjectForVersion.Name
         if ($readBundlerVersion -ne $bundlerScriptVersionForState -and $readBundlerVersion -ne "N/A" -and $readBundlerVersion -notlike "N/A (*" ) {

@@ -3,9 +3,9 @@
     A highly comprehensive PowerShell script for directory and file backups using 7-Zip.
     Features include VSS (Volume Shadow Copy), configurable retries, script execution hooks,
     multi-format reporting, backup sets, 7-Zip process priority control, extensive
-    customisation via an external .psd1 configuration file, remote Backup Targets, and
-    optional post-run system state actions (e.g., shutdown, restart).
-    Script name: PoSh-Backup.
+    customisation via an external .psd1 configuration file, remote Backup Targets,
+    optional post-run system state actions (e.g., shutdown, restart), and optional
+    archive checksum generation and verification.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -17,16 +17,18 @@
 
     Key Features:
     - Modular Design, External Configuration, Local and Remote Backups, Granular Job Control.
-    - Backup Sets, Extensible Backup Target Providers (UNC, Replicate).
+    - Backup Sets, Extensible Backup Target Providers (UNC, Replicate, SFTP).
     - Configurable Local and Remote Retention Policies.
     - VSS, Advanced 7-Zip Integration, Secure Password Protection, Customisable Archive Naming.
     - Automatic Retry Mechanism, CPU Priority Control, Extensible Script Hooks.
     - Multi-Format Reporting (Interactive HTML with filtering/sorting, CSV, JSON, XML, TXT, MD).
     - Comprehensive Logging, Simulation Mode, Configuration Test Mode.
-    - Proactive Free Space Check, Archive Integrity Verification, Flexible 7-Zip Warning Handling.
-    - Exit Pause Control.
+    - Proactive Free Space Check, Archive Integrity Verification (7z t and optional checksums).
+    - Flexible 7-Zip Warning Handling, Exit Pause Control.
     - NEW: Post-Run System Actions: Optionally perform actions like shutdown, restart, hibernate, etc.,
       after job/set completion, configurable based on status, with delay and CLI override.
+    - NEW: Archive Checksum Generation & Verification: Optionally generate checksum files (e.g., SHA256)
+      for local archives and verify them during archive testing for enhanced integrity.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -39,11 +41,12 @@
 
 .PARAMETER Simulate
     Optional. A switch parameter. If present, the script runs in simulation mode.
-    Local archive creation, remote transfers, retention actions, and post-run system actions
+    Local archive creation, checksum generation, remote transfers, retention actions, and post-run system actions
     will be logged but not executed.
 
 .PARAMETER TestArchive
     Optional. A switch parameter. If present, this forces an integrity test of newly created local archives.
+    If checksum verification is also enabled for the job, it will be performed as part of this test.
 
 .PARAMETER UseVSS
     Optional. A switch parameter. If present, this forces the script to attempt using VSS.
@@ -100,6 +103,7 @@
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC"
     Runs the "MyDocs_To_UNC" job. If this job has a PostRunAction configured (e.g., Shutdown on SUCCESS),
     and the job is successful, the shutdown sequence will initiate after the job's hooks.
+    If checksum generation is enabled for this job, a checksum file will be created alongside the archive.
 
 .EXAMPLE
     .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -PostRunActionCli "Hibernate" -PostRunActionDelaySecondsCli 60
@@ -109,8 +113,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.10.1 # Added Post-Run System Action feature.
-    Date:           22-May-2025
+    Version:        1.11.0 # Added Checksum Generation & Verification feature.
+    Date:           24-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1, ConfigManager.psm1, Operations.psm1,
                     Reporting.psm1, PasswordManager.psm1, 7ZipManager.psm1, VssManager.psm1,
@@ -132,10 +136,10 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Optional. Path to the .psd1 configuration file. Defaults to '.\\Config\\Default.psd1' (and merges .\\Config\\User.psd1).")]
     [string]$ConfigFile,
 
-    [Parameter(Mandatory=$false, HelpMessage="Switch. Run in simulation mode (local archiving, remote transfers, and post-run actions simulated).")]
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Run in simulation mode (local archiving, checksums, remote transfers, and post-run actions simulated).")]
     [switch]$Simulate,
 
-    [Parameter(Mandatory=$false, HelpMessage="Switch. Test local archive integrity after backup.")]
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Test local archive integrity after backup (includes checksum verification if enabled).")]
     [switch]$TestArchive,
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Attempt to use VSS. Requires Admin.")]
@@ -272,7 +276,7 @@ try {
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.10.1 (Added Post-Run System Action feature)" -Level "HEADING" 
+& $LoggerScriptBlock -Message " Script Version: v1.11.0 (Added Checksum Generation & Verification feature)" -Level "HEADING" 
 if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
@@ -590,6 +594,7 @@ foreach ($currentJobName in $jobsToProcess) {
             JobReportDataRef     = ([ref]$currentJobReportData) 
             IsSimulateMode       = $IsSimulateMode # Invoke-PoShBackupJob DOES take this
             Logger               = $LoggerScriptBlock 
+            PSCmdlet             = $PSCmdlet # Pass $PSCmdlet for ShouldProcess in Operations
         }
         $jobResult = Invoke-PoShBackupJob @invokePoShBackupJobParams
         $currentJobIndividualStatus = $jobResult.Status 

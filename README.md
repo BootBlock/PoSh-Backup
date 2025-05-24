@@ -1,5 +1,5 @@
 # PoSh-Backup
-A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets and optional post-run system actions.
+A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, and optional archive checksum generation/verification.
 
 > **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
@@ -27,7 +27,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **CPU Priority Control:** Manage system resource impact by setting the 7-Zip process priority (e.g., Idle, BelowNormal, Normal, High) for local archiving.
 *   **Extensible Script Hooks:** Execute your own custom PowerShell scripts at various stages of a backup job for ultimate operational flexibility. Hook scripts now receive information about target transfer results if applicable.
 *   **Multi-Format Reporting:** Generate comprehensive reports for each job.
-    *   **Interactive HTML Reports:** Highly customisable with titles, logos, and themes (via external CSS). Now includes a dedicated section detailing the status of **Remote Target Transfers**.
+    *   **Interactive HTML Reports:** Highly customisable with titles, logos, and themes (via external CSS). Now includes a dedicated section detailing the status of **Remote Target Transfers** and **Archive Checksum** information in the summary.
         *   **Collapsible Sections:** Summary, Configuration, Hooks, Target Transfers, and Detailed Log sections are collapsible for easier navigation, with their open/closed state remembered in the browser (via `localStorage`).
         *   **Advanced Log Filtering:** Client-side keyword search and per-level checkbox filtering for log entries. Includes "Select All" / "Deselect All" buttons for log levels and a visual indicator when filters are active.
         *   **Keyword Highlighting:** Searched keywords are automatically highlighted within the log entries.
@@ -37,12 +37,13 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   **Configurable Favicon:** Display a custom icon in the browser tab for the report.
         *   **Print-Optimized:** Includes basic print-specific CSS for better paper output (e.g., hides interactive elements, ensures content is visible).
         *   **Simulation Banner:** Clearly distinguishes reports generated from simulation runs.
-    *   **Other Formats:** CSV, JSON, XML (CliXml), Plain Text (TXT), and Markdown (MD) also supported for data export and integration, updated to include target transfer details where appropriate.
+    *   **Other Formats:** CSV, JSON, XML (CliXml), Plain Text (TXT), and Markdown (MD) also supported for data export and integration, updated to include target transfer and checksum details where appropriate.
 *   **Comprehensive Logging:** Get detailed, colour-coded console output and optional per-job text file logs for easy monitoring and troubleshooting of both local operations and remote transfers.
-*   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention, and **post-run system actions** without making any actual changes.
+*   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention, **post-run system actions**, and **checksum operations** without making any actual changes.
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`), including basic validation of Backup Target definitions. Optional advanced schema validation available.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the local staging directory before starting backups to prevent failures.
-*   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives.
+*   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives using `7z t`.
+*   **NEW: Archive Checksum Generation & Verification:** Optionally generate a checksum file (e.g., SHA256, MD5) for the local archive. If archive testing is enabled, this checksum can also be verified against the archive content for an additional layer of integrity validation.
 *   **Flexible 7-Zip Warning Handling:** Option to treat 7-Zip warnings (exit code 1, e.g., from skipped open files) as a success for job status reporting, configurable globally, per-job, or via CLI.
 *   **Exit Pause Control:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
 *   **NEW: Post-Run System Actions:** Optionally configure the script to perform system actions like Shutdown, Restart, Hibernate, LogOff, Sleep, or Lock Workstation after a job or set completes. This is configurable based on the final status (Success, Warnings, Failure, Any), can include a delay with a cancellation prompt, and can be forced via CLI parameters.
@@ -93,6 +94,10 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   Defaults to `$true`. If true, the locally staged archive will be deleted after it has been successfully transferred to ALL specified remote targets for a job. Can be overridden per job.
     *   **`TreatSevenZipWarningsAsSuccess`**: (Global Setting)
         *   Defaults to `$false`. If set to `$true`, 7-Zip warnings (like skipped files) will still result in a "SUCCESS" job status.
+    *   **NEW: Checksum Settings (Global Defaults):**
+        *   `DefaultGenerateArchiveChecksum` (boolean, default `$false`): Set to `$true` to enable checksum generation for all jobs by default.
+        *   `DefaultChecksumAlgorithm` (string, default `"SHA256"`): Specifies the default algorithm (e.g., "SHA1", "SHA256", "SHA512", "MD5").
+        *   `DefaultVerifyArchiveChecksumOnTest` (boolean, default `$false`): If `$true` (and `DefaultTestArchiveAfterCreation` is also true), the generated checksum will be verified against the archive during the archive test phase.
     *   **`BackupTargets` (New Global Section):**
         *   This is where you define your reusable, named remote target configurations.
         *   Each entry (a "target instance") specifies a `Type` (like "UNC", "Replicate") and `TargetSpecificSettings` for that type.
@@ -165,7 +170,11 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   `LocalRetentionCount`: (Renamed from `RetentionCount`) Defines how many archive versions to keep in the local `DestinationDir` (staging area).
             *   `TargetNames` (New Setting): An array of strings. Each string must be a name of a target instance defined in the global `BackupTargets` section. If you specify target names here, the locally created archive will be transferred to each listed remote target. If `TargetNames` is omitted or empty, the backup is local-only to `DestinationDir`.
             *   `DeleteLocalArchiveAfterSuccessfulTransfer` (Job-Specific): Overrides the global setting for this job.
-        *   Example job definition that creates a local archive and sends it to a remote target:
+        *   **NEW: Job-Specific Checksum Settings:**
+            *   `GenerateArchiveChecksum` (boolean): Overrides `DefaultGenerateArchiveChecksum`.
+            *   `ChecksumAlgorithm` (string): Overrides `DefaultChecksumAlgorithm`.
+            *   `VerifyArchiveChecksumOnTest` (boolean): Overrides `DefaultVerifyArchiveChecksumOnTest`.
+        *   Example job definition that creates a local archive, sends it to a remote target, and includes checksum settings:
             ```powershell
             # Inside BackupLocations in User.psd1 or Default.psd1
             "MyDocumentsBackup" = @{
@@ -179,6 +188,11 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 
                 TargetNames = @("MyMainUNCShare") 
                 DeleteLocalArchiveAfterSuccessfulTransfer = $true 
+
+                # Checksum settings for this job
+                GenerateArchiveChecksum     = $true
+                ChecksumAlgorithm           = "SHA256"
+                VerifyArchiveChecksumOnTest = $true # Will verify if TestArchiveAfterCreation is also true for the job
             }
 
             "ImportantProject_Replicated" = @{
@@ -271,7 +285,7 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     ```
     (Replace `"DailyCriticalBackups"` with the name of a defined set. If the "DailyCriticalBackups" set has a `PostRunAction`, it will be evaluated after all jobs in the set complete. This set-level action overrides any job-level post-run actions within the set.)
 
-*   **Simulate a backup job (local archive creation, any remote transfers, and post-run actions will be simulated):**
+*   **Simulate a backup job (local archive creation, any remote transfers, checksum operations, and post-run actions will be simulated):**
     ```powershell
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsToSFTP" -Simulate
     ```
@@ -310,8 +324,8 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
 These parameters allow you to override certain configuration settings for a specific run:
 
 *   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges).
-*   `-TestArchive`: Forces an integrity test of newly created *local* archives for all processed jobs.
-*   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions, and post-run system actions are logged but not actually executed.
+*   `-TestArchive`: Forces an integrity test of newly created *local* archives for all processed jobs. If checksum generation and verification are enabled for the job, this will include checksum verification.
+*   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions, checksum operations, and post-run system actions are logged but not actually executed.
 *   `-TreatSevenZipWarningsAsSuccessCLI`: Forces 7-Zip exit code 1 (Warning) from *local* archiving to be treated as a success for the job status, overriding any configuration settings.
 *   `-PauseBehaviourCLI <Always|Never|OnFailure|OnWarning|OnFailureOrWarning>`: Controls if the script pauses with a "Press any key to continue" message before exiting. Overrides the `PauseBeforeExit` setting in the configuration file.
 *   **NEW: `-PostRunActionCli <Action>`**: Overrides all configured post-run actions.

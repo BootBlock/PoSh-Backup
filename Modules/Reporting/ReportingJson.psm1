@@ -1,23 +1,25 @@
 <#
 .SYNOPSIS
     Generates JSON (JavaScript Object Notation) reports for PoSh-Backup jobs.
-    It serialises the complete report data structure for a backup job, making it ideal
-    for programmatic consumption, API integration, or use with various data processing tools.
+    It serialises the complete report data structure for a backup job (including
+    checksum information if generated), making it ideal for programmatic consumption,
+    API integration, or use with various data processing tools.
 
 .DESCRIPTION
     This module is responsible for creating a JSON representation of the backup job report data.
     It takes the entire '$ReportData' hashtable (which contains summary, logs, configuration,
-    hook script details, etc.) and converts it into a single JSON formatted file using
-    PowerShell's 'ConvertTo-Json' cmdlet with a sufficient depth to capture all nested objects.
+    hook script details, checksum details, etc.) and converts it into a single JSON formatted
+    file using PowerShell's 'ConvertTo-Json' cmdlet with a sufficient depth to capture all
+    nested objects.
 
     The resulting JSON file provides a comprehensive, machine-readable snapshot of the backup
     job's execution and outcome.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.3
+    Version:        1.1.4 # Checksum information now implicitly included in ReportData.
     DateCreated:    14-May-2025
-    LastModified:   17-May-2025
+    LastModified:   24-May-2025
     Purpose:        JSON report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -32,7 +34,8 @@ function Invoke-JsonReport {
         This function takes the consolidated report data for a backup job and serialises
         the entire data structure into a single JSON file. The 'ConvertTo-Json' cmdlet
         is used with a depth of 10 to ensure comprehensive serialisation of nested objects
-        within the report data. The output file is named using the job name and a timestamp.
+        within the report data (including checksum details if present). The output file is
+        named using the job name and a timestamp.
     .PARAMETER ReportDirectory
         The target directory where the generated JSON report file for this job will be saved.
         This path is typically resolved by the main Reporting.psm1 orchestrator.

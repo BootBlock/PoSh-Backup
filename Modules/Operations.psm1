@@ -5,8 +5,8 @@
     This includes gathering effective job configurations (via ConfigManager.psm1), handling VSS
     (via VssManager.psm1), executing 7-Zip (via 7ZipManager.psm1), applying local retention policies
     (via RetentionManager.psm1), checking destination free space (via Utils.psm1), orchestrating
-    hook script execution (via HookManager.psm1), and orchestrating the transfer of archives
-    to remote Backup Targets, passing additional metadata like archive size and creation time.
+    hook script execution (via HookManager.psm1), orchestrating the transfer of archives
+    to remote Backup Targets, and optionally generating/verifying archive checksums.
 
 .DESCRIPTION
     The Operations module encapsulates the entire lifecycle of processing a single, defined backup job.
@@ -15,43 +15,35 @@
     defined remote targets.
 
     The primary exported function, Invoke-PoShBackupJob, performs the following sequence:
-    1.  Receives the effective configuration (calculated by PoSh-Backup.ps1 using ConfigManager.psm1).
-    2.  Performs early accessibility checks for UNC source and destination paths.
+    1.  Receives the effective configuration.
+    2.  Performs early accessibility checks.
     3.  Validates/creates local staging destination directory.
-    4.  Retrieves archive password (PasswordManager.psm1).
-    5.  Executes pre-backup hook scripts (HookManager.psm1).
-    6.  Handles VSS shadow copy creation if enabled (VssManager.psm1).
-    7.  Checks local staging destination free space (Utils.psm1).
-    8.  Constructs 7-Zip arguments (7ZipManager.psm1).
-    9.  Executes 7-Zip for archiving to the local staging directory (7ZipManager.psm1).
-    10. Optionally tests local archive integrity (7ZipManager.psm1).
-    11. Applies local retention policy to the local staging directory (RetentionManager.psm1)
-        using 'LocalRetentionCount'.
-    12. If remote targets are defined for the job:
-        a.  Loops through each specified target instance.
-        b.  Dynamically loads the appropriate target provider module (e.g., from 'Modules\Targets\').
-        c.  Calls 'Invoke-PoShBackupTargetTransfer' in the provider module to send the local archive
-            to the remote target. Passes local archive metadata (size, creation time, password status).
-            The provider module is responsible for its own remote retention.
-        d.  Logs the outcome of each transfer and updates reporting data.
-    13. If 'DeleteLocalArchiveAfterSuccessfulTransfer' is true and all remote transfers
-        were successful (or no targets were specified but the setting implies intent),
-        deletes the local staged archive.
-    14. Cleans up VSS shadow copies (VssManager.psm1).
-    15. Securely disposes of temporary password files.
-    16. Executes post-backup hook scripts (HookManager.psm1), now potentially passing
-        target transfer results.
-    17. Returns overall job status, considering both local operations and remote transfers.
-
-    This module relies on other PoSh-Backup modules. Functions within this module requiring logging
-    accept a -Logger parameter.
+    4.  Retrieves archive password.
+    5.  Executes pre-backup hook scripts.
+    6.  Handles VSS shadow copy creation.
+    7.  Checks local staging destination free space.
+    8.  Constructs 7-Zip arguments.
+    9.  Executes 7-Zip for archiving to the local staging directory.
+    10. Optionally generates an archive checksum file (e.g., .sha256).
+    11. Optionally tests local archive integrity (7z t) and, if configured, verifies the checksum.
+    12. Applies local retention policy.
+    13. If remote targets are defined:
+        a.  Loops through each target.
+        b.  Dynamically loads the provider module.
+        c.  Calls 'Invoke-PoShBackupTargetTransfer'.
+        d.  Logs outcome and updates report data.
+    14. If configured, deletes the local staged archive after successful transfers.
+    15. Cleans up VSS shadow copies.
+    16. Securely disposes of temporary password files.
+    17. Executes post-backup hook scripts.
+    18. Returns overall job status.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.17.3 # Removed cliOverrides or whatever
+    Version:        1.18.6 # Removed checksum write diagnostics.
     DateCreated:    10-May-2025
-    LastModified:   22-May-2025
-    Purpose:        Handles the execution logic for individual backup jobs, including remote target transfers.
+    LastModified:   24-May-2025
+    Purpose:        Handles the execution logic for individual backup jobs, including remote target transfers and checksums.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules and target provider modules.
                     Administrator privileges for VSS.
@@ -86,7 +78,9 @@ function Invoke-PoShBackupJob {
         [Parameter(Mandatory=$false)]
         [switch]$IsSimulateMode,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger 
+        [scriptblock]$Logger,
+        [Parameter(Mandatory=$true)] 
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
 
     # Internal helper to use the passed-in logger consistently for other messages
@@ -109,6 +103,12 @@ function Invoke-PoShBackupJob {
     $reportData = $JobReportDataRef.Value 
     $reportData.IsSimulationReport = $IsSimulateMode.IsPresent 
     $reportData.TargetTransfers = [System.Collections.Generic.List[object]]::new() 
+    # NEW: Initialize checksum fields in report data
+    $reportData.ArchiveChecksum = "N/A"
+    $reportData.ArchiveChecksumAlgorithm = "N/A"
+    $reportData.ArchiveChecksumFile = "N/A"
+    $reportData.ArchiveChecksumVerificationStatus = "Not Performed"
+
 
     if (-not ($reportData.PSObject.Properties.Name -contains 'ScriptStartTime')) {
         $reportData['ScriptStartTime'] = Get-Date 
@@ -136,7 +136,6 @@ function Invoke-PoShBackupJob {
         }
 
         # The $JobConfig parameter received by this function IS NOW THE EFFECTIVE CONFIG.
-        # No need to call Get-PoShBackupJobEffectiveConfiguration again.
         $effectiveJobConfig = $JobConfig 
 
         & $LocalWriteLog -Message " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
@@ -146,6 +145,9 @@ function Invoke-PoShBackupJob {
         & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod)"
         & $LocalWriteLog -Message "   - Treat 7-Zip Warnings as Success: $($effectiveJobConfig.TreatSevenZipWarningsAsSuccess)"
         & $LocalWriteLog -Message "   - Local Retention Deletion Confirmation: $($effectiveJobConfig.RetentionConfirmDelete)" 
+        & $LocalWriteLog -Message "   - Generate Archive Checksum: $($effectiveJobConfig.GenerateArchiveChecksum)" 
+        & $LocalWriteLog -Message "   - Checksum Algorithm       : $($effectiveJobConfig.ChecksumAlgorithm)" 
+        & $LocalWriteLog -Message "   - Verify Checksum on Test  : $($effectiveJobConfig.VerifyArchiveChecksumOnTest)" 
         if ($effectiveJobConfig.TargetNames.Count -gt 0) {
             & $LocalWriteLog -Message "   - Remote Target Name(s)  : $($effectiveJobConfig.TargetNames -join ', ')"
             & $LocalWriteLog -Message "   - Delete Local Staged Archive After Successful Transfer(s): $($effectiveJobConfig.DeleteLocalArchiveAfterSuccessfulTransfer)"
@@ -426,6 +428,55 @@ function Invoke-PoShBackupJob {
             }
         }
 
+        # --- Checksum Generation ---
+        if ($effectiveJobConfig.GenerateArchiveChecksum -and ($currentJobStatus -ne "FAILURE")) {
+            & $LocalWriteLog -Message "`n[INFO] Operations: Generating checksum for archive '$FinalArchivePath'..." -Level "INFO"
+            $reportData.ArchiveChecksumAlgorithm = $effectiveJobConfig.ChecksumAlgorithm
+            $checksumFileExtension = $effectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
+            
+            $archiveFileItem = Get-Item -LiteralPath $FinalArchivePath -ErrorAction SilentlyContinue
+            $checksumFileNameWithExt = $archiveFileItem.Name + ".$checksumFileExtension" 
+            $checksumFileDir = $archiveFileItem.DirectoryName
+            $checksumFilePath = Join-Path -Path $checksumFileDir -ChildPath $checksumFileNameWithExt
+            $reportData.ArchiveChecksumFile = $checksumFilePath
+
+            if ($IsSimulateMode.IsPresent) {
+                & $LocalWriteLog -Message "SIMULATE: Would generate $($effectiveJobConfig.ChecksumAlgorithm) checksum for '$FinalArchivePath' and save to '$checksumFilePath'." -Level "SIMULATE"
+                $reportData.ArchiveChecksum = "SIMULATED_CHECKSUM_VALUE"
+            } elseif ($null -ne $archiveFileItem -and $archiveFileItem.Exists) {
+                if (-not (Get-Command Get-PoshBackupFileHash -ErrorAction SilentlyContinue)) {
+                    & $LocalWriteLog -Message "[ERROR] Operations: Function 'Get-PoshBackupFileHash' from Utils.psm1 is not available. Cannot generate checksum." -Level "ERROR"
+                    $reportData.ArchiveChecksum = "Error (Util function missing)"
+                    if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
+                } else {
+                    $generatedHash = Get-PoshBackupFileHash -FilePath $FinalArchivePath -Algorithm $effectiveJobConfig.ChecksumAlgorithm -Logger $Logger
+                    if ($null -ne $generatedHash) {
+                        $reportData.ArchiveChecksum = $generatedHash
+                        try {
+                            [System.IO.File]::WriteAllText($checksumFilePath, "$($generatedHash.ToUpperInvariant())  $($ArchiveFileNameOnly)", [System.Text.Encoding]::UTF8)
+                            & $LocalWriteLog -Message "  - Checksum file created: '$checksumFilePath' with content: '$($generatedHash.ToUpperInvariant())  $($ArchiveFileNameOnly)'" -Level "SUCCESS"
+                        } catch {
+                            & $LocalWriteLog -Message "[ERROR] Operations: Failed to write checksum file '$checksumFilePath'. Error: $($_.Exception.Message)" -Level "ERROR"
+                            $reportData.ArchiveChecksum = "Error (Failed to write file)"
+                            if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
+                        }
+                    } else {
+                        & $LocalWriteLog -Message "[ERROR] Operations: Checksum generation failed for '$FinalArchivePath'." -Level "ERROR"
+                        $reportData.ArchiveChecksum = "Error (Generation failed)"
+                        if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
+                    }
+                }
+            } else {
+                & $LocalWriteLog -Message "[WARNING] Operations: Archive file '$FinalArchivePath' not found. Skipping checksum generation." -Level "WARNING"
+                $reportData.ArchiveChecksum = "Skipped (Archive not found)"
+            }
+        } elseif ($effectiveJobConfig.GenerateArchiveChecksum) {
+            & $LocalWriteLog -Message "[INFO] Operations: Checksum generation skipped due to prior failure in archive creation." -Level "INFO"
+            $reportData.ArchiveChecksumAlgorithm = $effectiveJobConfig.ChecksumAlgorithm
+            $reportData.ArchiveChecksum = "Skipped (Prior failure)"
+        }
+        # --- END Checksum Generation ---
+
         $reportData.ArchiveTested = $effectiveJobConfig.JobTestArchiveAfterCreation 
         if ($effectiveJobConfig.JobTestArchiveAfterCreation -and ($currentJobStatus -ne "FAILURE") -and (-not $IsSimulateMode.IsPresent) -and (Test-Path -LiteralPath $FinalArchivePath -PathType Leaf)) {
             if (-not (Get-Command Test-7ZipArchive -ErrorAction SilentlyContinue)) { throw "CRITICAL: Function 'Test-7ZipArchive' from 7ZipManager.psm1 is not available." }
@@ -439,18 +490,76 @@ function Invoke-PoShBackupJob {
             $testResult = Test-7ZipArchive @testArchiveParams
 
             if ($testResult.ExitCode -eq 0) {
-                $reportData.ArchiveTestResult = "PASSED"
+                $reportData.ArchiveTestResult = "PASSED (7z t)"
             } elseif ($testResult.ExitCode -eq 1 -and $effectiveJobConfig.TreatSevenZipWarningsAsSuccess) {
-                $reportData.ArchiveTestResult = "PASSED (7-Zip Test Warning Exit Code: 1, treated as success)"
+                $reportData.ArchiveTestResult = "PASSED (7z t Warning Exit Code: 1, treated as success)"
             } else {
-                $reportData.ArchiveTestResult = "FAILED (7-Zip Test Exit Code: $($testResult.ExitCode))"
+                $reportData.ArchiveTestResult = "FAILED (7z t Exit Code: $($testResult.ExitCode))"
                 if ($currentJobStatus -ne "FAILURE") {$currentJobStatus = "WARNINGS"} 
             }
             $reportData.TestRetryAttemptsMade = $testResult.AttemptsMade
+
+            # --- Checksum Verification ---
+            if ($effectiveJobConfig.VerifyArchiveChecksumOnTest -and $effectiveJobConfig.GenerateArchiveChecksum -and ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $effectiveJobConfig.TreatSevenZipWarningsAsSuccess))) {
+                & $LocalWriteLog -Message "`n[INFO] Operations: Verifying archive checksum for '$FinalArchivePath'..." -Level "INFO"
+                $checksumFileExtensionForVerify = $effectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
+                $checksumFilePathForVerify = "$($FinalArchivePath).$checksumFileExtensionForVerify"
+                $reportData.ArchiveChecksumVerificationStatus = "Verification Attempted"
+
+                if (Test-Path -LiteralPath $checksumFilePathForVerify -PathType Leaf) {
+                    try {
+                        $checksumFileContent = Get-Content -LiteralPath $checksumFilePathForVerify -Raw -ErrorAction Stop
+                        $storedHashFromFile = ($checksumFileContent -split '\s+')[0].Trim().ToUpperInvariant()
+                        
+                        if (-not (Get-Command Get-PoshBackupFileHash -ErrorAction SilentlyContinue)) {
+                             & $LocalWriteLog -Message "[ERROR] Operations: Function 'Get-PoshBackupFileHash' from Utils.psm1 is not available. Cannot verify checksum." -Level "ERROR"
+                             $reportData.ArchiveChecksumVerificationStatus = "Error (Util function missing)"
+                             if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
+                        } else {
+                            $recalculatedHash = Get-PoshBackupFileHash -FilePath $FinalArchivePath -Algorithm $effectiveJobConfig.ChecksumAlgorithm -Logger $Logger
+                            if ($null -ne $recalculatedHash -and $recalculatedHash.Equals($storedHashFromFile, [System.StringComparison]::OrdinalIgnoreCase)) {
+                                & $LocalWriteLog -Message "  - Checksum VERIFIED for '$FinalArchivePath'. Stored: $storedHashFromFile, Calculated: $recalculatedHash." -Level "SUCCESS"
+                                $reportData.ArchiveChecksumVerificationStatus = "Verified Successfully"
+                                $reportData.ArchiveTestResult += " (Checksum OK)" # Append to 7z test result
+                            } elseif ($null -ne $recalculatedHash) {
+                                & $LocalWriteLog -Message "[ERROR] Operations: Checksum MISMATCH for '$FinalArchivePath'. Stored: $storedHashFromFile, Calculated: $recalculatedHash." -Level "ERROR"
+                                $reportData.ArchiveChecksumVerificationStatus = "Mismatch (Stored: $storedHashFromFile, Calc: $recalculatedHash)"
+                                $reportData.ArchiveTestResult += " (CHECKSUM MISMATCH)"
+                                if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
+                            } else {
+                                & $LocalWriteLog -Message "[ERROR] Operations: Failed to recalculate checksum for verification of '$FinalArchivePath'." -Level "ERROR"
+                                $reportData.ArchiveChecksumVerificationStatus = "Error (Recalculation failed)"
+                                $reportData.ArchiveTestResult += " (Checksum Recalc Failed)"
+                                if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
+                            }
+                        }
+                    } catch {
+                        & $LocalWriteLog -Message "[ERROR] Operations: Failed to read checksum file '$checksumFilePathForVerify' for verification. Error: $($_.Exception.Message)" -Level "ERROR"
+                        $reportData.ArchiveChecksumVerificationStatus = "Error (Checksum file read failed)"
+                        $reportData.ArchiveTestResult += " (Checksum File Read Failed)"
+                        if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
+                    }
+                } else {
+                    & $LocalWriteLog -Message "[WARNING] Operations: Checksum file '$checksumFilePathForVerify' not found. Cannot verify checksum." -Level "WARNING"
+                    $reportData.ArchiveChecksumVerificationStatus = "Skipped (Checksum file not found)"
+                    $reportData.ArchiveTestResult += " (Checksum File Missing)"
+                    # Don't necessarily mark job as warning if checksum file is just missing, could be first run.
+                }
+            } elseif ($effectiveJobConfig.VerifyArchiveChecksumOnTest -and $effectiveJobConfig.GenerateArchiveChecksum) {
+                & $LocalWriteLog -Message "[INFO] Operations: Checksum verification skipped because 7z archive test failed or was treated as failure." -Level "INFO"
+                $reportData.ArchiveChecksumVerificationStatus = "Skipped (7z test failed)"
+            } elseif ($effectiveJobConfig.VerifyArchiveChecksumOnTest -and (-not $effectiveJobConfig.GenerateArchiveChecksum)) {
+                & $LocalWriteLog -Message "[INFO] Operations: Checksum verification skipped because GenerateArchiveChecksum was false." -Level "INFO"
+                $reportData.ArchiveChecksumVerificationStatus = "Skipped (Generation disabled)"
+            }
+            # --- END Checksum Verification ---
+
         } elseif ($effectiveJobConfig.JobTestArchiveAfterCreation) {
              $reportData.ArchiveTestResult = if($IsSimulateMode.IsPresent){"Not Performed (Simulation Mode)"} else {"Not Performed (Archive Missing or Prior Compression Error)"}
+             $reportData.ArchiveChecksumVerificationStatus = "Skipped (Archive test not performed)"
         } else {
             $reportData.ArchiveTestResult = "Not Configured" 
+            $reportData.ArchiveChecksumVerificationStatus = "Skipped (Archive test not configured)"
         }
 
         $allTargetTransfersSuccessfulOverall = $true 
@@ -514,6 +623,7 @@ function Invoke-PoShBackupJob {
                             LocalArchiveSizeBytes       = $reportData.ArchiveSizeBytes 
                             LocalArchiveCreationTimestamp = $LocalArchiveCreationTimestamp
                             PasswordInUse               = $effectiveJobConfig.PasswordInUseFor7Zip
+                            PSCmdlet                    = $PSCmdlet # Pass $PSCmdlet for ShouldProcess in providers
                         }
                         $transferOutcome = & $invokeTargetTransferCmd @transferParams 
                         
@@ -648,6 +758,13 @@ function Invoke-PoShBackupJob {
         if ($reportData.TargetTransfers.Count -gt 0) {
             $hookArgsForExternalScript.TargetTransferResults = $reportData.TargetTransfers
         }
+        # Add checksum info to hook parameters if generated
+        if ($effectiveJobConfig.GenerateArchiveChecksum -and $reportData.ArchiveChecksum -ne "N/A" -and $reportData.ArchiveChecksum -ne "Skipped (Prior failure)" -and $reportData.ArchiveChecksum -notlike "Error*") {
+            $hookArgsForExternalScript.ArchiveChecksum = $reportData.ArchiveChecksum
+            $hookArgsForExternalScript.ArchiveChecksumAlgorithm = $reportData.ArchiveChecksumAlgorithm
+            $hookArgsForExternalScript.ArchiveChecksumFile = $reportData.ArchiveChecksumFile
+        }
+
 
         if ($reportData.OverallStatus -in @("SUCCESS", "WARNINGS", "SIMULATED_COMPLETE") ) {
             Invoke-PoShBackupHook -ScriptPath $effectiveJobConfig.PostBackupScriptOnSuccessPath -HookType "PostBackupOnSuccess" -HookParameters $hookArgsForExternalScript -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger

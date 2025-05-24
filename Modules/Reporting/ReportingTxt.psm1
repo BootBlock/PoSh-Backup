@@ -2,8 +2,9 @@
 .SYNOPSIS
     Generates plain text (.txt) summary reports for PoSh-Backup jobs.
     These reports provide a simple, human-readable overview of the backup operation,
-    including summary details, configuration settings used, hook script actions,
-    details of remote target transfers (if any), and a chronological list of log entries.
+    including summary details (now with checksum information), configuration settings used,
+    hook script actions, details of remote target transfers (if any), and a chronological
+    list of log entries.
 
 .DESCRIPTION
     This module produces a straightforward plain text report, formatted for easy reading
@@ -12,7 +13,8 @@
 
     The report typically includes the following sections:
     - A header with the job name and generation timestamp.
-    - A "SUMMARY" section with key operational outcomes and statistics.
+    - A "SUMMARY" section with key operational outcomes and statistics, including archive
+      checksum details if generated.
     - A "CONFIGURATION USED" section listing the specific settings applied to the job.
     - A "HOOK SCRIPTS EXECUTED" section detailing any custom scripts that were run, their status, and their output.
     - A "REMOTE TARGET TRANSFERS" section (if applicable) detailing each attempted transfer to a remote target.
@@ -23,9 +25,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.1
+    Version:        1.2.2 # Added Checksum information to Summary section.
     DateCreated:    14-May-2025
-    LastModified:   19-May-2025
+    LastModified:   24-May-2025
     Purpose:        Plain text summary report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -38,10 +40,10 @@ function Invoke-TxtReport {
         Generates a plain text (.txt) report file summarising a PoSh-Backup job.
     .DESCRIPTION
         This function takes the consolidated report data for a backup job and formats it
-        into a human-readable plain text file. The report includes a summary of the job,
-        the configuration that was used, details of any hook scripts executed, details of
-        any remote target transfers, and the full sequence of log messages. The output file
-        is named using the job name and a timestamp.
+        into a human-readable plain text file. The report includes a summary of the job
+        (including checksum details if available), the configuration that was used, details
+        of any hook scripts executed, details of any remote target transfers, and the full
+        sequence of log messages. The output file is named using the job name and a timestamp.
     .PARAMETER ReportDirectory
         The target directory where the generated .txt report file for this job will be saved.
         This path is typically resolved by the main Reporting.psm1 orchestrator.
@@ -112,9 +114,11 @@ function Invoke-TxtReport {
 
     $null = $reportContent.AppendLine("SUMMARY:")
     # Exclude TargetTransfers from the main summary block as it will have its own section
+    # The new checksum fields (ArchiveChecksum, ArchiveChecksumAlgorithm, ArchiveChecksumFile, ArchiveChecksumVerificationStatus)
+    # will be automatically included here if they exist in $ReportData as top-level keys.
     $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot', 'TargetTransfers')} | ForEach-Object {
         $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $_ -replace "`r`n", " " -replace "`n", " " }) -join '; ' } else { ($_.Value | Out-String).Trim() }
-        $null = $reportContent.AppendLine("  $($_.Name.PadRight(30)): $value")
+        $null = $reportContent.AppendLine("  $($_.Name.PadRight(35)): $value") # Increased PadRight for new longer keys
     }
     $null = $reportContent.AppendLine($separatorLine)
 
@@ -122,7 +126,7 @@ function Invoke-TxtReport {
         $null = $reportContent.AppendLine("CONFIGURATION USED FOR JOB '$JobName':")
         $ReportData.JobConfiguration.GetEnumerator() | Sort-Object Name | ForEach-Object {
             $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $_ -replace "`r`n", " " -replace "`n", " " }) -join '; ' } else { ($_.Value | Out-String).Trim() }
-            $null = $reportContent.AppendLine("  $($_.Name.PadRight(30)): $value")
+            $null = $reportContent.AppendLine("  $($_.Name.PadRight(35)): $value") # Increased PadRight
         }
         $null = $reportContent.AppendLine($separatorLine)
     }

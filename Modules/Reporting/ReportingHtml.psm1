@@ -3,7 +3,7 @@
     Generates detailed, interactive HTML reports for PoSh-Backup jobs. These reports feature
     customisable themes, CSS overrides, optional embedded logos, client-side JavaScript for
     dynamic log filtering and searching, persistent section states, table sorting, and more.
-    Now includes a section for Remote Target Transfer details.
+    Now includes a section for Remote Target Transfer details and archive checksum information.
 
 .DESCRIPTION
     This module is dedicated to creating rich, interactive HTML reports that provide a comprehensive
@@ -11,8 +11,8 @@
     incorporation of styling, and embedding of client-side interactivity.
 
     Key features of the generated HTML reports:
-    - Structured Sections: Includes clear sections for Summary, Configuration Used,
-      Hook Scripts Executed, Detailed Logs, and **newly added Remote Target Transfers**.
+    - Structured Sections: Includes clear sections for Summary (now with checksum details),
+      Configuration Used, Hook Scripts Executed, Detailed Logs, and Remote Target Transfers.
       All main sections are collapsible and their state can be persisted via localStorage.
     - Customisable Appearance:
         - Themes: Supports themes via external CSS files.
@@ -31,9 +31,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.1
+    Version:        1.9.2 # Added Checksum information to Summary table.
     DateCreated:    14-May-2025
-    LastModified:   19-May-2025
+    LastModified:   24-May-2025
     Purpose:        Interactive HTML report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -110,8 +110,9 @@ function Invoke-HtmlReport {
         Generates a detailed and interactive HTML report for a specific PoSh-Backup job.
     .DESCRIPTION
         This function constructs an HTML report based on the provided job data and configuration settings.
-        The report includes sections for a job summary, the configuration used, details of any executed
-        hook scripts, a comprehensive list of log entries, and details of remote target transfers if applicable.
+        The report includes sections for a job summary (now including checksum details), the configuration used,
+        details of any executed hook scripts, a comprehensive list of log entries, and details of remote
+        target transfers if applicable.
 
         Key features include:
         - Styling: Applies CSS from 'Base.css', a selected theme CSS file (e.g., 'Light.css', 'Dark.css'),
@@ -133,7 +134,7 @@ function Invoke-HtmlReport {
     .PARAMETER ReportData
         A hashtable containing all data collected during the backup job's execution. This includes
         summary statistics, log entries, hook script details, the configuration snapshot, target transfer
-        details, etc.
+        details, checksum information, etc.
     .PARAMETER GlobalConfig
         The global configuration hashtable for PoSh-Backup. Used to retrieve global report settings
         (like default theme, company name) and the essential '_PoShBackup_PSScriptRoot' path for
@@ -311,7 +312,6 @@ function Invoke-HtmlReport {
     }
 
     # --- JavaScript ---
-    # (Original JavaScript block from your bundled file is preserved here)
     $pageJavaScript = @"
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -546,9 +546,11 @@ document.addEventListener('DOMContentLoaded', function () {
         
         # Define the desired order of summary items
         $summaryOrder = @(
-            'JobName', 'OverallStatus', 'ScriptStartTime', 'ScriptEndTime', 'TotalDuration', 'TotalDurationSeconds', # Added TotalDurationSeconds
+            'JobName', 'OverallStatus', 'ScriptStartTime', 'ScriptEndTime', 'TotalDuration', 'TotalDurationSeconds', 
             'SourcePath', 'EffectiveSourcePath', 'FinalArchivePath', 'ArchiveSizeFormatted', 'ArchiveSizeBytes', 
-            'SevenZipExitCode', 'TreatSevenZipWarningsAsSuccess', 'RetryAttemptsMade', 'ArchiveTested', 'ArchiveTestResult', 'TestRetryAttemptsMade',
+            'SevenZipExitCode', 'TreatSevenZipWarningsAsSuccess', 'RetryAttemptsMade', 
+            'ArchiveTested', 'ArchiveTestResult', 'TestRetryAttemptsMade',
+            'ArchiveChecksum', 'ArchiveChecksumAlgorithm', 'ArchiveChecksumFile', 'ArchiveChecksumVerificationStatus', # NEW Checksum fields
             'VSSAttempted', 'VSSStatus', 'VSSShadowPaths', 
             'PasswordSource', 'ErrorMessage'
         )
@@ -579,7 +581,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 $displayValue = ConvertTo-SafeHtml ([string]$value) 
             }
 
-            if ($keyName -eq "OverallStatus" -or $keyName -eq "ArchiveTestResult" -or $keyName -eq "VSSStatus") {
+            if ($keyName -eq "OverallStatus" -or $keyName -eq "ArchiveTestResult" -or $keyName -eq "VSSStatus" -or $keyName -eq "ArchiveChecksumVerificationStatus") {
                 $sanitizedVal = ([string]$_.Value -replace ' ','_') -replace '[\(\):\/]','_' -replace '\+','plus' -replace ',',''
                 $statusClass = "status-$(ConvertTo-SafeHtml $sanitizedVal)"
             } elseif ($keyName -eq "VSSAttempted") {

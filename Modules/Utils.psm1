@@ -2,7 +2,8 @@
 .SYNOPSIS
     Provides a collection of essential utility functions for the PoSh-Backup script.
     These include capabilities for logging, configuration value retrieval, administrative
-    privilege checks, archive size formatting, and destination free space checking.
+    privilege checks, archive size formatting, destination free space checking, and
+    now, file checksum generation.
     Configuration loading and job resolution are handled by ConfigManager.psm1.
     Hook script execution is handled by HookManager.psm1.
 
@@ -19,12 +20,13 @@
     - Test-AdminPrivilege: Checks if the script is running with administrator privileges.
     - Get-ArchiveSizeFormatted: Converts byte sizes to human-readable formats (KB, MB, GB).
     - Test-DestinationFreeSpace: Checks if the destination directory has enough free space.
+    - Get-PoshBackupFileHash: Generates a checksum for a specified file using a given algorithm.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.11.3
+    Version:        1.12.0 # Added Get-PoshBackupFileHash for checksum generation.
     DateCreated:    10-May-2025
-    LastModified:   18-May-2025
+    LastModified:   24-May-2025
     Purpose:        Core utility functions for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+. Some functions may have dependencies on specific global
                     variables (e.g., $Global:StatusToColourMap) being set by the main script.
@@ -302,6 +304,74 @@ function Test-DestinationFreeSpace {
 }
 #endregion
 
+#region --- NEW: Get File Hash ---
+function Get-PoshBackupFileHash {
+    [CmdletBinding()]
+    <#
+    .SYNOPSIS
+        Generates a cryptographic hash for a specified file using Get-FileHash.
+    .DESCRIPTION
+        This function calculates the hash of a file using the specified algorithm.
+        It's a wrapper around Get-FileHash for consistent logging and error handling
+        within the PoSh-Backup context.
+    .PARAMETER FilePath
+        The full path to the file for which to generate the hash.
+    .PARAMETER Algorithm
+        The hashing algorithm to use. Valid values are those supported by Get-FileHash
+        (e.g., "SHA1", "SHA256", "SHA384", "SHA512", "MD5").
+    .PARAMETER Logger
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
+    .OUTPUTS
+        System.String
+        The hexadecimal string representation of the file hash, or $null if an error occurs.
+    .EXAMPLE
+        # $hash = Get-PoshBackupFileHash -FilePath "C:\archive.7z" -Algorithm "SHA256" -Logger ${function:Write-LogMessage}
+        # if ($hash) { Write-Host "SHA256 Hash: $hash" }
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath,
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("SHA1", "SHA256", "SHA384", "SHA512", "MD5")]
+        [string]$Algorithm,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
+    )
+    # Defensive PSSA appeasement line
+    & $Logger -Message "Get-PoshBackupFileHash: Logger parameter active for path '$FilePath', Algorithm '$Algorithm'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf)) {
+        & $LocalWriteLog -Message "[ERROR] Utils/Get-PoshBackupFileHash: File not found at '$FilePath'. Cannot generate hash." -Level "ERROR"
+        return $null
+    }
+
+    & $LocalWriteLog -Message "  - Utils/Get-PoshBackupFileHash: Generating $Algorithm hash for file '$FilePath'..." -Level "DEBUG"
+    try {
+        $fileHashObject = Get-FileHash -LiteralPath $FilePath -Algorithm $Algorithm -ErrorAction Stop
+        if ($null -ne $fileHashObject -and -not [string]::IsNullOrWhiteSpace($fileHashObject.Hash)) {
+            & $LocalWriteLog -Message "    - Utils/Get-PoshBackupFileHash: $Algorithm hash generated successfully: $($fileHashObject.Hash)." -Level "DEBUG"
+            return $fileHashObject.Hash.ToUpperInvariant() # Return uppercase hash
+        } else {
+            & $LocalWriteLog -Message "[WARNING] Utils/Get-PoshBackupFileHash: Get-FileHash returned no hash or an empty hash for '$FilePath'." -Level "WARNING"
+            return $null
+        }
+    }
+    catch {
+        & $LocalWriteLog -Message "[ERROR] Utils/Get-PoshBackupFileHash: Failed to generate $Algorithm hash for '$FilePath'. Error: $($_.Exception.Message)" -Level "ERROR"
+        return $null
+    }
+}
+#endregion
+
 #region --- Exported Functions ---
-Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Get-ArchiveSizeFormatted, Test-DestinationFreeSpace
+Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Get-ArchiveSizeFormatted, Test-DestinationFreeSpace, Get-PoshBackupFileHash
 #endregion

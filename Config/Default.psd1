@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.3.5: Added example for SFTP Backup Target type.
+# Version 1.3.6: Added Checksum Generation & Verification settings.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -176,6 +176,13 @@
                                                                       # Examples: "yyyy-MM-dd", "dd-MMM-yyyy_HH-mm-ss" (includes time), "yyMMdd".
     #endregion
 
+    #region --- Checksum Settings (Global Defaults) --- NEW REGION
+    DefaultGenerateArchiveChecksum      = $false                      # Global default. $true to generate a checksum file for the local archive.
+    DefaultChecksumAlgorithm            = "SHA256"                    # Global default. Algorithm for checksum. Valid: "SHA1", "SHA256", "SHA384", "SHA512", "MD5".
+    DefaultVerifyArchiveChecksumOnTest  = $false                      # Global default. $true to verify checksum during archive test (if TestArchiveAfterCreation is also true).
+                                                                      # Checksum file is named <ArchiveFileName>.<Algorithm>.checksum (e.g., MyJob_Date.7z.SHA256.checksum).
+    #endregion
+
     #region --- Global 7-Zip Parameter Defaults ---
     # These settings are passed directly as command-line switches to 7-Zip if not overridden at the job level.
     # Refer to the 7-Zip command-line documentation for the precise meaning and impact of these switches.
@@ -335,7 +342,12 @@
             SevenZipProcessPriority = "Normal"                        # Override global 7-Zip priority for this specific job.
             ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
-        
+            
+            # NEW Checksum Settings for this job
+            GenerateArchiveChecksum     = $true                       # Example: Enable checksum generation for this job
+            ChecksumAlgorithm           = "SHA256"                    # Use SHA256
+            VerifyArchiveChecksumOnTest = $true                       # Verify checksum if TestArchiveAfterCreation is also true
+
             # NEW: Job-specific PostRunAction settings. Overrides PostRunActionDefaults.
             # PostRunAction = @{
             #     Enabled         = $true
@@ -366,6 +378,11 @@
             MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for local staging. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
             TreatSevenZipWarningsAsSuccess = $true                    # Example: For this job, 7-Zip warnings are considered success.
+            
+            # Checksum settings (will use global defaults if not specified here, e.g., DefaultGenerateArchiveChecksum = $false)
+            # GenerateArchiveChecksum     = $false 
+            # VerifyArchiveChecksumOnTest = $false
+
             # PostRunAction = @{ Enabled = $false } # Example: Explicitly disable for this job
         }
         "Docs_Replicated_Example" = @{ # NEW EXAMPLE JOB USING THE REPLICATE TARGET
@@ -383,6 +400,12 @@
             
             ArchivePasswordMethod      = "None" # Or any other valid password method
             EnableVSS                  = $true  # Example: Use VSS for source files
+
+            # Checksum settings for this job
+            GenerateArchiveChecksum     = $true
+            ChecksumAlgorithm           = "MD5" # Example: Using MD5 for this job
+            VerifyArchiveChecksumOnTest = $true
+
             # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
         }
         "CriticalData_To_SFTP_Example" = @{
@@ -400,6 +423,11 @@
             
             EnableVSS               = $true
             TestArchiveAfterCreation= $true # Good practice for critical data
+
+            # Checksum settings for this job
+            GenerateArchiveChecksum     = $true
+            ChecksumAlgorithm           = "SHA512"
+            VerifyArchiveChecksumOnTest = $true
             
             PostRunAction = @{
                 Enabled         = $true
@@ -458,6 +486,11 @@
             TestArchiveAfterCreation      = $true                     # Always test this critical backup.
             TreatSevenZipWarningsAsSuccess = $false                   # Explicitly keep default behavior for this critical job.
 
+            # Checksum settings for this comprehensive job
+            GenerateArchiveChecksum     = $true
+            ChecksumAlgorithm           = "SHA256"
+            VerifyArchiveChecksumOnTest = $true
+
             ReportGeneratorType           = @("HTML", "JSON")         # Generate both HTML and JSON reports.
             HtmlReportTheme               = "Dark"
             HtmlReportDirectory           = "\\SHARE\AdminReports\PoShBackup\WebApp" # Custom directory for this job's HTML reports.
@@ -496,7 +529,7 @@
             JobNames     = @(                                         # Array of job names (these must be keys from BackupLocations defined above).
                 "Projects", 
                 "AnExample_WithRemoteTarget",
-                "Docs_Replicated_Example" # Added the new replicated job example to this set
+                "Docs_Replicated_Example", 
                 "CriticalData_To_SFTP_Example"
             )
             OnErrorInJob = "StopSet"                                  # Defines behaviour if a job within this set fails.
@@ -516,7 +549,7 @@
         "Weekly_User_Data"       = @{
             JobNames = @(
                 "AnExample_WithRemoteTarget",
-                "Docs_Replicated_Example" # Added the new replicated job example here too
+                "Docs_Replicated_Example" 
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
             # PostRunAction = @{ Enabled = $false } # Example: No post-run action for this set

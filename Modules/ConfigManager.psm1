@@ -5,7 +5,7 @@
     This includes merging default and user configurations, handling 7-Zip path detection,
     validating configuration structure, determining which jobs/sets to process, and
     calculating the effective configuration for individual backup jobs, including new
-    Backup Target and PostRunAction settings.
+    Backup Target, PostRunAction, and Checksum settings.
 
 .DESCRIPTION
     The ConfigManager module is a central component for handling all aspects of PoSh-Backup's
@@ -24,7 +24,7 @@
     - Get-PoShBackupJobEffectiveConfiguration: Calculates the final, effective settings for a
       single backup job by merging global settings, job-specific settings, and command-line
       overrides. This now includes resolving 'LocalRetentionCount', 'TargetNames',
-      'DeleteLocalArchiveAfterSuccessfulTransfer', and 'PostRunAction' settings.
+      'DeleteLocalArchiveAfterSuccessfulTransfer', 'PostRunAction', and 'Checksum' settings.
 
     This module relies on Utils.psm1 (for Write-LogMessage, Get-ConfigValue),
     7ZipManager.psm1 (for Find-SevenZipExecutable), and optionally PoShBackupValidator.psm1.
@@ -32,9 +32,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.4 # Added debug for job config path/name.
+    Version:        1.1.5 # Added resolution for Checksum settings.
     DateCreated:    17-May-2025
-    LastModified:   22-May-2025
+    LastModified:   24-May-2025
     Purpose:        Centralised configuration management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Core PoSh-Backup modules: Utils.psm1, 7ZipManager.psm1.
@@ -244,6 +244,7 @@ function Import-AppConfiguration {
             try {
                 Import-Module -Name (Join-Path -Path $MainScriptPSScriptRoot -ChildPath "Modules\PoShBackupValidator.psm1") -Force -ErrorAction Stop
                 & $LocalWriteLog -Message "  - ConfigManager: PoShBackupValidator module loaded. Performing schema validation..." -Level "DEBUG"
+                # Using the corrected function name 'Test-SchemaRecursiveInternal' (though it's called via Invoke-PoShBackupConfigValidation)
                 Invoke-PoShBackupConfigValidation -ConfigurationToValidate $finalConfiguration -ValidationMessagesListRef ([ref]$validationMessages)
                 if ($IsTestConfigMode.IsPresent -and $validationMessages.Count -eq 0) {
                     & $LocalWriteLog -Message "[SUCCESS] ConfigManager: Advanced schema validation completed (no schema errors found)." -Level "CONFIG_TEST"
@@ -497,7 +498,7 @@ function Get-JobsToProcess {
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         }
         else {
@@ -610,19 +611,21 @@ function Get-PoShBackupJobEffectiveConfiguration {
     <#
     .SYNOPSIS
         Gathers the effective configuration for a single backup job by merging global,
-        job-specific, and command-line override settings, including Backup Target and PostRunAction resolution.
+        job-specific, and command-line override settings, including Backup Target, PostRunAction,
+        and Checksum resolution.
     .DESCRIPTION
         This function takes a specific job's raw configuration, the global configuration,
         and any command-line overrides, then resolves the final settings that will be
         used for that job. It prioritizes settings in the order: CLI overrides, then
         job-specific settings, then global settings.
         It now also resolves 'TargetNames' specified in the job configuration by looking up
-        the full definitions of those targets in the global 'BackupTargets' section, and
-        resolves 'PostRunAction' settings.
+        the full definitions of those targets in the global 'BackupTargets' section,
+        resolves 'PostRunAction' settings, and 'Checksum' settings.
     .PARAMETER JobConfig
         A hashtable containing the specific configuration settings for this backup job.
     .PARAMETER GlobalConfig
-        A hashtable containing the global configuration settings for PoSh-Backup, including 'BackupTargets' and 'PostRunActionDefaults'.
+        A hashtable containing the global configuration settings for PoSh-Backup, including 'BackupTargets',
+        'PostRunActionDefaults', and 'Checksum' defaults.
     .PARAMETER CliOverrides
         A hashtable containing command-line parameter overrides.
     .PARAMETER JobReportDataRef
@@ -633,7 +636,8 @@ function Get-PoShBackupJobEffectiveConfiguration {
     .OUTPUTS
         System.Collections.Hashtable
         A hashtable representing the effective configuration for the job, including an array
-        of 'ResolvedTargetInstances' if 'TargetNames' were specified, and a 'PostRunAction' hashtable.
+        of 'ResolvedTargetInstances' if 'TargetNames' were specified, a 'PostRunAction' hashtable,
+        and checksum-related settings.
     #>
     param(
         [Parameter(Mandatory)] [hashtable]$JobConfig,
@@ -796,12 +800,23 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $effectiveConfig.PostRunAction = $effectivePostRunAction
     # --- END NEW: Resolve PostRunAction ---
 
+    # --- NEW: Resolve Checksum settings for the job ---
+    $effectiveConfig.GenerateArchiveChecksum = Get-ConfigValue -ConfigObject $JobConfig -Key 'GenerateArchiveChecksum' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultGenerateArchiveChecksum' -DefaultValue $false)
+    $effectiveConfig.ChecksumAlgorithm = Get-ConfigValue -ConfigObject $JobConfig -Key 'ChecksumAlgorithm' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultChecksumAlgorithm' -DefaultValue "SHA256")
+    $effectiveConfig.VerifyArchiveChecksumOnTest = Get-ConfigValue -ConfigObject $JobConfig -Key 'VerifyArchiveChecksumOnTest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVerifyArchiveChecksumOnTest' -DefaultValue $false)
+    # --- END NEW: Resolve Checksum settings ---
+
     # Populate some initial report data based on effective settings
     $reportData.SourcePath = if ($effectiveConfig.OriginalSourcePath -is [array]) { $effectiveConfig.OriginalSourcePath } else { @($effectiveConfig.OriginalSourcePath) }
     $reportData.VSSUsed = $effectiveConfig.JobEnableVSS 
     $reportData.RetriesEnabled = $effectiveConfig.JobEnableRetries
     $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation 
     $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority
+    # Add checksum settings to report data
+    $reportData.GenerateArchiveChecksum = $effectiveConfig.GenerateArchiveChecksum
+    $reportData.ChecksumAlgorithm = $effectiveConfig.ChecksumAlgorithm
+    $reportData.VerifyArchiveChecksumOnTest = $effectiveConfig.VerifyArchiveChecksumOnTest
+
 
     # Store a reference to the global config for modules that might need it (e.g., 7ZipManager for default exclusions)
     $effectiveConfig.GlobalConfigRef = $GlobalConfig 

@@ -5,7 +5,7 @@
     It checks for correct data structure, data types, presence of required keys, and adherence
     to allowed values, helping to ensure configuration integrity before a backup job is run.
     Includes schema validation for "UNC", "Replicate", and "SFTP" Backup Target configurations,
-    and new PostRunAction settings.
+    new PostRunAction settings, and new Checksum settings.
 
 .DESCRIPTION
     This PowerShell module contains a detailed schema definition that mirrors the expected structure
@@ -21,12 +21,13 @@
       including for UNC, "Replicate", and "SFTP" target types. The base 'TargetSpecificSettings'
       type is 'object' to allow flexibility, with type-specific validation in a ValidateScript.
     - Incorrect structure or values for the new 'PostRunAction' settings at global, job, and set levels.
+    - Incorrect structure or values for the new 'Checksum' settings at global and job levels.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.5 # Added schema validation for SFTP Backup Target type.
+    Version:        1.3.6 # Added schema validation for Checksum settings.
     DateCreated:    14-May-2025
-    LastModified:   22-May-2025
+    LastModified:   24-May-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     This module is typically invoked by 'ConfigManager.psm1' if schema validation is
@@ -87,6 +88,11 @@ $Script:PoShBackup_ConfigSchema = @{
     DefaultTestArchiveAfterCreation = @{ Type = 'boolean'; Required = $false }
 
     DefaultArchiveDateFormat        = @{ Type = 'string'; Required = $false }
+
+    # NEW Global Checksum Settings
+    DefaultGenerateArchiveChecksum      = @{ Type = 'boolean'; Required = $false }
+    DefaultChecksumAlgorithm            = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
+    DefaultVerifyArchiveChecksumOnTest  = @{ Type = 'boolean'; Required = $false }
 
     DefaultThreadCount              = @{ Type = 'int'; Required = $false; Min = 0 }
     DefaultArchiveType              = @{ Type = 'string'; Required = $false }
@@ -176,7 +182,7 @@ $Script:PoShBackup_ConfigSchema = @{
                                 }
                             }
                         }
-                    } elseif ($instanceType -eq "SFTP") { # NEW VALIDATION FOR SFTP
+                    } elseif ($instanceType -eq "SFTP") { 
                         if (-not ($instanceSettings -is [hashtable])) {
                             $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): 'TargetSpecificSettings' must be a Hashtable. Path: '$instancePath'.")
                             $isValidOverall = $false
@@ -292,6 +298,11 @@ $Script:PoShBackup_ConfigSchema = @{
                 ExitOnLowSpaceIfBelowMinimum = @{ Type = 'boolean'; Required = $false }
                 TestArchiveAfterCreation     = @{ Type = 'boolean'; Required = $false }
 
+                # NEW Job-level Checksum Settings
+                GenerateArchiveChecksum     = @{ Type = 'boolean'; Required = $false }
+                ChecksumAlgorithm           = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
+                VerifyArchiveChecksumOnTest = @{ Type = 'boolean'; Required = $false }
+
                 HtmlReportTheme              = @{ Type = 'string'; Required = $false }
                 HtmlReportTitlePrefix        = @{ Type = 'string'; Required = $false }
                 HtmlReportLogoPath           = @{ Type = 'string'; Required = $false }
@@ -352,8 +363,7 @@ $Script:PoShBackup_ConfigSchema = @{
 #endregion
 
 #region --- Private Validation Logic ---
-# PSScriptAnalyzer Suppress PSUseApprovedVerbs[Validate-AgainstSchemaRecursiveInternal] - 'Validate' is descriptive for this internal schema helper.
-function Validate-AgainstSchemaRecursiveInternal {
+function Test-SchemaRecursiveInternal {
     param(
         [Parameter(Mandatory)]
         [object]$ConfigObject,
@@ -381,7 +391,7 @@ function Validate-AgainstSchemaRecursiveInternal {
             $dynamicKeySubSchema = $keyDefinition
             foreach ($itemKeyInConfig in $ConfigObject.Keys) {
                 $itemValueFromConfig = $ConfigObject[$itemKeyInConfig]
-                Validate-AgainstSchemaRecursiveInternal -ConfigObject $itemValueFromConfig -Schema $dynamicKeySubSchema.Schema -ValidationMessages $ValidationMessages -CurrentPath "$CurrentPath.$itemKeyInConfig"
+                Test-SchemaRecursiveInternal -ConfigObject $itemValueFromConfig -Schema $dynamicKeySubSchema.Schema -ValidationMessages $ValidationMessages -CurrentPath "$CurrentPath.$itemKeyInConfig"
             }
             continue
         }
@@ -482,7 +492,7 @@ function Validate-AgainstSchemaRecursiveInternal {
         }
 
         if ($configValue -is [hashtable] -and $keyDefinition.ContainsKey("Schema") -and (-not $keyDefinition.ContainsKey("DynamicKeySchema"))) {
-            Validate-AgainstSchemaRecursiveInternal -ConfigObject $configValue -Schema $keyDefinition.Schema -ValidationMessages $ValidationMessages -CurrentPath "$fullKeyPath"
+            Test-SchemaRecursiveInternal -ConfigObject $configValue -Schema $keyDefinition.Schema -ValidationMessages $ValidationMessages -CurrentPath "$fullKeyPath"
         }
     }
 
@@ -507,7 +517,7 @@ function Invoke-PoShBackupConfigValidation {
         [Parameter(Mandatory)]
         [ref]$ValidationMessagesListRef
     )
-    Validate-AgainstSchemaRecursiveInternal -ConfigObject $ConfigurationToValidate -Schema $Script:PoShBackup_ConfigSchema -ValidationMessages $ValidationMessagesListRef -CurrentPath "Configuration"
+    Test-SchemaRecursiveInternal -ConfigObject $ConfigurationToValidate -Schema $Script:PoShBackup_ConfigSchema -ValidationMessages $ValidationMessagesListRef -CurrentPath "Configuration"
 }
 
 Export-ModuleMember -Function Invoke-PoShBackupConfigValidation

@@ -4,7 +4,7 @@
     These reports offer a human-readable plain text format that can also be rendered
     into richly structured HTML by various Markdown processors, making them suitable
     for documentation, version control, or quick reviews.
-    Now includes a section for Remote Target Transfer details.
+    Now includes a section for Remote Target Transfer details and archive checksum information.
 
 .DESCRIPTION
     This module is responsible for creating reports using Markdown syntax for a completed
@@ -14,7 +14,7 @@
     The report typically includes:
     - A main title with the job name and generation timestamp.
     - A prominent "SIMULATION MODE RUN" notice if applicable.
-    - A "Summary" section presented as a Markdown table.
+    - A "Summary" section presented as a Markdown table, now including checksum details.
     - A "Configuration Used" section, also as a Markdown table.
     - A "Hook Scripts Executed" section, detailing hooks in a table, with their output
       often formatted within HTML <pre><code> blocks for better readability in rendered Markdown.
@@ -27,9 +27,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.1
+    Version:        1.3.2 # Added Checksum information to Summary table.
     DateCreated:    14-May-2025
-    LastModified:   19-May-2025
+    LastModified:   24-May-2025
     Purpose:        Markdown (.md) report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -43,9 +43,10 @@ function Invoke-MdReport {
     .DESCRIPTION
         This function takes the consolidated report data for a backup job and formats it
         into a Markdown file. The report uses Markdown headings for sections, tables for
-        summary, configuration, and target transfer data, and code blocks for log entries.
-        Hook script output is typically embedded in a way that preserves its formatting when
-        the Markdown is rendered. The output file is named using the job name and a timestamp.
+        summary (including checksum details), configuration, and target transfer data, and
+        code blocks for log entries. Hook script output is typically embedded in a way that
+        preserves its formatting when the Markdown is rendered. The output file is named
+        using the job name and a timestamp.
     .PARAMETER ReportDirectory
         The target directory where the generated .md report file for this job will be saved.
         This path is typically resolved by the main Reporting.psm1 orchestrator.
@@ -146,23 +147,24 @@ function Invoke-MdReport {
 
     $null = $reportContent.AppendLine("## Summary")
     $null = $reportContent.AppendLine("")
-    $null = $reportContent.AppendLine("| Item                      | Detail |")
-    $null = $reportContent.AppendLine("| :------------------------ | :----- |")
+    $null = $reportContent.AppendLine("| Item                                | Detail |") # Increased header width
+    $null = $reportContent.AppendLine("| :---------------------------------- | :----- |") # Adjusted separator
     # Exclude TargetTransfers from main summary table
+    # The new checksum fields will be automatically included here if they exist in $ReportData.
     $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot', 'TargetTransfers')} | ForEach-Object {
         $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $EscapeMarkdownTableContent.Invoke($_) }) -join '; ' } else { $EscapeMarkdownTableContent.Invoke($_.Value) }
-        $null = $reportContent.AppendLine("| $($EscapeMarkdownTableContent.Invoke($_.Name).PadRight(25)) | $value |")
+        $null = $reportContent.AppendLine("| $($EscapeMarkdownTableContent.Invoke($_.Name).PadRight(35)) | $value |") # Increased PadRight
     }
     $null = $reportContent.AppendLine("")
 
     if ($ReportData.ContainsKey('JobConfiguration') -and $null -ne $ReportData.JobConfiguration) {
         $null = $reportContent.AppendLine("## Configuration Used for Job '$($JobName | ForEach-Object {$EscapeMarkdownCodeContent.Invoke($_)})'")
         $null = $reportContent.AppendLine("")
-        $null = $reportContent.AppendLine("| Setting                   | Value |")
-        $null = $reportContent.AppendLine("| :------------------------ | :---- |")
+        $null = $reportContent.AppendLine("| Setting                             | Value |") # Increased header width
+        $null = $reportContent.AppendLine("| :---------------------------------- | :---- |") # Adjusted separator
         $ReportData.JobConfiguration.GetEnumerator() | Sort-Object Name | ForEach-Object {
             $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $EscapeMarkdownTableContent.Invoke($_) }) -join '; ' } else { $EscapeMarkdownTableContent.Invoke($_.Value) }
-            $null = $reportContent.AppendLine("| $($EscapeMarkdownTableContent.Invoke($_.Name).PadRight(25)) | $value |")
+            $null = $reportContent.AppendLine("| $($EscapeMarkdownTableContent.Invoke($_.Name).PadRight(35)) | $value |") # Increased PadRight
         }
         $null = $reportContent.AppendLine("")
     }
