@@ -26,9 +26,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2 # Add PSSA suppressions and defensive logging for unused parameters.
+    Version:        1.0.3 # Added PSSA suppressions for ConvertTo-SecureString.
     DateCreated:    22-May-2025
-    LastModified:   22-May-2025
+    LastModified:   24-May-2025
     Purpose:        SFTP Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The 'Posh-SSH' module must be installed (Install-Module Posh-SSH).
@@ -256,6 +256,8 @@ function Invoke-PoShBackupTargetTransfer {
         return $result
     }
 
+    $securePassphrase = $null
+    $securePassword = $null
     try {
         # Establish SFTP Session
         $sessionParams = @{ ComputerName = $sftpServer; Port = $sftpPort; Username = $sftpUser; ErrorAction = 'Stop' }
@@ -268,12 +270,17 @@ function Invoke-PoShBackupTargetTransfer {
             }
             $sessionParams.KeyFile = $sftpKeyFilePathOnLocalMachine
             if (-not [string]::IsNullOrWhiteSpace($sftpKeyPassphrase)) {
-                $securePassphrase = ConvertTo-SecureString -String $sftpKeyPassphrase -AsPlainText -Force # PSScriptAnalyzer Suppress PSAvoidUsingConvertToSecureStringWithPlainText
+                # Posh-SSH requires SecureString for passphrase. Password retrieved from SecretManagement might be plain text.
+                # This conversion is necessary for Posh-SSH compatibility.
+                # PSScriptAnalyzer Suppress PSAvoidUsingConvertToSecureStringWithPlainText - Justification: Posh-SSH cmdlet requires SecureString. Password/passphrase is from secure storage (SecretManagement) and only briefly in memory as SecureString.
+                $securePassphrase = ConvertTo-SecureString -String $sftpKeyPassphrase -AsPlainText -Force 
                 $sessionParams.KeyPassphrase = $securePassphrase
             }
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': Attempting key-based authentication." -f $targetNameForLog) -Level "INFO"
         } elseif (-not [string]::IsNullOrWhiteSpace($sftpPassword)) {
-            $securePassword = ConvertTo-SecureString -String $sftpPassword -AsPlainText -Force # PSScriptAnalyzer Suppress PSAvoidUsingConvertToSecureStringWithPlainText
+            # Posh-SSH requires SecureString for password.
+            # PSScriptAnalyzer Suppress PSAvoidUsingConvertToSecureStringWithPlainText - Justification: Posh-SSH cmdlet requires SecureString. Password is from secure storage (SecretManagement) and only briefly in memory as SecureString.
+            $securePassword = ConvertTo-SecureString -String $sftpPassword -AsPlainText -Force 
             $sessionParams.Password = $securePassword
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': Attempting password-based authentication." -f $targetNameForLog) -Level "INFO"
         } else {

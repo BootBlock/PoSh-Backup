@@ -15,7 +15,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.5 # Updated conversation summary for Checksum feature.
+    Version:        1.1.7 # Updated conversation summary for PSSA fixes post-refactoring.
     DateCreated:    17-May-2025
     LastModified:   24-May-2025
     Purpose:        AI State generation and final bundle assembly for the AI project bundler.
@@ -58,7 +58,6 @@ function Get-BundlerAIState {
     }
     catch {
         Write-Error "FATAL (Bundler StateAndAssembly): Could not load AI State template from '$aiStateTemplatePath'. Error: $($_.Exception.Message)"
-        # Return a minimal error state or re-throw, depending on desired bundler robustness
         return @{
             error                  = "Failed to load AIState.template.psd1"
             details                = $_.Exception.Message
@@ -66,14 +65,13 @@ function Get-BundlerAIState {
         }
     }
 
-    # Populate/Overwrite dynamic fields in the loaded template
     $aiState.bundle_generation_time = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    $aiState.main_script_poSh_backup_version = $PoShBackupVersion # e.g., "1.11.0"
+    $aiState.main_script_poSh_backup_version = $PoShBackupVersion
     $aiState.bundler_script_version = $BundlerScriptVersion
     $aiState.project_root_folder_name = $ProjectRoot_DisplayName
-    $aiState.module_descriptions = $AutoDetectedModuleDescriptions # This is a hashtable itself
+    $aiState.module_descriptions = $AutoDetectedModuleDescriptions
     
-    $psModulesForState = @() 
+    $psModulesForState = @()
     if ($null -ne $AutoDetectedPsDependencies) {
         try {
             $psModulesForState = @($AutoDetectedPsDependencies | Sort-Object -Unique)
@@ -82,98 +80,58 @@ function Get-BundlerAIState {
             Write-Warning "Bundler StateAndAssembly: Could not process AutoDetectedPsDependencies. Defaulting to empty list for AI State. Type was: $($AutoDetectedPsDependencies.GetType().FullName)"
         }
     }
-    # Ensure external_dependencies key exists before trying to access its subkey
     if (-not $aiState.ContainsKey('external_dependencies')) { $aiState.external_dependencies = @{} }
-    $aiState.external_dependencies.powershell_modules = $psModulesForState 
+    $aiState.external_dependencies.powershell_modules = $psModulesForState
 
-    # Dynamically construct the conversation summary
-    # Version of THIS Bundle.StateAndAssembly.psm1 module
-    $thisModuleVersion = "1.1.5" 
+    $thisModuleVersion = "1.1.7" # Updated version of this specific module
     
-        $currentConversationSummary = @(
-        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.11.0).", # Updated version
+    $currentConversationSummary = @(
+        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).",
         "Modular design: Core modules, Reporting sub-modules, Config files, and Meta/ (bundler).",
-        "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v$($thisModuleVersion)).", 
-        "--- NEW Major Feature: Archive Checksum Generation & Verification ---",
+        "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v$($thisModuleVersion)).",
+        "--- Major Refactoring: Modularisation of Operations.psm1 and ConfigManager.psm1 ---",
+        "  - Goal: Improve maintainability, readability, and testability of large modules.",
+        "  - `Operations.psm1` (v1.18.6 -> v1.19.3) refactored:", # Updated version
+        "    - Now acts as an orchestrator for job lifecycle stages.",
+        "    - New sub-module: `Modules\\Operations\\LocalArchiveProcessor.psm1` (v1.0.2) created to handle local archive creation, checksums, and testing.", # Updated version
+        "    - New sub-module: `Modules\\Operations\\RemoteTransferOrchestrator.psm1` (v1.0.1) created to manage transfers to remote targets.", # Updated version
+        "  - `ConfigManager.psm1` (v1.1.5 -> v1.2.0) refactored:",
+        "    - Now acts as a facade for configuration management functions.",
+        "    - New sub-module: `Modules\\ConfigManagement\\ConfigLoader.psm1` (v1.0.0) created for `Import-AppConfiguration`.",
+        "    - New sub-module: `Modules\\ConfigManagement\\JobResolver.psm1` (v1.0.1) created for `Get-JobsToProcess`.", # Updated version
+        "    - New sub-module: `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.1) created for `Get-PoShBackupJobEffectiveConfiguration`.", # Updated version
+        "  - All refactoring changes tested successfully by the user.",
+        "  - PSScriptAnalyzer issues (unused loggers, cmdlet naming, empty catch block) addressed in the new and refactored modules.",
+        "  - `SFTP.Target.psm1` updated to v1.0.3 with inline PSSA suppressions for `ConvertTo-SecureString`.",
+        "--- Previous Major Feature: Archive Checksum Generation & Verification ---",
         "  - Goal: Enhance archive integrity with optional checksums.",
-        "  - Configuration (`Config\\Default.psd1` v1.3.6):",
-        "    - Added global defaults: `DefaultGenerateArchiveChecksum`, `DefaultChecksumAlgorithm`, `DefaultVerifyArchiveChecksumOnTest`.",
-        "    - Added job-level settings: `GenerateArchiveChecksum`, `ChecksumAlgorithm`, `VerifyArchiveChecksumOnTest`.",
-        "  - Schema Validation (`Modules\\PoShBackupValidator.psm1` v1.3.6):",
-        "    - Updated schema to validate new checksum settings at global and job levels.",
-        "  - Utility Function (`Modules\\Utils.psm1` v1.12.0):",
-        "    - Added `Get-PoshBackupFileHash` function using `Get-FileHash` for checksum calculation.",
-        "  - Operations (`Modules\\Operations.psm1` v1.18.6):",
-        "    - Logic to generate checksum file (e.g., `archive.7z.sha256`) after local archive creation if enabled.",
-        "    - Logic to verify checksum against archive content during archive testing if enabled.",
-        "    - Checksum details (value, algorithm, file path, verification status) added to report data.",
-        "  - Config Management (`Modules\\ConfigManager.psm1` v1.1.5):",
-        "    - `Get-PoShBackupJobEffectiveConfiguration` now resolves checksum settings for jobs.",
-        "  - Reporting Modules Updated (v1.9.2 for HTML, v1.2.2 for TXT/CSV, v1.3.2 for MD, v1.1.4 for JSON, v1.2.2 for XML):",
-        "    - HTML, TXT, MD, CSV reports now display checksum information in the summary section.",
-        "    - JSON and XML reports implicitly include checksum data as part of the main report object.",
-        "  - Main Script (`PoSh-Backup.ps1` v1.11.0):",
-        "    - Synopsis and description updated to reflect the new checksum feature.",
-        "  - Documentation (`README.md`): Updated to explain the new Checksum feature, configuration, and impact on archive testing.",
+        "  - Configuration (`Config\\Default.psd1` v1.3.6): Added global and job-level checksum settings.",
+        "  - Schema Validation (`Modules\\PoShBackupValidator.psm1` v1.3.6): Updated for checksum settings.",
+        "  - Utility Function (`Modules\\Utils.psm1` v1.12.0): Added `Get-PoshBackupFileHash`.",
+        "  - Operations (`Modules\\Operations.psm1` v1.18.6 - before refactor): Implemented checksum logic.",
+        "  - Config Management (`Modules\\ConfigManager.psm1` v1.1.5 - before refactor): Resolved checksum settings.",
+        "  - Reporting Modules: Updated to display checksum information.",
+        "  - Main Script (`PoSh-Backup.ps1` v1.11.0 - for checksums, current v$($PoShBackupVersion)): Synopsis updated.",
+        "  - Documentation (`README.md`): Updated for Checksum feature.",
         "--- Previous Major Feature: Post-Run System Actions (Shutdown, Restart, etc.) ---",
         "  - Goal: Allow PoSh-Backup to perform system state changes after job/set completion.",
-        "  - New Module (`Modules\\SystemStateManager.psm1` v1.0.2):",
-        "    - Created to handle system state changes (Shutdown, Restart, Hibernate, LogOff, Sleep, Lock).",
-        "    - Includes `Invoke-SystemStateAction` function.",
-        "    - Supports delayed execution with a cancellable console countdown.",
-        "    - Checks for hibernation support before attempting hibernate.",
-        "    - Handles simulation mode for all actions.",
-        "  - Configuration (`Config\\Default.psd1` v1.3.5):", # Version before checksum
-        "    - Added global `PostRunActionDefaults` section.",
-        "    - Added `PostRunAction` hashtable to `BackupLocations` (job-level) and `BackupSets` (set-level).",
-        "    - Settings include `Enabled`, `Action`, `DelaySeconds`, `TriggerOnStatus` (SUCCESS, WARNINGS, FAILURE, ANY), `ForceAction`.",
-        "  - Schema Validation (`Modules\\PoShBackupValidator.psm1` v1.3.5):", # Version before checksum
-        "    - Updated schema to validate new `PostRunAction` settings at global, job, and set levels.",
-        "  - Config Management (`Modules\\ConfigManager.psm1` v1.1.4):", # Version before checksum
-        "    - `Get-PoShBackupJobEffectiveConfiguration` now resolves `PostRunAction` for jobs.",
-        "    - `Get-JobsToProcess` now resolves `PostRunAction` for sets.",
-        "  - Main Script (`PoSh-Backup.ps1` v1.10.1):", # Version before checksum
-        "    - Imports and uses `SystemStateManager.psm1`.",
-        "    - Added CLI parameters for `PostRunAction` overrides.",
-        "    - Implements logic to determine and execute the effective `PostRunAction` after all other operations.",
-        "    - Handles simulation and test config modes for post-run actions.",
-        "  - Documentation (`README.md`): Updated to explain the Post-Run System Action feature (before checksum updates).",
-        "--- Previous Major Feature: Backup Targets (Expanded) ---", 
+        "  - New Module (`Modules\\SystemStateManager.psm1` v1.0.2).",
+        "  - Configuration (`Config\\Default.psd1` v1.3.5): Added PostRunAction settings.",
+        "  - Schema Validation (`Modules\\PoShBackupValidator.psm1` v1.3.5): Updated.",
+        "  - Config Management (`Modules\\ConfigManager.psm1` v1.1.4 - before checksums & major refactor): Updated.",
+        "  - Main Script (`PoSh-Backup.ps1` v1.10.1 - for PostRunAction): Updated.",
+        "  - Documentation (`README.md`): Updated.",
+        "--- Previous Major Feature: Backup Targets (Expanded) ---",
         "  - Goal: Allow backups to be sent to remote locations via an extensible provider model.",
-        "  - Configuration (Default.psd1 v1.3.3):", # Version before PostRunAction & Checksum
-        "    - Added global BackupTargets section to define named remote target instances.",
-        "    - In BackupLocations (job definitions): Renamed RetentionCount to LocalRetentionCount, added TargetNames (array), DeleteLocalArchiveAfterSuccessfulTransfer (boolean).",
-        "    - For UNC targets, added CreateJobNameSubdirectory (boolean, default $false) to TargetSpecificSettings.",
-        "    - Example added for new 'Replicate' target type, allowing multiple destinations per target instance, each with optional subdirectories and retention.",
-        "    - Advanced Schema Validation now enabled by default.",
-        "  - ConfigManager.psm1 (v1.1.2):", 
-        "    - Basic validation for TargetSpecificSettings made more flexible to support array types (for 'Replicate').",
-        "  - PoShBackupValidator.psm1 (v1.3.3):", 
-        "    - Schema for BackupTargets.DynamicKeySchema.Schema.TargetSpecificSettings changed Type to 'object'.",
-        "    - ValidateScript for BackupTargets now correctly handles type validation for 'UNC' (hashtable) and 'Replicate' (array) TargetSpecificSettings.",
-        "  - Target Provider (Modules\\\\Targets\\\\UNC.Target.psm1 v1.1.2):",
-        "    - Implements Invoke-PoShBackupTargetTransfer function.",
-        "  - NEW Target Provider (Modules\\\\Targets\\\\Replicate.Target.psm1 v1.0.2):",
-        "    - Implements Invoke-PoShBackupTargetTransfer to manage all configured replications.",
-        "  - NEW Target Provider (Modules\\\\Targets\\\\SFTP.Target.psm1 v1.0.2):",
-        "    - Implements Invoke-PoShBackupTargetTransfer for SFTP transfers.",
-        "  - Operations.psm1 (v1.17.3):", # Version before PostRunAction & Checksum
-        "    - Orchestrates the transfer loop, dynamically loads providers, calls Invoke-PoShBackupTargetTransfer.",
-        "  - Utils.psm1 (v1.11.3):", # Version before checksum
-        "    - Corrected $LocalWriteLog wrapper logic.",
-        "  - PoSh-Backup.ps1 (v1.10.0 - for Backup Targets):", 
-        "    - Ensured $Global:ColourHeading is defined.",
-        "  - Reporting Modules Updated (generic for TargetTransfers):",
-        "    - ReportingHtml.psm1 (v1.9.1), ReportingTxt.psm1 (v1.2.0), ReportingCsv.psm1 (v1.2.0), ReportingMd.psm1 (v1.3.0), ReportingXml.psm1 (v1.2.0).",
-        "  - README.md: Updated to explain 'Replicate' and 'SFTP' target providers (before PostRunAction & Checksum updates).",
-        "  - AIState.template.psd1: Watchlist updated for file integrity, PSSA issues, path creation, logging colors, PostRunAction logic, SFTP dependencies.",
+        "  - Configuration (Default.psd1 v1.3.3): Added `BackupTargets`, `TargetNames`, etc.",
+        "  - Target Providers: `UNC.Target.psm1` (v1.1.2), `Replicate.Target.psm1` (v1.0.2), `SFTP.Target.psm1` (v1.0.2 - before PSSA suppression update).",
+        "  - Operations.psm1 (v1.17.3 - before PostRunAction, Checksum, & major refactor): Orchestrated target transfers.",
+        "  - Reporting Modules: Updated for `TargetTransfers` data.",
+        "  - README.md: Updated for 'Replicate' and 'SFTP' target providers.",
         "--- Previous Work (Selected Highlights) ---",
-        "Network Share Handling Improvements.",
-        "Retention Policy Confirmation logic.",
-        "HTML Report VSS field updates and general interactivity enhancements.",
-        "General stability and PSSA compliance efforts.",
-        "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) is stable.", 
-        "Overall project status: Core local backup stable. Backup Target feature significantly expanded. Post-Run System Action feature added. New Checksum feature added. Logging and validation improved. PSSA clean (SFTP suppressions noted). Pester tests non-functional."
+        "Network Share Handling Improvements, Retention Policy Confirmation, HTML Report Enhancements, PSSA compliance.",
+        "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) is stable.",
+        "Overall project status: Core local backup stable. Backup Target feature significantly expanded. Post-Run System Action feature added. Checksum feature added. Major refactoring of Operations and ConfigManager modules completed and PSSA issues addressed. Logging and validation improved. PSSA summary expected to be clean except for known SFTP `ConvertTo-SecureString` items. Pester tests non-functional."
     )
 
     $aiState.conversation_summary = $currentConversationSummary
@@ -191,7 +149,7 @@ function Format-AIBundleContent {
         [Parameter(Mandatory)]
         [string]$ProjectStructureContent,
         [Parameter(Mandatory = $false)]
-        [string]$AnalyzerSettingsFileContent, 
+        [string]$AnalyzerSettingsFileContent,
         [Parameter(Mandatory = $false)]
         [string]$PSSASummaryOutputContent,
         [Parameter(Mandatory)]
@@ -200,14 +158,11 @@ function Format-AIBundleContent {
 
     $finalOutputBuilder = [System.Text.StringBuilder]::new()
 
-    # 1. Header
     $null = $finalOutputBuilder.Append($HeaderContent)
-
-    # 2. AI State
     $null = $finalOutputBuilder.AppendLine("--- AI_STATE_START ---")
     $null = $finalOutputBuilder.AppendLine('```json')
     if ($null -ne $AIStateHashtable) {
-        $null = $finalOutputBuilder.AppendLine(($AIStateHashtable | ConvertTo-Json -Depth 10 -Compress)) 
+        $null = $finalOutputBuilder.AppendLine(($AIStateHashtable | ConvertTo-Json -Depth 10 -Compress))
     }
     else {
         $null = $finalOutputBuilder.AppendLine("(AI State Hashtable was null and could not be converted to JSON)")
@@ -216,13 +171,11 @@ function Format-AIBundleContent {
     $null = $finalOutputBuilder.AppendLine("--- AI_STATE_END ---")
     $null = $finalOutputBuilder.AppendLine("")
 
-    # 3. Project Structure Overview
     $null = $finalOutputBuilder.AppendLine("--- PROJECT_STRUCTURE_OVERVIEW ---")
-    $null = $finalOutputBuilder.AppendLine($ProjectStructureContent) 
+    $null = $finalOutputBuilder.AppendLine($ProjectStructureContent)
     $null = $finalOutputBuilder.AppendLine("--- END_PROJECT_STRUCTURE_OVERVIEW ---")
     $null = $finalOutputBuilder.AppendLine("")
 
-    # 4. PSScriptAnalyzerSettings.psd1 content (if provided)
     if (-not [string]::IsNullOrWhiteSpace($AnalyzerSettingsFileContent)) {
         $null = $finalOutputBuilder.AppendLine("--- PSSCRIPTANALYZER_SETTINGS_FILE_CONTENT_START ---")
         $null = $finalOutputBuilder.AppendLine("Path: PSScriptAnalyzerSettings.psd1 (Project Root)")
@@ -234,18 +187,14 @@ function Format-AIBundleContent {
         $null = $finalOutputBuilder.AppendLine("")
     }
 
-    # 5. PSScriptAnalyzer Summary (if provided)
     if (-not [string]::IsNullOrWhiteSpace($PSSASummaryOutputContent)) {
         $null = $finalOutputBuilder.AppendLine("--- PS_SCRIPT_ANALYZER_SUMMARY ---")
-        $null = $finalOutputBuilder.AppendLine($PSSASummaryOutputContent) 
+        $null = $finalOutputBuilder.AppendLine($PSSASummaryOutputContent)
         $null = $finalOutputBuilder.AppendLine("--- END_PS_SCRIPT_ANALYZER_SUMMARY ---")
         $null = $finalOutputBuilder.AppendLine("")
     }
 
-    # 6. Bundled Files Content
-    $null = $finalOutputBuilder.Append($BundledFilesContent) 
-
-    # 7. Footer
+    $null = $finalOutputBuilder.Append($BundledFilesContent)
     $null = $finalOutputBuilder.AppendLine("-----------------------------------")
     $null = $finalOutputBuilder.AppendLine("--- END OF PROJECT FILE BUNDLE ---")
 
