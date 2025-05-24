@@ -113,7 +113,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.11.0 # Added Checksum Generation & Verification feature.
+    Version:        1.11.4 # Post-Run Action logging silent if no action taken.
     Date:           24-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1, ConfigManager.psm1, Operations.psm1,
@@ -276,7 +276,7 @@ try {
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.11.0 (Added Checksum Generation & Verification feature)" -Level "HEADING" 
+& $LoggerScriptBlock -Message " Script Version: v1.11.4 (Post-Run Action logging silent if no action taken)" -Level "HEADING" 
 if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
@@ -736,12 +736,11 @@ if ($shouldPhysicallyPause) {
     }
 }
 
-# --- NEW: Post-Run System Action Logic ---
+# --- Post-Run System Action Logic ---
 $finalPostRunActionSettings = $null
-$actionSource = "None"
+$actionSource = "None" 
 
 if ($null -ne $cliOverrideSettings.PostRunActionCli) {
-    & $LoggerScriptBlock -Message "[INFO] Post-Run Action: CLI override detected." -Level "INFO"
     $finalPostRunActionSettings = @{
         Enabled         = ($cliOverrideSettings.PostRunActionCli.ToLowerInvariant() -ne "none")
         Action          = $cliOverrideSettings.PostRunActionCli
@@ -751,17 +750,14 @@ if ($null -ne $cliOverrideSettings.PostRunActionCli) {
     }
     $actionSource = "CLI Override"
 } elseif ($null -ne $setSpecificPostRunAction) {
-    & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from Backup Set '$currentSetName'." -Level "DEBUG"
     $finalPostRunActionSettings = $setSpecificPostRunAction
     $actionSource = "Backup Set '$currentSetName'"
 } elseif ($null -ne $jobSpecificPostRunAction) { 
-    & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from single Job '$($jobsToProcess[0])'." -Level "DEBUG"
     $finalPostRunActionSettings = $jobSpecificPostRunAction
     $actionSource = "Job '$($jobsToProcess[0])'"
 } else {
     $globalDefaultsPRA = Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{}
     if ($null -ne $globalDefaultsPRA -and $globalDefaultsPRA.ContainsKey('Enabled') -and $globalDefaultsPRA.Enabled) {
-        & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using global default settings." -Level "INFO"
         $finalPostRunActionSettings = $globalDefaultsPRA
         $actionSource = "Global Defaults"
     }
@@ -770,12 +766,16 @@ if ($null -ne $cliOverrideSettings.PostRunActionCli) {
 if ($null -ne $finalPostRunActionSettings -and `
     $finalPostRunActionSettings.ContainsKey('Enabled') -and $finalPostRunActionSettings.Enabled -eq $true -and `
     $finalPostRunActionSettings.ContainsKey('Action') -and $finalPostRunActionSettings.Action.ToLowerInvariant() -ne "none") {
-
+    
     $triggerStatuses = @($finalPostRunActionSettings.TriggerOnStatus | ForEach-Object { $_.ToUpperInvariant() })
     $effectiveOverallStatusForTrigger = $overallSetStatus.ToUpperInvariant()
     if ($TestConfig.IsPresent) { $effectiveOverallStatusForTrigger = "SIMULATED_COMPLETE" } 
 
     if ($triggerStatuses -contains "ANY" -or $effectiveOverallStatusForTrigger -in $triggerStatuses) {
+        # Action will be attempted or simulated
+        if ($actionSource -ne "None") {
+            & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from $($actionSource)." -Level "INFO"
+        }
         & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Conditions met for action '$($finalPostRunActionSettings.Action)' (Source: $actionSource, Triggered by Status: $effectiveOverallStatusForTrigger)." -Level "INFO"
         
         $systemActionParams = @{
@@ -787,15 +787,12 @@ if ($null -ne $finalPostRunActionSettings -and `
             PSCmdletInstance = $PSCmdlet 
         }
         Invoke-SystemStateAction @systemActionParams
-    } else {
-        & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Action '$($finalPostRunActionSettings.Action)' (Source: $actionSource) NOT triggered. Overall status '$effectiveOverallStatusForTrigger' not in TriggerOnStatus list: $($triggerStatuses -join ', ')." -Level "INFO"
     }
-} elseif ($null -ne $finalPostRunActionSettings -and $finalPostRunActionSettings.ContainsKey('Action') -and $finalPostRunActionSettings.Action.ToLowerInvariant() -ne "none") {
-     & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Action '$($finalPostRunActionSettings.Action)' (Source: $actionSource) is configured but not enabled." -Level "INFO"
-} else {
-     & $LoggerScriptBlock -Message "[INFO] Post-Run Action: No specific action configured or enabled." -Level "DEBUG"
+    # If not triggered by status, no INFO/DEBUG log will be generated about it.
 }
-# --- END NEW: Post-Run System Action Logic ---
+# If the above 'if' condition is false (no action configured, or disabled, or action is "None"),
+# then no logging related to Post-Run Actions occurs at all.
+# --- END Post-Run System Action Logic ---
 
 
 if ($overallSetStatus -in @("SUCCESS", "SIMULATED_COMPLETE")) { exit 0 }
