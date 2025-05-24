@@ -81,66 +81,40 @@
             Type = "hashtable"
             Required = $true
             Schema = @{
-                Type = @{ Type = 'string'; Required = $true }
-                TargetSpecificSettings = @{ Type = 'object'; Required = $true } 
+                Type = @{ Type = 'string'; Required = $true } # Type of target (e.g., "UNC", "SFTP")
+                TargetSpecificSettings = @{ Type = 'object'; Required = $true } # Allows any structure, specific validation in PoShBackupValidator.psm1
                 CredentialsSecretName  = @{ Type = 'string'; Required = $false }
-                RemoteRetentionSettings= @{ Type = 'hashtable'; Required = $false }
+                RemoteRetentionSettings= @{ Type = 'hashtable'; Required = $false } # Basic check here, specific content validated in PoShBackupValidator.psm1
             }
         }
         ValidateScript = {
             param($BackupTargetsHashtable, [ref]$ValidationMessagesListRef, [string]$CurrentPathForTarget)
+            # This ValidateScript now only performs very basic structural checks.
+            # Detailed validation for each target type (UNC, REPLICATE, SFTP) is handled
+            # by PoShBackupValidator.psm1 after the main schema pass.
             $isValidOverall = $true
             foreach ($targetInstanceNameKey in $BackupTargetsHashtable.Keys) {
                 $targetInstanceValue = $BackupTargetsHashtable[$targetInstanceNameKey]
-                if ($targetInstanceValue -is [hashtable] -and $targetInstanceValue.ContainsKey('Type') -and $targetInstanceValue.Type -is [string] -and $targetInstanceValue.ContainsKey('TargetSpecificSettings')) {
-                    $instanceType = $targetInstanceValue.Type.ToUpperInvariant()
-                    $instanceSettings = $targetInstanceValue.TargetSpecificSettings
-                    $instancePath = "$CurrentPathForTarget.$targetInstanceNameKey.TargetSpecificSettings"
+                $instancePath = "$CurrentPathForTarget.$targetInstanceNameKey"
 
-                    if ($instanceType -eq "UNC") {
-                        if (-not ($instanceSettings -is [hashtable])) {
-                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: UNC): 'TargetSpecificSettings' must be a Hashtable. Path: '$instancePath'.")
-                            $isValidOverall = $false; continue
-                        }
-                        if (-not $instanceSettings.ContainsKey('UNCRemotePath') -or -not ($instanceSettings.UNCRemotePath -is [string]) -or [string]::IsNullOrWhiteSpace($instanceSettings.UNCRemotePath)) {
-                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: UNC): 'UNCRemotePath' in 'TargetSpecificSettings' is missing, not a string, or empty. Path: '$instancePath.UNCRemotePath'.")
-                            $isValidOverall = $false
-                        }
-                        if ($instanceSettings.ContainsKey('CreateJobNameSubdirectory') -and -not ($instanceSettings.CreateJobNameSubdirectory -is [boolean])) {
-                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: UNC): 'CreateJobNameSubdirectory' in 'TargetSpecificSettings' must be a boolean (`$true` or `$false`) if defined. Path: '$instancePath.CreateJobNameSubdirectory'.")
-                            $isValidOverall = $false
-                        }
-                    } elseif ($instanceType -eq "REPLICATE") {
-                        if (-not ($instanceSettings -is [array])) {
-                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): 'TargetSpecificSettings' must be an Array of destination configurations. Path: '$instancePath'.")
-                            $isValidOverall = $false; continue
-                        }
-                        if ($instanceSettings.Count -eq 0) {
-                            $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): 'TargetSpecificSettings' array is empty. At least one destination configuration is required. Path: '$instancePath'.")
-                            $isValidOverall = $false
-                        }
-                        for ($i = 0; $i -lt $instanceSettings.Count; $i++) {
-                            $destConfig = $instanceSettings[$i]; $destConfigPath = "$instancePath[$i]"
-                            if (-not ($destConfig -is [hashtable])) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Item at index $i in 'TargetSpecificSettings' is not a Hashtable. Path: '$destConfigPath'."); $isValidOverall = $false; continue }
-                            if (-not $destConfig.ContainsKey('Path') -or -not ($destConfig.Path -is [string]) -or [string]::IsNullOrWhiteSpace($destConfig.Path)) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i is missing 'Path', or it's not a non-empty string. Path: '$destConfigPath.Path'."); $isValidOverall = $false }
-                            if ($destConfig.ContainsKey('CreateJobNameSubdirectory') -and -not ($destConfig.CreateJobNameSubdirectory -is [boolean])) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i 'CreateJobNameSubdirectory' must be a boolean (`$true` or `$false`) if defined. Path: '$destConfigPath.CreateJobNameSubdirectory'."); $isValidOverall = $false }
-                            if ($destConfig.ContainsKey('RetentionSettings')) {
-                                if (-not ($destConfig.RetentionSettings -is [hashtable])) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i 'RetentionSettings' must be a Hashtable if defined. Path: '$destConfigPath.RetentionSettings'."); $isValidOverall = $false }
-                                elseif ($destConfig.RetentionSettings.ContainsKey('KeepCount')) { if (-not ($destConfig.RetentionSettings.KeepCount -is [int]) -or $destConfig.RetentionSettings.KeepCount -le 0) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: Replicate): Destination at index $i 'RetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$destConfigPath.RetentionSettings.KeepCount'."); $isValidOverall = $false } }
-                            }
-                        }
-                    } elseif ($instanceType -eq "SFTP") { 
-                        if (-not ($instanceSettings -is [hashtable])) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): 'TargetSpecificSettings' must be a Hashtable. Path: '$instancePath'."); $isValidOverall = $false; continue }
-                        foreach ($sftpKey in @('SFTPServerAddress', 'SFTPRemotePath', 'SFTPUserName')) { if (-not $instanceSettings.ContainsKey($sftpKey) -or -not ($instanceSettings.$sftpKey -is [string]) -or [string]::IsNullOrWhiteSpace($instanceSettings.$sftpKey)) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): '$sftpKey' in 'TargetSpecificSettings' is missing, not a string, or empty. Path: '$instancePath.$sftpKey'."); $isValidOverall = $false } }
-                        if ($instanceSettings.ContainsKey('SFTPPort') -and -not ($instanceSettings.SFTPPort -is [int] -and $instanceSettings.SFTPPort -gt 0 -and $instanceSettings.SFTPPort -le 65535)) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): 'SFTPPort' in 'TargetSpecificSettings' must be an integer between 1 and 65535 if defined. Path: '$instancePath.SFTPPort'."); $isValidOverall = $false }
-                        foreach ($sftpOptionalStringKey in @('SFTPPasswordSecretName', 'SFTPKeyFileSecretName', 'SFTPKeyFilePassphraseSecretName')) { if ($instanceSettings.ContainsKey($sftpOptionalStringKey) -and (-not ($instanceSettings.$sftpOptionalStringKey -is [string]) -or [string]::IsNullOrWhiteSpace($instanceSettings.$sftpOptionalStringKey)) ) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): '$sftpOptionalStringKey' in 'TargetSpecificSettings' must be a non-empty string if defined. Path: '$instancePath.$sftpOptionalStringKey'."); $isValidOverall = $false } }
-                        foreach ($sftpOptionalBoolKey in @('CreateJobNameSubdirectory', 'SkipHostKeyCheck')) { if ($instanceSettings.ContainsKey($sftpOptionalBoolKey) -and -not ($instanceSettings.$sftpOptionalBoolKey -is [boolean])) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): '$sftpOptionalBoolKey' in 'TargetSpecificSettings' must be a boolean (`$true` or `$false`) if defined. Path: '$instancePath.$sftpOptionalBoolKey'."); $isValidOverall = $false } }
-                        if ($targetInstanceValue.ContainsKey('RemoteRetentionSettings')) {
-                            $retentionSettings = $targetInstanceValue.RemoteRetentionSettings
-                            if (-not ($retentionSettings -is [hashtable])) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): 'RemoteRetentionSettings' must be a Hashtable if defined. Path: '$CurrentPathForTarget.$targetInstanceNameKey.RemoteRetentionSettings'."); $isValidOverall = $false }
-                            elseif ($retentionSettings.ContainsKey('KeepCount')) { if (-not ($retentionSettings.KeepCount -is [int]) -or $retentionSettings.KeepCount -le 0) { $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' (Type: SFTP): 'RemoteRetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$CurrentPathForTarget.$targetInstanceNameKey.RemoteRetentionSettings.KeepCount'."); $isValidOverall = $false } }
-                        }
-                    }
+                if (-not ($targetInstanceValue -is [hashtable])) {
+                    $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' must be a Hashtable. Path: '$instancePath'.")
+                    $isValidOverall = $false; continue
+                }
+                if (-not $targetInstanceValue.ContainsKey('Type') -or -not ($targetInstanceValue.Type -is [string]) -or [string]::IsNullOrWhiteSpace($targetInstanceValue.Type)) {
+                    $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' is missing a 'Type', it's not a string, or it is empty. Path: '$instancePath.Type'.")
+                    $isValidOverall = $false
+                }
+                if (-not $targetInstanceValue.ContainsKey('TargetSpecificSettings')) {
+                    # The schema entry for TargetSpecificSettings already checks if it's an 'object' (which includes hashtable/array).
+                    # So, we only need to check for its presence here.
+                    $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey' is missing 'TargetSpecificSettings'. Path: '$instancePath.TargetSpecificSettings'.")
+                    $isValidOverall = $false
+                }
+                # Basic check for RemoteRetentionSettings if it exists
+                if ($targetInstanceValue.ContainsKey('RemoteRetentionSettings') -and -not ($targetInstanceValue.RemoteRetentionSettings -is [hashtable])) {
+                    $ValidationMessagesListRef.Value.Add("BackupTarget instance '$targetInstanceNameKey': 'RemoteRetentionSettings' must be a Hashtable if defined. Path: '$instancePath.RemoteRetentionSettings'.")
+                    $isValidOverall = $false
                 }
             }
             return $isValidOverall
