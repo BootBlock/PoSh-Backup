@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>{{REPORT_TITLE}}</title>
+    {{HTML_META_TAGS}}
+    {{FAVICON_LINK_TAG}}
+    {{CSS_CONTENT}}
+</head>
+<body>
+    <div class="container">
+        {{SIMULATION_BANNER_HTML}} <!-- Populated if simulation, otherwise empty string -->
+        
+        <div class="report-header">
+            <h1>{{HEADER_TITLE_TEXT}}</h1>
+            {{EMBEDDED_LOGO_HTML}}
+        </div>
+
+        <!-- Summary Section -->
+        {{IF_SHOW_SUMMARY_START}}
+        <div class='details-section summary-section'>
+            <details id='details-summary' open>
+                <summary><h2>Summary</h2></summary>
+                <table data-sortable-table='true'>
+                    <thead>
+                        <tr>
+                            <th data-sortable-column='true' aria-label='Sort by Item'>Item</th>
+                            <th data-sortable-column='true' aria-label='Sort by Detail'>Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{SUMMARY_TABLE_ROWS_HTML}} <!-- PowerShell generates <tr><td>...</td></tr> here -->
+                    </tbody>
+                </table>
+            </details>
+        </div>
+        {{IF_SHOW_SUMMARY_END}}
+
+        <!-- Target Transfers Section -->
+        {{IF_SHOW_TARGET_TRANSFERS_START}}
+        <div class='details-section target-transfers-section'>
+            <details id='details-target-transfers' open>
+                <summary><h2>Remote Target Transfers</h2></summary>
+                <table data-sortable-table='true'>
+                    <thead>
+                        <tr>
+                            <th data-sortable-column='true' aria-label='Sort by Target Name'>Target Name</th>
+                            <th data-sortable-column='true' aria-label='Sort by Type'>Type</th>
+                            <th data-sortable-column='true' aria-label='Sort by Status'>Status</th>
+                            <th data-sortable-column='true' aria-label='Sort by Remote Path'>Remote Path</th>
+                            <th data-sortable-column='true' aria-label='Sort by Duration'>Duration</th>
+                            <th data-sortable-column='true' aria-label='Sort by Size'>Size</th>
+                            <th>Error Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{TARGET_TRANSFERS_TABLE_ROWS_HTML}} <!-- PowerShell generates <tr><td>...</td></tr> here -->
+                    </tbody>
+                </table>
+            </details>
+        </div>
+        {{IF_SHOW_TARGET_TRANSFERS_END}}
+
+        <!-- Configuration Section -->
+        {{IF_SHOW_CONFIGURATION_START}}
+        <div class='details-section config-section'>
+            <details id='details-config'>
+                <summary><h2>Configuration Used for Job '{{JOB_NAME_FOR_HEADER}}'</h2></summary>
+                <table data-sortable-table='true'>
+                    <thead>
+                        <tr>
+                            <th data-sortable-column='true' aria-label='Sort by Setting'>Setting</th>
+                            <th data-sortable-column='true' aria-label='Sort by Value'>Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{CONFIG_TABLE_ROWS_HTML}} <!-- PowerShell generates <tr><td>...</td></tr> here -->
+                    </tbody>
+                </table>
+            </details>
+        </div>
+        {{IF_SHOW_CONFIGURATION_END}}
+
+        <!-- Hook Scripts Section -->
+        {{IF_SHOW_HOOKS_START}}
+        <div class='details-section hooks-section'>
+            <details id='details-hooks'>
+                <summary><h2>Hook Scripts Executed</h2></summary>
+                <table data-sortable-table='true'>
+                    <thead>
+                        <tr>
+                            <th data-sortable-column='true' aria-label='Sort by Type'>Type</th>
+                            <th data-sortable-column='true' aria-label='Sort by Path'>Path</th>
+                            <th data-sortable-column='true' aria-label='Sort by Status'>Status</th>
+                            <th>Output/Error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{HOOKS_TABLE_ROWS_HTML}} <!-- PowerShell generates <tr><td>...</td></tr> here -->
+                    </tbody>
+                </table>
+            </details>
+        </div>
+        {{IF_SHOW_HOOKS_END}}
+
+        <!-- Detailed Log Entries Section -->
+        {{IF_SHOW_LOG_ENTRIES_START}}
+        <div class='details-section log-section'>
+            <details id='details-logs' open>
+                <summary><h2>Detailed Log <span id='logFilterActiveIndicator' class='filter-active-indicator' style='display:none;'>(Filters Active)</span></h2></summary>
+                <div class='log-filters'>
+                    <div><label for='logKeywordSearch'>Search Logs:</label><input type='text' id='logKeywordSearch' placeholder='Enter keyword...'></div>
+                    {{LOG_LEVEL_FILTERS_CONTROLS_HTML}} <!-- PowerShell generates the <label><input type="checkbox"...></label> and toggle buttons here -->
+                </div>
+                <div id='detailedLogEntries'>
+                    {{LOG_ENTRIES_LIST_HTML}} <!-- PowerShell generates <div class='log-entry'>...</div> here -->
+                </div>
+            </details>
+        </div>
+        {{IF_SHOW_LOG_ENTRIES_END}}
+        
+        {{IF_NO_LOG_ENTRIES_START}}
+        <div class='details-section log-section'>
+            <details id='details-logs' open>
+                <summary><h2>Detailed Log</h2></summary>
+                <p>No log entries were recorded or available for this HTML report.</p>
+            </details>
+        </div>
+        {{IF_NO_LOG_ENTRIES_END}}
+
+        <footer>
+            {{FOOTER_COMPANY_NAME_HTML}} PoSh Backup Script - Report Generated on {{REPORT_GENERATION_DATE_TEXT}}
+        </footer>
+    </div>
+    {{JAVASCRIPT_CONTENT_BLOCK}} <!-- For the <script>...</script> block -->
+    <button type="button" id="scrollToTopBtn" title="Go to top" aria-label="Scroll to top of page">▲</button>
+</body>
+</html>

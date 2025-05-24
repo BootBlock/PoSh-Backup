@@ -33,10 +33,22 @@
   )
 
   conversation_summary = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.11.4).",
-    "Modular design: Core modules, Reporting sub-modules, Config files, and Meta/ (bundler).",
-    "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.1.5).",
-    "--- NEW Major Refactoring: Modularisation of Operations.psm1 and ConfigManager.psm1 ---",
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.11.5).",
+    "Modular design: Core modules, Reporting sub-modules (including new Modules\Reporting\Assets directory for HTML report assets), Config files, and Meta/ (bundler).",
+    "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.1.7 - to be updated to v1.1.8).",
+    "--- Further Modularisation of PoSh-Backup.ps1 and ReportingHtml.psm1 (Current Session) ---",
+    "  - Goal: Reduce size of larger script files for AI efficiency and improve maintainability.",
+    "  - `PoSh-Backup.ps1` (v1.11.4 -> v1.11.5) refactored:",
+    "    - Logic for `-ListBackupLocations`, `-ListBackupSets`, and `-TestConfig` modes moved to a new module.",
+    "    - New module: `Modules\\ScriptModeHandler.psm1` (v1.0.0) created to handle these informational modes, which calls `exit` internally.",
+    "    - This significantly reduced the line count of `PoSh-Backup.ps1` (approx. -90 lines).",
+    "  - `Modules\\Reporting\\ReportingHtml.psm1` (v1.9.2 -> v1.9.10) refactored in two stages:",
+    "    - Stage 1: Client-side JavaScript externalised to `Modules\\Reporting\\Assets\\ReportingHtml.Client.js`.",
+    "    - Stage 2: Static HTML structure aggressively externalised to `Modules\\Reporting\\Assets\\ReportingHtml.template.html`.",
+    "    - `ReportingHtml.psm1` now primarily handles data processing and injection into the HTML template, significantly reducing its line count.",
+    "  - PSSA warning for unused Logger parameter in `ReportingHtml.psm1` (v1.9.10) addressed by adding a direct call to the logger.",
+    "  - Console blank line issue during HTML report generation investigated and resolved by refactoring internal logger helper in `ReportingHtml.psm1` and removing temporary diagnostic lines.",
+    "--- Major Refactoring: Modularisation of Operations.psm1 and ConfigManager.psm1 (Previous Session) ---",
     "  - Goal: Improve maintainability, readability, and testability of large modules.",
     "  - `Operations.psm1` (v1.18.6 -> v1.19.0) refactored:",
     "    - Now acts as an orchestrator for job lifecycle stages.",
@@ -83,14 +95,14 @@
     "--- Previous Major Feature: Backup Targets (Expanded) ---",
     "  - Goal: Allow backups to be sent to remote locations via an extensible provider model.",
     "  - Configuration (Default.psd1 v1.3.3): Added `BackupTargets`, `TargetNames`, etc.",
-    "  - Target Providers: `UNC.Target.psm1` (v1.1.2), `Replicate.Target.psm1` (v1.0.2), `SFTP.Target.psm1` (v1.0.2).",
+    "  - Target Providers: UNC.Target.psm1(v1.1.2),Replicate.Target.psm1(v1.0.2),SFTP.Target.psm1 (v1.0.3).",
     "  - Operations.psm1 (v1.17.3 - before PostRunAction, Checksum, & refactor): Orchestrated target transfers.",
     "  - Reporting Modules: Updated for `TargetTransfers` data.",
     "  - README.md: Updated for 'Replicate' and 'SFTP' target providers.",
     "--- Previous Work (Selected Highlights) ---",
     "Network Share Handling Improvements, Retention Policy Confirmation, HTML Report Enhancements, PSSA compliance.",
     "Bundler Script (Generate-ProjectBundleForAI.ps1 v1.25.2) is stable.",
-    "Overall project status: Core local backup stable. Backup Target feature significantly expanded. Post-Run System Action feature added. Checksum feature added. Major refactoring of Operations and ConfigManager modules completed. Logging and validation improved. PSSA clean (SFTP suppressions noted). Pester tests non-functional."
+    "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums features added. Major refactorings completed. PoSh-Backup.ps1andReportingHtml.psm1significantly reduced in size. PSSA summary expected to be clean except for known SFTPConvertTo-SecureStringitems and theOperations.psm1 empty catch block anomaly. Pester tests non-functional."
   )
 
   main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.11.4
