@@ -10,10 +10,8 @@
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
     It is designed for robustness, extensive configurability, and detailed operational feedback.
-    Core logic is managed by the main script, which orchestrates operations performed by dedicated
-    PowerShell modules for utility functions, configuration management, backup operations,
-    password management, 7-Zip interaction, VSS management, retention policy management,
-    hook script management, system state management, and script mode handling.
+    Core logic is managed by this main script, which orchestrates operations performed by dedicated
+    PowerShell modules. The main job/set processing loop is now handled by 'JobOrchestrator.psm1'.
 
     Key Features:
     - Modular Design, External Configuration, Local and Remote Backups, Granular Job Control.
@@ -113,13 +111,11 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.11.5 # Modularised informational script modes.
-    Date:           24-May-2025
+    Version:        1.12.1 # Removed diagnostics, kept Utils.psm1 re-import workaround.
+    Date:           25-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
-    Modules:        Located in '.\Modules\': Utils.psm1, ConfigManager.psm1, Operations.psm1,
-                    Reporting.psm1, PasswordManager.psm1, 7ZipManager.psm1, VssManager.psm1,
-                    RetentionManager.psm1, HookManager.psm1, SystemStateManager.psm1,
-                    ScriptModeHandler.psm1, and reporting sub-modules in '.\Modules\Reporting\'.
+    Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
+                    'Core\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
                     Optional: 'PoShBackupValidator.psm1'.
     Configuration:  Via '.\Config\Default.psd1' and '.\Config\User.psd1'.
     Script Name:    PoSh-Backup.ps1
@@ -203,13 +199,13 @@ $cliOverrideSettings = @{
     TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
     SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
     PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
-    # Store CLI PostRunAction overrides
     PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
     PostRunActionDelaySecondsCli       = if ($PSBoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $PostRunActionDelaySecondsCli } else { $null } 
     PostRunActionForceCli              = if ($PSBoundParameters.ContainsKey('PostRunActionForceCli')) { $PostRunActionForceCli.IsPresent } else { $null }
     PostRunActionTriggerOnStatusCli    = if ($PSBoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $PostRunActionTriggerOnStatusCli } else { $null } 
 }
 
+# Global colour definitions for Write-LogMessage
 $Global:ColourInfo                          = "Cyan"
 $Global:ColourSuccess                       = "Green"
 $Global:ColourWarning                       = "Yellow"
@@ -237,6 +233,7 @@ $Global:StatusToColourMap = @{
     "DEFAULT"           = $Global:ColourInfo 
 }
 
+# Global variables for per-job logging and hook data, managed by JobOrchestrator.psm1
 $Global:GlobalLogFile                       = $null 
 $Global:GlobalEnableFileLogging             = $false 
 $Global:GlobalLogDirectory                  = $null 
@@ -244,7 +241,7 @@ $Global:GlobalJobLogEntries                 = $null
 $Global:GlobalJobHookScriptData             = $null 
 
 try {
-    # Import Utils.psm1 with -Global scope to ensure its functions are widely available
+    # Import Utils.psm1 (facade) with -Global scope to ensure its functions are widely available
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -Global -ErrorAction Stop
 } catch {
     Write-Host "[FATAL] Failed to import CRITICAL Utils.psm1 module." -ForegroundColor Red
@@ -252,32 +249,37 @@ try {
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
     exit 10 
 }
+$LoggerScriptBlock = ${function:Write-LogMessage} # Now from Utils.psm1 (facade) -> Logging.psm1
 
-$LoggerScriptBlock = ${function:Write-LogMessage}
+# Diagnostics removed from here
 
 try {
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ConfigManager.psm1") -Force -ErrorAction Stop 
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Operations.psm1") -Force -ErrorAction Stop
+    # Core Orchestration/Management Modules
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\Operations.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\JobOrchestrator.psm1") -Force -ErrorAction Stop
+
+    # Specialized Manager Modules
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Reporting.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\7ZipManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\VssManager.psm1") -Force -ErrorAction Stop 
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\RetentionManager.psm1") -Force -ErrorAction Stop 
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\HookManager.psm1") -Force -ErrorAction Stop 
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\SystemStateManager.psm1") -Force -ErrorAction Stop 
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop # NEW
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
     
-    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including SystemStateManager and ScriptModeHandler." -Level "INFO"
+    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including JobOrchestrator." -Level "INFO"
 
 } catch {
     & $LoggerScriptBlock -Message "[FATAL] Failed to import one or more required script modules." -Level "ERROR"
-    & $LoggerScriptBlock -Message "Ensure core modules are in '.\Modules\' relative to PoSh-Backup.ps1." -Level "ERROR"
+    & $LoggerScriptBlock -Message "Ensure core modules are in '.\Modules\' (or '.\Modules\Core\') relative to PoSh-Backup.ps1." -Level "ERROR"
     & $LoggerScriptBlock -Message "Error details: $($_.Exception.Message)" -Level "ERROR"
     exit 10 
 }
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.11.5 (Modularised informational script modes)" -Level "HEADING" 
+& $LoggerScriptBlock -Message " Script Version: v1.12.1 (Removed diagnostics, kept Utils.psm1 re-import workaround)" -Level "HEADING" 
 if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
@@ -344,6 +346,7 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
     }
 }
 
+# Import-AppConfiguration is from ConfigManager.psm1 (-> ConfigLoader.psm1)
 $configResult = Import-AppConfiguration -UserSpecifiedPath $ConfigFile `
                                          -IsTestConfigMode:(($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) `
                                          -MainScriptPSScriptRoot $PSScriptRoot `
@@ -371,7 +374,7 @@ if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
 }
 
 # --- Invoke Script Mode Handler ---
-# This function will exit the script if -ListBackupLocations, -ListBackupSets, or -TestConfig is active.
+# Invoke-PoShBackupScriptMode is from ScriptModeHandler.psm1
 Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
                             -ListBackupSetsSwitch $ListBackupSets.IsPresent `
                             -TestConfigSwitch $TestConfig.IsPresent `
@@ -411,6 +414,8 @@ if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Pa
     & $LoggerScriptBlock -Message "[INFO] Effective 7-Zip executable path confirmed: '$sevenZipPathFromFinalConfig'" -Level "INFO"
 }
 
+# GlobalEnableFileLogging and GlobalLogDirectory are now set within JobOrchestrator.psm1 per job,
+# but we still need to set the global defaults here for early logging or if JobOrchestrator isn't reached.
 $Global:GlobalEnableFileLogging = if ($Configuration.ContainsKey('EnableFileLogging')) { $Configuration.EnableFileLogging } else { $false }
 if ($Global:GlobalEnableFileLogging) {
     $logDirConfig = if ($Configuration.ContainsKey('LogDirectory')) { $Configuration.LogDirectory } else { "Logs" }
@@ -427,7 +432,7 @@ if ($Global:GlobalEnableFileLogging) {
     }
 }
 
-
+# Get-JobsToProcess is from ConfigManager.psm1 (-> JobResolver.psm1)
 $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
 if (-not $jobResolutionResult.Success) {
     & $LoggerScriptBlock -Message "FATAL: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
@@ -439,140 +444,87 @@ $stopSetOnError = $jobResolutionResult.StopSetOnErrorPolicy
 $setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction 
 #endregion
 
-#region --- Main Processing Loop (Iterate through Jobs) ---
-$overallSetStatus = "SUCCESS" 
-$jobSpecificPostRunAction = $null 
+#region --- Main Processing (Delegated to JobOrchestrator.psm1) ---
+$overallSetStatus = "SUCCESS" # Default, will be updated by JobOrchestrator
+$finalPostRunActionToConsider = $null
+$actionSourceForLog = "None" # Ensure initialized
 
-foreach ($currentJobName in $jobsToProcess) {
-    & $LoggerScriptBlock -Message "`n================================================================================" -Level "NONE"
-    & $LoggerScriptBlock -Message "Processing Job: $currentJobName" -Level "HEADING"
-    & $LoggerScriptBlock -Message "================================================================================" -Level "NONE"
-
-    $Global:GlobalJobLogEntries = [System.Collections.Generic.List[object]]::new()
-    $Global:GlobalJobHookScriptData = [System.Collections.Generic.List[object]]::new()
-
-    $currentJobReportData = [ordered]@{ JobName = $currentJobName }
-    $currentJobReportData['ScriptStartTime'] = Get-Date 
-
-    $Global:GlobalLogFile = $null 
-    if ($Global:GlobalEnableFileLogging) {
-        $logDate = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-        $safeJobNameForFile = $currentJobName -replace '[^a-zA-Z0-9_-]', '_' 
-        if (-not [string]::IsNullOrWhiteSpace($Global:GlobalLogDirectory) -and (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
-             $Global:GlobalLogFile = Join-Path -Path $Global:GlobalLogDirectory -ChildPath "$($safeJobNameForFile)_$($logDate).log"
-             & $LoggerScriptBlock -Message "[INFO] Logging for job '$currentJobName' to file: $($Global:GlobalLogFile)" -Level "INFO"
-        } else {
-            & $LoggerScriptBlock -Message "[WARNING] Log directory is not valid. File logging for job '$currentJobName' will be skipped." -Level "WARNING"
-        }
+if ($jobsToProcess.Count -gt 0) {
+    $runParams = @{
+        JobsToProcess            = $jobsToProcess
+        CurrentSetName           = $currentSetName
+        StopSetOnErrorPolicy     = $stopSetOnError
+        SetSpecificPostRunAction = $setSpecificPostRunAction 
+        Configuration            = $Configuration
+        PSScriptRootForPaths     = $PSScriptRoot
+        ActualConfigFile         = $ActualConfigFile
+        IsSimulateMode           = $IsSimulateMode
+        Logger                   = $LoggerScriptBlock
+        PSCmdlet                 = $PSCmdlet
+        CliOverrideSettings      = $cliOverrideSettings
     }
+    # Invoke-PoShBackupRun is from JobOrchestrator.psm1
+    $orchestratorResult = Invoke-PoShBackupRun @runParams
 
-    $jobConfig = $Configuration.BackupLocations[$currentJobName] 
-    $jobSucceeded = $false 
-    $effectiveJobConfigForThisJob = $null 
-
+    # WORKAROUND: Re-import Utils.psm1 locally to ensure its commands are available
+    # for the final script operations. This addresses an issue where the Utils module's
+    # commands (despite initial global import) become unavailable after returning from
+    # the JobOrchestrator.psm1 module.
     try {
-        # Parameters for Get-PoShBackupJobEffectiveConfiguration
-        $effectiveConfigParams = @{
-            JobConfig            = $jobConfig 
-            GlobalConfig         = $Configuration 
-            CliOverrides         = $cliOverrideSettings
-            JobReportDataRef     = ([ref]$currentJobReportData) 
-            Logger               = $LoggerScriptBlock 
-            # IsSimulateMode is NOT passed to Get-PoShBackupJobEffectiveConfiguration
-        }
-        $effectiveJobConfigForThisJob = Get-PoShBackupJobEffectiveConfiguration @effectiveConfigParams
-        
-        # Parameters for Invoke-PoShBackupJob (includes IsSimulateMode)
-        $invokePoShBackupJobParams = @{
-            JobName              = $currentJobName
-            JobConfig            = $effectiveJobConfigForThisJob # Pass the resolved effective config
-            GlobalConfig         = $Configuration 
-            PSScriptRootForPaths = $PSScriptRoot 
-            ActualConfigFile     = $ActualConfigFile
-            JobReportDataRef     = ([ref]$currentJobReportData) 
-            IsSimulateMode       = $IsSimulateMode # Invoke-PoShBackupJob DOES take this
-            Logger               = $LoggerScriptBlock 
-            PSCmdlet             = $PSCmdlet # Pass $PSCmdlet for ShouldProcess in Operations
-        }
-        $jobResult = Invoke-PoShBackupJob @invokePoShBackupJobParams
-        $currentJobIndividualStatus = $jobResult.Status 
-        $jobSucceeded = ($currentJobIndividualStatus -eq "SUCCESS" -or $currentJobIndividualStatus -eq "SIMULATED_COMPLETE")
-
-        if (-not $currentSetName) {
-            $jobSpecificPostRunAction = $effectiveJobConfigForThisJob.PostRunAction
-        }
-
+        # & $LoggerScriptBlock -Message "[WORKAROUND PoSh-Backup.ps1] Re-importing Utils.psm1 locally..." -Level "DEBUG"
+        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -ErrorAction Stop
     } catch {
-        $currentJobIndividualStatus = "FAILURE" 
-        & $LoggerScriptBlock -Message "[FATAL] Top-level unhandled exception during Invoke-PoShBackupJob for job '$currentJobName': $($_.Exception.ToString())" -Level "ERROR"
-        $currentJobReportData['ErrorMessage'] = $_.Exception.ToString()
+        & $LoggerScriptBlock -Message "[FATAL PoSh-Backup.ps1] Failed to re-import Utils.psm1 locally. Error: $($_.Exception.Message)" -Level "ERROR"
+        # If this fails, subsequent Get-ConfigValue calls will likely fail.
     }
+    # END WORKAROUND
 
-    $currentJobReportData['LogEntries']  = if ($null -ne $Global:GlobalJobLogEntries) { $Global:GlobalJobLogEntries } else { [System.Collections.Generic.List[object]]::new() }
-    $currentJobReportData['HookScripts'] = if ($null -ne $Global:GlobalJobHookScriptData) { $Global:GlobalJobHookScriptData } else { [System.Collections.Generic.List[object]]::new() }
+    # Diagnostics removed from here
 
-    if (-not ($currentJobReportData.PSObject.Properties.Name -contains 'OverallStatus')) {
-        $currentJobReportData.OverallStatus = $currentJobIndividualStatus
-    }
-    $currentJobReportData['ScriptEndTime'] = Get-Date
-    if (($currentJobReportData.PSObject.Properties.Name -contains 'ScriptStartTime') -and `
-        ($null -ne $currentJobReportData.ScriptStartTime) -and `
-        ($null -ne $currentJobReportData.ScriptEndTime)) {
-        $currentJobReportData['TotalDuration'] = $currentJobReportData.ScriptEndTime - $currentJobReportData.ScriptStartTime
-        $currentJobReportData['TotalDurationSeconds'] = ($currentJobReportData.ScriptEndTime - $currentJobReportData.ScriptStartTime).TotalSeconds
-    } else {
-        $currentJobReportData['TotalDuration'] = "N/A (Timing data incomplete)"
-        $currentJobReportData['TotalDurationSeconds'] = 0
-    }
-    if (($currentJobReportData.PSObject.Properties.Name -contains 'OverallStatus') -and $currentJobReportData.OverallStatus -eq "FAILURE" -and -not ($currentJobReportData.PSObject.Properties.Name -contains 'ErrorMessage')) {
-        $currentJobReportData['ErrorMessage'] = "Job failed; specific error caught by main loop or not recorded by Invoke-PoShBackupJob."
-    }
-
-    if ($currentJobIndividualStatus -eq "FAILURE") { $overallSetStatus = "FAILURE" }
-    elseif ($currentJobIndividualStatus -eq "WARNINGS" -and $overallSetStatus -ne "FAILURE") { $overallSetStatus = "WARNINGS" }
-
-    $displayStatusForLog = $currentJobReportData.OverallStatus
-    & $LoggerScriptBlock -Message "Finished processing job '$currentJobName'. Status: $displayStatusForLog" -Level $displayStatusForLog
-
-    $_jobSpecificReportTypesSetting = if ($jobConfig.ContainsKey('ReportGeneratorType')) { $jobConfig.ReportGeneratorType } elseif ($Configuration.ContainsKey('ReportGeneratorType')) { $Configuration.ReportGeneratorType } else { "HTML" }
-    $_jobReportGeneratorTypesList = [System.Collections.Generic.List[string]]::new()
-    if ($_jobSpecificReportTypesSetting -is [array]) {
-        $_jobSpecificReportTypesSetting | ForEach-Object { $_jobReportGeneratorTypesList.Add($_.ToString().ToUpperInvariant()) }
-    } else {
-        $_jobReportGeneratorTypesList.Add($_jobSpecificReportTypesSetting.ToString().ToUpperInvariant())
-    }
-    if ($cliOverrideSettings.GenerateHtmlReport -eq $true) { 
-        if ("HTML" -notin $_jobReportGeneratorTypesList) { $_jobReportGeneratorTypesList.Add("HTML") }
-        if ($_jobReportGeneratorTypesList.Contains("NONE") -and $_jobReportGeneratorTypesList.Count -gt 1) { $_jobReportGeneratorTypesList.Remove("NONE") } 
-        elseif ($_jobReportGeneratorTypesList.Count -eq 1 -and $_jobReportGeneratorTypesList[0] -eq "NONE") { $_jobReportGeneratorTypesList = [System.Collections.Generic.List[string]]@("HTML") }
-    }
-    $_finalJobReportTypes = $_jobReportGeneratorTypesList | Select-Object -Unique
-    $_activeReportTypesForJob = $_finalJobReportTypes | Where-Object { $_ -ne "NONE" }
-
-    if ($_activeReportTypesForJob.Count -gt 0) {
-        $defaultJobReportsDir = Join-Path -Path $PSScriptRoot -ChildPath "Reports" 
-        if (-not (Test-Path -LiteralPath $defaultJobReportsDir -PathType Container)) {
-            & $LoggerScriptBlock -Message "[INFO] Default reports directory '$defaultJobReportsDir' does not exist. Attempting to create..." -Level "INFO"
-            try {
-                New-Item -Path $defaultJobReportsDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
-                & $LoggerScriptBlock -Message "  - Default reports directory '$defaultJobReportsDir' created successfully." -Level "SUCCESS"
-            } catch {
-                & $LoggerScriptBlock -Message "[WARNING] Failed to create default reports directory '$defaultJobReportsDir'. Report generation may fail. Error: $($_.Exception.Message)" -Level "WARNING"
-            }
+    $overallSetStatus = $orchestratorResult.OverallSetStatus
+    
+    # Determine which PostRunAction to use: CLI > Set > Job (single) > Global
+    if ($null -ne $cliOverrideSettings.PostRunActionCli) {
+        $finalPostRunActionToConsider = @{
+            Enabled         = ($cliOverrideSettings.PostRunActionCli.ToLowerInvariant() -ne "none")
+            Action          = $cliOverrideSettings.PostRunActionCli
+            DelaySeconds    = if ($null -ne $cliOverrideSettings.PostRunActionDelaySecondsCli) { $cliOverrideSettings.PostRunActionDelaySecondsCli } else { 0 }
+            TriggerOnStatus = if ($null -ne $cliOverrideSettings.PostRunActionTriggerOnStatusCli) { @($cliOverrideSettings.PostRunActionTriggerOnStatusCli) } else { @("ANY") }
+            ForceAction     = if ($null -ne $cliOverrideSettings.PostRunActionForceCli) { $cliOverrideSettings.PostRunActionForceCli } else { $false }
         }
-        Invoke-ReportGenerator -ReportDirectory $defaultJobReportsDir `
-                               -JobName $currentJobName `
-                               -ReportData $currentJobReportData `
-                               -GlobalConfig $Configuration `
-                               -JobConfig $jobConfig `
-                               -Logger $LoggerScriptBlock 
+        $actionSourceForLog = "CLI Override"
+    } elseif ($null -ne $orchestratorResult.SetSpecificPostRunAction) {
+        $finalPostRunActionToConsider = $orchestratorResult.SetSpecificPostRunAction
+        $actionSourceForLog = "Backup Set '$currentSetName'"
+    } elseif ($null -ne $orchestratorResult.JobSpecificPostRunActionForNonSet) {
+        $finalPostRunActionToConsider = $orchestratorResult.JobSpecificPostRunActionForNonSet
+        $actionSourceForLog = "Job '$($jobsToProcess[0])'" # If single job, its PRA
+    } else { 
+        $globalDefaultsPRA = Utils\Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{}
+        if ($null -ne $globalDefaultsPRA -and $globalDefaultsPRA.ContainsKey('Enabled') -and $globalDefaultsPRA.Enabled) {
+            $finalPostRunActionToConsider = $globalDefaultsPRA
+            $actionSourceForLog = "Global Defaults"
+        }
     }
-
-    if ($currentSetName -and (-not $jobSucceeded) -and $stopSetOnError) {
-        & $LoggerScriptBlock -Message "[ERROR] Job '$currentJobName' in set '$currentSetName' failed (operational status: $currentJobIndividualStatus). Stopping set as 'OnErrorInJob' policy is 'StopSet'." -Level "ERROR"
-        break 
+} else { # If no jobs were processed
+    & $LoggerScriptBlock -Message "[INFO] No jobs were processed." -Level "INFO"
+    if ($null -ne $cliOverrideSettings.PostRunActionCli) {
+        $finalPostRunActionToConsider = @{
+            Enabled         = ($cliOverrideSettings.PostRunActionCli.ToLowerInvariant() -ne "none")
+            Action          = $cliOverrideSettings.PostRunActionCli
+            DelaySeconds    = if ($null -ne $cliOverrideSettings.PostRunActionDelaySecondsCli) { $cliOverrideSettings.PostRunActionDelaySecondsCli } else { 0 }
+            TriggerOnStatus = if ($null -ne $cliOverrideSettings.PostRunActionTriggerOnStatusCli) { @($cliOverrideSettings.PostRunActionTriggerOnStatusCli) } else { @("ANY") }
+            ForceAction     = if ($null -ne $cliOverrideSettings.PostRunActionForceCli) { $cliOverrideSettings.PostRunActionForceCli } else { $false }
+        }
+        $actionSourceForLog = "CLI Override (No jobs run)"
+    } else { 
+        $globalDefaultsPRA = Utils\Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{} 
+        if ($null -ne $globalDefaultsPRA -and $globalDefaultsPRA.ContainsKey('Enabled') -and $globalDefaultsPRA.Enabled) {
+            $finalPostRunActionToConsider = $globalDefaultsPRA
+            $actionSourceForLog = "Global Defaults (No jobs run)"
+        }
     }
-} 
+}
 #endregion
 
 #region --- Final Script Summary & Exit ---
@@ -621,8 +573,6 @@ switch ($effectivePauseBehaviour) {
     }
 }
 if (($IsSimulateMode.IsPresent -or $TestConfig.IsPresent) -and $effectivePauseBehaviour -ne "always") { 
-    # If in Simulate or TestConfig mode, only pause if 'always' is explicitly set.
-    # This was the previous behaviour for TestConfig, extending to Simulate for consistency.
     $shouldPhysicallyPause = $false
 }
 
@@ -638,61 +588,32 @@ if ($shouldPhysicallyPause) {
 }
 
 # --- Post-Run System Action Logic ---
-$finalPostRunActionSettings = $null
-$actionSource = "None" 
-
-if ($null -ne $cliOverrideSettings.PostRunActionCli) {
-    $finalPostRunActionSettings = @{
-        Enabled         = ($cliOverrideSettings.PostRunActionCli.ToLowerInvariant() -ne "none")
-        Action          = $cliOverrideSettings.PostRunActionCli
-        DelaySeconds    = if ($null -ne $cliOverrideSettings.PostRunActionDelaySecondsCli) { $cliOverrideSettings.PostRunActionDelaySecondsCli } else { 0 }
-        TriggerOnStatus = if ($null -ne $cliOverrideSettings.PostRunActionTriggerOnStatusCli) { @($cliOverrideSettings.PostRunActionTriggerOnStatusCli) } else { @("ANY") }
-        ForceAction     = if ($null -ne $cliOverrideSettings.PostRunActionForceCli) { $cliOverrideSettings.PostRunActionForceCli } else { $false }
-    }
-    $actionSource = "CLI Override"
-} elseif ($null -ne $setSpecificPostRunAction) {
-    $finalPostRunActionSettings = $setSpecificPostRunAction
-    $actionSource = "Backup Set '$currentSetName'"
-} elseif ($null -ne $jobSpecificPostRunAction) { 
-    $finalPostRunActionSettings = $jobSpecificPostRunAction
-    $actionSource = "Job '$($jobsToProcess[0])'"
-} else {
-    $globalDefaultsPRA = Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{}
-    if ($null -ne $globalDefaultsPRA -and $globalDefaultsPRA.ContainsKey('Enabled') -and $globalDefaultsPRA.Enabled) {
-        $finalPostRunActionSettings = $globalDefaultsPRA
-        $actionSource = "Global Defaults"
-    }
-}
-
-if ($null -ne $finalPostRunActionSettings -and `
-    $finalPostRunActionSettings.ContainsKey('Enabled') -and $finalPostRunActionSettings.Enabled -eq $true -and `
-    $finalPostRunActionSettings.ContainsKey('Action') -and $finalPostRunActionSettings.Action.ToLowerInvariant() -ne "none") {
+if ($null -ne $finalPostRunActionToConsider -and `
+    $finalPostRunActionToConsider.ContainsKey('Enabled') -and $finalPostRunActionToConsider.Enabled -eq $true -and `
+    $finalPostRunActionToConsider.ContainsKey('Action') -and $finalPostRunActionToConsider.Action.ToLowerInvariant() -ne "none") {
     
-    $triggerStatuses = @($finalPostRunActionSettings.TriggerOnStatus | ForEach-Object { $_.ToUpperInvariant() })
+    $triggerStatuses = @($finalPostRunActionToConsider.TriggerOnStatus | ForEach-Object { $_.ToUpperInvariant() })
     $effectiveOverallStatusForTrigger = $overallSetStatus.ToUpperInvariant()
     if ($TestConfig.IsPresent) { $effectiveOverallStatusForTrigger = "SIMULATED_COMPLETE" } 
 
     if ($triggerStatuses -contains "ANY" -or $effectiveOverallStatusForTrigger -in $triggerStatuses) {
-        # Action will be attempted or simulated
-        if ($actionSource -ne "None") {
-            & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from $($actionSource)." -Level "INFO"
+        if (-not [string]::IsNullOrWhiteSpace($actionSourceForLog) -and $actionSourceForLog -ne "None") { # Added check for "None"
+            & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from $($actionSourceForLog)." -Level "INFO"
         }
-        & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Conditions met for action '$($finalPostRunActionSettings.Action)' (Source: $actionSource, Triggered by Status: $effectiveOverallStatusForTrigger)." -Level "INFO"
+        & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Conditions met for action '$($finalPostRunActionToConsider.Action)' (Triggered by Status: $effectiveOverallStatusForTrigger)." -Level "INFO"
         
         $systemActionParams = @{
-            Action          = $finalPostRunActionSettings.Action
-            DelaySeconds    = $finalPostRunActionSettings.DelaySeconds
-            ForceAction     = $finalPostRunActionSettings.ForceAction
+            Action          = $finalPostRunActionToConsider.Action
+            DelaySeconds    = $finalPostRunActionToConsider.DelaySeconds
+            ForceAction     = $finalPostRunActionToConsider.ForceAction
             IsSimulateMode  = ($IsSimulateMode.IsPresent -or $TestConfig.IsPresent) 
             Logger          = $LoggerScriptBlock
             PSCmdletInstance = $PSCmdlet 
         }
+        # Invoke-SystemStateAction is from SystemStateManager.psm1
         Invoke-SystemStateAction @systemActionParams
     }
-    # If not triggered by status, no INFO/DEBUG log will be generated about it.
 }
-# If the above 'if' condition is false (no action configured, or disabled, or action is "None"),
-# then no logging related to Post-Run Actions occurs at all.
 # --- END Post-Run System Action Logic ---
 
 

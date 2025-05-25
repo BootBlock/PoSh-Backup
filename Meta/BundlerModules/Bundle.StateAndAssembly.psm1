@@ -15,7 +15,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.9 # Updated conversation summary for Utils.psm1 refactoring.
+    Version:        1.1.10 # Updated conversation summary for Utils.psm1 refactoring.
     DateCreated:    17-May-2025
     LastModified:   25-May-2025
     Purpose:        AI State generation and final bundle assembly for the AI project bundler.
@@ -83,14 +83,25 @@ function Get-BundlerAIState {
     if (-not $aiState.ContainsKey('external_dependencies')) { $aiState.external_dependencies = @{} }
     $aiState.external_dependencies.powershell_modules = $psModulesForState
 
-    $thisModuleVersion = "1.1.9" # Updated version of this specific module
+    $thisModuleVersion = "1.1.10" # Updated version of this specific module
     
     # This $currentConversationSummary should match the one in AIState.template.psd1
     $currentConversationSummary = @(
         "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).",
-        "Modular design: Core modules, Reporting sub-modules (including Modules\Reporting\Assets and Modules\ConfigManagement\Assets directories), Config files, and Meta/ (bundler).",
+        "Modular design: Core modules (now including Modules\Core\), Reporting sub-modules (including Modules\\Reporting\\Assets), ConfigManagement sub-modules (including Modules\\ConfigManagement\\Assets), Utilities sub-modules (Modules\Utilities\), Config files, and Meta/ (bundler).",
         "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v$($thisModuleVersion)).",
-        "--- Refactoring of Utils.psm1 (Current Session) ---",
+        "--- Refactoring of PoSh-Backup.ps1 and Core Modules (Current Session) ---",
+        "  - Goal: Further modularise PoSh-Backup.ps1 by extracting its main job processing loop.",
+        "  - New subdirectory `Modules\\Core\\` created.",
+        "  - New module `Modules\\Core\\JobOrchestrator.psm1` (v1.0.1) created to handle the main job/set processing loop.",
+        "  - `Modules\\ConfigManager.psm1` (v1.2.0 -> v1.2.1) moved to `Modules\\Core\\ConfigManager.psm1`; internal paths updated.",
+        "  - `Modules\\Operations.psm1` (v1.19.5 -> v1.20.0) moved to `Modules\\Core\\Operations.psm1`; internal paths updated.",
+        "  - `PoSh-Backup.ps1` (v1.11.5 -> v1.12.1) significantly refactored:",
+        "    - Main job processing loop delegated to `Invoke-PoShBackupRun` in `JobOrchestrator.psm1`.",
+        "    - Imports updated for modules now in `Modules\\Core\\`.",
+        "    - Workaround implemented (local re-import of `Utils.psm1`) to address module scoping issue where `Utils.psm1` commands became unavailable after returning from `JobOrchestrator.psm1`.",
+        "  - All changes tested successfully by the user.",
+        "--- Refactoring of Utils.psm1 (Previous Session Segment) ---",
         "  - Goal: Improve organisation and maintainability of utility functions.",
         "  - `Modules\\Utils.psm1` (v1.12.0 -> v1.13.3) refactored into a facade module.",
         "  - New subdirectory `Modules\\Utilities\\` created.",
@@ -105,7 +116,7 @@ function Get-BundlerAIState {
         "  - All changes tested successfully by the user.",
         "--- Further Modularisation of PoSh-Backup.ps1 and ReportingHtml.psm1 (Previous Session) ---",
         "  - Goal: Reduce size of larger script files for AI efficiency and improve maintainability.",
-        "  - `PoSh-Backup.ps1` (v1.11.4 -> v$($PoShBackupVersion)) refactored:",
+        "  - `PoSh-Backup.ps1` (v1.11.4 -> v$($PoShBackupVersion) - before current refactor) refactored:",
         "    - Logic for `-ListBackupLocations`, `-ListBackupSets`, and `-TestConfig` modes moved to a new module.",
         "    - New module: `Modules\\ScriptModeHandler.psm1` (v1.0.0) created to handle these informational modes, which calls `exit` internally.",
         "    - This significantly reduced the line count of `PoSh-Backup.ps1` (approx. -90 lines).",
@@ -120,11 +131,11 @@ function Get-BundlerAIState {
         "  - Console blank line issue during HTML report generation investigated and resolved by refactoring internal logger helper in `ReportingHtml.psm1` and removing temporary diagnostic lines.",
         "--- Major Refactoring: Modularisation of Operations.psm1 and ConfigManager.psm1 (Previous Session) ---",
         "  - Goal: Improve maintainability, readability, and testability of large modules.",
-        "  - `Operations.psm1` (v1.18.6 -> v1.19.5) refactored:",
+        "  - `Operations.psm1` (v1.18.6 -> v1.19.5 - before move to Core) refactored:",
         "    - Now acts as an orchestrator for job lifecycle stages.",
         "    - New sub-module: `Modules\\Operations\\LocalArchiveProcessor.psm1` (v1.0.3) created.",
         "    - New sub-module: `Modules\\Operations\\RemoteTransferOrchestrator.psm1` (v1.0.1) created.",
-        "  - `ConfigManager.psm1` (v1.1.5 -> v1.2.0) refactored:",
+        "  - `ConfigManager.psm1` (v1.1.5 -> v1.2.0 - before move to Core) refactored:",
         "    - Now acts as a facade for configuration management functions.",
         "    - New sub-module: `Modules\\ConfigManagement\\ConfigLoader.psm1` (v1.0.0) created.",
         "    - New sub-module: `Modules\\ConfigManagement\\JobResolver.psm1` (v1.0.1) created.",
@@ -136,7 +147,7 @@ function Get-BundlerAIState {
         "  - Goal: Enhance archive integrity with optional checksums.",
         "  - Configuration (`Config\\Default.psd1` v1.3.8): Added global and job-level checksum settings.",
         "  - Schema Validation (`Modules\\PoShBackupValidator.psm1` v1.5.2): Updated for checksum settings.",
-        "  - Utility Function (`Modules\\Utils.psm1` v1.12.0 - before refactor, current v1.13.3): Added `Get-PoshBackupFileHash`.",
+        "  - Utility Function (`Modules\\Utils.psm1` v1.13.0 - before refactor, current v1.13.3): Added `Get-PoshBackupFileHash`.",
         "  - Operations (`Modules\\Operations.psm1` v1.18.6 - before refactor): Implemented checksum logic.",
         "  - Config Management (`Modules\\ConfigManager.psm1` v1.1.5 - before refactor): Resolved checksum settings.",
         "  - Reporting Modules: Updated to display checksum information.",
@@ -145,7 +156,7 @@ function Get-BundlerAIState {
         "--- Previous Major Feature: Post-Run System Actions (Shutdown, Restart, etc.) ---",
         "  - Goal: Allow PoSh-Backup to perform system state changes after job/set completion.",
         "  - New Module (`Modules\\SystemStateManager.psm1` v1.0.2).",
-        "  - Configuration (`Config\\Default.psd1` v1.3.5 - before checksums & DestinationDir clarification): Added PostRunAction settings.",
+        "  - Configuration (`Config\\Default.psd1` v1.3.8 - before checksums & DestinationDir clarification): Added PostRunAction settings.",
         "  - Schema Validation (`Modules\\PoShBackupValidator.psm1` v1.3.5 - before checksums & schema externalisation): Updated.",
         "  - Config Management (`Modules\\ConfigManager.psm1` v1.1.4 - before checksums & major refactor): Updated.",
         "  - Main Script (`PoSh-Backup.ps1` v1.10.1 - for PostRunAction): Updated.",
@@ -160,7 +171,7 @@ function Get-BundlerAIState {
         "--- Previous Work (Selected Highlights) ---",
         "Network Share Handling Improvements, Retention Policy Confirmation, HTML Report Enhancements, PSSA compliance.",
         "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) is stable.",
-        "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums features added. Major refactorings completed (ConfigManager, Operations, PoSh-Backup.ps1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP `ConvertTo-SecureString` items. Pester tests non-functional."
+        "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums features added. Extensive refactorings completed (ConfigManager, Operations, PoSh-Backup.ps1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP ConvertTo-SecureString items. Pester tests non-functional."
     )
 
     $aiState.conversation_summary = $currentConversationSummary

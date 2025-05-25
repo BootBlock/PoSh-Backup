@@ -16,8 +16,8 @@
     "REGEX: Be cautious with string interpolation vs. literal characters in regex patterns. Test regex patterns carefully. Ensure PowerShell string parsing is correct before regex engine sees it.",
     "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting, including through new Backup Target provider models and PostRunAction feature.",
     "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`, `VSSStatus`, `VSSAttempted`, and new `TargetTransfers` array with its `ReplicationDetails`) is correctly set in `theReportDataRefRef` (a ref object) *before* report generation functions are called.",
-    "SCOPE: Double-check variable scopes. `$Global:StatusToColourMap` and associated `$Global:Colour<Name>` variables in `PoSh-Backup.ps1` must be correctly defined and accessible when `Write-LogMessage` (from `Utils.psm1` or its sub-modules) is invoked, even during early module loading or from deeply nested calls. An explicit 'ERROR' key in the map resolved a color issue.", # Updated Write-LogMessage source
-    "STRUCTURE: Respect the modular design. Ensure functions are placed in the most logical module. New target providers go in `Modules\Targets\`. New system state functions in `Modules\SystemStateManager.psm1`. Ensure new sub-modules (e.g., under `Modules\Operations\`, `Modules\ConfigManagement\`, `Modules\Utilities\`) are correctly structured and imported.", # Added Modules\Utilities
+    "SCOPE: Double-check variable scopes. `$Global:StatusToColourMap` and associated `$Global:Colour<Name>` variables in `PoSh-Backup.ps1` must be correctly defined and accessible when `Write-LogMessage` (exported by `Utils.psm1` facade, sourced from `Logging.psm1`) is invoked, even during early module loading or from deeply nested calls. An explicit 'ERROR' key in the map resolved a color issue.",
+    "STRUCTURE: Respect the modular design. Ensure functions are placed in the most logical module. New target providers go in Modules\Targets`. New system state functions in Modules\SystemStateManager.psm1. Ensure new sub-modules (e.g., under Modules\Core\, Modules\Operations\, Modules\ConfigManagement\, Modules\Utilities\) are correctly structured and imported.", # Added Modules\Utilities
     "BRACES/PARENS: Meticulously check for balanced curly braces `{}`, parentheses `()`, and square brackets `[]` in all generated code.",
     "PSSA (BUNDLER): Bundler's `Invoke-ScriptAnalyzer` summary may not perfectly reflect all suppressions from `PSScriptAnalyzerSettings.psd1` or inline suppressions, even if VS Code shows no issues. This was observed with `PSUseApprovedVerbs`. The interpretation of 'empty catch block' also needs attention; ensure catch blocks either `throw` or use `Write-Error` explicitly if PSSA continues to flag them despite logging.",
     "PSSA (CMDLET VERBS): Ensure new public functions follow approved verbs. If a plural noun seems descriptive for an internal orchestrator (e.g. `Invoke-AllRemoteTargetTransfers`), discuss if renaming (e.g. `Invoke-RemoteTargetTransferOrchestration`) or suppression is preferred. Strict adherence was chosen in recent refactoring.",
@@ -33,9 +33,9 @@
   )
 
   conversation_summary = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.11.5).",
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.12.1).",
     "Modular design: Core modules, Reporting sub-modules (including Modules\Reporting\Assets and Modules\ConfigManagement\Assets directories), Config files, and Meta/ (bundler).",
-    "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.1.9).", # Updated version
+    "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.1.10).", # Updated version
     "--- Refactoring of Utils.psm1 (Current Session) ---",
     "  - Goal: Improve organisation and maintainability of utility functions.",
     "  - `Modules\\Utils.psm1` (v1.12.0 -> v1.13.3) refactored into a facade module.",
@@ -109,7 +109,7 @@
     "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums features added. Major refactorings completed (ConfigManager, Operations, PoSh-Backup.ps1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP `ConvertTo-SecureString` items. Pester tests non-functional." # Updated overall status
   )
 
-  main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.11.5
+  main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.12.1
 
   ai_bundler_update_instructions = @{
     purpose = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
