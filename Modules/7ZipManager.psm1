@@ -3,13 +3,16 @@
     Manages all 7-Zip executable interactions for the PoSh-Backup solution.
     This includes finding the 7-Zip executable, constructing command arguments,
     executing 7-Zip operations (archiving, testing), and handling retries.
+    Now supports creating Self-Extracting Archives (SFX) with selectable module types.
 
 .DESCRIPTION
     The 7ZipManager module centralises 7-Zip specific logic, making the main backup script
     and other modules cleaner by abstracting the direct interactions with the 7z.exe tool.
     It provides functions to:
     - Auto-detect the 7z.exe path.
-    - Build the complex argument list required for 7-Zip commands based on configuration.
+    - Build the complex argument list required for 7-Zip commands based on configuration,
+      including the '-sfx' switch (with optional module specification like '7zS.sfx' or '7zSD.sfx')
+      if creating a self-extracting archive.
     - Execute 7-Zip for creating archives, supporting features like process priority and retries.
     - Execute 7-Zip for testing archive integrity, also with retry support.
 
@@ -19,9 +22,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.6
+    Version:        1.0.8 # Added SFXModule support for choosing SFX type.
     DateCreated:    17-May-2025
-    LastModified:   18-May-2025
+    LastModified:   25-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     7-Zip (7z.exe) must be installed.
@@ -117,13 +120,15 @@ function Get-PoShBackup7ZipArgument {
         This function takes the effective configuration for a backup job, the final archive path,
         source paths, and an optional temporary password file path, then assembles the
         appropriate 7-Zip command-line switches and arguments for an archive creation operation.
+        It now includes logic to add the '-sfx' switch with an optional SFX module name
+        (e.g., 7zS.sfx, 7zSD.sfx) if creating a self-extracting archive.
     .PARAMETER EffectiveConfig
         A hashtable containing the fully resolved configuration settings for the current backup job.
-        This includes 7-Zip specific parameters (compression level, type, etc.), exclusions,
-        and password usage flags. It's also expected to contain a 'GlobalConfigRef' key pointing
+        This includes 7-Zip specific parameters, exclusions, password usage flags, 'CreateSFX',
+        and 'SFXModule'. It's also expected to contain a 'GlobalConfigRef' key pointing
         to the global configuration for default exclusion patterns.
     .PARAMETER FinalArchivePath
-        The full path and filename for the target archive that 7-Zip will create.
+        The full path and filename for the target archive that 7-Zip will create (e.g., archive.7z or archive.exe).
     .PARAMETER CurrentJobSourcePathFor7Zip
         The source path(s) to be archived. This can be a single string or an array of strings.
         These paths might be original source paths or VSS shadow paths.
@@ -136,7 +141,7 @@ function Get-PoShBackup7ZipArgument {
         System.Array
         An array of strings, where each string is an argument or switch for 7z.exe.
     .EXAMPLE
-        # $args = Get-PoShBackup7ZipArgument -EffectiveConfig $jobSettings -FinalArchivePath "D:\Backup.7z" -CurrentJobSourcePathFor7Zip "C:\Data" -Logger ${function:Write-LogMessage}
+        # $args = Get-PoShBackup7ZipArgument -EffectiveConfig $jobSettings -FinalArchivePath "D:\Backup.exe" -CurrentJobSourcePathFor7Zip "C:\Data" -Logger ${function:Write-LogMessage}
         # & "7z.exe" $args
     #>
     param(
@@ -166,6 +171,7 @@ function Get-PoShBackup7ZipArgument {
     $sevenZipArgs.Add("a") # Add (archive) command
 
     # Add configured 7-Zip switches
+    # JobArchiveType determines the internal archive format (e.g., -t7z, -tzip)
     if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobArchiveType)) { $sevenZipArgs.Add($EffectiveConfig.JobArchiveType) }
     if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobCompressionLevel)) { $sevenZipArgs.Add($EffectiveConfig.JobCompressionLevel) }
     if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobCompressionMethod)) { $sevenZipArgs.Add($EffectiveConfig.JobCompressionMethod) }
@@ -174,6 +180,22 @@ function Get-PoShBackup7ZipArgument {
     if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSolidBlockSize)) { $sevenZipArgs.Add($EffectiveConfig.JobSolidBlockSize) }
     if ($EffectiveConfig.JobCompressOpenFiles) { $sevenZipArgs.Add("-ssw") } # Compress shared files
     if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.ThreadsSetting)) {$sevenZipArgs.Add($EffectiveConfig.ThreadsSetting) } # -mmt or -mmt=N
+
+    # Add -sfx switch if creating a self-extracting archive
+    if ($EffectiveConfig.ContainsKey('CreateSFX') -and $EffectiveConfig.CreateSFX -eq $true) {
+        $sfxModuleSwitch = "-sfx" # Default SFX switch (uses 7z.exe's default, e.g., 7zCon.sfx)
+        if ($EffectiveConfig.ContainsKey('SFXModule')) {
+            $sfxModuleType = $EffectiveConfig.SFXModule.ToString().ToUpperInvariant()
+            
+            switch ($sfxModuleType) {
+                "GUI"       { $sfxModuleSwitch = "-sfx7zS.sfx" } # Standard GUI SFX
+                "INSTALLER" { $sfxModuleSwitch = "-sfx7zSD.sfx" } # Installer GUI SFX
+                # "CONSOLE" or "DEFAULT" or any other value will use the plain "-sfx"
+            }
+        }
+        $sevenZipArgs.Add($sfxModuleSwitch)
+        & $LocalWriteLog -Message "  - Get-PoShBackup7ZipArgument: Added SFX switch '$sfxModuleSwitch' (SFXModule type: '$($EffectiveConfig.SFXModule)')." -Level "DEBUG"
+    }
 
     # Add default global exclusions (Recycle Bin, System Volume Information)
     # Get-ConfigValue is now available due to Import-Module Utils.psm1 at the top of this module.

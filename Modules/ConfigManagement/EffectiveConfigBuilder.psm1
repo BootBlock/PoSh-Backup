@@ -16,15 +16,15 @@
 
     This function resolves settings for local archive creation, local retention,
     remote target assignments (by looking up 'TargetNames' in the global 'BackupTargets'
-    section), PostRunAction settings, and Checksum settings. The resolved configuration
-    is then used by the Operations module to execute the backup job.
+    section), PostRunAction settings, Checksum settings, and SFX creation (including SFX module type).
+    The resolved configuration is then used by the Operations module to execute the backup job.
 
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Addressed PSSA warning for unused Logger parameter.
+    Version:        1.0.3 # Added SFXModule resolution.
     DateCreated:    24-May-2025
-    LastModified:   24-May-2025
+    LastModified:   25-May-2025
     Purpose:        To modularise the effective job configuration building logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the parent 'Modules' directory for Get-ConfigValue.
@@ -46,7 +46,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     .SYNOPSIS
         Gathers the effective configuration for a single backup job by merging global,
         job-specific, and command-line override settings, including Backup Target, PostRunAction,
-        and Checksum resolution.
+        Checksum, and SFX (with module type) resolution.
     .DESCRIPTION
         This function takes a specific job's raw configuration, the global configuration,
         and any command-line overrides, then resolves the final settings that will be
@@ -54,12 +54,13 @@ function Get-PoShBackupJobEffectiveConfiguration {
         job-specific settings, then global settings.
         It now also resolves 'TargetNames' specified in the job configuration by looking up
         the full definitions of those targets in the global 'BackupTargets' section,
-        resolves 'PostRunAction' settings, and 'Checksum' settings.
+        resolves 'PostRunAction' settings, 'Checksum' settings, 'CreateSFX', and 'SFXModule' settings.
+        If SFX is enabled, the effective archive extension becomes '.exe'.
     .PARAMETER JobConfig
         A hashtable containing the specific configuration settings for this backup job.
     .PARAMETER GlobalConfig
         A hashtable containing the global configuration settings for PoSh-Backup, including 'BackupTargets',
-        'PostRunActionDefaults', and 'Checksum' defaults.
+        'PostRunActionDefaults', 'Checksum' defaults, 'CreateSFX' defaults, and 'SFXModule' defaults.
     .PARAMETER CliOverrides
         A hashtable containing command-line parameter overrides.
     .PARAMETER JobReportDataRef
@@ -71,7 +72,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
         System.Collections.Hashtable
         A hashtable representing the effective configuration for the job, including an array
         of 'ResolvedTargetInstances' if 'TargetNames' were specified, a 'PostRunAction' hashtable,
-        and checksum-related settings.
+        checksum-related settings, and SFX-related settings (including SFXModule).
     #>
     param(
         [Parameter(Mandatory)] [hashtable]$JobConfig,
@@ -93,15 +94,13 @@ function Get-PoShBackupJobEffectiveConfiguration {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # PSSA: Logger parameter used via $LocalWriteLog
-    # & $LocalWriteLog -Message "EffectiveConfigBuilder/Get-PoShBackupJobEffectiveConfiguration: Logger active." -Level "DEBUG" # Redundant after direct call
-
+    
     $effectiveConfig = @{}
     $reportData = $JobReportDataRef.Value
 
     $effectiveConfig.OriginalSourcePath = $JobConfig.Path
     $effectiveConfig.BaseFileName = $JobConfig.Name
-    $reportData.JobConfiguration = $JobConfig # Store raw job config for reporting
+    $reportData.JobConfiguration = $JobConfig 
 
     # Destination and Target settings
     $effectiveConfig.DestinationDir = Get-ConfigValue -ConfigObject $JobConfig -Key 'DestinationDir' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDestinationDir' -DefaultValue $null)
@@ -156,7 +155,20 @@ function Get-PoShBackupJobEffectiveConfiguration {
 
     # Archive Naming and Type
     $effectiveConfig.JobArchiveType = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveType' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveType' -DefaultValue "-t7z")
-    $effectiveConfig.JobArchiveExtension = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveExtension' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveExtension' -DefaultValue ".7z")
+    
+    # SFX Handling
+    $effectiveConfig.CreateSFX = Get-ConfigValue -ConfigObject $JobConfig -Key 'CreateSFX' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCreateSFX' -DefaultValue $false)
+    $effectiveConfig.SFXModule = Get-ConfigValue -ConfigObject $JobConfig -Key 'SFXModule' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSFXModule' -DefaultValue "Console") # NEW
+    $effectiveConfig.InternalArchiveExtension = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveExtension' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveExtension' -DefaultValue ".7z") 
+    
+    if ($effectiveConfig.CreateSFX) {
+        $effectiveConfig.JobArchiveExtension = ".exe"
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: CreateSFX is TRUE. Effective archive extension set to '.exe'. SFX Module: $($effectiveConfig.SFXModule)." -Level DEBUG
+    } else {
+        $effectiveConfig.JobArchiveExtension = $effectiveConfig.InternalArchiveExtension
+    }
+    # END SFX Handling
+
     $effectiveConfig.JobArchiveDateFormat = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveDateFormat' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd")
 
     # 7-Zip Compression Parameters
@@ -235,6 +247,8 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $reportData.GenerateArchiveChecksum = $effectiveConfig.GenerateArchiveChecksum
     $reportData.ChecksumAlgorithm = $effectiveConfig.ChecksumAlgorithm
     $reportData.VerifyArchiveChecksumOnTest = $effectiveConfig.VerifyArchiveChecksumOnTest
+    $reportData.CreateSFX = $effectiveConfig.CreateSFX 
+    $reportData.SFXModule = $effectiveConfig.SFXModule # NEW: Add to report data
 
     $effectiveConfig.GlobalConfigRef = $GlobalConfig
 

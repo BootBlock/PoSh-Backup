@@ -1,5 +1,5 @@
 # PoSh-Backup
-A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, and optional archive checksum generation/verification.
+A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, and optional Self-Extracting Archive (SFX) creation.
 
 > **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
@@ -43,10 +43,11 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`), including basic validation of Backup Target definitions. Optional advanced schema validation available.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the `DestinationDir` before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives using `7z t`.
-*   **NEW: Archive Checksum Generation & Verification:** Optionally generate a checksum file (e.g., SHA256, MD5) for the local archive. If archive testing is enabled, this checksum can also be verified against the archive content for an additional layer of integrity validation.
+*   **Archive Checksum Generation & Verification:** Optionally generate a checksum file (e.g., SHA256, MD5) for the local archive. If archive testing is enabled, this checksum can also be verified against the archive content for an additional layer of integrity validation.
+*   **Self-Extracting Archives (SFX):** Optionally create Windows self-extracting archives (.exe) for easy restoration on systems without 7-Zip installed. The internal archive format (e.g., 7z, zip) is still configurable. Users can choose the SFX module type (`Console`, `GUI`, `Installer`) to control extraction behavior (e.g., prompt for path).
 *   **Flexible 7-Zip Warning Handling:** Option to treat 7-Zip warnings (exit code 1, e.g., from skipped open files) as a success for job status reporting, configurable globally, per-job, or via CLI.
 *   **Exit Pause Control:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
-*   **NEW: Post-Run System Actions:** Optionally configure the script to perform system actions like Shutdown, Restart, Hibernate, LogOff, Sleep, or Lock Workstation after a job or set completes. This is configurable based on the final status (Success, Warnings, Failure, Any), can include a delay with a cancellation prompt, and can be forced via CLI parameters.
+*   **Post-Run System Actions:** Optionally configure the script to perform system actions like Shutdown, Restart, Hibernate, LogOff, Sleep, or Lock Workstation after a job or set completes. This is configurable based on the final status (Success, Warnings, Failure, Any), can include a delay with a cancellation prompt, and can be forced via CLI parameters.
 
 ## Getting Started
 
@@ -97,10 +98,15 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   Defaults to `$true`. If true, the archive in `DefaultDestinationDir` (or job-specific `DestinationDir`) will be deleted after it has been successfully transferred to ALL specified remote targets for that job. Has no effect if no remote targets are configured for the job. Can be overridden per job.
     *   **`TreatSevenZipWarningsAsSuccess`**: (Global Setting)
         *   Defaults to `$false`. If set to `$true`, 7-Zip warnings (like skipped files) will still result in a "SUCCESS" job status.
-    *   **NEW: Checksum Settings (Global Defaults):**
+    *   **Checksum Settings (Global Defaults):**
         *   `DefaultGenerateArchiveChecksum` (boolean, default `$false`): Set to `$true` to enable checksum generation for all jobs by default.
         *   `DefaultChecksumAlgorithm` (string, default `"SHA256"`): Specifies the default algorithm (e.g., "SHA1", "SHA256", "SHA512", "MD5").
         *   `DefaultVerifyArchiveChecksumOnTest` (boolean, default `$false`): If `$true` (and `DefaultTestArchiveAfterCreation` is also true), the generated checksum will be verified against the archive during the archive test phase.
+    *   **NEW: `DefaultCreateSFX` (Global Setting):**
+        *   `DefaultSFXModule` (string, default `"Console"`): Determines the type of SFX created if `DefaultCreateSFX` is true.
+            *   `"Console"` or `"Default"`: Default 7-Zip console SFX (e.g., `7zCon.sfx`). Extracts to current directory without prompting.
+            *   `"GUI"`: Standard GUI SFX (e.g., `7zS.sfx`). Prompts user for extraction path.
+            *   `"Installer"`: Installer-like GUI SFX (e.g., `7zSD.sfx`). Prompts user for extraction path.
     *   **`BackupTargets` (New Global Section):**
         *   This is where you define your reusable, named remote target configurations.
         *   Each entry (a "target instance") specifies a `Type` (like "UNC", "Replicate") and `TargetSpecificSettings` for that type.
@@ -173,55 +179,66 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   `LocalRetentionCount`: (Renamed from `RetentionCount`) Defines how many archive versions to keep in the `DestinationDir`.
             *   `TargetNames` (New Setting): An array of strings. Each string must be a name of a target instance defined in the global `BackupTargets` section. If you specify target names here, the locally created archive will be transferred to each listed remote target. If `TargetNames` is omitted or empty, the backup is local-only to `DestinationDir`.
             *   `DeleteLocalArchiveAfterSuccessfulTransfer` (Job-Specific): Overrides the global setting for this job.
-        *   **NEW: Job-Specific Checksum Settings:**
+        *   **Checksum Settings (Job-Specific):**
             *   `GenerateArchiveChecksum` (boolean): Overrides `DefaultGenerateArchiveChecksum`.
             *   `ChecksumAlgorithm` (string): Overrides `DefaultChecksumAlgorithm`.
             *   `VerifyArchiveChecksumOnTest` (boolean): Overrides `DefaultVerifyArchiveChecksumOnTest`.
-        *   Example job definition that creates a local archive, sends it to a remote target, and includes checksum settings:
+        *   **NEW: Self-Extracting Archive (SFX) Setting (Job-Specific):**
+            *   `CreateSFX` (boolean, default `$false`): Set to `$true` to create a self-extracting archive (.exe) for this job.
+            *   `SFXModule` (string, default from global `DefaultSFXModule`): Specifies the type of SFX if `CreateSFX` is true. Options: `"Console"`, `"GUI"`, `"Installer"`.
+            *   If `CreateSFX` is `$true`, the `ArchiveExtension` setting for this job (or the global `DefaultArchiveExtension`) will effectively be overridden to `.exe` for the output file. The original `ArchiveExtension` (e.g., ".7z", ".zip") is still used internally to determine the archive type (e.g., for the 7-Zip `-t` switch).
+            *   SFX archives are Windows-specific executables.
+        *   Example job definition that creates a local archive, sends it to a remote target, includes checksum settings, and creates an SFX:
             ```powershell
             # Inside BackupLocations in User.psd1 or Default.psd1
-            "MyDocumentsBackup" = @{
+            "MyDocumentsBackupSFX_GUI" = @{
                 Path           = @( 
-                                 "C:\Users\YourUserName\Documents",
-                                 "E:\WorkProjects\CriticalData"
-                               )
-                Name           = "UserDocumentsArchive" 
-                DestinationDir = "E:\BackupStorage\MyDocs" # If TargetNames below is used, this is staging. Otherwise, final.
+                                "C:\Users\YourUserName\Documents",
+                                "E:\WorkProjects\CriticalData"
+                            )
+                Name           = "UserDocumentsSFX_GUI" 
+                DestinationDir = "E:\BackupStorage\MyDocsSFX" 
                 LocalRetentionCount = 3                     
 
-                TargetNames = @("MyMainUNCShare") # Archive sent to this remote target. "E:\BackupStorage\MyDocs" is staging.
+                TargetNames = @("MyMainUNCShare") 
                 DeleteLocalArchiveAfterSuccessfulTransfer = $true 
 
-                # Checksum settings for this job
+                CreateSFX                   = $true  # Create a self-extracting .exe
+                SFXModule                   = "GUI"  # Use the GUI SFX module (prompts for path)
+                ArchiveExtension            = ".7z"  # Internal archive type will be 7z, final file will be .exe
+                
                 GenerateArchiveChecksum     = $true
                 ChecksumAlgorithm           = "SHA256"
-                VerifyArchiveChecksumOnTest = $true # Will verify if TestArchiveAfterCreation is also true for the job
+                VerifyArchiveChecksumOnTest = $true 
             }
 
             "ImportantProject_Replicated" = @{
                 Path           = "D:\Projects\CriticalProject"
                 Name           = "CriticalProject_MultiCopy"
-                DestinationDir = "C:\Temp\StagingAreaForReplication" # This is staging before replication.
-                LocalRetentionCount = 1 # Keep only 1 in staging after successful replication
+                DestinationDir = "C:\Temp\StagingAreaForReplication" 
+                LocalRetentionCount = 1 
 
-                TargetNames = @("MyReplicatedBackups") # Uses the "Replicate" target defined above
+                TargetNames = @("MyReplicatedBackups") 
                 DeleteLocalArchiveAfterSuccessfulTransfer = $true
+                CreateSFX = $false # Not an SFX
+                SFXModule = "Console" # Not strictly needed if CreateSFX is false, but shows the option
             }
 
             "MyDocumentsToSFTP" = @{
                 Path           = "C:\Users\YourUserName\Documents"
                 Name           = "UserDocuments_SFTP"
-                DestinationDir = "E:\BackupStaging\MyDocsSFTP" # Staging before SFTP.
+                DestinationDir = "E:\BackupStaging\MyDocsSFTP" 
                 LocalRetentionCount = 2
 
-                TargetNames = @("MySecureFTPServer") # Uses the SFTP target defined above
+                TargetNames = @("MySecureFTPServer") 
                 DeleteLocalArchiveAfterSuccessfulTransfer = $true
+                CreateSFX = $false # Not an SFX
 
-                ArchivePasswordMethod = "SecretManagement" # For the 7z archive itself
+                ArchivePasswordMethod = "SecretManagement" 
                 ArchivePasswordSecretName = "MyArchiveEncryptionKey"
             }
             ```
-    *   **NEW: `PostRunActionDefaults` (Global Post-Run System Action Settings):**
+    *   **`PostRunActionDefaults` (Global Post-Run System Action Settings):**
         *   Located in `Config\Default.psd1` (and copied to `User.psd1`), this section defines the default behavior for actions to take after the script finishes processing a job or set.
         *   Example structure in `PostRunActionDefaults`:
             ```powershell
@@ -233,7 +250,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 ForceAction     = $false # Default: $false. If $true, attempts to force Shutdown/Restart.
             }
             ```
-    *   **NEW: `PostRunAction` in `BackupLocations` (Job-Specific Post-Run Actions):**
+    *   **`PostRunAction` in `BackupLocations` (Job-Specific Post-Run Actions):**
         *   Each job defined under `BackupLocations` can have its own `PostRunAction` hashtable.
         *   This allows you to specify a particular system action to occur *after that specific job completes* (and its hooks run).
         *   These job-level settings override `PostRunActionDefaults`.
@@ -252,7 +269,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 }
             }
             ```
-    *   **NEW: `PostRunAction` in `BackupSets` (Set-Specific Post-Run Actions):**
+    *   **`PostRunAction` in `BackupSets` (Set-Specific Post-Run Actions):**
         *   Each set defined under `BackupSets` can also have its own `PostRunAction` hashtable.
         *   This action occurs *after all jobs in the set have completed* (and the set's final hooks, if any, run).
         *   A `PostRunAction` defined at the set level *overrides* any `PostRunAction` settings from individual jobs within that set, and also overrides `PostRunActionDefaults`.
@@ -278,9 +295,9 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
 
 *   **Run a specific backup job (it may be local-only or also send to remote targets based on its configuration):**
     ```powershell
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsToSFTP"
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX" 
     ```
-    (Replace `"MyDocumentsToSFTP"` with the actual name of a job you defined in `BackupLocations`. If this job has a `PostRunAction` configured, it will be evaluated after the job.)
+    (Replace `"MyDocumentsBackupSFX"` with the actual name of a job you defined in `BackupLocations`. If this job has a `PostRunAction` configured, it will be evaluated after the job.)
 
 *   **Run a predefined Backup Set:** (Backup Sets group multiple jobs and are defined in `User.psd1` or `Default.psd1`.)
     ```powershell
@@ -288,9 +305,9 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     ```
     (Replace `"DailyCriticalBackups"` with the name of a defined set. If the "DailyCriticalBackups" set has a `PostRunAction`, it will be evaluated after all jobs in the set complete. This set-level action overrides any job-level post-run actions within the set.)
 
-*   **Simulate a backup job (local archive creation, any remote transfers, checksum operations, and post-run actions will be simulated):**
+*   **Simulate a backup job (local archive creation, any remote transfers, checksum operations, SFX creation, and post-run actions will be simulated):**
     ```powershell
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsToSFTP" -Simulate
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX" -Simulate
     ```
 
 *   **Run a job and treat 7-Zip warnings from local archiving as success for status reporting:**
@@ -328,7 +345,7 @@ These parameters allow you to override certain configuration settings for a spec
 
 *   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges).
 *   `-TestArchive`: Forces an integrity test of newly created *local* archives for all processed jobs. If checksum generation and verification are enabled for the job, this will include checksum verification.
-*   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions, checksum operations, and post-run system actions are logged but not actually executed.
+*   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions, checksum operations, SFX creation, and post-run system actions are logged but not actually executed.
 *   `-TreatSevenZipWarningsAsSuccessCLI`: Forces 7-Zip exit code 1 (Warning) from *local* archiving to be treated as a success for the job status, overriding any configuration settings.
 *   `-PauseBehaviourCLI <Always|Never|OnFailure|OnWarning|OnFailureOrWarning>`: Controls if the script pauses with a "Press any key to continue" message before exiting. Overrides the `PauseBeforeExit` setting in the configuration file.
 *   **NEW: `-PostRunActionCli <Action>`**: Overrides all configured post-run actions.

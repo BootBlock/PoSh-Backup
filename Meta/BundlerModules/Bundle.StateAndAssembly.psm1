@@ -15,7 +15,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.10 # Updated conversation summary for Utils.psm1 refactoring.
+    Version:        1.1.12 # Updated conversation summary for SFX Module Option feature.
     DateCreated:    17-May-2025
     LastModified:   25-May-2025
     Purpose:        AI State generation and final bundle assembly for the AI project bundler.
@@ -83,14 +83,30 @@ function Get-BundlerAIState {
     if (-not $aiState.ContainsKey('external_dependencies')) { $aiState.external_dependencies = @{} }
     $aiState.external_dependencies.powershell_modules = $psModulesForState
 
-    $thisModuleVersion = "1.1.10" # Updated version of this specific module
+    $thisModuleVersion = "1.1.12" # Updated version of this specific module
     
-    # This $currentConversationSummary should match the one in AIState.template.psd1
     $currentConversationSummary = @(
-        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).",
-        "Modular design: Core modules (now including Modules\Core\), Reporting sub-modules (including Modules\\Reporting\\Assets), ConfigManagement sub-modules (including Modules\\ConfigManagement\\Assets), Utilities sub-modules (Modules\Utilities\), Config files, and Meta/ (bundler).",
+        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).", # PoSh-Backup version will be 1.13.0
+        "Modular design: Core modules (now including Modules\\Core\\), Reporting sub-modules (including Modules\\Reporting\\Assets), ConfigManagement sub-modules (including Modules\\ConfigManagement\\Assets), Utilities sub-modules (Modules\\Utilities\\), Config files, and Meta/ (bundler).",
         "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v$($thisModuleVersion)).",
-        "--- Refactoring of PoSh-Backup.ps1 and Core Modules (Current Session) ---",
+        "--- Feature: Self-Extracting Archives (SFX) (Current Session) ---",
+        "  - Goal: Option to create self-extracting archives (.exe) for easier restoration, with user-selectable SFX module type.",
+        "  - Stage 1 (Basic SFX):",
+        "    - `Config\\Default.psd1` (v1.3.8 -> v1.3.9): Added global `DefaultCreateSFX` and job-level `CreateSFX` settings.",
+        "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for `DefaultCreateSFX` and `CreateSFX`.",
+        "    - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.1 -> v1.0.2): Modified to resolve `CreateSFX` and force `.exe` extension if true, storing original extension as `InternalArchiveExtension`.",
+        "    - `Modules\\7ZipManager.psm1` (v1.0.6 -> v1.0.7): Modified `Get-PoShBackup7ZipArgument` to add `-sfx` switch if `CreateSFX` is true.",
+        "    - `Modules\\Operations\\LocalArchiveProcessor.psm1` (v1.0.3 -> v1.0.4): Ensured `JobArchiveExtension` (which could be `.exe`) is used for archive naming.",
+        "    - `README.md`: Updated with SFX feature details and configuration examples.",
+        "  - Stage 2 (SFX Module Option - Current Session Segment):",
+        "    - `Config\\Default.psd1` (v1.3.9 -> v1.4.0): Added global `DefaultSFXModule` and job-level `SFXModule` settings (options: Console, GUI, Installer).",
+        "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for `DefaultSFXModule` and `SFXModule` with allowed values.",
+        "    - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.2 -> v1.0.3): Modified to resolve `SFXModule` setting.",
+        "    - `Modules\\7ZipManager.psm1` (v1.0.7 -> v1.0.8): Modified `Get-PoShBackup7ZipArgument` to use the resolved `SFXModule` to select the appropriate `-sfx[module_name.sfx]` switch.",
+        "    - `Modules\\Operations\\LocalArchiveProcessor.psm1` (v1.0.4 -> v1.0.5): Added `SFXModule` to report data.",
+        "    - `README.md`: Updated to describe `SFXModule` options and examples.",
+        "  - All changes tested successfully by the user.",
+        "--- Refactoring of PoSh-Backup.ps1 and Core Modules (Previous Session Segment) ---",
         "  - Goal: Further modularise PoSh-Backup.ps1 by extracting its main job processing loop.",
         "  - New subdirectory `Modules\\Core\\` created.",
         "  - New module `Modules\\Core\\JobOrchestrator.psm1` (v1.0.1) created to handle the main job/set processing loop.",
@@ -116,7 +132,7 @@ function Get-BundlerAIState {
         "  - All changes tested successfully by the user.",
         "--- Further Modularisation of PoSh-Backup.ps1 and ReportingHtml.psm1 (Previous Session) ---",
         "  - Goal: Reduce size of larger script files for AI efficiency and improve maintainability.",
-        "  - `PoSh-Backup.ps1` (v1.11.4 -> v$($PoShBackupVersion) - before current refactor) refactored:",
+        "  - `PoSh-Backup.ps1` (v1.11.4 -> v1.11.5 - before Core refactor) refactored:",
         "    - Logic for `-ListBackupLocations`, `-ListBackupSets`, and `-TestConfig` modes moved to a new module.",
         "    - New module: `Modules\\ScriptModeHandler.psm1` (v1.0.0) created to handle these informational modes, which calls `exit` internally.",
         "    - This significantly reduced the line count of `PoSh-Backup.ps1` (approx. -90 lines).",
@@ -151,7 +167,7 @@ function Get-BundlerAIState {
         "  - Operations (`Modules\\Operations.psm1` v1.18.6 - before refactor): Implemented checksum logic.",
         "  - Config Management (`Modules\\ConfigManager.psm1` v1.1.5 - before refactor): Resolved checksum settings.",
         "  - Reporting Modules: Updated to display checksum information.",
-        "  - Main Script (`PoSh-Backup.ps1` v1.11.0 - for checksums, current v$($PoShBackupVersion)): Synopsis updated.",
+        "  - Main Script (`PoSh-Backup.ps1` v1.11.0 - for checksums): Synopsis updated.",
         "  - Documentation (`README.md`): Updated for Checksum feature.",
         "--- Previous Major Feature: Post-Run System Actions (Shutdown, Restart, etc.) ---",
         "  - Goal: Allow PoSh-Backup to perform system state changes after job/set completion.",
@@ -171,7 +187,7 @@ function Get-BundlerAIState {
         "--- Previous Work (Selected Highlights) ---",
         "Network Share Handling Improvements, Retention Policy Confirmation, HTML Report Enhancements, PSSA compliance.",
         "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) is stable.",
-        "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums features added. Extensive refactorings completed (ConfigManager, Operations, PoSh-Backup.ps1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP ConvertTo-SecureString items. Pester tests non-functional."
+        "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums, SFX (with module choice) features added. Extensive refactorings completed (ConfigManager, Operations, PoSh-Backup.ps1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP ConvertTo-SecureString items. Pester tests non-functional."
     )
 
     $aiState.conversation_summary = $currentConversationSummary

@@ -55,6 +55,8 @@
     DefaultTestArchiveAfterCreation           = @{ Type = 'boolean'; Required = $false }
 
     DefaultArchiveDateFormat                  = @{ Type = 'string'; Required = $false }
+    DefaultCreateSFX                          = @{ Type = 'boolean'; Required = $false } 
+    DefaultSFXModule                          = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") } # NEW
 
     DefaultGenerateArchiveChecksum            = @{ Type = 'boolean'; Required = $false }
     DefaultChecksumAlgorithm                  = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
@@ -133,6 +135,8 @@
                 MdReportDirectory                         = @{ Type = 'string'; Required = $false }
                 ArchiveType                               = @{ Type = 'string'; Required = $false }
                 ArchiveExtension                          = @{ Type = 'string'; Required = $false }
+                CreateSFX                                 = @{ Type = 'boolean'; Required = $false } 
+                SFXModule                                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") } # NEW
                 ArchiveDateFormat                         = @{ Type = 'string'; Required = $false }
                 ThreadsToUse                              = @{ Type = 'int'; Required = $false; Min = 0 }
                 CompressionLevel                          = @{ Type = 'string'; Required = $false }

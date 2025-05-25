@@ -2,20 +2,21 @@
 <#
 .SYNOPSIS
     Handles local backup archive creation, checksum generation, and integrity verification.
+    Supports creation of standard archives and Self-Extracting Archives (SFX).
 .DESCRIPTION
     This module is a sub-component of the main Operations module for PoSh-Backup.
     It encapsulates the specific steps involved in:
     - Checking destination free space for the local archive.
-    - Generating the 7-Zip command arguments.
-    - Executing 7-Zip to create the local archive.
+    - Generating the 7-Zip command arguments (including for SFX if configured).
+    - Executing 7-Zip to create the local archive (which might be an .exe if SFX is enabled).
     - Optionally generating a checksum file for the created archive.
     - Optionally testing the integrity of the local archive (including checksum verification if enabled).
-    - Updating the job report data with outcomes of these local operations.
+    - Updating the job report data with outcomes of these local operations, including SFX settings.
 
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.3 # Clarified DestinationDir role in log messages.
+    Version:        1.0.5 # Added SFXModule to report data.
     DateCreated:    24-May-2025
     LastModified:   25-May-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
@@ -83,10 +84,16 @@ function Invoke-LocalArchiveOperation {
         }
 
         $DateString = Get-Date -Format $EffectiveJobConfig.JobArchiveDateFormat
-        $archiveFileNameOnly = "$($EffectiveJobConfig.BaseFileName) [$DateString]$($EffectiveJobConfig.JobArchiveExtension)" # Assign here
+        # Use EffectiveJobConfig.JobArchiveExtension, which will be ".exe" if CreateSFX is true.
+        $archiveFileNameOnly = "$($EffectiveJobConfig.BaseFileName) [$DateString]$($EffectiveJobConfig.JobArchiveExtension)" 
         $finalArchivePathForReturn = Join-Path -Path $EffectiveJobConfig.DestinationDir -ChildPath $archiveFileNameOnly
         $reportData.FinalArchivePath = $finalArchivePathForReturn
-        & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Target Archive in ${destinationDirTerm}: $finalArchivePathForReturn" -Level "INFO" # MODIFIED LINE
+        & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Target Archive in ${destinationDirTerm}: $finalArchivePathForReturn" -Level "INFO" 
+        if ($EffectiveJobConfig.CreateSFX) {
+            & $LocalWriteLog -Message "   - Note: This will be a Self-Extracting Archive (SFX) using module type: $($EffectiveJobConfig.SFXModule)." -Level "INFO"
+        }
+        $reportData.SFXModule = $EffectiveJobConfig.SFXModule # Add SFXModule to report data regardless of CreateSFX status for completeness
+
 
         $sevenZipArgsArray = Get-PoShBackup7ZipArgument -EffectiveConfig $EffectiveJobConfig `
             -FinalArchivePath $finalArchivePathForReturn `
@@ -144,6 +151,7 @@ function Invoke-LocalArchiveOperation {
             $checksumFileExtension = $EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
             
             $archiveFileItem = Get-Item -LiteralPath $finalArchivePathForReturn -ErrorAction SilentlyContinue
+            # Checksum file should be named based on the archive file, e.g., MyArchive.exe.sha256
             $checksumFileNameWithExt = $archiveFileItem.Name + ".$checksumFileExtension" 
             $checksumFileDir = $archiveFileItem.DirectoryName
             $checksumFilePath = Join-Path -Path $checksumFileDir -ChildPath $checksumFileNameWithExt
@@ -217,6 +225,7 @@ function Invoke-LocalArchiveOperation {
             if ($EffectiveJobConfig.VerifyArchiveChecksumOnTest -and $EffectiveJobConfig.GenerateArchiveChecksum -and ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess))) {
                 & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Verifying archive checksum for '$finalArchivePathForReturn'..." -Level "INFO"
                 $checksumFileExtensionForVerify = $EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
+                # Checksum file name should match the archive file name, e.g., MyArchive.exe.sha256
                 $checksumFilePathForVerify = "$($finalArchivePathForReturn).$checksumFileExtensionForVerify"
                 $reportData.ArchiveChecksumVerificationStatus = "Verification Attempted"
 
