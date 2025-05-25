@@ -16,13 +16,14 @@
 
     This function resolves settings for local archive creation, local retention,
     remote target assignments (by looking up 'TargetNames' in the global 'BackupTargets'
-    section), PostRunAction settings, Checksum settings, and SFX creation (including SFX module type).
+    section), PostRunAction settings, Checksum settings, SFX creation (including SFX module type),
+    and 7-Zip CPU affinity.
     The resolved configuration is then used by the Operations module to execute the backup job.
 
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.3 # Added SFXModule resolution.
+    Version:        1.0.4 # Added SevenZipCpuAffinity resolution.
     DateCreated:    24-May-2025
     LastModified:   25-May-2025
     Purpose:        To modularise the effective job configuration building logic from the main ConfigManager module.
@@ -46,7 +47,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     .SYNOPSIS
         Gathers the effective configuration for a single backup job by merging global,
         job-specific, and command-line override settings, including Backup Target, PostRunAction,
-        Checksum, and SFX (with module type) resolution.
+        Checksum, SFX (with module type), and 7-Zip CPU Affinity resolution.
     .DESCRIPTION
         This function takes a specific job's raw configuration, the global configuration,
         and any command-line overrides, then resolves the final settings that will be
@@ -54,13 +55,15 @@ function Get-PoShBackupJobEffectiveConfiguration {
         job-specific settings, then global settings.
         It now also resolves 'TargetNames' specified in the job configuration by looking up
         the full definitions of those targets in the global 'BackupTargets' section,
-        resolves 'PostRunAction' settings, 'Checksum' settings, 'CreateSFX', and 'SFXModule' settings.
+        resolves 'PostRunAction' settings, 'Checksum' settings, 'CreateSFX', 'SFXModule',
+        and 'SevenZipCpuAffinity' settings.
         If SFX is enabled, the effective archive extension becomes '.exe'.
     .PARAMETER JobConfig
         A hashtable containing the specific configuration settings for this backup job.
     .PARAMETER GlobalConfig
         A hashtable containing the global configuration settings for PoSh-Backup, including 'BackupTargets',
-        'PostRunActionDefaults', 'Checksum' defaults, 'CreateSFX' defaults, and 'SFXModule' defaults.
+        'PostRunActionDefaults', 'Checksum' defaults, 'CreateSFX' defaults, 'SFXModule' defaults,
+        and 'SevenZipCpuAffinity' defaults.
     .PARAMETER CliOverrides
         A hashtable containing command-line parameter overrides.
     .PARAMETER JobReportDataRef
@@ -72,7 +75,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
         System.Collections.Hashtable
         A hashtable representing the effective configuration for the job, including an array
         of 'ResolvedTargetInstances' if 'TargetNames' were specified, a 'PostRunAction' hashtable,
-        checksum-related settings, and SFX-related settings (including SFXModule).
+        checksum-related settings, SFX-related settings (including SFXModule), and CPU affinity.
     #>
     param(
         [Parameter(Mandatory)] [hashtable]$JobConfig,
@@ -158,7 +161,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     
     # SFX Handling
     $effectiveConfig.CreateSFX = Get-ConfigValue -ConfigObject $JobConfig -Key 'CreateSFX' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCreateSFX' -DefaultValue $false)
-    $effectiveConfig.SFXModule = Get-ConfigValue -ConfigObject $JobConfig -Key 'SFXModule' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSFXModule' -DefaultValue "Console") # NEW
+    $effectiveConfig.SFXModule = Get-ConfigValue -ConfigObject $JobConfig -Key 'SFXModule' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSFXModule' -DefaultValue "Console")
     $effectiveConfig.InternalArchiveExtension = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveExtension' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveExtension' -DefaultValue ".7z") 
     
     if ($effectiveConfig.CreateSFX) {
@@ -184,6 +187,18 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $_jobSpecificThreadsToUse = Get-ConfigValue -ConfigObject $JobConfig -Key 'ThreadsToUse' -DefaultValue 0
     $_threadsFor7Zip = if ($_jobSpecificThreadsToUse -gt 0) { $_jobSpecificThreadsToUse } elseif ($_globalConfigThreads -gt 0) { $_globalConfigThreads } else { 0 }
     $effectiveConfig.ThreadsSetting = if ($_threadsFor7Zip -gt 0) { "-mmt=$($_threadsFor7Zip)" } else { "-mmt" }
+
+    # NEW: 7-Zip CPU Affinity
+    $_jobAffinity = Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipCpuAffinity' -DefaultValue $null # Get job setting, default to null if not present
+    $_globalAffinity = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipCpuAffinity' -DefaultValue "" # Get global, default to empty string
+
+    if (-not [string]::IsNullOrWhiteSpace($_jobAffinity)) {
+        $effectiveConfig.JobSevenZipCpuAffinity = $_jobAffinity
+    } elseif (-not [string]::IsNullOrWhiteSpace($_globalAffinity)) {
+        $effectiveConfig.JobSevenZipCpuAffinity = $_globalAffinity
+    } else {
+        $effectiveConfig.JobSevenZipCpuAffinity = "" # Final fallback to empty string
+    }
 
     # VSS Settings
     $effectiveConfig.JobEnableVSS = if ($CliOverrides.UseVSS) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableVSS' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableVSS' -DefaultValue $false) }
@@ -244,11 +259,12 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $reportData.RetriesEnabled = $effectiveConfig.JobEnableRetries
     $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation
     $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority
+    $reportData.SevenZipCpuAffinity = $effectiveConfig.JobSevenZipCpuAffinity # NEW: Add to report data
     $reportData.GenerateArchiveChecksum = $effectiveConfig.GenerateArchiveChecksum
     $reportData.ChecksumAlgorithm = $effectiveConfig.ChecksumAlgorithm
     $reportData.VerifyArchiveChecksumOnTest = $effectiveConfig.VerifyArchiveChecksumOnTest
     $reportData.CreateSFX = $effectiveConfig.CreateSFX 
-    $reportData.SFXModule = $effectiveConfig.SFXModule # NEW: Add to report data
+    $reportData.SFXModule = $effectiveConfig.SFXModule
 
     $effectiveConfig.GlobalConfigRef = $GlobalConfig
 

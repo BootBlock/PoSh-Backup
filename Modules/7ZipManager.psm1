@@ -3,7 +3,8 @@
     Manages all 7-Zip executable interactions for the PoSh-Backup solution.
     This includes finding the 7-Zip executable, constructing command arguments,
     executing 7-Zip operations (archiving, testing), and handling retries.
-    Now supports creating Self-Extracting Archives (SFX) with selectable module types.
+    Now supports creating Self-Extracting Archives (SFX) with selectable module types
+    and setting CPU affinity for the 7-Zip process.
 
 .DESCRIPTION
     The 7ZipManager module centralises 7-Zip specific logic, making the main backup script
@@ -13,8 +14,8 @@
     - Build the complex argument list required for 7-Zip commands based on configuration,
       including the '-sfx' switch (with optional module specification like '7zS.sfx' or '7zSD.sfx')
       if creating a self-extracting archive.
-    - Execute 7-Zip for creating archives, supporting features like process priority and retries.
-    - Execute 7-Zip for testing archive integrity, also with retry support.
+    - Execute 7-Zip for creating archives, supporting features like process priority, CPU affinity, and retries.
+    - Execute 7-Zip for testing archive integrity, also with retry and CPU affinity support.
 
     This module relies on utility functions (like Write-LogMessage, Get-ConfigValue) being made
     available globally by the main PoSh-Backup script importing Utils.psm1, or by passing a logger
@@ -22,7 +23,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.8 # Added SFXModule support for choosing SFX type.
+    Version:        1.0.10 # Corrected Start-Process call for PS 5.1 compatibility (UseShellExecute).
     DateCreated:    17-May-2025
     LastModified:   25-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
@@ -246,12 +247,13 @@ function Invoke-7ZipOperation {
     [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')] # Archiving can be medium impact
     <#
     .SYNOPSIS
-        Invokes a 7-Zip command (typically for archiving or testing) with support for retries.
+        Invokes a 7-Zip command (typically for archiving or testing) with support for retries,
+        process priority, and CPU affinity.
     .DESCRIPTION
         This function executes the 7z.exe command-line tool with the provided arguments.
-        It supports configuring the process priority for 7-Zip, optionally hiding its console output
-        (while still capturing STDERR for logging if issues occur), and implementing a
-        retry mechanism for transient failures.
+        It supports configuring the process priority and CPU affinity for 7-Zip, optionally
+        hiding its console output (while still capturing STDERR for logging if issues occur),
+        and implementing a retry mechanism for transient failures.
         It also considers whether 7-Zip warnings (exit code 1) should be treated as success or trigger retries.
     .PARAMETER SevenZipPathExe
         The full path to the 7z.exe executable.
@@ -260,6 +262,10 @@ function Invoke-7ZipOperation {
     .PARAMETER ProcessPriority
         The Windows process priority for 7z.exe. Valid values: "Idle", "BelowNormal", "Normal", "AboveNormal", "High".
         Defaults to "Normal".
+    .PARAMETER SevenZipCpuAffinityString
+        Optional. A string specifying CPU affinity for 7-Zip.
+        Examples: "0,1" (for cores 0 and 1), "0x3" (bitmask for cores 0 and 1).
+        If empty or invalid, no affinity is set.
     .PARAMETER HideOutput
         A switch. If present, 7-Zip's console window will be hidden. STDERR stream is still captured and logged. STDOUT is not logged if hidden.
     .PARAMETER IsSimulateMode
@@ -285,25 +291,28 @@ function Invoke-7ZipOperation {
         - ElapsedTime (System.TimeSpan): The time taken for the 7-Zip operation.
         - AttemptsMade (int): The number of attempts made to execute the command.
     .EXAMPLE
-        # $result = Invoke-7ZipOperation -SevenZipPathExe "C:\7z\7z.exe" -SevenZipArguments "a archive.7z C:\data" -EnableRetries $true -MaxRetries 3 -TreatWarningsAsSuccess $true -Logger ${function:Write-LogMessage}
+        # $result = Invoke-7ZipOperation -SevenZipPathExe "C:\7z\7z.exe" -SevenZipArguments "a archive.7z C:\data" `
+        #   -SevenZipCpuAffinityString "0,1" -EnableRetries $true -MaxRetries 3 -TreatWarningsAsSuccess $true -Logger ${function:Write-LogMessage}
         # if ($result.ExitCode -ne 0) { Write-Error "7-Zip failed!" }
     #>
     param(
         [string]$SevenZipPathExe,
         [array]$SevenZipArguments,
         [string]$ProcessPriority = "Normal",
+        [Parameter(Mandatory=$false)]
+        [string]$SevenZipCpuAffinityString = $null, 
         [switch]$HideOutput,
         [switch]$IsSimulateMode,
-        [int]$MaxRetries = 1, # Default to 1 attempt (no retries) if EnableRetries is false
+        [int]$MaxRetries = 1, 
         [int]$RetryDelaySeconds = 60,
         [bool]$EnableRetries = $false,
-        [bool]$TreatWarningsAsSuccess = $false, # New parameter
+        [bool]$TreatWarningsAsSuccess = $false,
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
 
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
-    & $Logger -Message "Invoke-7ZipOperation: Logger parameter active. TreatWarningsAsSuccess: $TreatWarningsAsSuccess" -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "Invoke-7ZipOperation: Logger parameter active. TreatWarningsAsSuccess: $TreatWarningsAsSuccess, Affinity: '$SevenZipCpuAffinityString'" -Level "DEBUG" -ErrorAction SilentlyContinue
 
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
@@ -316,9 +325,9 @@ function Invoke-7ZipOperation {
     }
 
     $currentTry = 0
-    $actualMaxTries = if ($EnableRetries) { [math]::Max(1, $MaxRetries) } else { 1 } # Ensure at least 1 try
+    $actualMaxTries = if ($EnableRetries) { [math]::Max(1, $MaxRetries) } else { 1 } 
     $actualDelaySeconds = if ($EnableRetries -and $actualMaxTries -gt 1) { $RetryDelaySeconds } else { 0 }
-    $operationExitCode = -1 # Default to an error state
+    $operationExitCode = -1 
     $operationElapsedTime = New-TimeSpan -Seconds 0
     $attemptsMade = 0
 
@@ -326,26 +335,56 @@ function Invoke-7ZipOperation {
     $argumentStringForProcess = ""
     foreach ($argItem in $SevenZipArguments) {
         if ($argItem -match "\s" -and -not (($argItem.StartsWith('"') -and $argItem.EndsWith('"')) -or ($argItem.StartsWith("'") -and $argItem.EndsWith("'")))) {
-            $argumentStringForProcess += """$argItem"" " # Add quotes if space and not already quoted
+            $argumentStringForProcess += """$argItem"" " 
         } else {
             $argumentStringForProcess += "$argItem "
         }
     }
     $argumentStringForProcess = $argumentStringForProcess.TrimEnd()
 
+    # --- CPU Affinity Parsing ---
+    $cpuAffinityBitmask = $null
+    if (-not [string]::IsNullOrWhiteSpace($SevenZipCpuAffinityString)) {
+        try {
+            if ($SevenZipCpuAffinityString -match '^0x([0-9a-fA-F]+)$') { # Hex bitmask, e.g., "0x3", "0xFF"
+                $cpuAffinityBitmask = [Convert]::ToInt32($matches[0], 16)
+                & $LocalWriteLog -Message "  - CPU Affinity: Parsed hex string '$SevenZipCpuAffinityString' to bitmask $cpuAffinityBitmask (0x$($cpuAffinityBitmask.ToString('X')))." -Level "DEBUG"
+            } elseif ($SevenZipCpuAffinityString -match '^(\d+(,\d+)*)$') { # Comma-separated core numbers, e.g., "0", "0,1", "0,2,4"
+                $coreNumbers = $SevenZipCpuAffinityString.Split(',') | ForEach-Object { [int]$_ }
+                $calculatedBitmask = 0
+                foreach ($coreNum in $coreNumbers) {
+                    if ($coreNum -ge 0 -and $coreNum -lt 64) { # Max 64 cores for bitmask with long
+                        $calculatedBitmask = $calculatedBitmask -bor (1L -shl $coreNum)
+                    } else {
+                        throw "Invalid core number '$coreNum' in affinity string '$SevenZipCpuAffinityString'. Must be 0-63."
+                    }
+                }
+                $cpuAffinityBitmask = $calculatedBitmask
+                & $LocalWriteLog -Message "  - CPU Affinity: Parsed core list '$SevenZipCpuAffinityString' to bitmask $cpuAffinityBitmask (0x$($cpuAffinityBitmask.ToString('X')))." -Level "DEBUG"
+            } else {
+                & $LocalWriteLog -Message "[WARNING] Invalid SevenZipCpuAffinity string format: '$SevenZipCpuAffinityString'. Expected comma-separated core numbers (e.g., '0,1') or a hex bitmask (e.g., '0x3'). Affinity will not be applied." -Level "WARNING"
+            }
+        } catch {
+            & $LocalWriteLog -Message "[WARNING] Error parsing SevenZipCpuAffinity string '$SevenZipCpuAffinityString': $($_.Exception.Message). Affinity will not be applied." -Level "WARNING"
+            $cpuAffinityBitmask = $null
+        }
+    }
+    # --- END CPU Affinity Parsing ---
+
     while ($currentTry -lt $actualMaxTries) {
         $currentTry++; $attemptsMade = $currentTry
 
         if ($IsSimulateMode.IsPresent) {
-            & $LocalWriteLog -Message "SIMULATE: 7-Zip Operation (Attempt $currentTry/$actualMaxTries would be): `"$SevenZipPathExe`" $argumentStringForProcess" -Level SIMULATE
-            $operationExitCode = 0 # Simulate success for 7-Zip command itself
-            $operationElapsedTime = New-TimeSpan -Seconds 0 # Simulate no time taken
-            break # Exit loop in simulate mode after logging
+            $affinitySimMsg = if ($cpuAffinityBitmask) { " (Affinity: $SevenZipCpuAffinityString -> 0x$($cpuAffinityBitmask.ToString('X')))" } else { "" }
+            & $LocalWriteLog -Message "SIMULATE: 7-Zip Operation (Attempt $currentTry/$actualMaxTries would be): `"$SevenZipPathExe`" $argumentStringForProcess$affinitySimMsg" -Level SIMULATE
+            $operationExitCode = 0 
+            $operationElapsedTime = New-TimeSpan -Seconds 0 
+            break 
         }
 
         if (-not $PSCmdlet.ShouldProcess("Target: $($SevenZipArguments | Where-Object {$_ -notlike '-*'} | Select-Object -Last 1)", "Execute 7-Zip ($($SevenZipArguments[0]))")) {
              & $LocalWriteLog -Message "   - 7-Zip execution (Attempt $currentTry/$actualMaxTries) skipped by user (ShouldProcess)." -Level WARNING
-             $operationExitCode = -1000 # Indicate user skip
+             $operationExitCode = -1000 
              break
         }
 
@@ -359,55 +398,54 @@ function Invoke-7ZipOperation {
 
         $stopwatch = [System.Diagnostics.Stopwatch]::StartNew(); $process = $null
         try {
+            # For PS 5.1, we set properties on ProcessStartInfo object
             $startInfo = New-Object System.Diagnostics.ProcessStartInfo
             $startInfo.FileName = $SevenZipPathExe
             $startInfo.Arguments = $argumentStringForProcess
-            $startInfo.UseShellExecute = $false # Required for stream redirection
+            $startInfo.UseShellExecute = $false # CRITICAL: Must be false for redirection & no new window
             $startInfo.CreateNoWindow = $HideOutput.IsPresent
             $startInfo.WindowStyle = if($HideOutput.IsPresent) { [System.Diagnostics.ProcessWindowStyle]::Hidden } else { [System.Diagnostics.ProcessWindowStyle]::Normal }
-
-            # Always redirect STDERR. Redirect STDOUT only if window is hidden AND we intend to capture/log it.
-            # Based on new requirement, STDOUT is not logged if HideOutput is true.
             $startInfo.RedirectStandardError = $true
             if ($HideOutput.IsPresent) {
-                $startInfo.RedirectStandardOutput = $true # Still need to redirect to read it, even if not logged
+                $startInfo.RedirectStandardOutput = $true 
             }
-
-
+            
             & $LocalWriteLog -Message "  - Starting 7-Zip process with priority: $ProcessPriority" -Level DEBUG
             $process = New-Object System.Diagnostics.Process
             $process.StartInfo = $startInfo
             $process.Start() | Out-Null
+            
             try { $process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]$ProcessPriority }
             catch { & $LocalWriteLog -Message "[WARNING] Failed to set 7-Zip process priority to '$ProcessPriority'. Error: $($_.Exception.Message)" -Level WARNING }
 
-            # $stdOutput = "" # No longer needed if STDOUT isn't logged when hidden
-            $stdError = ""
-            # $outputTask = $null # No longer needed
-            $errorTask = $null
-
-            if ($HideOutput.IsPresent) {
-                # $outputTask = $process.StandardOutput.ReadToEndAsync() # Don't need to capture STDOUT for logging if hidden
-                $errorTask = $process.StandardError.ReadToEndAsync()
-            }
-
-            $process.WaitForExit() # Wait for the 7-Zip process to complete
-
-            if ($HideOutput.IsPresent) {
-                # STDERR is always logged if present and output is hidden
-                 if ($null -ne $errorTask) {
-                    try { $stdError = $errorTask.GetAwaiter().GetResult() } catch { try { $stdError = $process.StandardError.ReadToEnd() } catch { & $LocalWriteLog -Message "    - DEBUG: Fallback ReadToEnd STDERR for 7-Zip failed: $($_.Exception.Message)" -Level DEBUG } }
-                 }
-                if (-not [string]::IsNullOrWhiteSpace($stdError)) {
-                    $logLevelForStdErr = if ($process.ExitCode -eq 0 -or ($process.ExitCode -eq 1 -and $TreatWarningsAsSuccess)) { "WARNING" } else { "ERROR" }
-                    & $LocalWriteLog -Message "  - 7-Zip STDERR (captured as HideSevenZipOutput is true):" -Level $logLevelForStdErr
-                    $stdError.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "    | $_" -Level $logLevelForStdErr -NoTimestampToLogFile }
+            if ($null -ne $cpuAffinityBitmask) {
+                try {
+                    $process.ProcessorAffinity = [System.IntPtr]$cpuAffinityBitmask
+                    & $LocalWriteLog -Message "  - CPU Affinity 0x$($cpuAffinityBitmask.ToString('X')) (Decimal: $cpuAffinityBitmask) applied to 7-Zip process (PID: $($process.Id))." -Level "INFO"
+                } catch {
+                    & $LocalWriteLog -Message "[WARNING] Failed to set CPU Affinity 0x$($cpuAffinityBitmask.ToString('X')) for 7-Zip process (PID: $($process.Id)). Error: $($_.Exception.Message)" -Level "WARNING"
                 }
             }
+            
+            $stdError = ""
+            if ($HideOutput.IsPresent) {
+                # Wait for process to exit before reading streams to avoid deadlocks
+                $process.WaitForExit() 
+                $stdError = $process.StandardError.ReadToEnd()
+            } else {
+                $process.WaitForExit()
+            }
+            
             $operationExitCode = $process.ExitCode
+
+            if ($HideOutput.IsPresent -and (-not [string]::IsNullOrWhiteSpace($stdError))) {
+                $logLevelForStdErr = if ($process.ExitCode -eq 0 -or ($process.ExitCode -eq 1 -and $TreatWarningsAsSuccess)) { "WARNING" } else { "ERROR" }
+                & $LocalWriteLog -Message "  - 7-Zip STDERR (captured as HideSevenZipOutput is true):" -Level $logLevelForStdErr
+                $stdError.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "    | $_" -Level $logLevelForStdErr -NoTimestampToLogFile }
+            }
         } catch {
             & $LocalWriteLog -Message "[ERROR] Failed to start or manage the 7-Zip process. Error: $($_.Exception.ToString())" -Level ERROR
-            $operationExitCode = -999 # Arbitrary code for script-level failure to launch 7-Zip
+            $operationExitCode = -999 
         } finally {
             $stopwatch.Stop()
             $operationElapsedTime = $stopwatch.Elapsed
@@ -416,18 +454,14 @@ function Invoke-7ZipOperation {
 
         & $LocalWriteLog -Message "   - 7-Zip attempt $currentTry finished. Exit Code: $operationExitCode. Elapsed Time: $operationElapsedTime"
         
-        # 7-Zip Exit Codes: 0=No error, 1=Warning (e.g., locked files not archived), 2=Fatal error
-        if ($operationExitCode -eq 0) { break } # Success, stop retrying
+        if ($operationExitCode -eq 0) { break } 
         if ($operationExitCode -eq 1) {
             if ($TreatWarningsAsSuccess) {
                 & $LocalWriteLog -Message "   - 7-Zip Warning (Exit Code 1) occurred but is being treated as success for this job." -Level INFO
-                break # Treat warning as success, stop retrying
-            } else {
-                # Warning, and not treating as success. This will fall through to retry logic if retries enabled.
+                break 
             }
         }
         
-        # Retry logic for actual errors or warnings not treated as success
         if ($operationExitCode -ne 0 -and ($operationExitCode -ne 1 -or ($operationExitCode -eq 1 -and -not $TreatWarningsAsSuccess))) {
             if ($currentTry -lt $actualMaxTries) {
                 & $LocalWriteLog -Message "[WARNING] 7-Zip operation indicated an issue (Exit Code: $operationExitCode). Retrying in $actualDelaySeconds seconds..." -Level WARNING
@@ -450,7 +484,7 @@ function Test-7ZipArchive {
     .DESCRIPTION
         This function invokes 7z.exe to perform an integrity test on a specified archive file.
         It supports passing a temporary password file if the archive is encrypted and includes
-        options for process priority, output hiding, and retries similar to Invoke-7ZipOperation.
+        options for process priority, CPU affinity, output hiding, and retries similar to Invoke-7ZipOperation.
         It also considers the TreatWarningsAsSuccess setting, although 7-Zip test operations
         typically result in exit code 0 (success) or 2 (error), not 1 (warning).
     .PARAMETER SevenZipPathExe
@@ -461,6 +495,8 @@ function Test-7ZipArchive {
         Optional. The full path to a temporary file containing the password if the archive is encrypted.
     .PARAMETER ProcessPriority
         The Windows process priority for 7z.exe during the test. Defaults to "Normal".
+    .PARAMETER SevenZipCpuAffinityString
+        Optional. A string specifying CPU affinity for 7-Zip during the test.
     .PARAMETER HideOutput
         A switch. If present, 7-Zip's console window will be hidden.
     .PARAMETER MaxRetries
@@ -480,7 +516,8 @@ function Test-7ZipArchive {
         - ElapsedTime (System.TimeSpan): The time taken for the test operation.
         - AttemptsMade (int): The number of attempts made.
     .EXAMPLE
-        # $testResult = Test-7ZipArchive -SevenZipPathExe "C:\7z\7z.exe" -ArchivePath "D:\backup.7z" -TreatWarningsAsSuccess $true -Logger ${function:Write-LogMessage}
+        # $testResult = Test-7ZipArchive -SevenZipPathExe "C:\7z\7z.exe" -ArchivePath "D:\backup.7z" `
+        #   -SevenZipCpuAffinityString "0" -TreatWarningsAsSuccess $true -Logger ${function:Write-LogMessage}
         # if ($testResult.ExitCode -ne 0) { Write-Warning "Archive test failed!" }
     #>
     param(
@@ -489,17 +526,19 @@ function Test-7ZipArchive {
         [Parameter(Mandatory=$false)]
         [string]$TempPasswordFile = $null,
         [string]$ProcessPriority = "Normal",
+        [Parameter(Mandatory=$false)]
+        [string]$SevenZipCpuAffinityString = $null, 
         [switch]$HideOutput,
         [int]$MaxRetries = 1,
         [int]$RetryDelaySeconds = 60,
         [bool]$EnableRetries = $false,
-        [bool]$TreatWarningsAsSuccess = $false, # New parameter
+        [bool]$TreatWarningsAsSuccess = $false,
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
 
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
-    & $Logger -Message "Test-7ZipArchive: Logger parameter active. TreatWarningsAsSuccess: $TreatWarningsAsSuccess" -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "Test-7ZipArchive: Logger parameter active. TreatWarningsAsSuccess: $TreatWarningsAsSuccess, Affinity: '$SevenZipCpuAffinityString'" -Level "DEBUG" -ErrorAction SilentlyContinue
 
     # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
@@ -513,23 +552,27 @@ function Test-7ZipArchive {
 
     & $LocalWriteLog -Message "`n[INFO] Performing archive integrity test for '$ArchivePath'..."
     $testArguments = [System.Collections.Generic.List[string]]::new()
-    $testArguments.Add("t") # Test command
-    $testArguments.Add($ArchivePath) # Archive to test
+    $testArguments.Add("t") 
+    $testArguments.Add($ArchivePath) 
 
     if (-not [string]::IsNullOrWhiteSpace($TempPasswordFile) -and (Test-Path -LiteralPath $TempPasswordFile)) {
-        $testArguments.Add("-spf`"$TempPasswordFile`"") # Add password file if provided
+        $testArguments.Add("-spf`"$TempPasswordFile`"") 
     }
     & $LocalWriteLog -Message "   - Test Command (raw args before Invoke-7ZipOperation internal quoting): `"$SevenZipPathExe`" $($testArguments -join ' ')" -Level DEBUG
 
     $invokeParams = @{
-        SevenZipPathExe = $SevenZipPathExe; SevenZipArguments = $testArguments.ToArray()
-        ProcessPriority = $ProcessPriority; HideOutput = $HideOutput.IsPresent
-        MaxRetries = $MaxRetries; RetryDelaySeconds = $RetryDelaySeconds; EnableRetries = $EnableRetries
-        TreatWarningsAsSuccess = $TreatWarningsAsSuccess # Pass through the setting
-        IsSimulateMode = $false # Testing is never simulated in this function
-        Logger = $Logger # Pass the logger down
+        SevenZipPathExe        = $SevenZipPathExe; SevenZipArguments = $testArguments.ToArray()
+        ProcessPriority        = $ProcessPriority; HideOutput = $HideOutput.IsPresent
+        SevenZipCpuAffinityString = $SevenZipCpuAffinityString 
+        MaxRetries             = $MaxRetries; RetryDelaySeconds = $RetryDelaySeconds; EnableRetries = $EnableRetries
+        TreatWarningsAsSuccess = $TreatWarningsAsSuccess 
+        IsSimulateMode         = $false 
+        Logger                 = $Logger 
     }
-    # Invoke-7ZipOperation handles ShouldProcess for the actual 7-Zip execution
+    if ((Get-Command Invoke-7ZipOperation).Parameters.ContainsKey('PSCmdlet')) {
+        $invokeParams.PSCmdlet = $PSCmdlet
+    }
+
     $result = Invoke-7ZipOperation @invokeParams
 
     $msg = if ($result.ExitCode -eq 0) { 

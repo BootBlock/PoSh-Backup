@@ -22,7 +22,7 @@
     7.  Calls 'Invoke-LocalArchiveOperation' (from Modules\Operations\LocalArchiveProcessor.psm1) to:
         a.  Check local destination free space.
         b.  Construct 7-Zip arguments.
-        c.  Execute 7-Zip for archiving to the local directory.
+        c.  Execute 7-Zip for archiving to the local directory (now supporting CPU affinity).
         d.  Optionally generate an archive checksum file.
         e.  Optionally test local archive integrity and verify checksum.
     8.  Applies local retention policy (via RetentionManager.psm1).
@@ -39,7 +39,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.20.0 # Path updates for Core location and sub-module imports.
+    Version:        1.20.1 # Pass SevenZipCpuAffinity to LocalArchiveProcessor.
     DateCreated:    10-May-2025
     LastModified:   25-May-2025
     Purpose:        Handles the execution logic for individual backup jobs, including remote target transfers and checksums.
@@ -96,7 +96,7 @@ function Invoke-PoShBackupJob {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLog -Message "Operations/Invoke-PoShBackupJob: Logger parameter active for job '$JobName'." -Level "DEBUG" # Updated path for clarity
+    & $LocalWriteLog -Message "Operations/Invoke-PoShBackupJob: Logger parameter active for job '$JobName'." -Level "DEBUG" 
 
     $currentJobStatus = "SUCCESS"
     $tempPasswordFilePath = $null
@@ -128,6 +128,7 @@ function Invoke-PoShBackupJob {
         & $LocalWriteLog -Message "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)"
         & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod)"
         & $LocalWriteLog -Message "   - Treat 7-Zip Warnings as Success: $($effectiveJobConfig.TreatSevenZipWarningsAsSuccess)"
+        & $LocalWriteLog -Message "   - 7-Zip CPU Affinity     : $(if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.JobSevenZipCpuAffinity)) {'Not Set (Uses 7-Zip Default)'} else {$effectiveJobConfig.JobSevenZipCpuAffinity})" # Log Affinity
         & $LocalWriteLog -Message "   - Local Retention Deletion Confirmation: $($effectiveJobConfig.RetentionConfirmDelete)"
         & $LocalWriteLog -Message "   - Generate Archive Checksum: $($effectiveJobConfig.GenerateArchiveChecksum)"
         & $LocalWriteLog -Message "   - Checksum Algorithm       : $($effectiveJobConfig.ChecksumAlgorithm)"
@@ -277,14 +278,18 @@ function Invoke-PoShBackupJob {
         } else { $reportData.VSSAttempted = $false; $reportData.VSSStatus = "Not Enabled" }
         $reportData.EffectiveSourcePath = if ($currentJobSourcePathFor7Zip -is [array]) {$currentJobSourcePathFor7Zip} else {@($currentJobSourcePathFor7Zip)}
 
-        $localArchiveResult = Invoke-LocalArchiveOperation -EffectiveJobConfig $effectiveJobConfig `
-            -CurrentJobSourcePathFor7Zip $currentJobSourcePathFor7Zip `
-            -TempPasswordFilePath $tempPasswordFilePath `
-            -JobReportDataRef ([ref]$reportData) `
-            -IsSimulateMode:$IsSimulateMode `
-            -Logger $Logger `
-            -PSCmdlet $PSCmdlet `
-            -GlobalConfig $GlobalConfig
+        $localArchiveOpParams = @{
+            EffectiveJobConfig           = $effectiveJobConfig
+            CurrentJobSourcePathFor7Zip  = $currentJobSourcePathFor7Zip
+            TempPasswordFilePath         = $tempPasswordFilePath
+            JobReportDataRef             = ([ref]$reportData)
+            IsSimulateMode               = $IsSimulateMode.IsPresent
+            Logger                       = $Logger
+            PSCmdlet                     = $PSCmdlet
+            GlobalConfig                 = $GlobalConfig
+            SevenZipCpuAffinityString    = $effectiveJobConfig.JobSevenZipCpuAffinity # NEW: Pass affinity string
+        }
+        $localArchiveResult = Invoke-LocalArchiveOperation @localArchiveOpParams
 
         $currentJobStatus = $localArchiveResult.Status
         $finalLocalArchivePath = $localArchiveResult.FinalArchivePath 
@@ -326,7 +331,7 @@ function Invoke-PoShBackupJob {
         & $LocalWriteLog -Message $errorMessageText -Level "ERROR"
         $currentJobStatus = "FAILURE"
         $reportData.ErrorMessage = if ([string]::IsNullOrWhiteSpace($reportData.ErrorMessage)) { $_.Exception.ToString() } else { "$($reportData.ErrorMessage); $($_.Exception.ToString())" }
-        Write-Error -Message $errorMessageText -Exception $_.Exception -ErrorAction Continue # Explicitly use Write-Error
+        Write-Error -Message $errorMessageText -Exception $_.Exception -ErrorAction Continue 
         throw $_ 
     } finally {
         if ($null -ne $VSSPathsInUse) { Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger }

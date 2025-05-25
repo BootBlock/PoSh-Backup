@@ -8,7 +8,8 @@
     It encapsulates the specific steps involved in:
     - Checking destination free space for the local archive.
     - Generating the 7-Zip command arguments (including for SFX if configured).
-    - Executing 7-Zip to create the local archive (which might be an .exe if SFX is enabled).
+    - Executing 7-Zip to create the local archive (which might be an .exe if SFX is enabled),
+      now supporting CPU affinity.
     - Optionally generating a checksum file for the created archive.
     - Optionally testing the integrity of the local archive (including checksum verification if enabled).
     - Updating the job report data with outcomes of these local operations, including SFX settings.
@@ -16,7 +17,7 @@
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.5 # Added SFXModule to report data.
+    Version:        1.0.6 # Added SevenZipCpuAffinityString parameter and pass-through.
     DateCreated:    24-May-2025
     LastModified:   25-May-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
@@ -51,9 +52,11 @@ function Invoke-LocalArchiveOperation {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet, # Still needed to pass down to cmdlets that might use it (e.g., Invoke-7ZipOperation)
+        [System.Management.Automation.PSCmdlet]$PSCmdlet, 
         [Parameter(Mandatory = $true)]
-        [hashtable]$GlobalConfig
+        [hashtable]$GlobalConfig,
+        [Parameter(Mandatory = $false)] # NEW Parameter
+        [string]$SevenZipCpuAffinityString = $null
     )
 
     $LocalWriteLog = {
@@ -65,7 +68,7 @@ function Invoke-LocalArchiveOperation {
         }
     }
     # PSSA: Logger parameter used via $LocalWriteLog
-    & $LocalWriteLog -Message "LocalArchiveProcessor/Invoke-LocalArchiveOperation: Logger active." -Level "DEBUG"
+    & $LocalWriteLog -Message "LocalArchiveProcessor/Invoke-LocalArchiveOperation: Logger active. CPU Affinity String: '$SevenZipCpuAffinityString'" -Level "DEBUG"
 
     $currentLocalArchiveStatus = "SUCCESS" # Status specific to local archive operations
     $finalArchivePathForReturn = $null
@@ -92,7 +95,7 @@ function Invoke-LocalArchiveOperation {
         if ($EffectiveJobConfig.CreateSFX) {
             & $LocalWriteLog -Message "   - Note: This will be a Self-Extracting Archive (SFX) using module type: $($EffectiveJobConfig.SFXModule)." -Level "INFO"
         }
-        $reportData.SFXModule = $EffectiveJobConfig.SFXModule # Add SFXModule to report data regardless of CreateSFX status for completeness
+        $reportData.SFXModule = $EffectiveJobConfig.SFXModule 
 
 
         $sevenZipArgsArray = Get-PoShBackup7ZipArgument -EffectiveConfig $EffectiveJobConfig `
@@ -106,6 +109,7 @@ function Invoke-LocalArchiveOperation {
             SevenZipPathExe        = $sevenZipPathGlobal
             SevenZipArguments      = $sevenZipArgsArray
             ProcessPriority        = $EffectiveJobConfig.JobSevenZipProcessPriority
+            SevenZipCpuAffinityString = $SevenZipCpuAffinityString # NEW: Pass through
             HideOutput             = $EffectiveJobConfig.HideSevenZipOutput
             MaxRetries             = $EffectiveJobConfig.JobMaxRetryAttempts
             RetryDelaySeconds      = $EffectiveJobConfig.JobRetryDelaySeconds
@@ -198,6 +202,7 @@ function Invoke-LocalArchiveOperation {
                 ArchivePath            = $finalArchivePathForReturn
                 TempPasswordFile       = $TempPasswordFilePath
                 ProcessPriority        = $EffectiveJobConfig.JobSevenZipProcessPriority
+                SevenZipCpuAffinityString = $SevenZipCpuAffinityString # NEW: Pass through
                 HideOutput             = $EffectiveJobConfig.HideSevenZipOutput
                 MaxRetries             = $EffectiveJobConfig.JobMaxRetryAttempts
                 RetryDelaySeconds      = $EffectiveJobConfig.JobRetryDelaySeconds

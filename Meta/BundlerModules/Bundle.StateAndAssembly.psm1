@@ -15,7 +15,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.12 # Updated conversation summary for SFX Module Option feature.
+    Version:        1.1.13 # 7-Zip CPU affinity
     DateCreated:    17-May-2025
     LastModified:   25-May-2025
     Purpose:        AI State generation and final bundle assembly for the AI project bundler.
@@ -83,7 +83,7 @@ function Get-BundlerAIState {
     if (-not $aiState.ContainsKey('external_dependencies')) { $aiState.external_dependencies = @{} }
     $aiState.external_dependencies.powershell_modules = $psModulesForState
 
-    $thisModuleVersion = "1.1.12" # Updated version of this specific module
+    $thisModuleVersion = "1.1.13" # Updated version of this specific module
     
     $currentConversationSummary = @(
         "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).", # PoSh-Backup version will be 1.13.0

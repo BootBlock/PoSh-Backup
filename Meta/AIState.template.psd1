@@ -36,6 +36,17 @@
     "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.12.1).",
     "Modular design: Core modules, Reporting sub-modules (including Modules\Reporting\Assets and Modules\ConfigManagement\Assets directories), Config files, and Meta/ (bundler).",
     "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.1.10).", # Updated version
+    "--- Feature: CPU Affinity/Core Limiting for 7-Zip (Current Session Segment) ---",
+    "  - Goal: Allow restricting 7-Zip to specific CPU cores for finer-grained resource control.",
+    '  - `Config\\Default.psd1` (v1.4.0 -> v1.4.1): Added global `DefaultSevenZipCpuAffinity` and job-level `SevenZipCpuAffinity` settings (string, e.g., "0,1" or "0x3").',
+    "  - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for `DefaultSevenZipCpuAffinity` and `SevenZipCpuAffinity` with validation pattern.",
+    "  - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.3 -> v1.0.4): Modified to resolve `SevenZipCpuAffinity` and add to report data.",
+    "  - `Modules\\7ZipManager.psm1` (v1.0.8 -> v1.0.10):",
+    "    - `Invoke-7ZipOperation` modified to accept `SevenZipCpuAffinityString`, parse it (comma-separated list or hex bitmask), and apply it via `Start-Process` (using `$process.ProcessorAffinity` after start).",
+    "    - Corrected `Start-Process` invocation for PS 5.1 compatibility (setting properties on `ProcessStartInfo` object instead of using direct parameters like `-UseShellExecute`).",
+    "    - `Test-7ZipArchive` modified to pass `SevenZipCpuAffinityString` to `Invoke-7ZipOperation`.",
+    "  - `README.md`: Updated with CPU Affinity feature details and configuration examples.",
+    "  - All changes tested successfully by the user.",
     "--- Refactoring of Utils.psm1 (Current Session) ---",
     "  - Goal: Improve organisation and maintainability of utility functions.",
     "  - `Modules\\Utils.psm1` (v1.12.0 -> v1.13.3) refactored into a facade module.",
@@ -106,7 +117,7 @@
     "--- Previous Work (Selected Highlights) ---",
     "Network Share Handling Improvements, Retention Policy Confirmation, HTML Report Enhancements, PSSA compliance.",
     "Bundler Script (Generate-ProjectBundleForAI.ps1 v1.25.2) is stable.",
-    "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums features added. Major refactorings completed (ConfigManager, Operations, PoSh-Backup.ps1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP `ConvertTo-SecureString` items. Pester tests non-functional." # Updated overall status
+    "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums, SFX (with module choice), CPU Affinity features added. Extensive refactorings completed (ConfigManager, Operations, PoSh-Backup.psm1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP ConvertTo-SecureString items. Pester tests non-functional."
   )
 
   main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.12.1

@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.4.0: Added SFXModule option for choosing SFX behavior (Console, GUI, Installer).
+# Version 1.4.1: Added SevenZipCpuAffinity option for 7-Zip CPU core limiting.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -195,6 +195,10 @@
     # Refer to the 7-Zip command-line documentation for the precise meaning and impact of these switches.
     DefaultThreadCount              = 0                               # 7-Zip -mmt switch (multithreading). 0 (or omitting the switch) allows 7-Zip to auto-detect optimal thread count.
                                                                       # Set to a specific number (e.g., 4 for `-mmt=4`) to limit CPU core usage.
+    DefaultSevenZipCpuAffinity      = ""                              # Optional. 7-Zip CPU core affinity.
+                                                                      # Examples: "0,1" (for cores 0 and 1), "0x3" (bitmask for cores 0 and 1).
+                                                                      # Empty string or $null means no affinity is set (7-Zip uses all available cores).
+                                                                      # This is passed to Start-Process -Affinity.
     DefaultArchiveType              = "-t7z"                          # 7-Zip -t (type) switch. Examples: -t7z, -tzip, -ttar, -tgzip.
                                                                       # This determines the internal format of the archive, even if an SFX (.exe) is created.
     DefaultArchiveExtension         = ".7z"                           # Default file extension for generated archives if NOT creating an SFX.
@@ -350,6 +354,7 @@
 
             EnableVSS               = $false                          # $true to use VSS for this job (requires Admin). Overrides global EnableVSS.
             SevenZipProcessPriority = "Normal"                        # Override global 7-Zip priority for this specific job.
+            SevenZipCpuAffinity     = ""                              # NEW: Job-specific CPU affinity for 7-Zip. E.g., "0,1" or "0x3". Empty means use global default.
             ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
             
@@ -394,6 +399,7 @@
             MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for local staging. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
             TreatSevenZipWarningsAsSuccess = $true                    # Example: For this job, 7-Zip warnings are considered success.
+            SevenZipCpuAffinity        = "0"                          # NEW: Example: Restrict 7-Zip to core 0 for this job.
             
             # Checksum settings (will use global defaults if not specified here, e.g., DefaultGenerateArchiveChecksum = $false)
             # GenerateArchiveChecksum     = $false 
@@ -423,6 +429,7 @@
             GenerateArchiveChecksum     = $true
             ChecksumAlgorithm           = "MD5"                       
             VerifyArchiveChecksumOnTest = $true
+            SevenZipCpuAffinity         = "0x1"                       # NEW: Example: Restrict 7-Zip to core 0 (bitmask) for this job.
 
             # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
         }
@@ -448,6 +455,7 @@
             GenerateArchiveChecksum     = $true
             ChecksumAlgorithm           = "SHA512"
             VerifyArchiveChecksumOnTest = $true
+            # SevenZipCpuAffinity will use global default if not specified
             
             PostRunAction = @{
                 Enabled         = $true
@@ -487,6 +495,7 @@
 
             ThreadsToUse            = 2                               
             SevenZipProcessPriority = "BelowNormal"
+            SevenZipCpuAffinity     = "0,1,2,3"                       # Example: Use first 4 cores
             CompressionLevel        = "-mx=5"                         
             AdditionalExclusions    = @(                              
                                         "*\logs\*.log",               

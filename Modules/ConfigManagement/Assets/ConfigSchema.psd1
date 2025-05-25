@@ -56,13 +56,14 @@
 
     DefaultArchiveDateFormat                  = @{ Type = 'string'; Required = $false }
     DefaultCreateSFX                          = @{ Type = 'boolean'; Required = $false } 
-    DefaultSFXModule                          = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") } # NEW
+    DefaultSFXModule                          = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") }
 
     DefaultGenerateArchiveChecksum            = @{ Type = 'boolean'; Required = $false }
     DefaultChecksumAlgorithm                  = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
     DefaultVerifyArchiveChecksumOnTest        = @{ Type = 'boolean'; Required = $false }
 
     DefaultThreadCount                        = @{ Type = 'int'; Required = $false; Min = 0 }
+    DefaultSevenZipCpuAffinity                = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' } # NEW: Regex for "0xHEX" or "0,1,2" or empty
     DefaultArchiveType                        = @{ Type = 'string'; Required = $false }
     DefaultArchiveExtension                   = @{ Type = 'string'; Required = $false }
     DefaultCompressionLevel                   = @{ Type = 'string'; Required = $false }
@@ -125,6 +126,7 @@
                 EnableVSS                                 = @{ Type = 'boolean'; Required = $false }
                 VSSContextOption                          = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
                 SevenZipProcessPriority                   = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
+                SevenZipCpuAffinity                       = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' } # NEW
                 ReportGeneratorType                       = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
                 TreatSevenZipWarningsAsSuccess            = @{ Type = 'boolean'; Required = $false }
                 HtmlReportDirectory                       = @{ Type = 'string'; Required = $false }
@@ -136,7 +138,7 @@
                 ArchiveType                               = @{ Type = 'string'; Required = $false }
                 ArchiveExtension                          = @{ Type = 'string'; Required = $false }
                 CreateSFX                                 = @{ Type = 'boolean'; Required = $false } 
-                SFXModule                                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") } # NEW
+                SFXModule                                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") }
                 ArchiveDateFormat                         = @{ Type = 'string'; Required = $false }
                 ThreadsToUse                              = @{ Type = 'int'; Required = $false; Min = 0 }
                 CompressionLevel                          = @{ Type = 'string'; Required = $false }

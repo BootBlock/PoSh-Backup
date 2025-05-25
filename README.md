@@ -1,5 +1,5 @@
 # PoSh-Backup
-A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, and optional Self-Extracting Archive (SFX) creation.
+A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, and optional 7-Zip CPU core affinity.
 
 > **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
@@ -20,11 +20,12 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   **Local Retention:** Manage archive versions in the `DestinationDir` using the `LocalRetentionCount` setting per job.
     *   **Remote Retention:** Each Backup Target provider can, if designed to do so, implement its own retention logic on the remote storage (e.g., keep last X versions, delete after Y days). This is configured within the target's definition in the `BackupTargets` section (e.g., via `RemoteRetentionSettings` or per-destination settings for providers like "Replicate").
 *   **Live File Backups with VSS:** Utilise the Windows Volume Shadow Copy Service (VSS) to seamlessly back up open or locked files (requires Administrator privileges). Features configurable VSS context, reliable shadow copy creation, and a configurable metadata cache path.
-*   **Advanced 7-Zip Integration:** Leverage 7-Zip for efficient, highly configurable compression. Customise archive type, compression level, method, dictionary/word/solid block sizes, thread count, and file exclusions for local archive creation.
+*   **Advanced 7-Zip Integration:** Leverage 7-Zip for efficient, highly configurable compression. Customise archive type, compression level, method, dictionary/word/solid block sizes, and thread count for local archive creation.
 *   **Secure Password Protection:** Encrypt local backup archives with passwords, handled securely via temporary files (using 7-Zip's `-spf` switch) to prevent command-line exposure. Multiple password sources supported (Interactive, PowerShell SecretManagement, Encrypted File, Plaintext).
 *   **Customisable Archive Naming:** Tailor local archive filenames with a base name and a configurable date stamp (e.g., "yyyy-MMM-dd", "yyyyMMdd_HHmmss"). Set archive extensions (e.g., .7z, .zip) per job.
 *   **Automatic Retry Mechanism:** Overcome transient failures during 7-Zip operations for local archive creation. (Note: Retries for remote transfers are the responsibility of the specific Backup Target provider module, if implemented.)
 *   **CPU Priority Control:** Manage system resource impact by setting the 7-Zip process priority (e.g., Idle, BelowNormal, Normal, High) for local archiving.
+*   **NEW: 7-Zip CPU Core Affinity:** Optionally restrict the 7-Zip process to specific CPU cores using a comma-separated list (e.g., "0,1") or a hexadecimal bitmask (e.g., "0x3") for finer-grained resource control.
 *   **Extensible Script Hooks:** Execute your own custom PowerShell scripts at various stages of a backup job for ultimate operational flexibility. Hook scripts now receive information about target transfer results if applicable.
 *   **Multi-Format Reporting:** Generate comprehensive reports for each job.
     *   **Interactive HTML Reports:** Highly customisable with titles, logos, and themes (via external CSS). Now includes a dedicated section detailing the status of **Remote Target Transfers** and **Archive Checksum** information in the summary.
@@ -107,6 +108,11 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   `"Console"` or `"Default"`: Default 7-Zip console SFX (e.g., `7zCon.sfx`). Extracts to current directory without prompting.
             *   `"GUI"`: Standard GUI SFX (e.g., `7zS.sfx`). Prompts user for extraction path.
             *   `"Installer"`: Installer-like GUI SFX (e.g., `7zSD.sfx`). Prompts user for extraction path.
+    *   **NEW: `DefaultSevenZipCpuAffinity` (Global Setting):**
+        *   `DefaultSevenZipCpuAffinity` (string, default `""`): Optionally restrict 7-Zip to specific CPU cores.
+            *   Examples: `"0,1"` (for cores 0 and 1), `"0x3"` (bitmask for cores 0 and 1).
+            *   An empty string or `$null` means no affinity is set (7-Zip uses all available cores).
+            *   This setting is passed to `Start-Process -Affinity`.
     *   **`BackupTargets` (New Global Section):**
         *   This is where you define your reusable, named remote target configurations.
         *   Each entry (a "target instance") specifies a `Type` (like "UNC", "Replicate") and `TargetSpecificSettings` for that type.
@@ -188,15 +194,19 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   `SFXModule` (string, default from global `DefaultSFXModule`): Specifies the type of SFX if `CreateSFX` is true. Options: `"Console"`, `"GUI"`, `"Installer"`.
             *   If `CreateSFX` is `$true`, the `ArchiveExtension` setting for this job (or the global `DefaultArchiveExtension`) will effectively be overridden to `.exe` for the output file. The original `ArchiveExtension` (e.g., ".7z", ".zip") is still used internally to determine the archive type (e.g., for the 7-Zip `-t` switch).
             *   SFX archives are Windows-specific executables.
-        *   Example job definition that creates a local archive, sends it to a remote target, includes checksum settings, and creates an SFX:
+        *   **NEW: 7-Zip CPU Core Affinity (Job-Specific):**
+            *   `SevenZipCpuAffinity` (string, default from global `DefaultSevenZipCpuAffinity`): Optionally restrict 7-Zip to specific CPU cores for this job.
+                *   Examples: `"0,1"` (for cores 0 and 1), `"0x3"` (bitmask for cores 0 and 1).
+                *   An empty string or `$null` means no affinity is set (7-Zip uses all available cores).
+        *   Example job definition that creates a local archive, sends it to a remote target, includes checksum settings, creates an SFX, and sets CPU affinity:
             ```powershell
             # Inside BackupLocations in User.psd1 or Default.psd1
-            "MyDocumentsBackupSFX_GUI" = @{
+            "MyDocumentsBackupSFX_GUI_Affinity" = @{
                 Path           = @( 
                                 "C:\Users\YourUserName\Documents",
                                 "E:\WorkProjects\CriticalData"
                             )
-                Name           = "UserDocumentsSFX_GUI" 
+                Name           = "UserDocumentsSFX_GUI_Affinity" 
                 DestinationDir = "E:\BackupStorage\MyDocsSFX" 
                 LocalRetentionCount = 3                     
 
@@ -209,7 +219,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 
                 GenerateArchiveChecksum     = $true
                 ChecksumAlgorithm           = "SHA256"
-                VerifyArchiveChecksumOnTest = $true 
+                VerifyArchiveChecksumOnTest = $true
+                SevenZipCpuAffinity         = "0,1"  # Restrict 7-Zip to CPU cores 0 and 1
             }
 
             "ImportantProject_Replicated" = @{
@@ -222,6 +233,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 DeleteLocalArchiveAfterSuccessfulTransfer = $true
                 CreateSFX = $false # Not an SFX
                 SFXModule = "Console" # Not strictly needed if CreateSFX is false, but shows the option
+                SevenZipCpuAffinity = "0x1" # Restrict to core 0 (using hex bitmask)
             }
 
             "MyDocumentsToSFTP" = @{
@@ -236,6 +248,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 
                 ArchivePasswordMethod = "SecretManagement" 
                 ArchivePasswordSecretName = "MyArchiveEncryptionKey"
+                # SevenZipCpuAffinity will use global default (likely none)
             }
             ```
     *   **`PostRunActionDefaults` (Global Post-Run System Action Settings):**
@@ -295,9 +308,9 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
 
 *   **Run a specific backup job (it may be local-only or also send to remote targets based on its configuration):**
     ```powershell
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX" 
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX_GUI_Affinity" 
     ```
-    (Replace `"MyDocumentsBackupSFX"` with the actual name of a job you defined in `BackupLocations`. If this job has a `PostRunAction` configured, it will be evaluated after the job.)
+    (Replace `"MyDocumentsBackupSFX_GUI_Affinity"` with the actual name of a job you defined in `BackupLocations`. If this job has a `PostRunAction` configured, it will be evaluated after the job.)
 
 *   **Run a predefined Backup Set:** (Backup Sets group multiple jobs and are defined in `User.psd1` or `Default.psd1`.)
     ```powershell
@@ -305,9 +318,9 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     ```
     (Replace `"DailyCriticalBackups"` with the name of a defined set. If the "DailyCriticalBackups" set has a `PostRunAction`, it will be evaluated after all jobs in the set complete. This set-level action overrides any job-level post-run actions within the set.)
 
-*   **Simulate a backup job (local archive creation, any remote transfers, checksum operations, SFX creation, and post-run actions will be simulated):**
+*   **Simulate a backup job (local archive creation, any remote transfers, checksum operations, SFX creation, CPU affinity application, and post-run actions will be simulated):**
     ```powershell
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX" -Simulate
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX_GUI_Affinity" -Simulate
     ```
 
 *   **Run a job and treat 7-Zip warnings from local archiving as success for status reporting:**
@@ -345,7 +358,7 @@ These parameters allow you to override certain configuration settings for a spec
 
 *   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges).
 *   `-TestArchive`: Forces an integrity test of newly created *local* archives for all processed jobs. If checksum generation and verification are enabled for the job, this will include checksum verification.
-*   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions, checksum operations, SFX creation, and post-run system actions are logged but not actually executed.
+*   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions, checksum operations, SFX creation, CPU affinity application, and post-run system actions are logged but not actually executed.
 *   `-TreatSevenZipWarningsAsSuccessCLI`: Forces 7-Zip exit code 1 (Warning) from *local* archiving to be treated as a success for the job status, overriding any configuration settings.
 *   `-PauseBehaviourCLI <Always|Never|OnFailure|OnWarning|OnFailureOrWarning>`: Controls if the script pauses with a "Press any key to continue" message before exiting. Overrides the `PauseBeforeExit` setting in the configuration file.
 *   **NEW: `-PostRunActionCli <Action>`**: Overrides all configured post-run actions.
