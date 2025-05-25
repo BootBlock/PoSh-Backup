@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.3.7: Validator changes.
+# Version 1.3.8: Clarified DestinationDir role in comments.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -46,14 +46,15 @@
     SevenZipPath                    = ""                              # Full path to 7z.exe (e.g., 'C:\Program Files\7-Zip\7z.exe').
                                                                       # Leave empty ("") to allow the script to attempt auto-detection from common installation locations and the system PATH.
                                                                       # If auto-detection fails and this path is empty or invalid, the script will error.
-    DefaultDestinationDir           = "D:\Backups\LocalStage"         # Default LOCAL STAGING directory where backup archives will be initially created.
+    DefaultDestinationDir           = "D:\Backups\LocalStage"         # Default directory where backup archives will be initially created.
                                                                       # If remote targets (see 'BackupTargets' and 'TargetNames') are specified for a job, this directory
-                                                                      # serves as a temporary holding area before transfer.
-                                                                      # If no remote targets are used for a job, this acts as the final backup destination.
+                                                                      # serves as a temporary LOCAL STAGING area before transfer.
+                                                                      # If no remote targets are used for a job, this acts as the FINAL BACKUP DESTINATION.
                                                                       # Ensure this path exists, or the script has permissions to create it.
     DeleteLocalArchiveAfterSuccessfulTransfer = $true                 # Global default. If $true, the local archive in 'DefaultDestinationDir' (or job-specific 'DestinationDir')
                                                                       # will be deleted AFTER all specified remote target transfers for that job have completed successfully.
-                                                                      # If $false, the local staged copy is kept. If no remote targets are specified for a job, this setting has no effect.
+                                                                      # If $false, the local copy is kept. If no remote targets are specified for a job, this setting has no effect
+                                                                      # as the archive in 'DestinationDir' is the final backup.
                                                                       # Can be overridden per job in 'BackupLocations'.
     HideSevenZipOutput              = $true                           # $true (default) to hide 7-Zip's console window during compression and testing operations.
                                                                       # $false to show the 7-Zip console window (can be useful for diagnosing 7-Zip specific issues).
@@ -320,12 +321,13 @@
         "Projects"  = @{
             Path                    = "P:\Images\*"                   # Path(s) to back up. Can be a single string or an array of strings for multiple sources.
             Name                    = "Projects"                      # Base name for the archive file (date stamp and extension will be appended).
-            DestinationDir          = "D:\Backups"                    # Specific LOCAL STAGING destination for this job.
+            DestinationDir          = "D:\Backups"                    # Specific directory for this job. If remote targets are specified, this acts as a LOCAL STAGING area.
+                                                                      # If no remote targets, this is the FINAL BACKUP DESTINATION.
             #TargetNames             = @("ExampleUNCShare")           # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
                                                                       # If empty or not present, this job is local-only to DestinationDir.
-            DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override for the global setting.
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override. Only effective if TargetNames are specified.
 
-            LocalRetentionCount     = 3                               # Number of archive versions for this job to keep in 'DestinationDir'. (Previously 'RetentionCount')
+            LocalRetentionCount     = 3                               # Number of archive versions for this job to keep in 'DestinationDir'.
             DeleteToRecycleBin      = $false                          # For local retention in 'DestinationDir'.
             RetentionConfirmDelete  = $false                          # Job-specific override for local retention: auto-delete old local archives without prompting.
 
@@ -359,12 +361,12 @@
         "AnExample_WithRemoteTarget" = @{
             Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
             Name                       = "MyImportantDocuments"
-            DestinationDir             = "D:\Backups\LocalStage"      # LOCAL STAGING directory. Archive is created here first.
+            DestinationDir             = "D:\Backups\LocalStage"      # LOCAL STAGING directory, as TargetNames are specified below. Archive is created here first.
 
             TargetNames                = @("ExampleUNCShare")         # Archive will be sent to "ExampleUNCShare" (defined in BackupTargets) after local creation.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Delete from local staging after successful transfer to ALL targets.
 
-            LocalRetentionCount        = 5                            # Number of archive versions to keep in the local 'DestinationDir'. (Previously 'RetentionCount')
+            LocalRetentionCount        = 5                            # Number of archive versions to keep in the local 'DestinationDir'.
             DeleteToRecycleBin         = $true                        # Note: Ensure this is appropriate if 'DestinationDir' is a network share (less common for staging).
             RetentionConfirmDelete     = $false                       # Example: This job will auto-delete old local archives without prompting.
 
@@ -387,7 +389,7 @@
         "Docs_Replicated_Example" = @{
             Path                       = @("C:\Users\YourUser\Documents\Reports", "C:\Users\YourUser\Pictures\Screenshots")
             Name                       = "UserDocs_MultiCopy"         # Example: base name for the archive
-            DestinationDir             = "C:\BackupStaging\UserDocs"  # Local staging directory before replication
+            DestinationDir             = "C:\BackupStaging\UserDocs"  # Local staging directory before replication (as TargetNames are specified).
             
             TargetNames                = @("ExampleReplicatedStorage") # Reference the "Replicate" target instance defined in BackupTargets
             
@@ -410,7 +412,7 @@
         "CriticalData_To_SFTP_Example" = @{
             Path                    = "E:\CriticalApplication\Data"
             Name                    = "AppCriticalData_SFTP"
-            DestinationDir          = "D:\BackupStaging\SFTP_Stage"   # Local staging before SFTP transfer
+            DestinationDir          = "D:\BackupStaging\SFTP_Stage"   # Local staging before SFTP transfer (as TargetNames are specified).
             
             TargetNames             = @("ExampleSFTPServer")          # Reference the SFTP target instance
             
@@ -445,7 +447,7 @@
             Name                    = "WebApp_Production"
             DestinationDir          = "\\BACKUPSERVER\Share\WebApps\LocalStage_WebApp"  # Example: Local staging to a network share (less common, but possible).
                                                                                       # Or simply "C:\BackupStage\WebApp" for true local staging.
-            LocalRetentionCount     = 1                               # Keep only the latest copy locally in staging after successful transfers. (Previously 'RetentionCount')
+            LocalRetentionCount     = 1                               # Keep only the latest copy locally in staging after successful transfers.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Delete from staging if all remote transfers succeed.
             RetentionConfirmDelete  = $false                          # For local retention, auto-delete.
 

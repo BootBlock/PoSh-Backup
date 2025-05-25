@@ -15,14 +15,14 @@
     The primary exported function, Invoke-PoShBackupJob, performs the following sequence:
     1.  Receives the effective configuration.
     2.  Performs early accessibility checks.
-    3.  Validates/creates local staging destination directory.
+    3.  Validates/creates local destination directory (staging or final).
     4.  Retrieves archive password.
     5.  Executes pre-backup hook scripts.
     6.  Handles VSS shadow copy creation (via VssManager.psm1).
     7.  Calls 'Invoke-LocalArchiveOperation' (from Modules\Operations\LocalArchiveProcessor.psm1) to:
-        a.  Check local staging destination free space.
+        a.  Check local destination free space.
         b.  Construct 7-Zip arguments.
-        c.  Execute 7-Zip for archiving to the local staging directory.
+        c.  Execute 7-Zip for archiving to the local directory.
         d.  Optionally generate an archive checksum file.
         e.  Optionally test local archive integrity and verify checksum.
     8.  Applies local retention policy (via RetentionManager.psm1).
@@ -39,9 +39,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.19.3 # Added Write-Error in main catch block for PSSA.
+    Version:        1.19.5 # Addressed PSSA empty catch block warning.
     DateCreated:    10-May-2025
-    LastModified:   24-May-2025
+    LastModified:   25-May-2025
     Purpose:        Handles the execution logic for individual backup jobs, including remote target transfers and checksums.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules and target provider modules.
@@ -56,7 +56,6 @@ try {
     Import-Module -Name (Join-Path $PSScriptRoot "HookManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path $PSScriptRoot "VssManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path $PSScriptRoot "RetentionManager.psm1") -Force -ErrorAction Stop
-    # NEW: Import sub-modules from Modules\Operations\
     Import-Module -Name (Join-Path $PSScriptRoot "Operations\LocalArchiveProcessor.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path $PSScriptRoot "Operations\RemoteTransferOrchestrator.psm1") -Force -ErrorAction Stop
 } catch {
@@ -119,9 +118,12 @@ function Invoke-PoShBackupJob {
     try {
         $effectiveJobConfig = $JobConfig 
 
+        # Determine the correct term for DestinationDir based on whether remote targets are configured
+        $destinationDirTerm = if ($effectiveJobConfig.ResolvedTargetInstances.Count -eq 0) { "Final Destination Directory" } else { "Local Staging Directory" }
+
         & $LocalWriteLog -Message " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
         & $LocalWriteLog -Message "   - Effective Source Path(s): $(if ($effectiveJobConfig.OriginalSourcePath -is [array]) {$effectiveJobConfig.OriginalSourcePath -join '; '} else {$effectiveJobConfig.OriginalSourcePath})"
-        & $LocalWriteLog -Message "   - Local Staging Directory: $($effectiveJobConfig.DestinationDir)"
+        & $LocalWriteLog -Message "   - ${destinationDirTerm}: $($effectiveJobConfig.DestinationDir)" # Corrected interpolation
         & $LocalWriteLog -Message "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)"
         & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod)"
         & $LocalWriteLog -Message "   - Treat 7-Zip Warnings as Success: $($effectiveJobConfig.TreatSevenZipWarningsAsSuccess)"
@@ -133,7 +135,7 @@ function Invoke-PoShBackupJob {
             & $LocalWriteLog -Message "   - Remote Target Name(s)  : $($effectiveJobConfig.TargetNames -join ', ')"
             & $LocalWriteLog -Message "   - Delete Local Staged Archive After Successful Transfer(s): $($effectiveJobConfig.DeleteLocalArchiveAfterSuccessfulTransfer)"
         } else {
-            & $LocalWriteLog -Message "   - Remote Target Name(s)  : (None specified - local backup only)"
+            & $LocalWriteLog -Message "   - Remote Target Name(s)  : (None specified - local backup only to $destinationDirTerm)"
         }
 
         #region --- Early UNC Path Accessibility Checks ---
@@ -166,27 +168,27 @@ function Invoke-PoShBackupJob {
             if (-not [string]::IsNullOrWhiteSpace($uncDestinationBasePathToTest)) {
                 if (-not $IsSimulateMode.IsPresent) {
                     if (-not (Test-Path -LiteralPath $uncDestinationBasePathToTest)) {
-                        $errorMessage = "FATAL: Operations: Base UNC local staging destination share '$uncDestinationBasePathToTest' (from '$($effectiveJobConfig.DestinationDir)') is inaccessible. Job '$JobName' cannot proceed."
+                        $errorMessage = "FATAL: Operations: Base UNC ${destinationDirTerm} share '$uncDestinationBasePathToTest' (from '$($effectiveJobConfig.DestinationDir)') is inaccessible. Job '$JobName' cannot proceed." # Corrected interpolation
                         & $LocalWriteLog -Message $errorMessage -Level ERROR; $reportData.ErrorMessage = $errorMessage; throw $errorMessage
-                    } else { & $LocalWriteLog -Message "  - Operations: Base UNC local staging destination share '$uncDestinationBasePathToTest' accessibility: PASSED." -Level DEBUG }
-                } else { & $LocalWriteLog -Message "SIMULATE: Operations: Would test accessibility of base UNC local staging destination share '$uncDestinationBasePathToTest'." -Level SIMULATE }
-            } else { & $LocalWriteLog -Message "[WARNING] Operations: Could not determine base UNC share for local staging destination '$($effectiveJobConfig.DestinationDir)'. Full path creation attempted later." -Level WARNING }
+                    } else { & $LocalWriteLog -Message "  - Operations: Base UNC ${destinationDirTerm} share '$uncDestinationBasePathToTest' accessibility: PASSED." -Level DEBUG } # Corrected interpolation
+                } else { & $LocalWriteLog -Message "SIMULATE: Operations: Would test accessibility of base UNC ${destinationDirTerm} share '$uncDestinationBasePathToTest'." -Level SIMULATE } # Corrected interpolation
+            } else { & $LocalWriteLog -Message "[WARNING] Operations: Could not determine base UNC share for ${destinationDirTerm} '$($effectiveJobConfig.DestinationDir)'. Full path creation attempted later." -Level WARNING } # Corrected interpolation
         }
         & $LocalWriteLog -Message "[INFO] Operations: Early accessibility checks completed." -Level INFO
         #endregion
 
         if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.DestinationDir)) {
-            throw "FATAL: Local Staging Destination directory for job '$JobName' is not defined. Cannot proceed."
+            throw "FATAL: ${destinationDirTerm} for job '$JobName' is not defined. Cannot proceed." # Corrected interpolation
         }
         if (-not (Test-Path -LiteralPath $effectiveJobConfig.DestinationDir -PathType Container)) {
-            & $LocalWriteLog -Message "[INFO] Local Staging Destination directory '$($effectiveJobConfig.DestinationDir)' for job '$JobName' does not exist. Attempting to create..."
+            & $LocalWriteLog -Message "[INFO] ${destinationDirTerm} '$($effectiveJobConfig.DestinationDir)' for job '$JobName' does not exist. Attempting to create..." # Corrected interpolation
             if (-not $IsSimulateMode.IsPresent) {
-                if ($PSCmdlet.ShouldProcess($effectiveJobConfig.DestinationDir, "Create Local Staging Directory")) {
-                    try { New-Item -Path $effectiveJobConfig.DestinationDir -ItemType Directory -Force -ErrorAction Stop | Out-Null; & $LocalWriteLog -Message "  - Local Staging Destination directory created successfully." -Level SUCCESS }
-                    catch { throw "FATAL: Failed to create Local Staging Destination directory '$($effectiveJobConfig.DestinationDir)'. Error: $($_.Exception.Message)" }
+                if ($PSCmdlet.ShouldProcess($effectiveJobConfig.DestinationDir, "Create ${destinationDirTerm}")) { # Corrected interpolation
+                    try { New-Item -Path $effectiveJobConfig.DestinationDir -ItemType Directory -Force -ErrorAction Stop | Out-Null; & $LocalWriteLog -Message "  - ${destinationDirTerm} created successfully." -Level SUCCESS } # Corrected interpolation
+                    catch { throw "FATAL: Failed to create ${destinationDirTerm} '$($effectiveJobConfig.DestinationDir)'. Error: $($_.Exception.Message)" } # Corrected interpolation
                 }
             } else {
-                & $LocalWriteLog -Message "SIMULATE: Would create Local Staging Destination directory '$($effectiveJobConfig.DestinationDir)'." -Level SIMULATE
+                & $LocalWriteLog -Message "SIMULATE: Would create ${destinationDirTerm} '$($effectiveJobConfig.DestinationDir)'." -Level SIMULATE # Corrected interpolation
             }
         }
 
@@ -247,7 +249,28 @@ function Invoke-PoShBackupJob {
         if ($effectiveJobConfig.JobEnableVSS) {
             $reportData.VSSAttempted = $true; $originalSourcePathsForJob = if ($effectiveJobConfig.OriginalSourcePath -is [array]) { $effectiveJobConfig.OriginalSourcePath } else { @($effectiveJobConfig.OriginalSourcePath) }
             $containsUncPath = $false; $containsLocalPath = $false; $localPathVssUsedSuccessfully = $false
-            if ($null -ne $originalSourcePathsForJob) { foreach ($originalPathItem in $originalSourcePathsForJob) { if (-not [string]::IsNullOrWhiteSpace($originalPathItem)) { $isUncPathItem = $false; try { if (([uri]$originalPathItem).IsUnc) { $isUncPathItem = $true } } catch { } if ($isUncPathItem) { $containsUncPath = $true } else { $containsLocalPath = $true; if ($null -ne $VSSPathsInUse -and $VSSPathsInUse.ContainsKey($originalPathItem) -and $VSSPathsInUse[$originalPathItem] -ne $originalPathItem) { $localPathVssUsedSuccessfully = $true } } } } }
+            if ($null -ne $originalSourcePathsForJob) {
+                foreach ($originalPathItem in $originalSourcePathsForJob) {
+                    if (-not [string]::IsNullOrWhiteSpace($originalPathItem)) {
+                        $isUncPathItem = $false
+                        try {
+                            if (([uri]$originalPathItem).IsUnc) { $isUncPathItem = $true }
+                        }
+                        catch {
+                            # Path is not a valid URI, assume local. Log for debugging if necessary.
+                            & $LocalWriteLog -Message "Operations.psm1: Path '$originalPathItem' could not be parsed as URI for UNC check. Assuming local. Error: $($_.Exception.Message)" -Level "DEBUG"
+                        }
+                        if ($isUncPathItem) {
+                            $containsUncPath = $true
+                        } else {
+                            $containsLocalPath = $true
+                            if ($null -ne $VSSPathsInUse -and $VSSPathsInUse.ContainsKey($originalPathItem) -and $VSSPathsInUse[$originalPathItem] -ne $originalPathItem) {
+                                $localPathVssUsedSuccessfully = $true
+                            }
+                        }
+                    }
+                }
+            }
             if ($IsSimulateMode.IsPresent) { $reportData.VSSStatus = if ($containsLocalPath -and $containsUncPath) { "Simulated (Used for local, Skipped for network)" } elseif ($containsUncPath -and -not $containsLocalPath) { "Simulated (Skipped - All Network Paths)" } elseif ($containsLocalPath) { "Simulated (Used for local paths)" } else { "Simulated (No paths processed for VSS)" } }
             else { if ($containsLocalPath) { $reportData.VSSStatus = if ($localPathVssUsedSuccessfully) { if ($containsUncPath) { "Partially Used (Local success, Network skipped)" } else { "Used Successfully" } } else { if ($containsUncPath) { "Failed (Local VSS failed/skipped, Network skipped)" } else { "Failed (Local VSS failed/skipped)" } } } elseif ($containsUncPath) { $reportData.VSSStatus = "Not Applicable (All Source Paths Network)" } else { $reportData.VSSStatus = "Not Applicable (No Source Paths Specified)" } }
         } else { $reportData.VSSAttempted = $false; $reportData.VSSStatus = "Not Enabled" }

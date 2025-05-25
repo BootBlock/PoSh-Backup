@@ -7,17 +7,17 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Enterprise-Grade PowerShell Solution:** Robust, modular design built with dedicated PowerShell modules for reliability, maintainability, and clarity.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
 *   **Local and Remote Backups:**
-    *   Archives are initially created in a **local staging directory** (defined by `DestinationDir` in job settings).
-    *   Jobs can be configured to additionally transfer these archives to one or more **remote Backup Targets** (e.g., UNC shares, with future support for FTP, S3, etc., via an extensible provider model).
-    *   If no remote targets are specified for a job, the local staging directory serves as the final backup location.
-*   **Granular Backup Job Control:** Precisely define sources, destinations (local staging), archive names, local retention policies, **remote target assignments**, and **post-run actions** for each individual backup job.
+    *   Archives are initially created directly in the directory specified by the effective `DestinationDir` setting for the job.
+    *   If remote targets (e.g., UNC shares, SFTP servers) are configured for the job, this `DestinationDir` acts as a **local staging area** before the archive is transferred.
+    *   If no remote targets are specified for a job, the archive in `DestinationDir` serves as the **final backup location**.
+*   **Granular Backup Job Control:** Precisely define sources, the primary archive creation directory (`DestinationDir`), archive names, local retention policies, **remote target assignments**, and **post-run actions** for each individual backup job.
 *   **Backup Sets:** Group multiple jobs to run sequentially, with set-level error handling (stop on error or continue) and **set-level post-run actions** for automated workflows.
 *   **Extensible Backup Target Providers:** A modular system (located in `Modules\Targets\`) allows for adding support for various remote storage types.
     *   **UNC Provider:** Transfers archives to standard network shares.
     *   **Replicate Provider (New):** Copies an archive to multiple specified local or UNC paths, with individual retention settings per destination.
     *   **SFTP Provider (via Posh-SSH module) (New):** Transfers archives to SFTP servers, supporting password and key-based authentication.
 *   **Configurable Retention Policies:**
-    *   **Local Retention:** Manage archive versions in the local staging directory (`DestinationDir`) using the `LocalRetentionCount` setting per job.
+    *   **Local Retention:** Manage archive versions in the `DestinationDir` using the `LocalRetentionCount` setting per job.
     *   **Remote Retention:** Each Backup Target provider can, if designed to do so, implement its own retention logic on the remote storage (e.g., keep last X versions, delete after Y days). This is configured within the target's definition in the `BackupTargets` section (e.g., via `RemoteRetentionSettings` or per-destination settings for providers like "Replicate").
 *   **Live File Backups with VSS:** Utilise the Windows Volume Shadow Copy Service (VSS) to seamlessly back up open or locked files (requires Administrator privileges). Features configurable VSS context, reliable shadow copy creation, and a configurable metadata cache path.
 *   **Advanced 7-Zip Integration:** Leverage 7-Zip for efficient, highly configurable compression. Customise archive type, compression level, method, dictionary/word/solid block sizes, thread count, and file exclusions for local archive creation.
@@ -41,7 +41,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Comprehensive Logging:** Get detailed, colour-coded console output and optional per-job text file logs for easy monitoring and troubleshooting of both local operations and remote transfers.
 *   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention, **post-run system actions**, and **checksum operations** without making any actual changes.
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`), including basic validation of Backup Target definitions. Optional advanced schema validation available.
-*   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the local staging directory before starting backups to prevent failures.
+*   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the `DestinationDir` before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives using `7z t`.
 *   **NEW: Archive Checksum Generation & Verification:** Optionally generate a checksum file (e.g., SHA256, MD5) for the local archive. If archive testing is enabled, this checksum can also be verified against the archive content for an additional layer of integrity validation.
 *   **Flexible 7-Zip Warning Handling:** Option to treat 7-Zip warnings (exit code 1, e.g., from skipped open files) as a success for job status reporting, configurable globally, per-job, or via CLI.
@@ -88,10 +88,13 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   By default, this is empty (`""`), and the script tries to auto-detect `7z.exe`.
         *   If auto-detection fails, or you have multiple 7-Zip versions and want to specify one, set the full path here. Example: `'C:\Program Files\7-Zip\7z.exe'`.
     *   **`DefaultDestinationDir`**:
-        *   This now serves as the default **local staging directory** where archives are first created before any potential remote transfer. Example: `'D:\Backup_StagingArea'`.
+        *   This serves as the default directory where backup archives are created.
+        *   If remote targets (see `BackupTargets` and `TargetNames`) are specified for a job, this directory acts as a **local staging area** before transfer.
+        *   If no remote targets are used for a job, this acts as the **final backup destination**.
+        *   Example: `'D:\Backups\PrimaryArchiveLocation'`.
         *   Ensure this directory exists, or the script has permissions to create it.
     *   **`DeleteLocalArchiveAfterSuccessfulTransfer` (Global Setting):**
-        *   Defaults to `$true`. If true, the locally staged archive will be deleted after it has been successfully transferred to ALL specified remote targets for a job. Can be overridden per job.
+        *   Defaults to `$true`. If true, the archive in `DefaultDestinationDir` (or job-specific `DestinationDir`) will be deleted after it has been successfully transferred to ALL specified remote targets for that job. Has no effect if no remote targets are configured for the job. Can be overridden per job.
     *   **`TreatSevenZipWarningsAsSuccess`**: (Global Setting)
         *   Defaults to `$false`. If set to `$true`, 7-Zip warnings (like skipped files) will still result in a "SUCCESS" job status.
     *   **NEW: Checksum Settings (Global Defaults):**
@@ -166,8 +169,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   `Path`: Source path(s) to back up (string or array of strings).
             *   `Name`: Base name for the archive file.
         *   Key settings for local and remote behaviour:
-            *   `DestinationDir`: Specifies the **local staging directory** for this particular job's archive. Overrides `DefaultDestinationDir`.
-            *   `LocalRetentionCount`: (Renamed from `RetentionCount`) Defines how many archive versions to keep in the local `DestinationDir` (staging area).
+            *   `DestinationDir`: Specifies the directory where this job's archive is created. If remote targets are used, this acts as a **local staging directory**. If no remote targets are used, this is the **final backup destination**. Overrides `DefaultDestinationDir`.
+            *   `LocalRetentionCount`: (Renamed from `RetentionCount`) Defines how many archive versions to keep in the `DestinationDir`.
             *   `TargetNames` (New Setting): An array of strings. Each string must be a name of a target instance defined in the global `BackupTargets` section. If you specify target names here, the locally created archive will be transferred to each listed remote target. If `TargetNames` is omitted or empty, the backup is local-only to `DestinationDir`.
             *   `DeleteLocalArchiveAfterSuccessfulTransfer` (Job-Specific): Overrides the global setting for this job.
         *   **NEW: Job-Specific Checksum Settings:**
@@ -183,10 +186,10 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                                  "E:\WorkProjects\CriticalData"
                                )
                 Name           = "UserDocumentsArchive" 
-                DestinationDir = "E:\BackupStaging\MyDocs"   
+                DestinationDir = "E:\BackupStorage\MyDocs" # If TargetNames below is used, this is staging. Otherwise, final.
                 LocalRetentionCount = 3                     
 
-                TargetNames = @("MyMainUNCShare") 
+                TargetNames = @("MyMainUNCShare") # Archive sent to this remote target. "E:\BackupStorage\MyDocs" is staging.
                 DeleteLocalArchiveAfterSuccessfulTransfer = $true 
 
                 # Checksum settings for this job
@@ -198,7 +201,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             "ImportantProject_Replicated" = @{
                 Path           = "D:\Projects\CriticalProject"
                 Name           = "CriticalProject_MultiCopy"
-                DestinationDir = "C:\Temp\StagingArea"    
+                DestinationDir = "C:\Temp\StagingAreaForReplication" # This is staging before replication.
                 LocalRetentionCount = 1 # Keep only 1 in staging after successful replication
 
                 TargetNames = @("MyReplicatedBackups") # Uses the "Replicate" target defined above
@@ -208,7 +211,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             "MyDocumentsToSFTP" = @{
                 Path           = "C:\Users\YourUserName\Documents"
                 Name           = "UserDocuments_SFTP"
-                DestinationDir = "E:\BackupStaging\MyDocsSFTP"
+                DestinationDir = "E:\BackupStaging\MyDocsSFTP" # Staging before SFTP.
                 LocalRetentionCount = 2
 
                 TargetNames = @("MySecureFTPServer") # Uses the SFTP target defined above

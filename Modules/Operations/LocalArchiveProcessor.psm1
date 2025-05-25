@@ -15,9 +15,9 @@
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2 # Renamed Invoke-LocalArchiveOperations to Invoke-LocalArchiveOperation.
+    Version:        1.0.3 # Clarified DestinationDir role in log messages.
     DateCreated:    24-May-2025
-    LastModified:   24-May-2025
+    LastModified:   25-May-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 and 7ZipManager.psm1 from the parent 'Modules' directory.
@@ -33,7 +33,7 @@ try {
     throw
 }
 
-function Invoke-LocalArchiveOperation { # Renamed from Invoke-LocalArchiveOperations
+function Invoke-LocalArchiveOperation {
     # Removed [CmdletBinding(SupportsShouldProcess = $true)] as ShouldProcess is handled by called cmdlets.
     param(
         [Parameter(Mandatory = $true)]
@@ -64,7 +64,7 @@ function Invoke-LocalArchiveOperation { # Renamed from Invoke-LocalArchiveOperat
         }
     }
     # PSSA: Logger parameter used via $LocalWriteLog
-    & $LocalWriteLog -Message "LocalArchiveProcessor/Invoke-LocalArchiveOperation: Logger active." -Level "DEBUG" # Updated function name in log
+    & $LocalWriteLog -Message "LocalArchiveProcessor/Invoke-LocalArchiveOperation: Logger active." -Level "DEBUG"
 
     $currentLocalArchiveStatus = "SUCCESS" # Status specific to local archive operations
     $finalArchivePathForReturn = $null
@@ -72,18 +72,21 @@ function Invoke-LocalArchiveOperation { # Renamed from Invoke-LocalArchiveOperat
     $archiveFileNameOnly = $null # Initialize
 
     try {
+        # Determine the correct term for DestinationDir based on whether remote targets are configured
+        $destinationDirTerm = if ($EffectiveJobConfig.ResolvedTargetInstances.Count -eq 0) { "Final Destination Directory" } else { "Local Staging Directory" }
+
         & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Performing Pre-Archive Creation Operations..." -Level "INFO"
         & $LocalWriteLog -Message "   - Using source(s) for 7-Zip: $(if ($CurrentJobSourcePathFor7Zip -is [array]) {($CurrentJobSourcePathFor7Zip | Where-Object {$_}) -join '; '} else {$CurrentJobSourcePathFor7Zip})" -Level "DEBUG"
 
         if (-not (Test-DestinationFreeSpace -DestDir $EffectiveJobConfig.DestinationDir -MinRequiredGB $EffectiveJobConfig.JobMinimumRequiredFreeSpaceGB -ExitOnLow $EffectiveJobConfig.JobExitOnLowSpace -IsSimulateMode:$IsSimulateMode -Logger $Logger)) {
-            throw "Low disk space on local staging destination and configured to halt job '$($EffectiveJobConfig.JobName)'."
+            throw "Low disk space on '${destinationDirTerm}' and configured to halt job '$($EffectiveJobConfig.JobName)'."
         }
 
         $DateString = Get-Date -Format $EffectiveJobConfig.JobArchiveDateFormat
         $archiveFileNameOnly = "$($EffectiveJobConfig.BaseFileName) [$DateString]$($EffectiveJobConfig.JobArchiveExtension)" # Assign here
         $finalArchivePathForReturn = Join-Path -Path $EffectiveJobConfig.DestinationDir -ChildPath $archiveFileNameOnly
         $reportData.FinalArchivePath = $finalArchivePathForReturn
-        & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Target LOCAL STAGED Archive: $finalArchivePathForReturn" -Level "INFO"
+        & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Target Archive in ${destinationDirTerm}: $finalArchivePathForReturn" -Level "INFO" # MODIFIED LINE
 
         $sevenZipArgsArray = Get-PoShBackup7ZipArgument -EffectiveConfig $EffectiveJobConfig `
             -FinalArchivePath $finalArchivePathForReturn `
@@ -279,4 +282,4 @@ function Invoke-LocalArchiveOperation { # Renamed from Invoke-LocalArchiveOperat
     }
 }
 
-Export-ModuleMember -Function Invoke-LocalArchiveOperation # Updated export
+Export-ModuleMember -Function Invoke-LocalArchiveOperation
