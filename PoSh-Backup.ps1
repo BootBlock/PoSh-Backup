@@ -4,8 +4,9 @@
     Features include VSS (Volume Shadow Copy), configurable retries, script execution hooks,
     multi-format reporting, backup sets, 7-Zip process priority control, extensive
     customisation via an external .psd1 configuration file, remote Backup Targets,
-    optional post-run system state actions (e.g., shutdown, restart), and optional
-    archive checksum generation and verification.
+    optional post-run system state actions (e.g., shutdown, restart), optional
+    archive checksum generation and verification, optional Self-Extracting Archive (SFX) creation,
+    and optional 7-Zip CPU core affinity (with CLI override).
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -23,10 +24,14 @@
     - Comprehensive Logging, Simulation Mode, Configuration Test Mode.
     - Proactive Free Space Check, Archive Integrity Verification (7z t and optional checksums).
     - Flexible 7-Zip Warning Handling, Exit Pause Control.
-    - NEW: Post-Run System Actions: Optionally perform actions like shutdown, restart, hibernate, etc.,
+    - Post-Run System Actions: Optionally perform actions like shutdown, restart, hibernate, etc.,
       after job/set completion, configurable based on status, with delay and CLI override.
-    - NEW: Archive Checksum Generation & Verification: Optionally generate checksum files (e.g., SHA256)
+    - Archive Checksum Generation & Verification: Optionally generate checksum files (e.g., SHA256)
       for local archives and verify them during archive testing for enhanced integrity.
+    - Self-Extracting Archives (SFX): Optionally create Windows self-extracting archives (.exe)
+      for easy restoration.
+    - 7-Zip CPU Core Affinity: Optionally restrict 7-Zip to specific CPU cores, with validation
+      and CLI override.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -62,6 +67,9 @@
 .PARAMETER SevenZipPriorityCLI
     Optional. Allows specifying the 7-Zip process priority.
     Valid values: "Idle", "BelowNormal", "Normal", "AboveNormal", "High".
+
+.PARAMETER SevenZipCpuAffinityCLI
+    Optional. CLI Override: 7-Zip CPU core affinity (e.g., '0,1' or '0x3'). Overrides config.
 
 .PARAMETER TestConfig
     Optional. A switch parameter. If present, loads, validates configuration, prints summary, then exits.
@@ -109,9 +117,14 @@
     attempt to hibernate after a 60-second cancellable delay, regardless of the set's or jobs'
     configured PostRunAction settings, and regardless of the set's final status (due to default CLI trigger "ANY").
 
+.EXAMPLE
+    .\PoSh-Backup.ps1 -BackupLocationName "MyLargeArchiveJob" -SevenZipCpuAffinityCLI "0,1"
+    Runs the "MyLargeArchiveJob" and restricts 7-Zip to use only CPU cores 0 and 1, overriding any
+    CPU affinity settings in the configuration file for this job or globally.
+
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.12.1 # Removed diagnostics, kept Utils.psm1 re-import workaround.
+    Version:        1.12.2 # Added SevenZipCpuAffinityCLI parameter.
     Date:           25-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -153,6 +166,9 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Optional. Set 7-Zip process priority (Idle, BelowNormal, Normal, AboveNormal, High).")]
     [ValidateSet("Idle", "BelowNormal", "Normal", "AboveNormal", "High")]
     [string]$SevenZipPriorityCLI,
+
+    [Parameter(Mandatory=$false, HelpMessage="CLI Override: 7-Zip CPU core affinity (e.g., '0,1' or '0x3'). Overrides config.")]
+    [string]$SevenZipCpuAffinityCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Load and validate the entire configuration file, prints summary, then exit. Post-run actions simulated.")]
     [switch]$TestConfig,
@@ -198,11 +214,12 @@ $cliOverrideSettings = @{
     GenerateHtmlReport                 = if ($PSBoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $GenerateHtmlReportCLI.IsPresent } else { $null }
     TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
     SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
+    SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null } # NEW
     PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
     PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
-    PostRunActionDelaySecondsCli       = if ($PSBoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $PostRunActionDelaySecondsCli } else { $null } 
+    PostRunActionDelaySecondsCli       = if ($PSBoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $PostRunActionDelaySecondsCli } else { $null }
     PostRunActionForceCli              = if ($PSBoundParameters.ContainsKey('PostRunActionForceCli')) { $PostRunActionForceCli.IsPresent } else { $null }
-    PostRunActionTriggerOnStatusCli    = if ($PSBoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $PostRunActionTriggerOnStatusCli } else { $null } 
+    PostRunActionTriggerOnStatusCli    = if ($PSBoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $PostRunActionTriggerOnStatusCli } else { $null }
 }
 
 # Global colour definitions for Write-LogMessage
@@ -214,31 +231,31 @@ $Global:ColourDebug                         = "Gray"
 $Global:ColourValue                         = "DarkYellow"
 $Global:ColourHeading                       = "White"
 $Global:ColourSimulate                      = "Magenta"
-$Global:ColourAdmin                         = "Orange" 
+$Global:ColourAdmin                         = "Orange"
 
 $Global:StatusToColourMap = @{
     "SUCCESS"           = $Global:ColourSuccess
-    "WARNINGS"          = $Global:ColourWarning 
-    "WARNING"           = $Global:ColourWarning 
+    "WARNINGS"          = $Global:ColourWarning
+    "WARNING"           = $Global:ColourWarning
     "FAILURE"           = $Global:ColourError
     "ERROR"             = $Global:ColourError
     "SIMULATED_COMPLETE"= $Global:ColourSimulate
     "INFO"              = $Global:ColourInfo
     "DEBUG"             = $Global:ColourDebug
-    "VSS"               = $Global:ColourAdmin 
-    "HOOK"              = $Global:ColourDebug 
+    "VSS"               = $Global:ColourAdmin
+    "HOOK"              = $Global:ColourDebug
     "CONFIG_TEST"       = $Global:ColourSimulate
     "HEADING"           = $Global:ColourHeading
-    "NONE"              = $Host.UI.RawUI.ForegroundColor 
-    "DEFAULT"           = $Global:ColourInfo 
+    "NONE"              = $Host.UI.RawUI.ForegroundColor
+    "DEFAULT"           = $Global:ColourInfo
 }
 
 # Global variables for per-job logging and hook data, managed by JobOrchestrator.psm1
-$Global:GlobalLogFile                       = $null 
-$Global:GlobalEnableFileLogging             = $false 
-$Global:GlobalLogDirectory                  = $null 
-$Global:GlobalJobLogEntries                 = $null 
-$Global:GlobalJobHookScriptData             = $null 
+$Global:GlobalLogFile                       = $null
+$Global:GlobalEnableFileLogging             = $false
+$Global:GlobalLogDirectory                  = $null
+$Global:GlobalJobLogEntries                 = $null
+$Global:GlobalJobHookScriptData             = $null
 
 try {
     # Import Utils.psm1 (facade) with -Global scope to ensure its functions are widely available
@@ -247,11 +264,9 @@ try {
     Write-Host "[FATAL] Failed to import CRITICAL Utils.psm1 module." -ForegroundColor Red
     Write-Host "Ensure 'Modules\Utils.psm1' exists relative to PoSh-Backup.ps1." -ForegroundColor Red
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
-    exit 10 
+    exit 10
 }
 $LoggerScriptBlock = ${function:Write-LogMessage} # Now from Utils.psm1 (facade) -> Logging.psm1
-
-# Diagnostics removed from here
 
 try {
     # Core Orchestration/Management Modules
@@ -262,30 +277,31 @@ try {
     # Specialized Manager Modules
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Reporting.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\7ZipManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\VssManager.psm1") -Force -ErrorAction Stop 
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\RetentionManager.psm1") -Force -ErrorAction Stop 
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\HookManager.psm1") -Force -ErrorAction Stop 
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\SystemStateManager.psm1") -Force -ErrorAction Stop 
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\VssManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\RetentionManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\HookManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\SystemStateManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
-    
+
     & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including JobOrchestrator." -Level "INFO"
 
 } catch {
     & $LoggerScriptBlock -Message "[FATAL] Failed to import one or more required script modules." -Level "ERROR"
     & $LoggerScriptBlock -Message "Ensure core modules are in '.\Modules\' (or '.\Modules\Core\') relative to PoSh-Backup.ps1." -Level "ERROR"
     & $LoggerScriptBlock -Message "Error details: $($_.Exception.Message)" -Level "ERROR"
-    exit 10 
+    exit 10
 }
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.12.1 (Removed diagnostics, kept Utils.psm1 re-import workaround)" -Level "HEADING" 
+& $LoggerScriptBlock -Message " Script Version: v1.12.2 (Added SevenZipCpuAffinityCLI parameter)" -Level "HEADING" # Updated Version
 if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupSets.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP SETS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($SkipUserConfigCreation.IsPresent) { & $LoggerScriptBlock -Message " ***** SKIP USER CONFIG CREATION ACTIVE ***** " -Level "INFO" }
 if ($cliOverrideSettings.TreatSevenZipWarningsAsSuccess -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Treating 7-Zip warnings as success. ***** " -Level "INFO" }
+if ($cliOverrideSettings.SevenZipCpuAffinity) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip CPU Affinity specified: $($cliOverrideSettings.SevenZipCpuAffinity) ***** " -Level "INFO" } # NEW
 if ($cliOverrideSettings.PostRunActionCli) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Post-Run Action specified: $($cliOverrideSettings.PostRunActionCli) ***** " -Level "INFO" }
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 #endregion
@@ -298,7 +314,7 @@ $defaultUserConfigFileName = "User.psd1"
 $defaultBaseConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultBaseConfigFileName
 $defaultUserConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultUserConfigFileName
 
-if (-not $PSBoundParameters.ContainsKey('ConfigFile')) { 
+if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
     if (-not (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf)) {
         if (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf) {
             & $LoggerScriptBlock -Message "[INFO] User configuration file ('$defaultUserConfigPath') not found." -Level "INFO"
@@ -307,20 +323,20 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
                 -not $IsSimulateMode -and `
                 -not $ListBackupLocations.IsPresent -and `
                 -not $ListBackupSets.IsPresent -and `
-                -not $SkipUserConfigCreation.IsPresent) { 
+                -not $SkipUserConfigCreation.IsPresent) {
                 $choiceTitle = "Create User Configuration?"
                 $choiceMessage = "The user-specific configuration file '$($defaultUserConfigFileName)' was not found in '$($defaultConfigDir)'.`nIt is recommended to create this file as it allows you to customise settings without modifying`nthe default file, ensuring your settings are not overwritten by script upgrades.`n`nWould you like to create '$($defaultUserConfigFileName)' now by copying the contents of '$($defaultBaseConfigFileName)'?"
                 $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Create '$($defaultUserConfigFileName)' from '$($defaultBaseConfigFileName)'."
                 $no = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Do not create the file. The script will use '$($defaultBaseConfigFileName)' only for this run."
                 $options = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
                 $decision = $Host.UI.PromptForChoice($choiceTitle, $choiceMessage, $options, 0)
-                if ($decision -eq 0) { 
+                if ($decision -eq 0) {
                     try {
                         Copy-Item -LiteralPath $defaultBaseConfigPath -Destination $defaultUserConfigPath -Force -ErrorAction Stop
                         & $LoggerScriptBlock -Message "[SUCCESS] '$defaultUserConfigFileName' has been created from '$defaultBaseConfigFileName' in '$defaultConfigDir'." -Level "SUCCESS"
                         & $LoggerScriptBlock -Message "          Please edit '$defaultUserConfigFileName' with your desired settings and then re-run PoSh-Backup." -Level "INFO"
                         & $LoggerScriptBlock -Message "          Script will now exit." -Level "INFO"
-                        $_pauseBehaviorFromCli = if ($cliOverrideSettings.PauseBehaviour) { $cliOverrideSettings.PauseBehaviour } else { "Always" } 
+                        $_pauseBehaviorFromCli = if ($cliOverrideSettings.PauseBehaviour) { $cliOverrideSettings.PauseBehaviour } else { "Always" }
                         if ($_pauseBehaviorFromCli -is [string] -and $_pauseBehaviorFromCli.ToLowerInvariant() -ne "never" -and ($_pauseBehaviorFromCli -isnot [bool] -or $_pauseBehaviorFromCli -ne $false)) {
                            if ($Host.Name -eq "ConsoleHost") { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
                         }
@@ -329,10 +345,10 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
                         & $LoggerScriptBlock -Message "[ERROR] Failed to copy '$defaultBaseConfigPath' to '$defaultUserConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR"
                         & $LoggerScriptBlock -Message "          Please create '$defaultUserConfigFileName' manually if desired. Script will continue with base configuration." -Level "WARNING"
                     }
-                } else { 
+                } else {
                     & $LoggerScriptBlock -Message "[INFO] User chose not to create '$defaultUserConfigFileName'. '$defaultBaseConfigFileName' will be used for this run." -Level "INFO"
                 }
-            } else { 
+            } else {
                  if ($SkipUserConfigCreation.IsPresent) {
                      & $LoggerScriptBlock -Message "[INFO] Skipping User.psd1 creation prompt as -SkipUserConfigCreation was specified. '$defaultBaseConfigFileName' will be used if '$defaultUserConfigFileName' is not found." -Level "INFO"
                  } elseif ($Host.Name -ne "ConsoleHost" -or $TestConfig.IsPresent -or $IsSimulateMode -or $ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent) {
@@ -340,7 +356,7 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
                  }
                  & $LoggerScriptBlock -Message "       If you wish to have user-specific overrides, please manually copy '$defaultBaseConfigPath' to '$defaultUserConfigPath' and edit it." -Level "INFO"
             }
-        } else { 
+        } else {
             & $LoggerScriptBlock -Message "[WARNING] Base configuration file ('$defaultBaseConfigPath') also not found. Cannot offer to create '$defaultUserConfigPath'." -Level "WARNING"
         }
     }
@@ -350,7 +366,7 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
 $configResult = Import-AppConfiguration -UserSpecifiedPath $ConfigFile `
                                          -IsTestConfigMode:(($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) `
                                          -MainScriptPSScriptRoot $PSScriptRoot `
-                                         -Logger $LoggerScriptBlock 
+                                         -Logger $LoggerScriptBlock
 if (-not $configResult.IsValid) {
     & $LoggerScriptBlock -Message "FATAL: Configuration loading or validation failed. Exiting." -Level "ERROR"
     exit 1
@@ -392,14 +408,14 @@ if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Pa
     & $LoggerScriptBlock -Message "       Please ensure 'SevenZipPath' is correctly set in your configuration (Default.psd1 or User.psd1)," -Level "ERROR"
     & $LoggerScriptBlock -Message "       or that 7z.exe is available in standard Program Files locations or your system PATH for auto-detection." -Level "ERROR"
 
-    $_earlyExitPauseSetting = if ($Configuration.ContainsKey('PauseBeforeExit')) { $Configuration.PauseBeforeExit } else { "Always" } 
+    $_earlyExitPauseSetting = if ($Configuration.ContainsKey('PauseBeforeExit')) { $Configuration.PauseBeforeExit } else { "Always" }
     $_shouldEarlyExitPause = $false
     if ($_earlyExitPauseSetting -is [bool]) {
         $_shouldEarlyExitPause = $_earlyExitPauseSetting
     } elseif ($_earlyExitPauseSetting -is [string]) {
         if ($_earlyExitPauseSetting.ToLowerInvariant() -in @("always", "onfailure", "onfailureorwarning", "true")) { $_shouldEarlyExitPause = $true }
     }
-    if ($cliOverrideSettings.PauseBehaviour) { 
+    if ($cliOverrideSettings.PauseBehaviour) {
         if ($cliOverrideSettings.PauseBehaviour.ToLowerInvariant() -in @("always", "onfailure", "onfailureorwarning", "true")) { $_shouldEarlyExitPause = $true }
         elseif ($cliOverrideSettings.PauseBehaviour.ToLowerInvariant() -in @("never", "false")) { $_shouldEarlyExitPause = $false }
     }
@@ -409,7 +425,7 @@ if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Pa
         try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
         catch { Write-Warning "Failed to read key for pause: $($_.Exception.Message)" }
     }
-    exit 3 
+    exit 3
 } else {
     & $LoggerScriptBlock -Message "[INFO] Effective 7-Zip executable path confirmed: '$sevenZipPathFromFinalConfig'" -Level "INFO"
 }
@@ -427,7 +443,7 @@ if ($Global:GlobalEnableFileLogging) {
             & $LoggerScriptBlock -Message "[INFO] Log directory '$Global:GlobalLogDirectory' created." -Level "INFO"
         } catch {
             & $LoggerScriptBlock -Message "[WARNING] Failed to create log directory '$Global:GlobalLogDirectory'. File logging may be impacted. Error: $($_.Exception.Message)" -Level "WARNING"
-            $Global:GlobalEnableFileLogging = $false 
+            $Global:GlobalEnableFileLogging = $false
         }
     }
 }
@@ -441,7 +457,7 @@ if (-not $jobResolutionResult.Success) {
 $jobsToProcess = $jobResolutionResult.JobsToRun
 $currentSetName = $jobResolutionResult.SetName
 $stopSetOnError = $jobResolutionResult.StopSetOnErrorPolicy
-$setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction 
+$setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
 #endregion
 
 #region --- Main Processing (Delegated to JobOrchestrator.psm1) ---
@@ -454,7 +470,7 @@ if ($jobsToProcess.Count -gt 0) {
         JobsToProcess            = $jobsToProcess
         CurrentSetName           = $currentSetName
         StopSetOnErrorPolicy     = $stopSetOnError
-        SetSpecificPostRunAction = $setSpecificPostRunAction 
+        SetSpecificPostRunAction = $setSpecificPostRunAction
         Configuration            = $Configuration
         PSScriptRootForPaths     = $PSScriptRoot
         ActualConfigFile         = $ActualConfigFile
@@ -471,18 +487,14 @@ if ($jobsToProcess.Count -gt 0) {
     # commands (despite initial global import) become unavailable after returning from
     # the JobOrchestrator.psm1 module.
     try {
-        # & $LoggerScriptBlock -Message "[WORKAROUND PoSh-Backup.ps1] Re-importing Utils.psm1 locally..." -Level "DEBUG"
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -ErrorAction Stop
     } catch {
         & $LoggerScriptBlock -Message "[FATAL PoSh-Backup.ps1] Failed to re-import Utils.psm1 locally. Error: $($_.Exception.Message)" -Level "ERROR"
-        # If this fails, subsequent Get-ConfigValue calls will likely fail.
     }
     # END WORKAROUND
 
-    # Diagnostics removed from here
-
     $overallSetStatus = $orchestratorResult.OverallSetStatus
-    
+
     # Determine which PostRunAction to use: CLI > Set > Job (single) > Global
     if ($null -ne $cliOverrideSettings.PostRunActionCli) {
         $finalPostRunActionToConsider = @{
@@ -499,7 +511,7 @@ if ($jobsToProcess.Count -gt 0) {
     } elseif ($null -ne $orchestratorResult.JobSpecificPostRunActionForNonSet) {
         $finalPostRunActionToConsider = $orchestratorResult.JobSpecificPostRunActionForNonSet
         $actionSourceForLog = "Job '$($jobsToProcess[0])'" # If single job, its PRA
-    } else { 
+    } else {
         $globalDefaultsPRA = Utils\Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{}
         if ($null -ne $globalDefaultsPRA -and $globalDefaultsPRA.ContainsKey('Enabled') -and $globalDefaultsPRA.Enabled) {
             $finalPostRunActionToConsider = $globalDefaultsPRA
@@ -517,8 +529,8 @@ if ($jobsToProcess.Count -gt 0) {
             ForceAction     = if ($null -ne $cliOverrideSettings.PostRunActionForceCli) { $cliOverrideSettings.PostRunActionForceCli } else { $false }
         }
         $actionSourceForLog = "CLI Override (No jobs run)"
-    } else { 
-        $globalDefaultsPRA = Utils\Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{} 
+    } else {
+        $globalDefaultsPRA = Utils\Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{}
         if ($null -ne $globalDefaultsPRA -and $globalDefaultsPRA.ContainsKey('Enabled') -and $globalDefaultsPRA.Enabled) {
             $finalPostRunActionToConsider = $globalDefaultsPRA
             $actionSourceForLog = "Global Defaults (No jobs run)"
@@ -534,7 +546,7 @@ $finalScriptEndTime = Get-Date
 & $LoggerScriptBlock -Message "================================================================================" -Level "NONE"
 
 if ($IsSimulateMode.IsPresent -and $overallSetStatus -ne "FAILURE" -and $overallSetStatus -ne "WARNINGS") {
-    $overallSetStatus = "SIMULATED_COMPLETE" 
+    $overallSetStatus = "SIMULATED_COMPLETE"
 }
 
 & $LoggerScriptBlock -Message "Overall Script Status: $overallSetStatus" -Level $overallSetStatus
@@ -542,7 +554,7 @@ if ($IsSimulateMode.IsPresent -and $overallSetStatus -ne "FAILURE" -and $overall
 & $LoggerScriptBlock -Message "Script ended   : $finalScriptEndTime" -Level "INFO"
 & $LoggerScriptBlock -Message "Total duration : $($finalScriptEndTime - $ScriptStartTime)" -Level "INFO"
 
-$_pauseDefaultFromScript = "OnFailureOrWarning" 
+$_pauseDefaultFromScript = "OnFailureOrWarning"
 $_pauseSettingFromConfig = if ($Configuration.ContainsKey('PauseBeforeExit')) { $Configuration.PauseBeforeExit } else { $_pauseDefaultFromScript }
 $normalizedPauseConfigValue = ""
 if ($_pauseSettingFromConfig -is [bool]) {
@@ -550,10 +562,10 @@ if ($_pauseSettingFromConfig -is [bool]) {
 } elseif ($null -ne $_pauseSettingFromConfig -and $_pauseSettingFromConfig -is [string]) {
     $normalizedPauseConfigValue = $_pauseSettingFromConfig.ToLowerInvariant()
 } else {
-    $normalizedPauseConfigValue = $_pauseDefaultFromScript.ToLowerInvariant() 
+    $normalizedPauseConfigValue = $_pauseDefaultFromScript.ToLowerInvariant()
 }
 $effectivePauseBehaviour = $normalizedPauseConfigValue
-if ($null -ne $cliOverrideSettings.PauseBehaviour) { 
+if ($null -ne $cliOverrideSettings.PauseBehaviour) {
     $effectivePauseBehaviour = $cliOverrideSettings.PauseBehaviour.ToLowerInvariant()
     if ($effectivePauseBehaviour -eq "true") { $effectivePauseBehaviour = "always" }
     if ($effectivePauseBehaviour -eq "false") { $effectivePauseBehaviour = "never" }
@@ -572,7 +584,7 @@ switch ($effectivePauseBehaviour) {
         $shouldPhysicallyPause = $false
     }
 }
-if (($IsSimulateMode.IsPresent -or $TestConfig.IsPresent) -and $effectivePauseBehaviour -ne "always") { 
+if (($IsSimulateMode.IsPresent -or $TestConfig.IsPresent) -and $effectivePauseBehaviour -ne "always") {
     $shouldPhysicallyPause = $false
 }
 
@@ -591,24 +603,24 @@ if ($shouldPhysicallyPause) {
 if ($null -ne $finalPostRunActionToConsider -and `
     $finalPostRunActionToConsider.ContainsKey('Enabled') -and $finalPostRunActionToConsider.Enabled -eq $true -and `
     $finalPostRunActionToConsider.ContainsKey('Action') -and $finalPostRunActionToConsider.Action.ToLowerInvariant() -ne "none") {
-    
+
     $triggerStatuses = @($finalPostRunActionToConsider.TriggerOnStatus | ForEach-Object { $_.ToUpperInvariant() })
     $effectiveOverallStatusForTrigger = $overallSetStatus.ToUpperInvariant()
-    if ($TestConfig.IsPresent) { $effectiveOverallStatusForTrigger = "SIMULATED_COMPLETE" } 
+    if ($TestConfig.IsPresent) { $effectiveOverallStatusForTrigger = "SIMULATED_COMPLETE" }
 
     if ($triggerStatuses -contains "ANY" -or $effectiveOverallStatusForTrigger -in $triggerStatuses) {
         if (-not [string]::IsNullOrWhiteSpace($actionSourceForLog) -and $actionSourceForLog -ne "None") { # Added check for "None"
             & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from $($actionSourceForLog)." -Level "INFO"
         }
         & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Conditions met for action '$($finalPostRunActionToConsider.Action)' (Triggered by Status: $effectiveOverallStatusForTrigger)." -Level "INFO"
-        
+
         $systemActionParams = @{
             Action          = $finalPostRunActionToConsider.Action
             DelaySeconds    = $finalPostRunActionToConsider.DelaySeconds
             ForceAction     = $finalPostRunActionToConsider.ForceAction
-            IsSimulateMode  = ($IsSimulateMode.IsPresent -or $TestConfig.IsPresent) 
+            IsSimulateMode  = ($IsSimulateMode.IsPresent -or $TestConfig.IsPresent)
             Logger          = $LoggerScriptBlock
-            PSCmdletInstance = $PSCmdlet 
+            PSCmdletInstance = $PSCmdlet
         }
         # Invoke-SystemStateAction is from SystemStateManager.psm1
         Invoke-SystemStateAction @systemActionParams
@@ -618,6 +630,6 @@ if ($null -ne $finalPostRunActionToConsider -and `
 
 
 if ($overallSetStatus -in @("SUCCESS", "SIMULATED_COMPLETE")) { exit 0 }
-elseif ($overallSetStatus -eq "WARNINGS") { exit 1 } 
-else { exit 2 } 
+elseif ($overallSetStatus -eq "WARNINGS") { exit 1 }
+else { exit 2 }
 #endregion

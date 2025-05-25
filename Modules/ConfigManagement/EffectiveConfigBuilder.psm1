@@ -23,7 +23,7 @@
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.4 # Added SevenZipCpuAffinity resolution.
+    Version:        1.0.5 # Updated JobSevenZipCpuAffinity resolution for CLI override.
     DateCreated:    24-May-2025
     LastModified:   25-May-2025
     Purpose:        To modularise the effective job configuration building logic from the main ConfigManager module.
@@ -97,13 +97,13 @@ function Get-PoShBackupJobEffectiveConfiguration {
             & $Logger -Message $Message -Level $Level
         }
     }
-    
+
     $effectiveConfig = @{}
     $reportData = $JobReportDataRef.Value
 
     $effectiveConfig.OriginalSourcePath = $JobConfig.Path
     $effectiveConfig.BaseFileName = $JobConfig.Name
-    $reportData.JobConfiguration = $JobConfig 
+    $reportData.JobConfiguration = $JobConfig
 
     # Destination and Target settings
     $effectiveConfig.DestinationDir = Get-ConfigValue -ConfigObject $JobConfig -Key 'DestinationDir' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDestinationDir' -DefaultValue $null)
@@ -158,12 +158,12 @@ function Get-PoShBackupJobEffectiveConfiguration {
 
     # Archive Naming and Type
     $effectiveConfig.JobArchiveType = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveType' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveType' -DefaultValue "-t7z")
-    
+
     # SFX Handling
     $effectiveConfig.CreateSFX = Get-ConfigValue -ConfigObject $JobConfig -Key 'CreateSFX' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCreateSFX' -DefaultValue $false)
     $effectiveConfig.SFXModule = Get-ConfigValue -ConfigObject $JobConfig -Key 'SFXModule' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSFXModule' -DefaultValue "Console")
-    $effectiveConfig.InternalArchiveExtension = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveExtension' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveExtension' -DefaultValue ".7z") 
-    
+    $effectiveConfig.InternalArchiveExtension = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveExtension' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveExtension' -DefaultValue ".7z")
+
     if ($effectiveConfig.CreateSFX) {
         $effectiveConfig.JobArchiveExtension = ".exe"
         & $LocalWriteLog -Message "  - EffectiveConfigBuilder: CreateSFX is TRUE. Effective archive extension set to '.exe'. SFX Module: $($effectiveConfig.SFXModule)." -Level DEBUG
@@ -188,17 +188,25 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $_threadsFor7Zip = if ($_jobSpecificThreadsToUse -gt 0) { $_jobSpecificThreadsToUse } elseif ($_globalConfigThreads -gt 0) { $_globalConfigThreads } else { 0 }
     $effectiveConfig.ThreadsSetting = if ($_threadsFor7Zip -gt 0) { "-mmt=$($_threadsFor7Zip)" } else { "-mmt" }
 
-    # NEW: 7-Zip CPU Affinity
-    $_jobAffinity = Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipCpuAffinity' -DefaultValue $null # Get job setting, default to null if not present
-    $_globalAffinity = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipCpuAffinity' -DefaultValue "" # Get global, default to empty string
+    # 7-Zip CPU Affinity (CLI > Job > Global > Default empty string)
+    $_cliAffinity = if ($CliOverrides.ContainsKey('SevenZipCpuAffinity') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipCpuAffinity)) { $CliOverrides.SevenZipCpuAffinity } else { $null }
+    $_jobAffinity = Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipCpuAffinity' -DefaultValue $null
+    $_globalAffinity = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipCpuAffinity' -DefaultValue "" # Default to empty string
 
-    if (-not [string]::IsNullOrWhiteSpace($_jobAffinity)) {
+    if (-not [string]::IsNullOrWhiteSpace($_cliAffinity)) {
+        $effectiveConfig.JobSevenZipCpuAffinity = $_cliAffinity
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip CPU Affinity set by CLI override: '$($_cliAffinity)'." -Level "DEBUG"
+    } elseif (-not [string]::IsNullOrWhiteSpace($_jobAffinity)) {
         $effectiveConfig.JobSevenZipCpuAffinity = $_jobAffinity
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip CPU Affinity set by Job config: '$($_jobAffinity)'." -Level "DEBUG"
     } elseif (-not [string]::IsNullOrWhiteSpace($_globalAffinity)) {
         $effectiveConfig.JobSevenZipCpuAffinity = $_globalAffinity
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip CPU Affinity set by Global config: '$($_globalAffinity)'." -Level "DEBUG"
     } else {
         $effectiveConfig.JobSevenZipCpuAffinity = "" # Final fallback to empty string
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip CPU Affinity not configured (using default: empty string)." -Level "DEBUG"
     }
+    # END 7-Zip CPU Affinity
 
     # VSS Settings
     $effectiveConfig.JobEnableVSS = if ($CliOverrides.UseVSS) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableVSS' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableVSS' -DefaultValue $false) }
@@ -259,11 +267,11 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $reportData.RetriesEnabled = $effectiveConfig.JobEnableRetries
     $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation
     $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority
-    $reportData.SevenZipCpuAffinity = $effectiveConfig.JobSevenZipCpuAffinity # NEW: Add to report data
+    $reportData.SevenZipCpuAffinity = $effectiveConfig.JobSevenZipCpuAffinity # Ensure this is populated
     $reportData.GenerateArchiveChecksum = $effectiveConfig.GenerateArchiveChecksum
     $reportData.ChecksumAlgorithm = $effectiveConfig.ChecksumAlgorithm
     $reportData.VerifyArchiveChecksumOnTest = $effectiveConfig.VerifyArchiveChecksumOnTest
-    $reportData.CreateSFX = $effectiveConfig.CreateSFX 
+    $reportData.CreateSFX = $effectiveConfig.CreateSFX
     $reportData.SFXModule = $effectiveConfig.SFXModule
 
     $effectiveConfig.GlobalConfigRef = $GlobalConfig
