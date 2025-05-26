@@ -31,27 +31,27 @@
     "AI STRATEGY (ACCURACY): When providing new or updated full files, ALWAYS perform a mental diff against the presumed baseline. State the estimated line count difference (e.g., '+15 lines', '-5 lines', 'approx. +/- 10 lines for significant refactoring'). This helps the user quickly gauge the scope of changes and verify completeness, especially for longer files. If the changes are extensive or involve complex refactoring, explicitly mention this as well.",
     "AI STRATEGY (OUTPUT): Provide only one file at a time for review and integration, UNLESS explicitly requested otherwise by the user OR if multiple files are very small (e.g., less than ~20-30 lines each) and closely related, in which case confirm with the user if a combined provision is acceptable. This helps manage UI limitations and focused review."
     "PESTER (v5.7.1 Environment - Key Learnings & Workarounds):",
-    "  - Testing External Module Functions: Encountered persistent parameter binding failures (parameters arriving as `$null`) when calling functions from modules imported via `Import-Module` or dot-sourced into `BeforeAll`. `InModuleScope -ArgumentList` also failed to pass arguments. This indicates a deep issue with Pester 5.7.1's handling of external function calls and parameter binding in this specific testing environment.",
+    "  - Parameter Binding Failure: Extreme difficulty passing parameters (esp. complex objects like Hashtables) to functions imported from external .psm1 files (via `Import-Module` or dot-sourcing) or even to `InModuleScope -ArgumentList`. Parameters often arrive as `$null` inside the target function/scriptblock. This seems to be an environmental issue with Pester 5.7.1.",
     "  - **Workaround for Unit Testing Function Logic (The 'Local Copy' Pattern):**",
-    "    1. Define a local copy of the function-to-be-tested (e.g., `MyFunction-LocalTest`) *inside the `BeforeAll` block* of the `.Tests.ps1` file.",
-    "    2. In the same `BeforeAll`, after the function definition, get a script-scoped reference to it: `$script:MyFunctionTestRef = ${function:MyFunction-LocalTest}`.",
-    "    3. In `It` blocks, call the function using this reference: `& $script:MyFunctionTestRef -Param1 $Value1 ...`.",
-    "    4. Set up test-specific data (e.g., hashtables, objects to pass as parameters) in `BeforeEach` blocks, typically using `$script:` scope for these data variables (e.g., `$script:testData = @{...}`) to ensure they are correctly passed from `It` to the function via the reference.",
+    "    1. Define a local copy of the function-to-be-tested (e.g., 'MyFunction-LocalTest') *inside the `BeforeAll` block* of the `.Tests.ps1` file.",
+    "    2. In the same `BeforeAll`, after the function definition, get a script-scoped reference to it: `$script:MyFunctionTestRef = Get-Command MyFunction-LocalTest` (or `${function:MyFunction-LocalTest}`).",
+    "    3. In `It` blocks, call the function using this reference: `& `$script:MyFunctionTestRef -Param1 `$Value1 ...`.", # Escaped $
+    "    4. Set up test-specific data (e.g., hashtables, objects to pass as parameters) in `BeforeEach` blocks, typically using `$script:` scope for these data variables (e.g., `$script:testData = @{...}`) to ensure they are correctly passed from `It` to the function via the reference.", # Escaped $
     "    5. This pattern successfully tests the *logic* of the function but not its module packaging or export mechanism.",
     "  - **Mocking Dependencies (like `Write-LogMessage`) for Locally Copied Functions:**",
     "    1. Define a dummy version of the function to be mocked (e.g., `function Write-LogMessage {...}`) at the very top-level of the `.Tests.ps1` file.",
-    "    2. In `BeforeAll`, first dot-source the test script itself (`. $MyInvocation.MyCommand.ScriptBlock.File`). This makes the dummy function available to the `BeforeAll` scope.",
+    "    2. In `BeforeAll`, first dot-source the test script itself (e.g., `. `$MyInvocation.MyCommand.ScriptBlock.File`). This makes the dummy function available to the `BeforeAll` scope.", # Escaped $
     "    3. *Then*, mock the dummy function: `Mock Write-LogMessage -MockWith { ...scriptblock to capture args... } -Verifiable`.",
-    "    4. The locally copied test functions (defined in `BeforeAll`) should then call `Write-LogMessage` (or the relevant dependency) directly by its name. This call will be intercepted by the Pester mock.",
-    "    5. Assert mock calls using Pester 5's `Should -Invoke -CommandName Write-LogMessage -Times X -ParameterFilter { ... }`.",
+    "    4. The locally copied test functions (defined in `BeforeAll` or top-level and referenced) should then call `Write-LogMessage` (or the relevant dependency) directly by its name. This call will be intercepted by the Pester mock.",
+    "    5. Assert mock calls using Pester 5's `Should -Invoke -CommandName Write-LogMessage -Times X -ParameterFilter { `$Level -eq ''ERROR'' ... }`.", # Escaped $ and single quotes for ERROR
     "  - **Mocking External Cmdlets (like `Get-FileHash`) for Locally Copied Functions:**",
-    "    1. Make the external cmdlet an injectable dependency (an optional `[scriptblock]` parameter) in the *locally copied test function*. Default this parameter to `${function:ActualCmdletName}`.",
-    "    2. In the specific `It` block that needs to test error handling: create a mock scriptblock (e.g., `$mockCmdlet = { throw 'Error' }`).",
-    "    3. Call the local test function, passing your mock scriptblock to the injectable parameter: `& $script:MyLocalFuncRef -InjectedCmdlet $mockCmdlet`.",
+    "    1. Make the external cmdlet an injectable dependency (an optional `[scriptblock]` parameter) in the *locally copied test function*. Default this parameter to `(Get-Command ActualCmdletName).ScriptBlock` or just `Get-Command ActualCmdletName` if directly callable.",
+    "    2. In the specific `It` block that needs to test error handling: create a mock scriptblock (e.g., `$mockCmdlet = { throw ''Error'' }`).", # Escaped $
+    "    3. Call the local test function, passing your mock scriptblock to the injectable parameter: `& `$script:MyLocalFuncRef -InjectedCmdlet `$mockCmdlet`.", # Escaped $
     "  - **General Pester 5 Syntax & Scoping:**",
-    "    - `$MyInvocation.MyCommand.ScriptBlock.File`: Reliable way to get current test script's full path for self dot-sourcing in `BeforeAll`.",
+    "    - Use `$`MyInvocation.MyCommand.ScriptBlock.File` (within single quotes if in a double-quoted string context like here, or ensure no expansion) to reliably get current test script's full path for self dot-sourcing in `BeforeAll`.",
     "    - `Should -Operator Value`: Standard assertion syntax (e.g., `Should -Be`, `Should -HaveCount`).",
-    "    - Array Type Assertion: `($result.GetType().IsArray) | Should -Be $true` was more reliable than `$result | Should -BeOfType ([System.Array])` when initial issues were encountered.",
+    "    - Array Type Assertion: `(`$result.GetType().IsArray) | Should -Be `$true` was more reliable than `$result | Should -BeOfType ([System.Array])` when initial issues were encountered.", # Escaped $
     "    - `BeforeEach` is effective for resetting state (like mock log arrays) for each `It` block within its `Describe` or `Context`."
   )
 
