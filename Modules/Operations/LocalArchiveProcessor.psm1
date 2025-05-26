@@ -3,6 +3,7 @@
 .SYNOPSIS
     Handles local backup archive creation, checksum generation, and integrity verification.
     Supports creation of standard archives and Self-Extracting Archives (SFX).
+    Now also supports mandatory local archive verification before remote transfers if configured.
 .DESCRIPTION
     This module is a sub-component of the main Operations module for PoSh-Backup.
     It encapsulates the specific steps involved in:
@@ -12,14 +13,17 @@
       now supporting CPU affinity.
     - Optionally generating a checksum file for the created archive.
     - Optionally testing the integrity of the local archive (including checksum verification if enabled).
-    - Updating the job report data with outcomes of these local operations, including SFX settings.
+      This test is now also triggered if the 'VerifyLocalArchiveBeforeTransfer' setting is true,
+      and its outcome will influence whether remote transfers proceed.
+    - Updating the job report data with outcomes of these local operations, including SFX settings
+      and whether pre-transfer verification was active.
 
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.8 # Explicitly pass logger scriptblock to Get-PoShBackup7ZipArgument.
+    Version:        1.0.9 # Added VerifyLocalArchiveBeforeTransfer logic.
     DateCreated:    24-May-2025
-    LastModified:   25-May-2025
+    LastModified:   26-May-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 and 7ZipManager.psm1 from the parent 'Modules' directory.
@@ -48,7 +52,7 @@ function Invoke-LocalArchiveOperation {
         [Parameter(Mandatory = $true)]
         [switch]$IsSimulateMode,
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger, # This is the incoming logger scriptblock
+        [scriptblock]$Logger, 
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet,
         [Parameter(Mandatory = $true)]
@@ -57,7 +61,6 @@ function Invoke-LocalArchiveOperation {
         [string]$SevenZipCpuAffinityString = $null
     )
 
-    # Assign the parameter to a local variable to ensure clarity
     $scriptBlockLogger = $Logger 
 
     $LocalWriteLog = {
@@ -75,6 +78,9 @@ function Invoke-LocalArchiveOperation {
     $finalArchivePathForReturn = $null
     $reportData = $JobReportDataRef.Value
     $archiveFileNameOnly = $null 
+
+    # Add VerifyLocalArchiveBeforeTransfer to report data early
+    $reportData.VerifyLocalArchiveBeforeTransfer = $EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer
 
     try {
         $destinationDirTerm = if ($EffectiveJobConfig.ResolvedTargetInstances.Count -eq 0) { "Final Destination Directory" } else { "Local Staging Directory" }
@@ -100,7 +106,7 @@ function Invoke-LocalArchiveOperation {
             -FinalArchivePath $finalArchivePathForReturn `
             -CurrentJobSourcePathFor7Zip $CurrentJobSourcePathFor7Zip `
             -TempPassFile $TempPasswordFilePath `
-            -Logger $scriptBlockLogger # Pass the explicitly assigned scriptblock logger
+            -Logger $scriptBlockLogger 
 
         $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath'
         $zipOpParams = @{
@@ -114,7 +120,7 @@ function Invoke-LocalArchiveOperation {
             EnableRetries          = $EffectiveJobConfig.JobEnableRetries
             TreatWarningsAsSuccess = $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess
             IsSimulateMode         = $IsSimulateMode.IsPresent
-            Logger                 = $scriptBlockLogger # Pass the explicitly assigned scriptblock logger
+            Logger                 = $scriptBlockLogger 
         }
         if ((Get-Command Invoke-7ZipOperation).Parameters.ContainsKey('PSCmdlet')) {
             $zipOpParams.PSCmdlet = $PSCmdlet
@@ -189,8 +195,11 @@ function Invoke-LocalArchiveOperation {
             $reportData.ArchiveChecksum = "Skipped (Prior failure)"
         }
 
-        $reportData.ArchiveTested = $EffectiveJobConfig.JobTestArchiveAfterCreation
-        if ($EffectiveJobConfig.JobTestArchiveAfterCreation -and ($currentLocalArchiveStatus -ne "FAILURE") -and (-not $IsSimulateMode.IsPresent) -and (Test-Path -LiteralPath $finalArchivePathForReturn -PathType Leaf)) {
+        # Determine if archive testing should occur
+        $shouldTestArchiveNow = $EffectiveJobConfig.JobTestArchiveAfterCreation -or $EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer
+        $reportData.ArchiveTested = $shouldTestArchiveNow # Update report data based on combined condition
+
+        if ($shouldTestArchiveNow -and ($currentLocalArchiveStatus -ne "FAILURE") -and (-not $IsSimulateMode.IsPresent) -and (Test-Path -LiteralPath $finalArchivePathForReturn -PathType Leaf)) {
             $testArchiveParams = @{
                 SevenZipPathExe        = $sevenZipPathGlobal
                 ArchivePath            = $finalArchivePathForReturn
@@ -202,7 +211,7 @@ function Invoke-LocalArchiveOperation {
                 RetryDelaySeconds      = $EffectiveJobConfig.JobRetryDelaySeconds
                 EnableRetries          = $EffectiveJobConfig.JobEnableRetries
                 TreatWarningsAsSuccess = $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess
-                Logger                 = $scriptBlockLogger # Pass the explicitly assigned scriptblock logger
+                Logger                 = $scriptBlockLogger 
             }
             if ((Get-Command Test-7ZipArchive).Parameters.ContainsKey('PSCmdlet')) {
                 $testArchiveParams.PSCmdlet = $PSCmdlet
@@ -216,10 +225,17 @@ function Invoke-LocalArchiveOperation {
                 $reportData.ArchiveTestResult = "PASSED (7z t Warning Exit Code: 1, treated as success)"
             } else {
                 $reportData.ArchiveTestResult = "FAILED (7z t Exit Code: $($testResult.ExitCode))"
-                if ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                # If VerifyLocalArchiveBeforeTransfer is true, a test failure is a job failure.
+                # Otherwise, it's a warning (unless already a failure).
+                if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) {
+                    $currentLocalArchiveStatus = "FAILURE"
+                } elseif ($currentLocalArchiveStatus -ne "FAILURE") {
+                    $currentLocalArchiveStatus = "WARNINGS"
+                }
             }
             $reportData.TestRetryAttemptsMade = $testResult.AttemptsMade
 
+            # Checksum verification logic (runs if checksum generation was enabled and 7z test passed)
             if ($EffectiveJobConfig.VerifyArchiveChecksumOnTest -and $EffectiveJobConfig.GenerateArchiveChecksum -and ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess))) {
                 & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Verifying archive checksum for '$finalArchivePathForReturn'..." -Level "INFO"
                 $checksumFileExtensionForVerify = $EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
@@ -239,18 +255,30 @@ function Invoke-LocalArchiveOperation {
                             & $LocalWriteLog -Message "[ERROR] LocalArchiveProcessor: Checksum MISMATCH for '$finalArchivePathForReturn'. Stored: $storedHashFromFile, Calculated: $recalculatedHash." -Level "ERROR"
                             $reportData.ArchiveChecksumVerificationStatus = "Mismatch (Stored: $storedHashFromFile, Calc: $recalculatedHash)"
                             $reportData.ArchiveTestResult += " (CHECKSUM MISMATCH)"
-                            if ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                            if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) {
+                                $currentLocalArchiveStatus = "FAILURE"
+                            } elseif ($currentLocalArchiveStatus -ne "FAILURE") {
+                                $currentLocalArchiveStatus = "WARNINGS"
+                            }
                         } else {
                             & $LocalWriteLog -Message "[ERROR] LocalArchiveProcessor: Failed to recalculate checksum for verification of '$finalArchivePathForReturn'." -Level "ERROR"
                             $reportData.ArchiveChecksumVerificationStatus = "Error (Recalculation failed)"
                             $reportData.ArchiveTestResult += " (Checksum Recalc Failed)"
-                            if ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                            if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) {
+                                $currentLocalArchiveStatus = "FAILURE"
+                            } elseif ($currentLocalArchiveStatus -ne "FAILURE") {
+                                $currentLocalArchiveStatus = "WARNINGS"
+                            }
                         }
                     } catch {
                         & $LocalWriteLog -Message "[ERROR] LocalArchiveProcessor: Failed to read checksum file '$checksumFilePathForVerify' for verification. Error: $($_.Exception.Message)" -Level "ERROR"
                         $reportData.ArchiveChecksumVerificationStatus = "Error (Checksum file read failed)"
                         $reportData.ArchiveTestResult += " (Checksum File Read Failed)"
-                        if ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                        if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) {
+                            $currentLocalArchiveStatus = "FAILURE"
+                        } elseif ($currentLocalArchiveStatus -ne "FAILURE") {
+                            $currentLocalArchiveStatus = "WARNINGS"
+                        }
                     }
                 } else {
                     & $LocalWriteLog -Message "[WARNING] LocalArchiveProcessor: Checksum file '$checksumFilePathForVerify' not found. Cannot verify checksum." -Level "WARNING"
@@ -265,10 +293,10 @@ function Invoke-LocalArchiveOperation {
                 $reportData.ArchiveChecksumVerificationStatus = "Skipped (Generation disabled)"
             }
 
-        } elseif ($EffectiveJobConfig.JobTestArchiveAfterCreation) {
+        } elseif ($shouldTestArchiveNow) { # Test was configured but not performed (e.g., simulation, archive missing, prior failure)
             $reportData.ArchiveTestResult = if ($IsSimulateMode.IsPresent) { "Not Performed (Simulation Mode)" } else { "Not Performed (Archive Missing or Prior Compression Error)" }
             $reportData.ArchiveChecksumVerificationStatus = "Skipped (Archive test not performed)"
-        } else {
+        } else { # Test was not configured by either flag
             $reportData.ArchiveTestResult = "Not Configured"
             $reportData.ArchiveChecksumVerificationStatus = "Skipped (Archive test not configured)"
         }

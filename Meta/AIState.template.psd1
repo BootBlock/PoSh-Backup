@@ -55,9 +55,19 @@
   )
 
   conversation_summary            = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.12.1).",
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.12.3).",
     "Modular design: Core modules, Reporting sub-modules (including Modules\Reporting\Assets and Modules\ConfigManagement\Assets directories), Config files, and Meta/ (bundler).",
     "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.1.10).", # Updated version
+    "--- Feature: Verify Local Archive Before Remote Transfer (Current Session Segment) ---",
+    "  - Goal: Ensure local backup is created and verified *before* remote transfer to prevent propagation of corrupt archives.",
+    "  - `Config\\Default.psd1` (v1.4.1 -> v1.4.2): Added global `DefaultVerifyLocalArchiveBeforeTransfer` and job-level `VerifyLocalArchiveBeforeTransfer` (boolean) settings.",
+    "  - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for `DefaultVerifyLocalArchiveBeforeTransfer` and `VerifyLocalArchiveBeforeTransfer`.",
+    "  - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.5 -> v1.0.6): Modified to resolve `VerifyLocalArchiveBeforeTransfer` (including CLI override) and add to report data.",
+    "  - `PoSh-Backup.ps1` (v1.12.2 -> v1.12.3): Added `-VerifyLocalArchiveBeforeTransferCLI` switch parameter and override logic.",
+    "  - `Modules\\Operations\\LocalArchiveProcessor.psm1` (v1.0.8 -> v1.0.9): Modified `Invoke-LocalArchiveOperation` to perform verification if `VerifyLocalArchiveBeforeTransfer` is true OR `JobTestArchiveAfterCreation` is true. The outcome influences the returned status.",
+    "  - `Modules\\Core\\Operations.psm1` (v1.20.1 -> v1.20.2): Modified `Invoke-PoShBackupJob` to check status from `Invoke-LocalArchiveOperation`. If verification was required and failed, remote transfers are skipped and this is logged.",
+    "  - `README.md`: Updated with new feature details, configuration, and CLI parameter.",
+    "  - All changes tested successfully by the user.",
     "--- Feature: CPU Affinity/Core Limiting for 7-Zip (Current Session Segment) ---",
     "  - Goal: Allow restricting 7-Zip to specific CPU cores for finer-grained resource control.",
     '  - `Config\\Default.psd1` (v1.4.0 -> v1.4.1): Added global `DefaultSevenZipCpuAffinity` and job-level `SevenZipCpuAffinity` settings (string, e.g., "0,1" or "0x3").',
@@ -139,10 +149,10 @@
     "--- Previous Work (Selected Highlights) ---",
     "Network Share Handling Improvements, Retention Policy Confirmation, HTML Report Enhancements, PSSA compliance.",
     "Bundler Script (Generate-ProjectBundleForAI.ps1 v1.25.2) is stable.",
-    "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums, SFX (with module choice), CPU Affinity features added. Extensive refactorings completed (ConfigManager, Operations, PoSh-Backup.psm1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP ConvertTo-SecureString items. Pester tests non-functional."
+    "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums, SFX (with module choice), CPU Affinity, Verify Before Transfer features added. Extensive refactorings completed. PSSA summary expected to be clean except for known SFTP ConvertTo-SecureString items. Pester tests sort-of functional; ignoring for now."
   )
 
-  main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.12.1
+  main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.12.3
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.4.1: Added SevenZipCpuAffinity option for 7-Zip CPU core limiting.
+# Version 1.4.2: Added DefaultVerifyLocalArchiveBeforeTransfer option for data integrity.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -170,6 +170,10 @@
     #region --- Archive Integrity Test Settings (Global Default) ---
     DefaultTestArchiveAfterCreation = $false                          # Global default. $true to automatically test the integrity of newly created archives using '7z t'.
                                                                       # Can be overridden per job or by the -TestArchive command-line parameter.
+
+    DefaultVerifyLocalArchiveBeforeTransfer = $false                  # Global default. $true to test local archive integrity (and checksum if enabled) *before* any remote transfers.
+                                                                      # If this test fails, remote transfers for the job will be skipped.
+                                                                      # This is independent of DefaultTestArchiveAfterCreation but may perform similar tests.
     #endregion
 
     #region --- Archive Filename Settings (Global Default) ---
@@ -230,7 +234,7 @@
                 # Controls if a JobName subdirectory is created under UNCRemotePath.
                 # $false (default): Archive saved directly into UNCRemotePath (e.g., \\server\share\archive.7z)
                 # $true: Archive saved into UNCRemotePath\JobName\ (e.g., \\server\share\JobName\archive.7z)
-                CreateJobNameSubdirectory = $false 
+                CreateJobNameSubdirectory = $false
             }
             # Optional: For UNC, if alternate credentials are needed to write to the share.
             # CredentialsSecretName = "UNCFileServer01Creds" # Name of a Generic Credentials secret in PowerShell SecretManagement.
@@ -274,7 +278,7 @@
                 SFTPPort            = 22                    # Optional: Defaults to 22 if not specified
                 SFTPRemotePath      = "/backups/poshbackup" # Mandatory: Base path on the SFTP server
                 SFTPUserName        = "backupuser"          # Mandatory: Username for SFTP authentication
-                
+
                 # --- Authentication Methods (choose one or rely on agent if Posh-SSH supports it) ---
                 # Option 1: Password-based (using PowerShell SecretManagement)
                 SFTPPasswordSecretName = "MySftpUserPassword" # Optional: Name of secret storing the password
@@ -310,7 +314,7 @@
         # }
     }
     #endregion
-    
+
     #region --- Post-Run Action Defaults (Global) ---
     # Defines default behavior for actions to take after a job or set completes.
     # These can be overridden at the job or set level.
@@ -357,11 +361,11 @@
             SevenZipCpuAffinity     = ""                              # NEW: Job-specific CPU affinity for 7-Zip. E.g., "0,1" or "0x3". Empty means use global default.
             ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
-            
+
             CreateSFX               = $false                          # Job-specific. $true to create a Self-Extracting Archive (.exe).
             SFXModule               = "Console"                       # Job-specific SFX module type. "Console", "GUI", "Installer".
                                                                       # If CreateSFX is $true, ArchiveExtension effectively becomes ".exe".
-            
+
             GenerateArchiveChecksum     = $true                       # Example: Enable checksum generation for this job
             ChecksumAlgorithm           = "SHA256"                    # Use SHA256
             VerifyArchiveChecksumOnTest = $true                       # Verify checksum if TestArchiveAfterCreation is also true
@@ -369,9 +373,9 @@
             # Job-specific PostRunAction settings. Overrides PostRunActionDefaults.
             # PostRunAction = @{
             #     Enabled         = $true
-            #     Action          = "Shutdown" 
+            #     Action          = "Shutdown"
             #     DelaySeconds    = 60
-            #     TriggerOnStatus = @("SUCCESS", "WARNINGS") 
+            #     TriggerOnStatus = @("SUCCESS", "WARNINGS")
             #     ForceAction     = $false
             # }
         }
@@ -400,9 +404,9 @@
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
             TreatSevenZipWarningsAsSuccess = $true                    # Example: For this job, 7-Zip warnings are considered success.
             SevenZipCpuAffinity        = "0"                          # NEW: Example: Restrict 7-Zip to core 0 for this job.
-            
+
             # Checksum settings (will use global defaults if not specified here, e.g., DefaultGenerateArchiveChecksum = $false)
-            # GenerateArchiveChecksum     = $false 
+            # GenerateArchiveChecksum     = $false
             # VerifyArchiveChecksumOnTest = $false
 
             # PostRunAction = @{ Enabled = $false }                   # Example: Explicitly disable for this job
@@ -411,15 +415,15 @@
             Path                       = @("C:\Users\YourUser\Documents\Reports", "C:\Users\YourUser\Pictures\Screenshots")
             Name                       = "UserDocs_MultiCopy"         # Example: base name for the archive
             DestinationDir             = "C:\BackupStaging\UserDocs"  # Local staging directory before replication (as TargetNames are specified).
-            
+
             TargetNames                = @("ExampleReplicatedStorage") # Reference the "Replicate" target instance defined in BackupTargets
-            
-            DeleteLocalArchiveAfterSuccessfulTransfer = $true 
-            
-            LocalRetentionCount        = 2                            
-            
-            ArchivePasswordMethod      = "None"                       
-            EnableVSS                  = $true                        
+
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true
+
+            LocalRetentionCount        = 2
+
+            ArchivePasswordMethod      = "None"
+            EnableVSS                  = $true
 
             CreateSFX                  = $true                        # Example, create an SFX for this job.
             SFXModule                  = "GUI"                        # Use GUI SFX module to prompt for extraction path.
@@ -427,7 +431,7 @@
                                                                       # DefaultArchiveType (e.g., -t7z) will determine the internal SFX content.
 
             GenerateArchiveChecksum     = $true
-            ChecksumAlgorithm           = "MD5"                       
+            ChecksumAlgorithm           = "MD5"
             VerifyArchiveChecksumOnTest = $true
             SevenZipCpuAffinity         = "0x1"                       # NEW: Example: Restrict 7-Zip to core 0 (bitmask) for this job.
 
@@ -436,27 +440,27 @@
         "CriticalData_To_SFTP_Example" = @{
             Path                    = "E:\CriticalApplication\Data"
             Name                    = "AppCriticalData_SFTP"
-            DestinationDir          = "D:\BackupStaging\SFTP_Stage"   
-            
-            TargetNames             = @("ExampleSFTPServer")          
-            
-            DeleteLocalArchiveAfterSuccessfulTransfer = $true         
-            LocalRetentionCount     = 1                               
-            
-            ArchivePasswordMethod   = "SecretManagement"
-            ArchivePasswordSecretName = "MyArchiveEncryptionPassword" 
-            
-            EnableVSS               = $true
-            TestArchiveAfterCreation= $true                           
+            DestinationDir          = "D:\BackupStaging\SFTP_Stage"
 
-            CreateSFX               = $false                          
-            SFXModule               = "Console"                       
+            TargetNames             = @("ExampleSFTPServer")
+
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true
+            LocalRetentionCount     = 1
+
+            ArchivePasswordMethod   = "SecretManagement"
+            ArchivePasswordSecretName = "MyArchiveEncryptionPassword"
+
+            EnableVSS               = $true
+            TestArchiveAfterCreation= $true
+
+            CreateSFX               = $false
+            SFXModule               = "Console"
 
             GenerateArchiveChecksum     = $true
             ChecksumAlgorithm           = "SHA512"
             VerifyArchiveChecksumOnTest = $true
             # SevenZipCpuAffinity will use global default if not specified
-            
+
             PostRunAction = @{
                 Enabled         = $true
                 Action          = "Lock"
@@ -467,65 +471,66 @@
         #region --- Comprehensive Example (Commented Out for Reference) ---
         <#
         "ComprehensiveExample_WebApp" = @{
-            Path                    = @(                             
+            Path                    = @(
                                         "C:\inetpub\wwwroot\MyWebApp",
                                         "D:\Databases\MyWebApp_Config.xml"
                                       )
             Name                    = "WebApp_Production"
-            DestinationDir          = "\\BACKUPSERVER\Share\WebApps\LocalStage_WebApp"  
-                                                                                      
-            LocalRetentionCount     = 1                               
-            DeleteLocalArchiveAfterSuccessfulTransfer = $true         
-            RetentionConfirmDelete  = $false                          
+            DestinationDir          = "\\BACKUPSERVER\Share\WebApps\LocalStage_WebApp"
+
+            LocalRetentionCount                       = 1
+            VerifyLocalArchiveBeforeTransfer          = $false                 # Job-specific override. $true to test local archive before remote transfer.
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true
+            RetentionConfirmDelete  = $false
 
             TargetNames             = @(
-                                        "ExampleUNCShare" 
-                                        # "ExampleS3Bucket" 
+                                        "ExampleUNCShare"
+                                        # "ExampleS3Bucket"
                                       )
 
             ArchivePasswordMethod   = "SecretManagement"
-            ArchivePasswordSecretName = "WebAppBackupPassword"        
-            # ArchivePasswordVaultName= "MyProductionVault"           
+            ArchivePasswordSecretName = "WebAppBackupPassword"
+            # ArchivePasswordVaultName= "MyProductionVault"
 
             ArchiveType             = "-t7z"
-            ArchiveExtension        = ".7z"                           
+            ArchiveExtension        = ".7z"
             CreateSFX               = $true                           # Example: Create SFX
             SFXModule               = "Installer"                     # Example: Use Installer SFX
-            ArchiveDateFormat       = "yyyy-MM-dd_HHmm"               
+            ArchiveDateFormat       = "yyyy-MM-dd_HHmm"
 
-            ThreadsToUse            = 2                               
+            ThreadsToUse            = 2
             SevenZipProcessPriority = "BelowNormal"
             SevenZipCpuAffinity     = "0,1,2,3"                       # Example: Use first 4 cores
-            CompressionLevel        = "-mx=5"                         
-            AdditionalExclusions    = @(                              
-                                        "*\logs\*.log",               
-                                        "*\temp\*",                   
+            CompressionLevel        = "-mx=5"
+            AdditionalExclusions    = @(
+                                        "*\logs\*.log",
+                                        "*\temp\*",
                                         "web.config.temp",
                                         "*.TMP"
                                         )
 
             EnableVSS                     = $true
-            VSSContextOption              = "Volatile NoWriters"      
+            VSSContextOption              = "Volatile NoWriters"
 
-            EnableRetries                 = $true                     
+            EnableRetries                 = $true
             MaxRetryAttempts              = 2
-            RetryDelaySeconds             = 120                       
+            RetryDelaySeconds             = 120
 
-            MinimumRequiredFreeSpaceGB    = 50                        
+            MinimumRequiredFreeSpaceGB    = 50
             ExitOnLowSpaceIfBelowMinimum  = $true
-            TestArchiveAfterCreation      = $true                     
-            TreatSevenZipWarningsAsSuccess = $false                   
+            TestArchiveAfterCreation      = $true
+            TreatSevenZipWarningsAsSuccess = $false
 
             GenerateArchiveChecksum     = $true
             ChecksumAlgorithm           = "SHA256"
             VerifyArchiveChecksumOnTest = $true
 
-            ReportGeneratorType           = @("HTML", "JSON")         
+            ReportGeneratorType           = @("HTML", "JSON")
             HtmlReportTheme               = "Dark"
-            HtmlReportDirectory           = "\\SHARE\AdminReports\PoShBackup\WebApp" 
+            HtmlReportDirectory           = "\\SHARE\AdminReports\PoShBackup\WebApp"
             HtmlReportTitlePrefix         = "Web Application Backup Status"
             HtmlReportLogoPath            = "\\SHARE\Branding\WebAppLogo.png"
-            HtmlReportFaviconPath         = "\\SHARE\Branding\WebAppFavicon.ico" 
+            HtmlReportFaviconPath         = "\\SHARE\Branding\WebAppFavicon.ico"
             HtmlReportCustomCssPath       = "\\SHARE\Branding\WebAppReportOverrides.css"
             HtmlReportCompanyName         = "Production Services Ltd."
             HtmlReportOverrideCssVariables = @{
@@ -537,12 +542,12 @@
             PostBackupScriptOnSuccessPath = "C:\Scripts\BackupPrep\WebApp_PostSuccess.ps1"
             PostBackupScriptOnFailurePath = "C:\Scripts\BackupPrep\WebApp_PostFailure_Alert.ps1"
             PostBackupScriptAlwaysPath    = "C:\Scripts\BackupPrep\WebApp_PostAlways_Cleanup.ps1"
-            
+
             # PostRunAction = @{
             #     Enabled         = $true
-            #     Action          = "LogOff" 
-            #     DelaySeconds    = 300 
-            #     TriggerOnStatus = @("ANY") 
+            #     Action          = "LogOff"
+            #     DelaySeconds    = 300
+            #     TriggerOnStatus = @("ANY")
             # }
         }
         #>
@@ -555,33 +560,33 @@
     # when PoSh-Backup.ps1 is called with the -RunSet <SetName> command-line parameter.
     BackupSets                      = @{
         "Daily_Critical_Backups" = @{
-            JobNames     = @(                                         
-                "Projects", 
+            JobNames     = @(
+                "Projects",
                 "AnExample_WithRemoteTarget",
-                "Docs_Replicated_Example", 
+                "Docs_Replicated_Example",
                 "CriticalData_To_SFTP_Example"
             )
-            OnErrorInJob = "StopSet"                                  
-                                                                      
-                                                                      
+            OnErrorInJob = "StopSet"
+
+
 
             # PostRunAction = @{
             #     Enabled         = $true
             #     Action          = "Restart"
             #     DelaySeconds    = 120
-            #     TriggerOnStatus = @("SUCCESS") 
+            #     TriggerOnStatus = @("SUCCESS")
             #     ForceAction     = $true
             # }
         }
         "Weekly_User_Data"       = @{
             JobNames = @(
                 "AnExample_WithRemoteTarget",
-                "Docs_Replicated_Example" 
+                "Docs_Replicated_Example"
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
-            # PostRunAction = @{ Enabled = $false }                   
+            # PostRunAction = @{ Enabled = $false }
         }
-        "Nightly_Full_System_Simulate" = @{                           
+        "Nightly_Full_System_Simulate" = @{
             JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example", "CriticalData_To_SFTP_Example")
             OnErrorInJob = "ContinueSet"
             # Note: To run this set in simulation mode, you would use:

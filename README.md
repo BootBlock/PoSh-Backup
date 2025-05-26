@@ -1,5 +1,5 @@
 # PoSh-Backup
-A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, and optional 7-Zip CPU core affinity (with validation and CLI override).
+A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, optional 7-Zip CPU core affinity (with validation and CLI override), and optional verification of local archives before remote transfer.
 
 > **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
@@ -49,6 +49,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Flexible 7-Zip Warning Handling:** Option to treat 7-Zip warnings (exit code 1, e.g., from skipped open files) as a success for job status reporting, configurable globally, per-job, or via CLI.
 *   **Exit Pause Control:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
 *   **Post-Run System Actions:** Optionally configure the script to perform system actions like Shutdown, Restart, Hibernate, LogOff, Sleep, or Lock Workstation after a job or set completes. This is configurable based on the final status (Success, Warnings, Failure, Any), can include a delay with a cancellation prompt, and can be forced via CLI parameters.
+*   **Verify Local Archive Before Transfer (New):** Optionally test the local archive's integrity (including checksum if enabled) *before* attempting any remote transfers. If this verification fails, remote transfers for that job are skipped, preventing propagation of potentially corrupt archives.
 
 ## Getting Started
 
@@ -103,6 +104,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   `DefaultGenerateArchiveChecksum` (boolean, default `$false`): Set to `$true` to enable checksum generation for all jobs by default.
         *   `DefaultChecksumAlgorithm` (string, default `"SHA256"`): Specifies the default algorithm (e.g., "SHA1", "SHA256", "SHA512", "MD5").
         *   `DefaultVerifyArchiveChecksumOnTest` (boolean, default `$false`): If `$true` (and `DefaultTestArchiveAfterCreation` is also true), the generated checksum will be verified against the archive during the archive test phase.
+    *   **`DefaultVerifyLocalArchiveBeforeTransfer` (Global Setting - New):**
+        *   Defaults to `$false`. If set to `$true`, the local archive integrity (including checksum if `DefaultGenerateArchiveChecksum` and `DefaultVerifyArchiveChecksumOnTest` are also true) will be tested *before* any remote transfers are attempted. If this test fails, remote transfers for the job will be skipped.
     *   **`DefaultCreateSFX` (Global Setting):**
         *   `DefaultSFXModule` (string, default `"Console"`): Determines the type of SFX created if `DefaultCreateSFX` is true.
             *   `"Console"` or `"Default"`: Default 7-Zip console SFX (e.g., `7zCon.sfx`). Extracts to current directory without prompting.
@@ -189,6 +192,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   `GenerateArchiveChecksum` (boolean): Overrides `DefaultGenerateArchiveChecksum`.
             *   `ChecksumAlgorithm` (string): Overrides `DefaultChecksumAlgorithm`.
             *   `VerifyArchiveChecksumOnTest` (boolean): Overrides `DefaultVerifyArchiveChecksumOnTest`.
+        *   **`VerifyLocalArchiveBeforeTransfer` (Job-Specific - New):**
+            *   Overrides `DefaultVerifyLocalArchiveBeforeTransfer`. Set to `$true` to enable pre-transfer verification for this specific job.
         *   **Self-Extracting Archive (SFX) Setting (Job-Specific):**
             *   `CreateSFX` (boolean, default `$false`): Set to `$true` to create a self-extracting archive (.exe) for this job.
             *   `SFXModule` (string, default from global `DefaultSFXModule`): Specifies the type of SFX if `CreateSFX` is true. Options: `"Console"`, `"GUI"`, `"Installer"`.
@@ -221,6 +226,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 GenerateArchiveChecksum     = $true
                 ChecksumAlgorithm           = "SHA256"
                 VerifyArchiveChecksumOnTest = $true
+                VerifyLocalArchiveBeforeTransfer = $true # NEW: Ensure this archive is good before sending to MyMainUNCShare
                 SevenZipCpuAffinity         = "0,1"  # Restrict 7-Zip to CPU cores 0 and 1
             }
 
@@ -234,6 +240,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 DeleteLocalArchiveAfterSuccessfulTransfer = $true
                 CreateSFX = $false # Not an SFX
                 SFXModule = "Console" # Not strictly needed if CreateSFX is false, but shows the option
+                VerifyLocalArchiveBeforeTransfer = $false # NEW: Example of disabling it for this job
                 SevenZipCpuAffinity = "0x1" # Restrict to core 0 (using hex bitmask)
             }
 
@@ -250,6 +257,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 ArchivePasswordMethod = "SecretManagement"
                 ArchivePasswordSecretName = "MyArchiveEncryptionKey"
                 # SevenZipCpuAffinity will use global default (likely none)
+                # VerifyLocalArchiveBeforeTransfer will use global default (likely $false)
             }
             ```
     *   **`PostRunActionDefaults` (Global Post-Run System Action Settings):**
@@ -307,9 +315,9 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 ### 4. Basic Usage Examples
 Once your `Config\User.psd1` is configured with at least one backup job, you can run PoSh-Backup from a PowerShell console located in the script's root directory:
 
-*   **Run a specific backup job (it may be local-only or also send to remote targets based on its configuration):**
+*   **Run a specific backup job and ensure it's verified before any remote transfer:**
     ```powershell
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX_GUI_Affinity"
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX_GUI_Affinity" -VerifyLocalArchiveBeforeTransferCLI
     ```
     (Replace `"MyDocumentsBackupSFX_GUI_Affinity"` with the actual name of a job you defined in `BackupLocations`. If this job has a `PostRunAction` configured, it will be evaluated after the job.)
 
@@ -362,10 +370,11 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
 These parameters allow you to override certain configuration settings for a specific run:
 
 *   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges).
-*   `-TestArchive`: Forces an integrity test of newly created *local* archives for all processed jobs. If checksum generation and verification are enabled for the job, this will include checksum verification.
+*   `-TestArchive`: Forces an integrity test of newly created *local* archives for all processed jobs. If checksum generation and verification are enabled for the job, this will include checksum verification. This is independent of `-VerifyLocalArchiveBeforeTransferCLI`.
+*   `-VerifyLocalArchiveBeforeTransferCLI`: (New) Forces verification of the local archive (including checksum if enabled for the job) *before* any remote transfers are attempted. Overrides configuration settings. If verification fails, remote transfers for the job are skipped.
 *   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions, checksum operations, SFX creation, CPU affinity application, and post-run system actions are logged but not actually executed.
 *   `-TreatSevenZipWarningsAsSuccessCLI`: Forces 7-Zip exit code 1 (Warning) from *local* archiving to be treated as a success for the job status, overriding any configuration settings.
-*   `-SevenZipCpuAffinityCLI <AffinityString>`: (New) Overrides any configured 7-Zip CPU core affinity. Examples: `"0,1"` or `"0x3"`.
+*   `-SevenZipCpuAffinityCLI <AffinityString>`: Overrides any configured 7-Zip CPU core affinity. Examples: `"0,1"` or `"0x3"`.
 *   `-PauseBehaviourCLI <Always|Never|OnFailure|OnWarning|OnFailureOrWarning>`: Controls if the script pauses with a "Press any key to continue" message before exiting. Overrides the `PauseBeforeExit` setting in the configuration file.
 *   `-PostRunActionCli <Action>`: Overrides all configured post-run actions.
     *   Valid `<Action>`: "None", "Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock".

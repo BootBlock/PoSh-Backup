@@ -53,6 +53,7 @@
     ExitOnLowSpaceIfBelowMinimum              = @{ Type = 'boolean'; Required = $false }
 
     DefaultTestArchiveAfterCreation           = @{ Type = 'boolean'; Required = $false }
+    DefaultVerifyLocalArchiveBeforeTransfer   = @{ Type = 'boolean'; Required = $false } # NEW Global Setting
 
     DefaultArchiveDateFormat                  = @{ Type = 'string'; Required = $false }
     DefaultCreateSFX                          = @{ Type = 'boolean'; Required = $false } 
@@ -63,7 +64,7 @@
     DefaultVerifyArchiveChecksumOnTest        = @{ Type = 'boolean'; Required = $false }
 
     DefaultThreadCount                        = @{ Type = 'int'; Required = $false; Min = 0 }
-    DefaultSevenZipCpuAffinity                = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' } # NEW: Regex for "0xHEX" or "0,1,2" or empty
+    DefaultSevenZipCpuAffinity                = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' } 
     DefaultArchiveType                        = @{ Type = 'string'; Required = $false }
     DefaultArchiveExtension                   = @{ Type = 'string'; Required = $false }
     DefaultCompressionLevel                   = @{ Type = 'string'; Required = $false }
@@ -84,10 +85,10 @@
             Type     = "hashtable"
             Required = $true
             Schema   = @{
-                Type                    = @{ Type = 'string'; Required = $true } # Type of target (e.g., "UNC", "SFTP")
-                TargetSpecificSettings  = @{ Type = 'object'; Required = $true } # Allows any structure, specific validation in PoShBackupValidator.psm1
+                Type                    = @{ Type = 'string'; Required = $true } 
+                TargetSpecificSettings  = @{ Type = 'object'; Required = $true } 
                 CredentialsSecretName   = @{ Type = 'string'; Required = $false }
-                RemoteRetentionSettings = @{ Type = 'hashtable'; Required = $false } # Basic check here, specific content validated in PoShBackupValidator.psm1
+                RemoteRetentionSettings = @{ Type = 'hashtable'; Required = $false } 
             }
         }
     }
@@ -126,7 +127,7 @@
                 EnableVSS                                 = @{ Type = 'boolean'; Required = $false }
                 VSSContextOption                          = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
                 SevenZipProcessPriority                   = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
-                SevenZipCpuAffinity                       = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' } # NEW
+                SevenZipCpuAffinity                       = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' } 
                 ReportGeneratorType                       = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
                 TreatSevenZipWarningsAsSuccess            = @{ Type = 'boolean'; Required = $false }
                 HtmlReportDirectory                       = @{ Type = 'string'; Required = $false }
@@ -151,6 +152,7 @@
                 MinimumRequiredFreeSpaceGB                = @{ Type = 'int'; Required = $false; Min = 0 }
                 ExitOnLowSpaceIfBelowMinimum              = @{ Type = 'boolean'; Required = $false }
                 TestArchiveAfterCreation                  = @{ Type = 'boolean'; Required = $false }
+                VerifyLocalArchiveBeforeTransfer          = @{ Type = 'boolean'; Required = $false } # NEW Job-Level Setting
                 GenerateArchiveChecksum                   = @{ Type = 'boolean'; Required = $false }
                 ChecksumAlgorithm                         = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
                 VerifyArchiveChecksumOnTest               = @{ Type = 'boolean'; Required = $false }

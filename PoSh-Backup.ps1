@@ -6,7 +6,8 @@
     customisation via an external .psd1 configuration file, remote Backup Targets,
     optional post-run system state actions (e.g., shutdown, restart), optional
     archive checksum generation and verification, optional Self-Extracting Archive (SFX) creation,
-    and optional 7-Zip CPU core affinity (with CLI override).
+    optional 7-Zip CPU core affinity (with CLI override), and optional verification of local
+    archives before remote transfer.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -32,6 +33,9 @@
       for easy restoration.
     - 7-Zip CPU Core Affinity: Optionally restrict 7-Zip to specific CPU cores, with validation
       and CLI override.
+    - Verify Local Archive Before Transfer (New): Optionally test the local archive's integrity
+      (and checksum if enabled) *before* attempting any remote transfers. If verification fails,
+      remote transfers for that job are skipped.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -50,6 +54,12 @@
 .PARAMETER TestArchive
     Optional. A switch parameter. If present, this forces an integrity test of newly created local archives.
     If checksum verification is also enabled for the job, it will be performed as part of this test.
+    This is independent of -VerifyLocalArchiveBeforeTransferCLI but may perform similar tests.
+
+.PARAMETER VerifyLocalArchiveBeforeTransferCLI
+    Optional. A switch parameter. If present, forces verification of the local archive (including checksum
+    if enabled for the job) *before* any remote transfers are attempted. Overrides configuration settings.
+    If verification fails, remote transfers for the job are skipped.
 
 .PARAMETER UseVSS
     Optional. A switch parameter. If present, this forces the script to attempt using VSS.
@@ -106,10 +116,9 @@
     Valid values: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
 
 .EXAMPLE
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC"
-    Runs the "MyDocs_To_UNC" job. If this job has a PostRunAction configured (e.g., Shutdown on SUCCESS),
-    and the job is successful, the shutdown sequence will initiate after the job's hooks.
-    If checksum generation is enabled for this job, a checksum file will be created alongside the archive.
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -VerifyLocalArchiveBeforeTransferCLI
+    Runs the "MyDocs_To_UNC" job. The local archive will be created and then tested. If the test passes,
+    it will be transferred to the remote UNC target. If the local test fails, the transfer is skipped.
 
 .EXAMPLE
     .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -PostRunActionCli "Hibernate" -PostRunActionDelaySecondsCli 60
@@ -124,8 +133,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.12.2 # Added SevenZipCpuAffinityCLI parameter.
-    Date:           25-May-2025
+    Version:        1.12.3 # Added VerifyLocalArchiveBeforeTransferCLI parameter.
+    Date:           26-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -148,8 +157,11 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Switch. Run in simulation mode (local archiving, checksums, remote transfers, and post-run actions simulated).")]
     [switch]$Simulate,
 
-    [Parameter(Mandatory=$false, HelpMessage="Switch. Test local archive integrity after backup (includes checksum verification if enabled).")]
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Test local archive integrity after backup (includes checksum verification if enabled). Independent of -VerifyLocalArchiveBeforeTransferCLI.")]
     [switch]$TestArchive,
+
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Verify local archive before remote transfer. Overrides config.")] # NEW
+    [switch]$VerifyLocalArchiveBeforeTransferCLI, # NEW
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Attempt to use VSS. Requires Admin.")]
     [switch]$UseVSS,
@@ -186,20 +198,19 @@ param (
     [ValidateSet("True", "False", "Always", "Never", "OnFailure", "OnWarning", "OnFailureOrWarning", IgnoreCase=$true)]
     [string]$PauseBehaviourCLI,
 
-    # NEW CLI Parameters for Post-Run Action Override
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: System action after script completion. Overrides ALL config. Valid: None, Shutdown, Restart, Hibernate, LogOff, Sleep, Lock.")]
     [ValidateSet("None", "Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock", IgnoreCase=$true)]
     [string]$PostRunActionCli,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Delay in seconds for PostRunActionCli. Default 0.")]
-    [int]$PostRunActionDelaySecondsCli = 0, # Default to 0 if -PostRunActionCli is used but this isn't
+    [int]$PostRunActionDelaySecondsCli = 0, 
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Force PostRunActionCli (Shutdown/Restart).")]
     [switch]$PostRunActionForceCli,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Status(es) to trigger PostRunActionCli. Default 'ANY'. Valid: SUCCESS, WARNINGS, FAILURE, SIMULATED_COMPLETE, ANY.")]
     [ValidateSet("SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY", IgnoreCase=$true)]
-    [string[]]$PostRunActionTriggerOnStatusCli = @("ANY") # Default to ANY if -PostRunActionCli is used
+    [string[]]$PostRunActionTriggerOnStatusCli = @("ANY") 
 )
 #endregion
 
@@ -211,10 +222,11 @@ $cliOverrideSettings = @{
     UseVSS                             = if ($PSBoundParameters.ContainsKey('UseVSS')) { $UseVSS.IsPresent } else { $null }
     EnableRetries                      = if ($PSBoundParameters.ContainsKey('EnableRetriesCLI')) { $EnableRetriesCLI.IsPresent } else { $null }
     TestArchive                        = if ($PSBoundParameters.ContainsKey('TestArchive')) { $TestArchive.IsPresent } else { $null }
+    VerifyLocalArchiveBeforeTransferCLI = if ($PSBoundParameters.ContainsKey('VerifyLocalArchiveBeforeTransferCLI')) { $VerifyLocalArchiveBeforeTransferCLI.IsPresent } else { $null } # NEW
     GenerateHtmlReport                 = if ($PSBoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $GenerateHtmlReportCLI.IsPresent } else { $null }
     TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
     SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
-    SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null } # NEW
+    SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null } 
     PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
     PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
     PostRunActionDelaySecondsCli       = if ($PSBoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $PostRunActionDelaySecondsCli } else { $null }
@@ -258,7 +270,6 @@ $Global:GlobalJobLogEntries                 = $null
 $Global:GlobalJobHookScriptData             = $null
 
 try {
-    # Import Utils.psm1 (facade) with -Global scope to ensure its functions are widely available
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -Global -ErrorAction Stop
 } catch {
     Write-Host "[FATAL] Failed to import CRITICAL Utils.psm1 module." -ForegroundColor Red
@@ -266,15 +277,12 @@ try {
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
     exit 10
 }
-$LoggerScriptBlock = ${function:Write-LogMessage} # Now from Utils.psm1 (facade) -> Logging.psm1
+$LoggerScriptBlock = ${function:Write-LogMessage} 
 
 try {
-    # Core Orchestration/Management Modules
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\Operations.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\JobOrchestrator.psm1") -Force -ErrorAction Stop
-
-    # Specialized Manager Modules
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Reporting.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\7ZipManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\VssManager.psm1") -Force -ErrorAction Stop
@@ -294,14 +302,15 @@ try {
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.12.2 (Added SevenZipCpuAffinityCLI parameter)" -Level "HEADING" # Updated Version
+& $LoggerScriptBlock -Message " Script Version: v1.12.3 (Added VerifyLocalArchiveBeforeTransferCLI parameter)" -Level "HEADING" # Updated Version
 if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupSets.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP SETS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($SkipUserConfigCreation.IsPresent) { & $LoggerScriptBlock -Message " ***** SKIP USER CONFIG CREATION ACTIVE ***** " -Level "INFO" }
 if ($cliOverrideSettings.TreatSevenZipWarningsAsSuccess -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Treating 7-Zip warnings as success. ***** " -Level "INFO" }
-if ($cliOverrideSettings.SevenZipCpuAffinity) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip CPU Affinity specified: $($cliOverrideSettings.SevenZipCpuAffinity) ***** " -Level "INFO" } # NEW
+if ($cliOverrideSettings.SevenZipCpuAffinity) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip CPU Affinity specified: $($cliOverrideSettings.SevenZipCpuAffinity) ***** " -Level "INFO" } 
+if ($cliOverrideSettings.VerifyLocalArchiveBeforeTransferCLI -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Verify Local Archive Before Transfer ENABLED. ***** " -Level "INFO" } # NEW
 if ($cliOverrideSettings.PostRunActionCli) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Post-Run Action specified: $($cliOverrideSettings.PostRunActionCli) ***** " -Level "INFO" }
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 #endregion
@@ -362,7 +371,6 @@ if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
     }
 }
 
-# Import-AppConfiguration is from ConfigManager.psm1 (-> ConfigLoader.psm1)
 $configResult = Import-AppConfiguration -UserSpecifiedPath $ConfigFile `
                                          -IsTestConfigMode:(($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) `
                                          -MainScriptPSScriptRoot $PSScriptRoot `
@@ -389,8 +397,6 @@ if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
     exit 1
 }
 
-# --- Invoke Script Mode Handler ---
-# Invoke-PoShBackupScriptMode is from ScriptModeHandler.psm1
 Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
                             -ListBackupSetsSwitch $ListBackupSets.IsPresent `
                             -TestConfigSwitch $TestConfig.IsPresent `
@@ -398,10 +404,7 @@ Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPr
                             -ActualConfigFile $ActualConfigFile `
                             -ConfigLoadResult $configResult `
                             -Logger $LoggerScriptBlock
-# If the script reaches here, it means no informational mode was handled, and we proceed to normal backup operations.
 
-
-# --- 7-Zip Path and Log Directory Setup (only if not in an informational mode that would have exited) ---
 $sevenZipPathFromFinalConfig = if ($Configuration.ContainsKey('SevenZipPath')) { $Configuration.SevenZipPath } else { $null }
 if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
     & $LoggerScriptBlock -Message "FATAL: 7-Zip executable path ('$sevenZipPathFromFinalConfig') is invalid or not found after configuration loading and auto-detection attempts." -Level "ERROR"
@@ -430,8 +433,6 @@ if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Pa
     & $LoggerScriptBlock -Message "[INFO] Effective 7-Zip executable path confirmed: '$sevenZipPathFromFinalConfig'" -Level "INFO"
 }
 
-# GlobalEnableFileLogging and GlobalLogDirectory are now set within JobOrchestrator.psm1 per job,
-# but we still need to set the global defaults here for early logging or if JobOrchestrator isn't reached.
 $Global:GlobalEnableFileLogging = if ($Configuration.ContainsKey('EnableFileLogging')) { $Configuration.EnableFileLogging } else { $false }
 if ($Global:GlobalEnableFileLogging) {
     $logDirConfig = if ($Configuration.ContainsKey('LogDirectory')) { $Configuration.LogDirectory } else { "Logs" }
@@ -448,7 +449,6 @@ if ($Global:GlobalEnableFileLogging) {
     }
 }
 
-# Get-JobsToProcess is from ConfigManager.psm1 (-> JobResolver.psm1)
 $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
 if (-not $jobResolutionResult.Success) {
     & $LoggerScriptBlock -Message "FATAL: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
@@ -461,9 +461,9 @@ $setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
 #endregion
 
 #region --- Main Processing (Delegated to JobOrchestrator.psm1) ---
-$overallSetStatus = "SUCCESS" # Default, will be updated by JobOrchestrator
+$overallSetStatus = "SUCCESS" 
 $finalPostRunActionToConsider = $null
-$actionSourceForLog = "None" # Ensure initialized
+$actionSourceForLog = "None" 
 
 if ($jobsToProcess.Count -gt 0) {
     $runParams = @{
@@ -479,23 +479,16 @@ if ($jobsToProcess.Count -gt 0) {
         PSCmdlet                 = $PSCmdlet
         CliOverrideSettings      = $cliOverrideSettings
     }
-    # Invoke-PoShBackupRun is from JobOrchestrator.psm1
     $orchestratorResult = Invoke-PoShBackupRun @runParams
 
-    # WORKAROUND: Re-import Utils.psm1 locally to ensure its commands are available
-    # for the final script operations. This addresses an issue where the Utils module's
-    # commands (despite initial global import) become unavailable after returning from
-    # the JobOrchestrator.psm1 module.
     try {
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -ErrorAction Stop
     } catch {
         & $LoggerScriptBlock -Message "[FATAL PoSh-Backup.ps1] Failed to re-import Utils.psm1 locally. Error: $($_.Exception.Message)" -Level "ERROR"
     }
-    # END WORKAROUND
 
     $overallSetStatus = $orchestratorResult.OverallSetStatus
 
-    # Determine which PostRunAction to use: CLI > Set > Job (single) > Global
     if ($null -ne $cliOverrideSettings.PostRunActionCli) {
         $finalPostRunActionToConsider = @{
             Enabled         = ($cliOverrideSettings.PostRunActionCli.ToLowerInvariant() -ne "none")
@@ -510,7 +503,7 @@ if ($jobsToProcess.Count -gt 0) {
         $actionSourceForLog = "Backup Set '$currentSetName'"
     } elseif ($null -ne $orchestratorResult.JobSpecificPostRunActionForNonSet) {
         $finalPostRunActionToConsider = $orchestratorResult.JobSpecificPostRunActionForNonSet
-        $actionSourceForLog = "Job '$($jobsToProcess[0])'" # If single job, its PRA
+        $actionSourceForLog = "Job '$($jobsToProcess[0])'" 
     } else {
         $globalDefaultsPRA = Utils\Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{}
         if ($null -ne $globalDefaultsPRA -and $globalDefaultsPRA.ContainsKey('Enabled') -and $globalDefaultsPRA.Enabled) {
@@ -518,7 +511,7 @@ if ($jobsToProcess.Count -gt 0) {
             $actionSourceForLog = "Global Defaults"
         }
     }
-} else { # If no jobs were processed
+} else { 
     & $LoggerScriptBlock -Message "[INFO] No jobs were processed." -Level "INFO"
     if ($null -ne $cliOverrideSettings.PostRunActionCli) {
         $finalPostRunActionToConsider = @{
@@ -599,7 +592,6 @@ if ($shouldPhysicallyPause) {
     }
 }
 
-# --- Post-Run System Action Logic ---
 if ($null -ne $finalPostRunActionToConsider -and `
     $finalPostRunActionToConsider.ContainsKey('Enabled') -and $finalPostRunActionToConsider.Enabled -eq $true -and `
     $finalPostRunActionToConsider.ContainsKey('Action') -and $finalPostRunActionToConsider.Action.ToLowerInvariant() -ne "none") {
@@ -609,7 +601,7 @@ if ($null -ne $finalPostRunActionToConsider -and `
     if ($TestConfig.IsPresent) { $effectiveOverallStatusForTrigger = "SIMULATED_COMPLETE" }
 
     if ($triggerStatuses -contains "ANY" -or $effectiveOverallStatusForTrigger -in $triggerStatuses) {
-        if (-not [string]::IsNullOrWhiteSpace($actionSourceForLog) -and $actionSourceForLog -ne "None") { # Added check for "None"
+        if (-not [string]::IsNullOrWhiteSpace($actionSourceForLog) -and $actionSourceForLog -ne "None") { 
             & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from $($actionSourceForLog)." -Level "INFO"
         }
         & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Conditions met for action '$($finalPostRunActionToConsider.Action)' (Triggered by Status: $effectiveOverallStatusForTrigger)." -Level "INFO"
@@ -622,12 +614,9 @@ if ($null -ne $finalPostRunActionToConsider -and `
             Logger          = $LoggerScriptBlock
             PSCmdletInstance = $PSCmdlet
         }
-        # Invoke-SystemStateAction is from SystemStateManager.psm1
         Invoke-SystemStateAction @systemActionParams
     }
 }
-# --- END Post-Run System Action Logic ---
-
 
 if ($overallSetStatus -in @("SUCCESS", "SIMULATED_COMPLETE")) { exit 0 }
 elseif ($overallSetStatus -eq "WARNINGS") { exit 1 }

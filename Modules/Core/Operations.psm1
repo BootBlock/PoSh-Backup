@@ -5,6 +5,8 @@
     This module now orchestrates calls to sub-modules for local archive processing and remote
     target transfers, while still handling VSS, password management, local retention,
     and hook script execution. This module now resides in 'Modules\Core\'.
+    It also incorporates logic to skip remote transfers if local archive verification fails
+    and the 'VerifyLocalArchiveBeforeTransfer' option is enabled.
 
 .DESCRIPTION
     The Operations module encapsulates the entire lifecycle of processing a single, defined backup job.
@@ -24,24 +26,24 @@
         b.  Construct 7-Zip arguments.
         c.  Execute 7-Zip for archiving to the local directory (now supporting CPU affinity).
         d.  Optionally generate an archive checksum file.
-        e.  Optionally test local archive integrity and verify checksum.
-    8.  Applies local retention policy (via RetentionManager.psm1).
-    9.  If local operations were successful and remote targets are defined, calls
-        'Invoke-RemoteTargetTransferOrchestration' (from Modules\Operations\RemoteTransferOrchestrator.psm1) to:
-        a.  Loop through each target.
-        b.  Dynamically load the provider module.
-        c.  Call 'Invoke-PoShBackupTargetTransfer' from the provider.
-        d.  Handle deletion of the local staged archive if configured and all transfers succeed.
-    10. Cleans up VSS shadow copies.
-    11. Securely disposes of temporary password files.
-    12. Executes post-backup hook scripts.
-    13. Returns overall job status.
+        e.  Optionally test local archive integrity and verify checksum. This test is also triggered
+            if 'VerifyLocalArchiveBeforeTransfer' is enabled.
+    8.  Checks if local archive verification (if enabled by 'VerifyLocalArchiveBeforeTransfer') passed.
+        If not, remote transfers are skipped.
+    9.  Applies local retention policy (via RetentionManager.psm1).
+    10. If local operations were successful (including pre-transfer verification if enabled) and
+        remote targets are defined, calls 'Invoke-RemoteTargetTransferOrchestration'
+        (from Modules\Operations\RemoteTransferOrchestrator.psm1) to handle transfers.
+    11. Cleans up VSS shadow copies.
+    12. Securely disposes of temporary password files.
+    13. Executes post-backup hook scripts.
+    14. Returns overall job status.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.20.1 # Pass SevenZipCpuAffinity to LocalArchiveProcessor.
+    Version:        1.20.2 # Added logic to skip remote transfers if VerifyLocalArchiveBeforeTransfer fails.
     DateCreated:    10-May-2025
-    LastModified:   25-May-2025
+    LastModified:   26-May-2025
     Purpose:        Handles the execution logic for individual backup jobs, including remote target transfers and checksums.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules and target provider modules.
@@ -119,7 +121,6 @@ function Invoke-PoShBackupJob {
     try {
         $effectiveJobConfig = $JobConfig 
 
-        # Determine the correct term for DestinationDir based on whether remote targets are configured
         $destinationDirTerm = if ($effectiveJobConfig.ResolvedTargetInstances.Count -eq 0) { "Final Destination Directory" } else { "Local Staging Directory" }
 
         & $LocalWriteLog -Message " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
@@ -128,7 +129,8 @@ function Invoke-PoShBackupJob {
         & $LocalWriteLog -Message "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)"
         & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod)"
         & $LocalWriteLog -Message "   - Treat 7-Zip Warnings as Success: $($effectiveJobConfig.TreatSevenZipWarningsAsSuccess)"
-        & $LocalWriteLog -Message "   - 7-Zip CPU Affinity     : $(if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.JobSevenZipCpuAffinity)) {'Not Set (Uses 7-Zip Default)'} else {$effectiveJobConfig.JobSevenZipCpuAffinity})" # Log Affinity
+        & $LocalWriteLog -Message "   - 7-Zip CPU Affinity     : $(if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.JobSevenZipCpuAffinity)) {'Not Set (Uses 7-Zip Default)'} else {$effectiveJobConfig.JobSevenZipCpuAffinity})" 
+        & $LocalWriteLog -Message "   - Verify Local Archive Before Transfer: $($effectiveJobConfig.VerifyLocalArchiveBeforeTransfer)" # NEW
         & $LocalWriteLog -Message "   - Local Retention Deletion Confirmation: $($effectiveJobConfig.RetentionConfirmDelete)"
         & $LocalWriteLog -Message "   - Generate Archive Checksum: $($effectiveJobConfig.GenerateArchiveChecksum)"
         & $LocalWriteLog -Message "   - Checksum Algorithm       : $($effectiveJobConfig.ChecksumAlgorithm)"
@@ -259,7 +261,6 @@ function Invoke-PoShBackupJob {
                             if (([uri]$originalPathItem).IsUnc) { $isUncPathItem = $true }
                         }
                         catch {
-                            # Path is not a valid URI, assume local. Log for debugging if necessary.
                             & $LocalWriteLog -Message "Operations.psm1: Path '$originalPathItem' could not be parsed as URI for UNC check. Assuming local. Error: $($_.Exception.Message)" -Level "DEBUG"
                         }
                         if ($isUncPathItem) {
@@ -287,13 +288,24 @@ function Invoke-PoShBackupJob {
             Logger                       = $Logger
             PSCmdlet                     = $PSCmdlet
             GlobalConfig                 = $GlobalConfig
-            SevenZipCpuAffinityString    = $effectiveJobConfig.JobSevenZipCpuAffinity # NEW: Pass affinity string
+            SevenZipCpuAffinityString    = $effectiveJobConfig.JobSevenZipCpuAffinity 
         }
         $localArchiveResult = Invoke-LocalArchiveOperation @localArchiveOpParams
 
         $currentJobStatus = $localArchiveResult.Status
         $finalLocalArchivePath = $localArchiveResult.FinalArchivePath 
         $archiveFileNameOnly = $localArchiveResult.ArchiveFileNameOnly 
+
+        # --- NEW: Check if remote transfers should be skipped due to local verification failure ---
+        $skipRemoteTransfersDueToVerification = $false
+        if ($effectiveJobConfig.VerifyLocalArchiveBeforeTransfer -and $currentJobStatus -ne "SUCCESS" -and $currentJobStatus -ne "SIMULATED_COMPLETE") {
+            # If VerifyLocalArchiveBeforeTransfer is true, and local status is not perfect success, then skip.
+            # This includes "WARNINGS" (e.g., checksum mismatch) or "FAILURE".
+            $skipRemoteTransfersDueToVerification = $true
+            & $LocalWriteLog -Message "[WARNING] Operations: Remote target transfers for job '$JobName' will be SKIPPED because 'VerifyLocalArchiveBeforeTransfer' is enabled and local archive processing/verification status is '$currentJobStatus'." -Level "WARNING"
+            $reportData.TargetTransfersSkippedReason = "Local archive verification failed (Status: $currentJobStatus)"
+        }
+        # --- END NEW ---
 
         $vbLoaded = $false
         if ($effectiveJobConfig.DeleteToRecycleBin) {
@@ -309,7 +321,7 @@ function Invoke-PoShBackupJob {
         if (-not $effectiveJobConfig.RetentionConfirmDelete) { $retentionPolicyParams.Confirm = $false }
         Invoke-BackupRetentionPolicy @retentionPolicyParams
 
-        if ($currentJobStatus -ne "FAILURE" -and $effectiveJobConfig.ResolvedTargetInstances.Count -gt 0) {
+        if ($currentJobStatus -ne "FAILURE" -and (-not $skipRemoteTransfersDueToVerification) -and $effectiveJobConfig.ResolvedTargetInstances.Count -gt 0) { # MODIFIED Condition
             $remoteTransferResult = Invoke-RemoteTargetTransferOrchestration -EffectiveJobConfig $effectiveJobConfig `
                 -LocalFinalArchivePath $finalLocalArchivePath `
                 -ArchiveFileNameOnly $archiveFileNameOnly `
@@ -324,6 +336,10 @@ function Invoke-PoShBackupJob {
             }
         } elseif ($currentJobStatus -eq "FAILURE") {
             & $LocalWriteLog -Message "[WARNING] Operations: Remote target transfers skipped for job '$JobName' due to failure in local archive creation/testing." -Level "WARNING"
+        } elseif ($skipRemoteTransfersDueToVerification) {
+            # Message already logged above. Ensure overall status reflects this if it was previously SUCCESS.
+            if ($currentJobStatus -eq "SUCCESS") { $currentJobStatus = "WARNINGS" } # If local was success but verification failed, it's a warning overall.
+            # If $currentJobStatus was already WARNINGS or FAILURE from local processing, it remains that.
         }
 
     } catch {

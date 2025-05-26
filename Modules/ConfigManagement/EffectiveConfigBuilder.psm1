@@ -17,15 +17,15 @@
     This function resolves settings for local archive creation, local retention,
     remote target assignments (by looking up 'TargetNames' in the global 'BackupTargets'
     section), PostRunAction settings, Checksum settings, SFX creation (including SFX module type),
-    and 7-Zip CPU affinity.
+    7-Zip CPU affinity, and the new VerifyLocalArchiveBeforeTransfer setting.
     The resolved configuration is then used by the Operations module to execute the backup job.
 
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.5 # Updated JobSevenZipCpuAffinity resolution for CLI override.
+    Version:        1.0.6 # Added VerifyLocalArchiveBeforeTransfer resolution.
     DateCreated:    24-May-2025
-    LastModified:   25-May-2025
+    LastModified:   26-May-2025
     Purpose:        To modularise the effective job configuration building logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the parent 'Modules' directory for Get-ConfigValue.
@@ -47,7 +47,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     .SYNOPSIS
         Gathers the effective configuration for a single backup job by merging global,
         job-specific, and command-line override settings, including Backup Target, PostRunAction,
-        Checksum, SFX (with module type), and 7-Zip CPU Affinity resolution.
+        Checksum, SFX (with module type), 7-Zip CPU Affinity, and VerifyLocalArchiveBeforeTransfer resolution.
     .DESCRIPTION
         This function takes a specific job's raw configuration, the global configuration,
         and any command-line overrides, then resolves the final settings that will be
@@ -56,14 +56,14 @@ function Get-PoShBackupJobEffectiveConfiguration {
         It now also resolves 'TargetNames' specified in the job configuration by looking up
         the full definitions of those targets in the global 'BackupTargets' section,
         resolves 'PostRunAction' settings, 'Checksum' settings, 'CreateSFX', 'SFXModule',
-        and 'SevenZipCpuAffinity' settings.
+        'SevenZipCpuAffinity', and 'VerifyLocalArchiveBeforeTransfer' settings.
         If SFX is enabled, the effective archive extension becomes '.exe'.
     .PARAMETER JobConfig
         A hashtable containing the specific configuration settings for this backup job.
     .PARAMETER GlobalConfig
         A hashtable containing the global configuration settings for PoSh-Backup, including 'BackupTargets',
         'PostRunActionDefaults', 'Checksum' defaults, 'CreateSFX' defaults, 'SFXModule' defaults,
-        and 'SevenZipCpuAffinity' defaults.
+        'SevenZipCpuAffinity' defaults, and 'DefaultVerifyLocalArchiveBeforeTransfer'.
     .PARAMETER CliOverrides
         A hashtable containing command-line parameter overrides.
     .PARAMETER JobReportDataRef
@@ -75,7 +75,8 @@ function Get-PoShBackupJobEffectiveConfiguration {
         System.Collections.Hashtable
         A hashtable representing the effective configuration for the job, including an array
         of 'ResolvedTargetInstances' if 'TargetNames' were specified, a 'PostRunAction' hashtable,
-        checksum-related settings, SFX-related settings (including SFXModule), and CPU affinity.
+        checksum-related settings, SFX-related settings (including SFXModule), CPU affinity,
+        and VerifyLocalArchiveBeforeTransfer.
     #>
     param(
         [Parameter(Mandatory)] [hashtable]$JobConfig,
@@ -166,7 +167,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
 
     if ($effectiveConfig.CreateSFX) {
         $effectiveConfig.JobArchiveExtension = ".exe"
-        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: CreateSFX is TRUE. Effective archive extension set to '.exe'. SFX Module: $($effectiveConfig.SFXModule)." -Level DEBUG
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: CreateSFX is TRUE. Effective archive extension set to '.exe'. SFX Module: $($effectiveConfig.SFXModule)." -Level "DEBUG"
     } else {
         $effectiveConfig.JobArchiveExtension = $effectiveConfig.InternalArchiveExtension
     }
@@ -191,7 +192,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     # 7-Zip CPU Affinity (CLI > Job > Global > Default empty string)
     $_cliAffinity = if ($CliOverrides.ContainsKey('SevenZipCpuAffinity') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipCpuAffinity)) { $CliOverrides.SevenZipCpuAffinity } else { $null }
     $_jobAffinity = Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipCpuAffinity' -DefaultValue $null
-    $_globalAffinity = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipCpuAffinity' -DefaultValue "" # Default to empty string
+    $_globalAffinity = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipCpuAffinity' -DefaultValue "" 
 
     if (-not [string]::IsNullOrWhiteSpace($_cliAffinity)) {
         $effectiveConfig.JobSevenZipCpuAffinity = $_cliAffinity
@@ -203,7 +204,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
         $effectiveConfig.JobSevenZipCpuAffinity = $_globalAffinity
         & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip CPU Affinity set by Global config: '$($_globalAffinity)'." -Level "DEBUG"
     } else {
-        $effectiveConfig.JobSevenZipCpuAffinity = "" # Final fallback to empty string
+        $effectiveConfig.JobSevenZipCpuAffinity = "" 
         & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip CPU Affinity not configured (using default: empty string)." -Level "DEBUG"
     }
     # END 7-Zip CPU Affinity
@@ -238,6 +239,15 @@ function Get-PoShBackupJobEffectiveConfiguration {
 
     $effectiveConfig.JobTestArchiveAfterCreation = if ($CliOverrides.TestArchive) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'TestArchiveAfterCreation' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultTestArchiveAfterCreation' -DefaultValue $false) }
 
+    # NEW: VerifyLocalArchiveBeforeTransfer (CLI > Job > Global)
+    if ($CliOverrides.ContainsKey('VerifyLocalArchiveBeforeTransferCLI') -and $null -ne $CliOverrides.VerifyLocalArchiveBeforeTransferCLI) { # Assuming CLI override is a boolean
+        $effectiveConfig.VerifyLocalArchiveBeforeTransfer = $CliOverrides.VerifyLocalArchiveBeforeTransferCLI
+    } else {
+        $effectiveConfig.VerifyLocalArchiveBeforeTransfer = Get-ConfigValue -ConfigObject $JobConfig -Key 'VerifyLocalArchiveBeforeTransfer' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVerifyLocalArchiveBeforeTransfer' -DefaultValue $false)
+    }
+    $reportData.VerifyLocalArchiveBeforeTransfer = $effectiveConfig.VerifyLocalArchiveBeforeTransfer # Add to report data
+    # END NEW
+
     $effectiveConfig.JobMinimumRequiredFreeSpaceGB = Get-ConfigValue -ConfigObject $JobConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue 0)
     $effectiveConfig.JobExitOnLowSpace = Get-ConfigValue -ConfigObject $JobConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue $false)
 
@@ -267,7 +277,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $reportData.RetriesEnabled = $effectiveConfig.JobEnableRetries
     $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation
     $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority
-    $reportData.SevenZipCpuAffinity = $effectiveConfig.JobSevenZipCpuAffinity # Ensure this is populated
+    $reportData.SevenZipCpuAffinity = $effectiveConfig.JobSevenZipCpuAffinity 
     $reportData.GenerateArchiveChecksum = $effectiveConfig.GenerateArchiveChecksum
     $reportData.ChecksumAlgorithm = $effectiveConfig.ChecksumAlgorithm
     $reportData.VerifyArchiveChecksumOnTest = $effectiveConfig.VerifyArchiveChecksumOnTest
