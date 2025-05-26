@@ -15,7 +15,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.13 # 7-Zip CPU affinity
+    Version:        1.1.15 # Updated conversation summary for Pester testing insights.
     DateCreated:    17-May-2025
     LastModified:   25-May-2025
     Purpose:        AI State generation and final bundle assembly for the AI project bundler.
@@ -83,13 +83,44 @@ function Get-BundlerAIState {
     if (-not $aiState.ContainsKey('external_dependencies')) { $aiState.external_dependencies = @{} }
     $aiState.external_dependencies.powershell_modules = $psModulesForState
 
-    $thisModuleVersion = "1.1.13" # Updated version of this specific module
+    $thisModuleVersion = "1.1.15" # Updated Pester findings.
     
     $currentConversationSummary = @(
         "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).", # PoSh-Backup version will be 1.13.0
         "Modular design: Core modules (now including Modules\\Core\\), Reporting sub-modules (including Modules\\Reporting\\Assets), ConfigManagement sub-modules (including Modules\\ConfigManagement\\Assets), Utilities sub-modules (Modules\\Utilities\\), Config files, and Meta/ (bundler).",
         "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v$($thisModuleVersion)).",
-        "--- Feature: Self-Extracting Archives (SFX) (Current Session) ---",
+        "--- Feature: CPU Affinity/Core Limiting for 7-Zip (Completed in Previous Session Segment) ---",
+        "  - Goal: Allow restricting 7-Zip to specific CPU cores for finer-grained resource control.",
+        "  - `Config\\Default.psd1` (v1.4.0 -> v1.4.1): Added global `DefaultSevenZipCpuAffinity` and job-level `SevenZipCpuAffinity` settings.",
+        "  - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for `SevenZipCpuAffinity`.",
+        "  - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.3 -> v1.0.5): Modified to resolve `SevenZipCpuAffinity` (including CLI override) and add to report data.",
+        "  - `Modules\\7ZipManager.psm1` (v1.0.8 -> v1.0.12):",
+        "    - `Invoke-7ZipOperation` modified to accept `SevenZipCpuAffinityString`, validate against system cores, clamp values, parse (list or hex), and apply via `Start-Process`.",
+        "    - Renamed internal `TempPasswordFile` parameter to `TempPassFile` to avoid PSSA warnings.",
+        "  - `PoSh-Backup.ps1` (v1.12.1 -> v1.12.2): Added `-SevenZipCpuAffinityCLI` parameter and override logic.",
+        "  - `README.md`: Updated with CPU Affinity feature details, configuration, and CLI override.",
+        "  - All changes tested successfully by the user.",
+        "--- Pester Testing - Phase 1: Utilities (Current Session Segment) ---",
+        "  - Goal: Re-establish Pester testing for utility functions.",
+        "  - Environment: Pester 5.7.1 confirmed as active.",
+        "  - `ConfigUtils.Tests.ps1` (for `Get-ConfigValue`):",
+        "    - Initial attempts to test the module function (imported or dot-sourced) failed due to parameters arriving as `$null` inside `Get-ConfigValue` when called from Pester `It` blocks.",
+        "    - `InModuleScope -ArgumentList` also failed to pass arguments to its scriptblock.",
+        "    - **Successful Workaround:** Defined `Get-ConfigValue` logic as a local function *directly within `BeforeAll`* of the test script. A `$script:`-scoped reference to this local function was then called from `It` blocks. Test data was set in `BeforeEach` using `$script:` scope. This resulted in all 12 tests passing for `ConfigUtils.Tests.ps1`.",
+        "  - `FileUtils.Tests.ps1` (for `Get-ArchiveSizeFormatted`, `Get-PoshBackupFileHash`):",
+        "    - Adopted the 'local function copy in `BeforeAll`' pattern.",
+        "    - **Logger Mocking Strategy:**",
+        "      1. Dummy `Write-LogMessage` defined top-level in test script.",
+        "      2. `BeforeAll` self dot-sources the test script.",
+        "      3. `BeforeAll` then `Mock Write-LogMessage -MockWith { ...capture... } -Verifiable`.",
+        "      4. Local test functions call `Write-LogMessage` directly (which hits the mock).",
+        "      5. Assertions use `Should -Invoke Write-LogMessage -Times X -ParameterFilter {...}`.",
+        "    - **`Get-FileHash` Mocking Strategy (for error handling test):**",
+        "      1. Modified local copy of `Get-PoshBackupFileHash` to accept an optional `[scriptblock]$InjectedFileHashCommand` parameter (defaulting to `${function:Get-FileHash}`).",
+        "      2. Test injects a throwing scriptblock for this parameter.",
+        "    - **Current Status:** All 12 tests for `FileUtils.Tests.ps1` are now passing with these strategies.",
+        "  - Key Pester 5.7.1 findings for this environment (added to AI Watch List): Emphasized the 'local function copy in `BeforeAll`' workaround for testing function logic due to persistent issues with testing external module functions directly. Detailed the successful mocking patterns."
+        "--- Feature: Self-Extracting Archives (SFX) (Completed in a Previous Session Segment) ---",
         "  - Goal: Option to create self-extracting archives (.exe) for easier restoration, with user-selectable SFX module type.",
         "  - Stage 1 (Basic SFX):",
         "    - `Config\\Default.psd1` (v1.3.8 -> v1.3.9): Added global `DefaultCreateSFX` and job-level `CreateSFX` settings.",

@@ -1,9 +1,9 @@
 # Meta\AIState.template.psd1
 @{
-  bundle_generation_time = "__BUNDLE_GENERATION_TIME_PLACEHOLDER__"
-  bundler_script_version = "__BUNDLER_VERSION_PLACEHOLDER__" # Populated by bundler
+  bundle_generation_time          = "__BUNDLE_GENERATION_TIME_PLACEHOLDER__"
+  bundler_script_version          = "__BUNDLER_VERSION_PLACEHOLDER__" # Populated by bundler
 
-  ai_development_watch_list = @(
+  ai_development_watch_list       = @(
     "CRITICAL (AI): ENSURE FULL, UNTRUNCATED FILES ARE PROVIDED WHEN REQUESTED. This was a REPEATED, CATASTROPHIC FAILURE during the 'Replicate' target provider development, AGAIN during 'PostRunAction' (README.md, Default.psd1, ConfigManager.psm1), and AGAIN during 'SFTP Target' (README.md). EXTREME VIGILANCE AND A CHANGE IN AI STRATEGY (e.g., AI requesting user to provide baselines for complex/long files, AI providing diffs/patches) IS REQUIRED. User had to provide baselines multiple times.",
     "CRITICAL (AI): VERIFY LINE COUNTS AND COMMENT INTEGRITY when AI provides full script updates. Inadvertent removal/truncation has occurred repeatedly. This was a significant issue in the last session and a CATASTROPHIC issue in the current session. EXTREME VIGILANCE REQUIRED.",
     "CRITICAL (AI): Ensure no extraneous trailing whitespace is introduced on any lines, including apparently blank ones when providing code.",
@@ -30,9 +30,32 @@
     "VERBS: Ensure all new functions use approved PowerShell verbs. If an unapproved verb seems most descriptive for an internal helper, discuss with the user or use a PSScriptAnalyzer suppression with justification.",
     "AI STRATEGY (ACCURACY): When providing new or updated full files, ALWAYS perform a mental diff against the presumed baseline. State the estimated line count difference (e.g., '+15 lines', '-5 lines', 'approx. +/- 10 lines for significant refactoring'). This helps the user quickly gauge the scope of changes and verify completeness, especially for longer files. If the changes are extensive or involve complex refactoring, explicitly mention this as well.",
     "AI STRATEGY (OUTPUT): Provide only one file at a time for review and integration, UNLESS explicitly requested otherwise by the user OR if multiple files are very small (e.g., less than ~20-30 lines each) and closely related, in which case confirm with the user if a combined provision is acceptable. This helps manage UI limitations and focused review."
+    "PESTER (v5.7.1 Environment - Key Learnings & Workarounds):",
+    "  - Testing External Module Functions: Encountered persistent parameter binding failures (parameters arriving as `$null`) when calling functions from modules imported via `Import-Module` or dot-sourced into `BeforeAll`. `InModuleScope -ArgumentList` also failed to pass arguments. This indicates a deep issue with Pester 5.7.1's handling of external function calls and parameter binding in this specific testing environment.",
+    "  - **Workaround for Unit Testing Function Logic (The 'Local Copy' Pattern):**",
+    "    1. Define a local copy of the function-to-be-tested (e.g., `MyFunction-LocalTest`) *inside the `BeforeAll` block* of the `.Tests.ps1` file.",
+    "    2. In the same `BeforeAll`, after the function definition, get a script-scoped reference to it: `$script:MyFunctionTestRef = ${function:MyFunction-LocalTest}`.",
+    "    3. In `It` blocks, call the function using this reference: `& $script:MyFunctionTestRef -Param1 $Value1 ...`.",
+    "    4. Set up test-specific data (e.g., hashtables, objects to pass as parameters) in `BeforeEach` blocks, typically using `$script:` scope for these data variables (e.g., `$script:testData = @{...}`) to ensure they are correctly passed from `It` to the function via the reference.",
+    "    5. This pattern successfully tests the *logic* of the function but not its module packaging or export mechanism.",
+    "  - **Mocking Dependencies (like `Write-LogMessage`) for Locally Copied Functions:**",
+    "    1. Define a dummy version of the function to be mocked (e.g., `function Write-LogMessage {...}`) at the very top-level of the `.Tests.ps1` file.",
+    "    2. In `BeforeAll`, first dot-source the test script itself (`. $MyInvocation.MyCommand.ScriptBlock.File`). This makes the dummy function available to the `BeforeAll` scope.",
+    "    3. *Then*, mock the dummy function: `Mock Write-LogMessage -MockWith { ...scriptblock to capture args... } -Verifiable`.",
+    "    4. The locally copied test functions (defined in `BeforeAll`) should then call `Write-LogMessage` (or the relevant dependency) directly by its name. This call will be intercepted by the Pester mock.",
+    "    5. Assert mock calls using Pester 5's `Should -Invoke -CommandName Write-LogMessage -Times X -ParameterFilter { ... }`.",
+    "  - **Mocking External Cmdlets (like `Get-FileHash`) for Locally Copied Functions:**",
+    "    1. Make the external cmdlet an injectable dependency (an optional `[scriptblock]` parameter) in the *locally copied test function*. Default this parameter to `${function:ActualCmdletName}`.",
+    "    2. In the specific `It` block that needs to test error handling: create a mock scriptblock (e.g., `$mockCmdlet = { throw 'Error' }`).",
+    "    3. Call the local test function, passing your mock scriptblock to the injectable parameter: `& $script:MyLocalFuncRef -InjectedCmdlet $mockCmdlet`.",
+    "  - **General Pester 5 Syntax & Scoping:**",
+    "    - `$MyInvocation.MyCommand.ScriptBlock.File`: Reliable way to get current test script's full path for self dot-sourcing in `BeforeAll`.",
+    "    - `Should -Operator Value`: Standard assertion syntax (e.g., `Should -Be`, `Should -HaveCount`).",
+    "    - Array Type Assertion: `($result.GetType().IsArray) | Should -Be $true` was more reliable than `$result | Should -BeOfType ([System.Array])` when initial issues were encountered.",
+    "    - `BeforeEach` is effective for resetting state (like mock log arrays) for each `It` block within its `Describe` or `Context`."
   )
 
-  conversation_summary = @(
+  conversation_summary            = @(
     "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.12.1).",
     "Modular design: Core modules, Reporting sub-modules (including Modules\Reporting\Assets and Modules\ConfigManagement\Assets directories), Config files, and Meta/ (bundler).",
     "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.1.10).", # Updated version
@@ -122,33 +145,33 @@
 
   main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.12.1
 
-  ai_bundler_update_instructions = @{
-    purpose = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
-    when_to_update = "Only when the user explicitly asks to 'update the bundler script's AI state'."
+  ai_bundler_update_instructions  = @{
+    purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
+    when_to_update                     = "Only when the user explicitly asks to 'update the bundler script's AI state'."
     example_of_ai_provided_block_start = "# Meta\\AIState.template.psd1"
-    output_format_for_ai = "Provide the updated content for 'Meta\\AIState.template.psd1' as a complete PowerShell data file string, ready for copy-pasting. Ensure strings are correctly quoted and arrays use PowerShell syntax, e.g., `@('item1', 'item2')`. Placeholders like '__BUNDLER_VERSION_PLACEHOLDER__' should be kept as literal strings in the template provided by AI; they will be dynamically replaced by the bundler script."
-    reminder_for_ai = "When asked to update this state, proactively consider if any recent challenges or frequent corrections should be added to the 'ai_development_watch_list'. The AI should provide the *full content* of the AIState.template.psd1 file, not just a PowerShell 'aiStateVariable = @{...}' block for a .psm1 file."
-    fields_to_update_by_ai = @(
+    output_format_for_ai               = "Provide the updated content for 'Meta\\AIState.template.psd1' as a complete PowerShell data file string, ready for copy-pasting. Ensure strings are correctly quoted and arrays use PowerShell syntax, e.g., `@('item1', 'item2')`. Placeholders like '__BUNDLER_VERSION_PLACEHOLDER__' should be kept as literal strings in the template provided by AI; they will be dynamically replaced by the bundler script."
+    reminder_for_ai                    = "When asked to update this state, proactively consider if any recent challenges or frequent corrections should be added to the 'ai_development_watch_list'. The AI should provide the *full content* of the AIState.template.psd1 file, not just a PowerShell 'aiStateVariable = @{...}' block for a .psm1 file."
+    fields_to_update_by_ai             = @(
       "ai_development_watch_list",
       "ai_bundler_update_instructions",
       "external_dependencies.executables",
       "external_dependencies.powershell_modules"
     )
-    fields_to_be_updated_by_user = @(
+    fields_to_be_updated_by_user       = @(
       "external_dependencies.executables (if new external tools are added - AI cannot auto-detect this reliably if path is not hardcoded/standard)"
     )
-    example_of_ai_provided_block_end = "}"
+    example_of_ai_provided_block_end   = "}"
   }
 
-  module_descriptions = @{
+  module_descriptions             = @{
     "__MODULE_DESCRIPTIONS_PLACEHOLDER__" = "This is a placeholder entry." # Dynamically populated
   }
 
-  project_root_folder_name = "__PROJECT_ROOT_NAME_PLACEHOLDER__"
-  project_name = "PoSh Backup Solution"
+  project_root_folder_name        = "__PROJECT_ROOT_NAME_PLACEHOLDER__"
+  project_name                    = "PoSh Backup Solution"
 
-  external_dependencies = @{
-    executables = @(
+  external_dependencies           = @{
+    executables        = @(
       "7z.exe (7-Zip command-line tool - path configurable or auto-detected)",
       "powercfg.exe (Windows Power Configuration Utility - for Hibernate check)",
       "rundll32.exe (Windows utility - for Hibernate, Sleep, Lock actions)",
