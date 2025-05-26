@@ -1,13 +1,10 @@
-# Tests\Modules\Utilities\FileUtils.Tests.ps1 (Pester 5 - Cleaned Up)
+# Tests\Modules\Utilities\FileUtils.Tests.ps1 (Pester 5 - Idiomatic Mocks & Assertions)
 
-# Define a dummy Write-LogMessage so Pester's Mock command can find it.
 function Write-LogMessage { 
     param($Message, $ForegroundColour, $NoNewLine, $Level, $NoTimestampToLogFile) 
-    # This dummy is intentionally empty as it will be mocked.
 }
 
-# Define local test versions of functions from FileUtils.psm1
-function Get-ArchiveSizeFormatted-Local { 
+function Get-ArchiveSizeFormatted-LocalTest-TopLevel-Idiomatic { 
     [CmdletBinding(DefaultParameterSetName = 'Path')] 
     param(
         [Parameter(ParameterSetName = 'Bytes', Mandatory = $true)]
@@ -35,13 +32,13 @@ function Get-ArchiveSizeFormatted-Local {
     return $FormattedSize
 }
 
-function Get-PoshBackupFileHash-Local { 
+function Get-PoshBackupFileHash-LocalTest-TopLevel-Idiomatic { 
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true)] [string]$FilePath,
         [Parameter(Mandatory=$true)] [ValidateSet("SHA1","SHA256","SHA384","SHA512","MD5")] [string]$Algorithm,
         [Parameter(Mandatory=$false)] 
-        [scriptblock]$InjectedFileHashCommand = $null 
+        [scriptblock]$InjectedFileHashCommand = $null # Changed from default ${function:Get-FileHash}
     )
     if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf)) { 
         Write-LogMessage -Message "[ERROR] FileUtils LocalTest: File not found at '$FilePath'. Cannot generate hash." -Level "ERROR"
@@ -50,8 +47,10 @@ function Get-PoshBackupFileHash-Local {
     try {
         $fileHashObject = $null
         if ($null -ne $InjectedFileHashCommand) {
+            # Call the injected command (our mock)
             $fileHashObject = & $InjectedFileHashCommand -LiteralPath $FilePath -Algorithm $Algorithm -ErrorAction Stop 
         } else {
+            # Call the actual Get-FileHash cmdlet directly
             $fileHashObject = Get-FileHash -LiteralPath $FilePath -Algorithm $Algorithm -ErrorAction Stop 
         }
         
@@ -64,104 +63,112 @@ function Get-PoshBackupFileHash-Local {
 
 BeforeAll {
     $currentTestScriptFileFullPath = $MyInvocation.MyCommand.ScriptBlock.File
-    . $currentTestScriptFileFullPath # Dot-source self to make top-level functions available
+    . $currentTestScriptFileFullPath 
+    #Write-Host "DEBUG FileUtils.Tests: (Pester 5.x) Self dot-sourced '$currentTestScriptFileFullPath'."
 
-    $script:FileUtils_LogStore = [System.Collections.Generic.List[object]]::new()
+    # Mock Write-LogMessage ONCE for the entire file. Make it Verifiable.
     Mock Write-LogMessage -MockWith { 
         param($Message, $ForegroundColour, $NoNewLine, $Level, $NoTimestampToLogFile)
-        $script:FileUtils_LogStore.Add(@{Message = $Message; Level = $Level; Colour = $ForegroundColour})
-    } -Verifiable # Make it verifiable for Should -Invoke
-    
-    $script:fnGetSize = ${function:Get-ArchiveSizeFormatted-Local}
-    $script:fnGetHash = ${function:Get-PoshBackupFileHash-Local}
+        # This scriptblock can be empty if we only use Should -Invoke with -ParameterFilter
+        # Adding to a log array is only needed if we want to inspect messages outside of Should -Invoke
+        # For debugging the "MOCKED Write-LogMessage HIT" is useful.
+        # Write-Host "MOCKED Write-LogMessage HIT! Level: '$Level', Message: '$Message'" 
+    } -Verifiable # -Verifiable is key for Should -Invoke
+    #Write-Host "DEBUG FileUtils.Tests: (Pester 5.x) Mocked Write-LogMessage globally for this test file."
 
-    if (-not $script:fnGetSize -or -not $script:fnGetHash) {
-        throw "Failed to create script-scoped references to local FileUtils test functions."
+    $script:GetArchiveSizeFormattedLocal_Idiomatic_FU2 = ${function:Get-ArchiveSizeFormatted-LocalTest-TopLevel-Idiomatic}
+    $script:GetPoshBackupFileHashLocal_Idiomatic_FU2 = ${function:Get-PoshBackupFileHash-LocalTest-TopLevel-Idiomatic}
+
+    if (-not $script:GetArchiveSizeFormattedLocal_Idiomatic_FU2 -or -not $script:GetPoshBackupFileHashLocal_Idiomatic_FU2) {
+        throw "Failed to create script-scoped references to top-level FileUtils test functions."
     }
+    #Write-Host "DEBUG FileUtils.Tests: (Pester 5.x) Got references to top-level FileUtils test functions."
 }
 
 Describe "Get-ArchiveSizeFormatted Function (Locally Defined Logic)" {
-    BeforeEach { $script:FileUtils_LogStore.Clear() }
+    # No BeforeEach needed for log clearing if using Should -Invoke correctly for each test
 
     Context "With byte values" { 
-        It "should format bytes correctly" { (& $script:fnGetSize -Bytes 500) | Should -Be "500 Bytes" }
-        It "should format kilobytes correctly" { (& $script:fnGetSize -Bytes 1536) | Should -Be "1.50 KB" }
-        It "should format megabytes correctly" { (& $script:fnGetSize -Bytes 2097152) | Should -Be "2.00 MB" }
-        It "should format gigabytes correctly" { (& $script:fnGetSize -Bytes 1610612736) | Should -Be "1.50 GB" }
-        It "should handle zero bytes" { (& $script:fnGetSize -Bytes 0) | Should -Be "0 Bytes" }
+        It "should format bytes correctly" { (& $script:GetArchiveSizeFormattedLocal_Idiomatic_FU2 -Bytes 500) | Should -Be "500 Bytes" }
+        It "should format kilobytes correctly" { (& $script:GetArchiveSizeFormattedLocal_Idiomatic_FU2 -Bytes 1536) | Should -Be "1.50 KB" }
+        It "should format megabytes correctly" { (& $script:GetArchiveSizeFormattedLocal_Idiomatic_FU2 -Bytes 2097152) | Should -Be "2.00 MB" }
+        It "should format gigabytes correctly" { (& $script:GetArchiveSizeFormattedLocal_Idiomatic_FU2 -Bytes 1610612736) | Should -Be "1.50 GB" }
+        It "should handle zero bytes" { (& $script:GetArchiveSizeFormattedLocal_Idiomatic_FU2 -Bytes 0) | Should -Be "0 Bytes" }
     }
 
     Context "With file paths" {
-        $script:nonExistentFile = "" 
-        $script:tempFile = ""      
+        $script:nonExistentFileForSizeTestLocal_Idiomatic_FU2 = "" 
+        $script:tempFileForSizeTestLocal_Idiomatic_FU2 = ""      
 
         BeforeEach {
-            $script:FileUtils_LogStore.Clear() 
-            $script:nonExistentFile = Join-Path $env:TEMP "non_existent_poshbackup_test_file_$(Get-Random).tmp"
-            if (Test-Path -LiteralPath $script:nonExistentFile -PathType Leaf) { Remove-Item -LiteralPath $script:nonExistentFile -Force -ErrorAction SilentlyContinue }
-            $script:tempFile = "" 
+            # $script:GlobalFileUtilsMockedLogs_SRAFixed.Clear() # Not needed if using Should -Invoke
+            $script:nonExistentFileForSizeTestLocal_Idiomatic_FU2 = Join-Path $env:TEMP "non_existent_poshbackup_test_file_$(Get-Random).tmp"
+            if (Test-Path -LiteralPath $script:nonExistentFileForSizeTestLocal_Idiomatic_FU2 -PathType Leaf) { Remove-Item -LiteralPath $script:nonExistentFileForSizeTestLocal_Idiomatic_FU2 -Force -ErrorAction SilentlyContinue }
+            $script:tempFileForSizeTestLocal_Idiomatic_FU2 = "" 
         }
         AfterEach {
-            if (-not [string]::IsNullOrEmpty($script:tempFile) -and (Test-Path -LiteralPath $script:tempFile)) { Remove-Item -LiteralPath $script:tempFile -Force -ErrorAction SilentlyContinue }
-            if (-not [string]::IsNullOrEmpty($script:nonExistentFile) -and (Test-Path -LiteralPath $script:nonExistentFile)) { Remove-Item -LiteralPath $script:nonExistentFile -Force -ErrorAction SilentlyContinue }
+            if (-not [string]::IsNullOrEmpty($script:tempFileForSizeTestLocal_Idiomatic_FU2) -and (Test-Path -LiteralPath $script:tempFileForSizeTestLocal_Idiomatic_FU2)) { Remove-Item -LiteralPath $script:tempFileForSizeTestLocal_Idiomatic_FU2 -Force -ErrorAction SilentlyContinue }
+            if (-not [string]::IsNullOrEmpty($script:nonExistentFileForSizeTestLocal_Idiomatic_FU2) -and (Test-Path -LiteralPath $script:nonExistentFileForSizeTestLocal_Idiomatic_FU2)) { Remove-Item -LiteralPath $script:nonExistentFileForSizeTestLocal_Idiomatic_FU2 -Force -ErrorAction SilentlyContinue }
         }
 
         It "should return 'File not found' and log an error" { 
-            (& $script:fnGetSize -PathToArchive $script:nonExistentFile) | Should -Be "File not found"
+            (& $script:GetArchiveSizeFormattedLocal_Idiomatic_FU2 -PathToArchive $script:nonExistentFileForSizeTestLocal_Idiomatic_FU2) | Should -Be "File not found"
             Should -Invoke -CommandName Write-LogMessage -Times 1 -ParameterFilter { $Level -eq "ERROR" -and $Message -like "*File not found at*" }
         }
         It "should correctly format the size of an existing empty file" { 
-            $script:tempFile = (New-TemporaryFile).FullName
-            (& $script:fnGetSize -PathToArchive $script:tempFile) | Should -Be "0 Bytes"
+            $script:tempFileForSizeTestLocal_Idiomatic_FU2 = (New-TemporaryFile).FullName
+            (& $script:GetArchiveSizeFormattedLocal_Idiomatic_FU2 -PathToArchive $script:tempFileForSizeTestLocal_Idiomatic_FU2) | Should -Be "0 Bytes"
         }
         It "should correctly format the size of an existing small file (KB)" { 
-            $script:tempFile = (New-TemporaryFile).FullName
-            Set-Content -LiteralPath $script:tempFile -Value ("A" * 2048) 
-            (& $script:fnGetSize -PathToArchive $script:tempFile) | Should -Be "2.00 KB"
+            $script:tempFileForSizeTestLocal_Idiomatic_FU2 = (New-TemporaryFile).FullName
+            Set-Content -LiteralPath $script:tempFileForSizeTestLocal_Idiomatic_FU2 -Value ("A" * 2048) 
+            (& $script:GetArchiveSizeFormattedLocal_Idiomatic_FU2 -PathToArchive $script:tempFileForSizeTestLocal_Idiomatic_FU2) | Should -Be "2.00 KB"
         }
     }
 }
 
 Describe "Get-PoshBackupFileHash Function (Locally Defined Logic)" {
-    $script:tempFileHash = "" 
-    $script:nonExistentFileHash = ""
-    $knownContentHash = "PoShBackupTestString"
-    $script:KnownSHA256Hash = "" 
+    $script:tempFileForHashTestLocal_Idiomatic_FU_Hash2 = "" 
+    $script:nonExistentFileForHashTestLocal_Idiomatic_FU_Hash2 = ""
+    $knownContentForHashLocal_Idiomatic_FU_Hash2 = "PoShBackupTestString"
+    $script:KnownSHA256ForHashTestLocal_Idiomatic_FU_Hash2 = "" 
 
     BeforeEach {
-        $script:FileUtils_LogStore.Clear() 
-        $script:nonExistentFileHash = Join-Path $env:TEMP "non_existent_hash_test_file_$(Get-Random).tmp"
-        if (Test-Path -LiteralPath $script:nonExistentFileHash -PathType Leaf) { Remove-Item -LiteralPath $script:nonExistentFileHash -Force -ErrorAction SilentlyContinue }
+        # $script:GlobalFileUtilsMockedLogs_SRAFixed.Clear() # Not needed if using Should -Invoke
+        $script:nonExistentFileForHashTestLocal_Idiomatic_FU_Hash2 = Join-Path $env:TEMP "non_existent_hash_test_file_$(Get-Random).tmp"
+        if (Test-Path -LiteralPath $script:nonExistentFileForHashTestLocal_Idiomatic_FU_Hash2 -PathType Leaf) { Remove-Item -LiteralPath $script:nonExistentFileForHashTestLocal_Idiomatic_FU_Hash2 -Force -ErrorAction SilentlyContinue }
         
         $tempFileObj = New-TemporaryFile
-        $script:tempFileHash = $tempFileObj.FullName
-        [System.IO.File]::WriteAllText($script:tempFileHash, $knownContentHash, [System.Text.Encoding]::UTF8)
-        $script:KnownSHA256Hash = (Get-FileHash -LiteralPath $script:tempFileHash -Algorithm SHA256).Hash.ToUpperInvariant()
+        $script:tempFileForHashTestLocal_Idiomatic_FU_Hash2 = $tempFileObj.FullName
+        [System.IO.File]::WriteAllText($script:tempFileForHashTestLocal_Idiomatic_FU_Hash2, $knownContentForHashLocal_Idiomatic_FU_Hash2, [System.Text.Encoding]::UTF8)
+        $script:KnownSHA256ForHashTestLocal_Idiomatic_FU_Hash2 = (Get-FileHash -LiteralPath $script:tempFileForHashTestLocal_Idiomatic_FU_Hash2 -Algorithm SHA256).Hash.ToUpperInvariant()
     }
     AfterEach {
-        if (-not [string]::IsNullOrEmpty($script:tempFileHash) -and (Test-Path -LiteralPath $script:tempFileHash)) { Remove-Item -LiteralPath $script:tempFileHash -Force -ErrorAction SilentlyContinue }
-        if (-not [string]::IsNullOrEmpty($script:nonExistentFileHash) -and (Test-Path -LiteralPath $script:nonExistentFileHash)) { Remove-Item -LiteralPath $script:nonExistentFileHash -Force -ErrorAction SilentlyContinue }
+        if (-not [string]::IsNullOrEmpty($script:tempFileForHashTestLocal_Idiomatic_FU_Hash2) -and (Test-Path -LiteralPath $script:tempFileForHashTestLocal_Idiomatic_FU_Hash2)) { Remove-Item -LiteralPath $script:tempFileForHashTestLocal_Idiomatic_FU_Hash2 -Force -ErrorAction SilentlyContinue }
+        if (-not [string]::IsNullOrEmpty($script:nonExistentFileForHashTestLocal_Idiomatic_FU_Hash2) -and (Test-Path -LiteralPath $script:nonExistentFileForHashTestLocal_Idiomatic_FU_Hash2)) { Remove-Item -LiteralPath $script:nonExistentFileForHashTestLocal_Idiomatic_FU_Hash2 -Force -ErrorAction SilentlyContinue }
     }
 
     It "should return the correct SHA256 hash for a file" { 
-        $result = & $script:fnGetHash -FilePath $script:tempFileHash -Algorithm "SHA256"
-        $result | Should -Be $script:KnownSHA256Hash
+        # This test now calls the function which will use the REAL Get-FileHash by default
+        $result = & $script:GetPoshBackupFileHashLocal_Idiomatic_FU2 -FilePath $script:tempFileForHashTestLocal_Idiomatic_FU_Hash2 -Algorithm "SHA256"
+        $result | Should -Be $script:KnownSHA256ForHashTestLocal_Idiomatic_FU_Hash2
     }
     It "should return `$null for a non-existent file" { 
-        $result = & $script:fnGetHash -FilePath $script:nonExistentFileHash -Algorithm "SHA256"
+        $result = & $script:GetPoshBackupFileHashLocal_Idiomatic_FU2 -FilePath $script:nonExistentFileForHashTestLocal_Idiomatic_FU_Hash2 -Algorithm "SHA256"
         $result | Should -BeNullOrEmpty
     }
     It "should log an error when file is not found" {
-        & $script:fnGetHash -FilePath $script:nonExistentFileHash -Algorithm "SHA256" | Out-Null
+        & $script:GetPoshBackupFileHashLocal_Idiomatic_FU2 -FilePath $script:nonExistentFileForHashTestLocal_Idiomatic_FU_Hash2 -Algorithm "SHA256" | Out-Null
         Should -Invoke -CommandName Write-LogMessage -Times 1 -ParameterFilter { $Level -eq "ERROR" -and $Message -like "*File not found at*" }
     }
     It "should handle Get-FileHash throwing an error" {
         $mockedGetFileHashWithError = {
             param($LiteralPath, $Algorithm, $ErrorAction)
+            # Write-Host "MOCKED Get-FileHash (via scriptblock) is CALLED for path '$LiteralPath' with algo '$Algorithm' AND WILL THROW"
             throw "Simulated Get-FileHash error from mock scriptblock"
         }
         
-        $result = & $script:fnGetHash -FilePath $script:tempFileHash -Algorithm "SHA256" -InjectedFileHashCommand $mockedGetFileHashWithError
+        $result = & $script:GetPoshBackupFileHashLocal_Idiomatic_FU2 -FilePath $script:tempFileForHashTestLocal_Idiomatic_FU_Hash2 -Algorithm "SHA256" -InjectedFileHashCommand $mockedGetFileHashWithError
         $result | Should -BeNullOrEmpty
         Should -Invoke -CommandName Write-LogMessage -Times 1 -ParameterFilter { $Level -eq "ERROR" -and $Message -like "*Failed to generate SHA256 hash*" -and $Message -like "*Simulated Get-FileHash error from mock scriptblock*" }
     }
