@@ -14,6 +14,7 @@
     It is designed for robustness, extensive configurability, and detailed operational feedback.
     Core logic is managed by this main script, which orchestrates operations performed by dedicated
     PowerShell modules. The main job/set processing loop is now handled by 'JobOrchestrator.psm1'.
+    Post-run system action logic is now handled by 'PostRunActionOrchestrator.psm1'.
 
     Key Features:
     - Modular Design, External Configuration, Local and Remote Backups, Granular Job Control.
@@ -141,7 +142,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.13.1 # User.psd1 creation prompt moved to ConfigLoader.psm1.
+    Version:        1.13.2 # Post-run action logic moved to PostRunActionOrchestrator.psm1.
     Date:           27-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -296,6 +297,7 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\Operations.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\JobOrchestrator.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\PostRunActionOrchestrator.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Reporting.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\VssManager.psm1") -Force -ErrorAction Stop
@@ -304,7 +306,7 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\SystemStateManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
 
-    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including JobOrchestrator." -Level "INFO"
+    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including JobOrchestrator and PostRunActionOrchestrator." -Level "INFO"
 
 } catch {
     & $LoggerScriptBlock -Message "[FATAL] Failed to import one or more required script modules." -Level "ERROR"
@@ -315,8 +317,8 @@ try {
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.13.1 (User.psd1 creation prompt moved to ConfigLoader.psm1)" -Level "HEADING"
-if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" } # $IsSimulateMode is already a bool
+& $LoggerScriptBlock -Message " Script Version: v1.13.2 (Post-run action logic moved to PostRunActionOrchestrator.psm1)" -Level "HEADING"
+if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupSets.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP SETS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
@@ -333,13 +335,13 @@ if ($cliOverrideSettings.PostRunActionCli) { & $LoggerScriptBlock -Message " ***
 
 $configLoadParams = @{
     UserSpecifiedPath           = $ConfigFile
-    IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) # Ensure this evaluates to a single boolean
+    IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent))
     MainScriptPSScriptRoot      = $PSScriptRoot
     Logger                      = $LoggerScriptBlock
-    SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent # Explicit cast
-    IsSimulateModeSwitch        = [bool]$Simulate.IsPresent # Explicit cast ($IsSimulateMode already holds this)
-    ListBackupLocationsSwitch   = [bool]$ListBackupLocations.IsPresent # Explicit cast
-    ListBackupSetsSwitch        = [bool]$ListBackupSets.IsPresent # Explicit cast
+    SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
+    IsSimulateModeSwitch        = [bool]$Simulate.IsPresent # $IsSimulateMode is already a bool, direct use is fine
+    ListBackupLocationsSwitch   = [bool]$ListBackupLocations.IsPresent
+    ListBackupSetsSwitch        = [bool]$ListBackupSets.IsPresent
     CliOverrideSettings         = $cliOverrideSettings
 }
 $configResult = Import-AppConfiguration @configLoadParams
@@ -431,8 +433,7 @@ $setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
 
 #region --- Main Processing (Delegated to JobOrchestrator.psm1) ---
 $overallSetStatus = "SUCCESS"
-$finalPostRunActionToConsider = $null
-$actionSourceForLog = "None"
+$jobSpecificPostRunActionForNonSetRun = $null
 
 if ($jobsToProcess.Count -gt 0) {
     $runParams = @{
@@ -457,47 +458,9 @@ if ($jobsToProcess.Count -gt 0) {
     }
 
     $overallSetStatus = $orchestratorResult.OverallSetStatus
-
-    if ($null -ne $cliOverrideSettings.PostRunActionCli) {
-        $finalPostRunActionToConsider = @{
-            Enabled         = ($cliOverrideSettings.PostRunActionCli.ToLowerInvariant() -ne "none")
-            Action          = $cliOverrideSettings.PostRunActionCli
-            DelaySeconds    = if ($null -ne $cliOverrideSettings.PostRunActionDelaySecondsCli) { $cliOverrideSettings.PostRunActionDelaySecondsCli } else { 0 }
-            TriggerOnStatus = if ($null -ne $cliOverrideSettings.PostRunActionTriggerOnStatusCli) { @($cliOverrideSettings.PostRunActionTriggerOnStatusCli) } else { @("ANY") }
-            ForceAction     = if ($null -ne $cliOverrideSettings.PostRunActionForceCli) { $cliOverrideSettings.PostRunActionForceCli } else { $false }
-        }
-        $actionSourceForLog = "CLI Override"
-    } elseif ($null -ne $orchestratorResult.SetSpecificPostRunAction) {
-        $finalPostRunActionToConsider = $orchestratorResult.SetSpecificPostRunAction
-        $actionSourceForLog = "Backup Set '$currentSetName'"
-    } elseif ($null -ne $orchestratorResult.JobSpecificPostRunActionForNonSet) {
-        $finalPostRunActionToConsider = $orchestratorResult.JobSpecificPostRunActionForNonSet
-        $actionSourceForLog = "Job '$($jobsToProcess[0])'"
-    } else {
-        $globalDefaultsPRA = Utils\Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{}
-        if ($null -ne $globalDefaultsPRA -and $globalDefaultsPRA.ContainsKey('Enabled') -and $globalDefaultsPRA.Enabled) {
-            $finalPostRunActionToConsider = $globalDefaultsPRA
-            $actionSourceForLog = "Global Defaults"
-        }
-    }
+    $jobSpecificPostRunActionForNonSetRun = $orchestratorResult.JobSpecificPostRunActionForNonSet
 } else {
     & $LoggerScriptBlock -Message "[INFO] No jobs were processed." -Level "INFO"
-    if ($null -ne $cliOverrideSettings.PostRunActionCli) {
-        $finalPostRunActionToConsider = @{
-            Enabled         = ($cliOverrideSettings.PostRunActionCli.ToLowerInvariant() -ne "none")
-            Action          = $cliOverrideSettings.PostRunActionCli
-            DelaySeconds    = if ($null -ne $cliOverrideSettings.PostRunActionDelaySecondsCli) { $cliOverrideSettings.PostRunActionDelaySecondsCli } else { 0 }
-            TriggerOnStatus = if ($null -ne $cliOverrideSettings.PostRunActionTriggerOnStatusCli) { @($cliOverrideSettings.PostRunActionTriggerOnStatusCli) } else { @("ANY") }
-            ForceAction     = if ($null -ne $cliOverrideSettings.PostRunActionForceCli) { $cliOverrideSettings.PostRunActionForceCli } else { $false }
-        }
-        $actionSourceForLog = "CLI Override (No jobs run)"
-    } else {
-        $globalDefaultsPRA = Utils\Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{}
-        if ($null -ne $globalDefaultsPRA -and $globalDefaultsPRA.ContainsKey('Enabled') -and $globalDefaultsPRA.Enabled) {
-            $finalPostRunActionToConsider = $globalDefaultsPRA
-            $actionSourceForLog = "Global Defaults (No jobs run)"
-        }
-    }
 }
 #endregion
 
@@ -515,6 +478,23 @@ if ($IsSimulateMode.IsPresent -and $overallSetStatus -ne "FAILURE" -and $overall
 & $LoggerScriptBlock -Message "Script started : $ScriptStartTime" -Level "INFO"
 & $LoggerScriptBlock -Message "Script ended   : $finalScriptEndTime" -Level "INFO"
 & $LoggerScriptBlock -Message "Total duration : $($finalScriptEndTime - $ScriptStartTime)" -Level "INFO"
+
+# --- Post-Run Action Handling (Delegated to PostRunActionOrchestrator.psm1) ---
+$postRunParams = @{
+    OverallStatus                     = $overallSetStatus
+    CliOverrideSettings               = $cliOverrideSettings
+    SetSpecificPostRunAction          = $setSpecificPostRunAction
+    JobSpecificPostRunActionForNonSet = $jobSpecificPostRunActionForNonSetRun
+    GlobalConfig                      = $Configuration
+    IsSimulateMode                    = [bool]$Simulate.IsPresent # Explicit Cast
+    TestConfigIsPresent               = [bool]$TestConfig.IsPresent   # Explicit Cast
+    Logger                            = $LoggerScriptBlock
+    PSCmdletInstance                  = $PSCmdlet
+    CurrentSetNameForLog              = $currentSetName
+    JobNameForLog                     = if ($jobsToProcess.Count -eq 1 -and (-not $currentSetName)) { $jobsToProcess[0] } else { $null }
+}
+Invoke-PoShBackupPostRunActionHandler @postRunParams
+# --- End Post-Run Action Handling ---
 
 $_pauseDefaultFromScript = "OnFailureOrWarning"
 $_pauseSettingFromConfig = if ($Configuration.ContainsKey('PauseBeforeExit')) { $Configuration.PauseBeforeExit } else { $_pauseDefaultFromScript }
@@ -558,32 +538,6 @@ if ($shouldPhysicallyPause) {
         catch { Write-Warning "Failed to read key for final pause: $($_.Exception.Message)" }
     } else {
         & $LoggerScriptBlock -Message "  (Pause configured for '$effectivePauseBehaviour' and current status '$overallSetStatus', but not running in ConsoleHost: $($Host.Name).)" -Level "INFO"
-    }
-}
-
-if ($null -ne $finalPostRunActionToConsider -and `
-    $finalPostRunActionToConsider.ContainsKey('Enabled') -and $finalPostRunActionToConsider.Enabled -eq $true -and `
-    $finalPostRunActionToConsider.ContainsKey('Action') -and $finalPostRunActionToConsider.Action.ToLowerInvariant() -ne "none") {
-
-    $triggerStatuses = @($finalPostRunActionToConsider.TriggerOnStatus | ForEach-Object { $_.ToUpperInvariant() })
-    $effectiveOverallStatusForTrigger = $overallSetStatus.ToUpperInvariant()
-    if ($TestConfig.IsPresent) { $effectiveOverallStatusForTrigger = "SIMULATED_COMPLETE" }
-
-    if ($triggerStatuses -contains "ANY" -or $effectiveOverallStatusForTrigger -in $triggerStatuses) {
-        if (-not [string]::IsNullOrWhiteSpace($actionSourceForLog) -and $actionSourceForLog -ne "None") {
-            & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from $($actionSourceForLog)." -Level "INFO"
-        }
-        & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Conditions met for action '$($finalPostRunActionToConsider.Action)' (Triggered by Status: $effectiveOverallStatusForTrigger)." -Level "INFO"
-
-        $systemActionParams = @{
-            Action          = $finalPostRunActionToConsider.Action
-            DelaySeconds    = $finalPostRunActionToConsider.DelaySeconds
-            ForceAction     = $finalPostRunActionToConsider.ForceAction
-            IsSimulateMode  = ($IsSimulateMode.IsPresent -or $TestConfig.IsPresent) # Pass boolean
-            Logger          = $LoggerScriptBlock
-            PSCmdletInstance = $PSCmdlet
-        }
-        Invoke-SystemStateAction @systemActionParams
     }
 }
 
