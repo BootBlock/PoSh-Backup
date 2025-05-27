@@ -16,6 +16,7 @@
     RetentionConfirmDelete                    = @{ Type = 'boolean'; Required = $false }
     EnableFileLogging                         = @{ Type = 'boolean'; Required = $false }
     LogDirectory                              = @{ Type = 'string'; Required = $false }
+    DefaultLogRetentionCount                  = @{ Type = 'int'; Required = $false; Min = 0 } # NEW Global Log Retention
     ReportGeneratorType                       = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
 
     HtmlReportDirectory                       = @{ Type = 'string'; Required = $false }
@@ -53,7 +54,7 @@
     ExitOnLowSpaceIfBelowMinimum              = @{ Type = 'boolean'; Required = $false }
 
     DefaultTestArchiveAfterCreation           = @{ Type = 'boolean'; Required = $false }
-    DefaultVerifyLocalArchiveBeforeTransfer   = @{ Type = 'boolean'; Required = $false } # NEW Global Setting
+    DefaultVerifyLocalArchiveBeforeTransfer   = @{ Type = 'boolean'; Required = $false } 
 
     DefaultArchiveDateFormat                  = @{ Type = 'string'; Required = $false }
     DefaultCreateSFX                          = @{ Type = 'boolean'; Required = $false } 
@@ -113,6 +114,7 @@
                 Name                                      = @{ Type = 'string'; Required = $true }
                 DestinationDir                            = @{ Type = 'string'; Required = $false }
                 LocalRetentionCount                       = @{ Type = 'int'; Required = $false; Min = 0 }
+                LogRetentionCount                         = @{ Type = 'int'; Required = $false; Min = 0 } # NEW Job-Level Log Retention
                 TargetNames                               = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } }
                 DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false }
                 DeleteToRecycleBin                        = @{ Type = 'boolean'; Required = $false }
@@ -152,7 +154,7 @@
                 MinimumRequiredFreeSpaceGB                = @{ Type = 'int'; Required = $false; Min = 0 }
                 ExitOnLowSpaceIfBelowMinimum              = @{ Type = 'boolean'; Required = $false }
                 TestArchiveAfterCreation                  = @{ Type = 'boolean'; Required = $false }
-                VerifyLocalArchiveBeforeTransfer          = @{ Type = 'boolean'; Required = $false } # NEW Job-Level Setting
+                VerifyLocalArchiveBeforeTransfer          = @{ Type = 'boolean'; Required = $false } 
                 GenerateArchiveChecksum                   = @{ Type = 'boolean'; Required = $false }
                 ChecksumAlgorithm                         = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
                 VerifyArchiveChecksumOnTest               = @{ Type = 'boolean'; Required = $false }
@@ -192,6 +194,7 @@
             Schema = @{
                 JobNames      = @{ Type = 'array'; Required = $true; ItemSchema = @{ Type = 'string' } }
                 OnErrorInJob  = @{ Type = 'string'; Required = $false; AllowedValues = @("StopSet", "ContinueSet") }
+                LogRetentionCount = @{ Type = 'int'; Required = $false; Min = 0 } # NEW Set-Level Log Retention
                 PostRunAction = @{
                     Type = 'hashtable'; Required = $false
                     Schema = @{

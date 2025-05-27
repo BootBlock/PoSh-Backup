@@ -6,8 +6,8 @@
     customisation via an external .psd1 configuration file, remote Backup Targets,
     optional post-run system state actions (e.g., shutdown, restart), optional
     archive checksum generation and verification, optional Self-Extracting Archive (SFX) creation,
-    optional 7-Zip CPU core affinity (with CLI override), and optional verification of local
-    archives before remote transfer.
+    optional 7-Zip CPU core affinity (with CLI override), optional verification of local
+    archives before remote transfer, and configurable log file retention.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -33,9 +33,11 @@
       for easy restoration.
     - 7-Zip CPU Core Affinity: Optionally restrict 7-Zip to specific CPU cores, with validation
       and CLI override.
-    - Verify Local Archive Before Transfer (New): Optionally test the local archive's integrity
+    - Verify Local Archive Before Transfer: Optionally test the local archive's integrity
       (and checksum if enabled) *before* attempting any remote transfers. If verification fails,
       remote transfers for that job are skipped.
+    - Log File Retention (New): Configurable retention count for generated log files (global, per-job,
+      per-set, or CLI override) to prevent indefinite growth of the Logs directory.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -48,8 +50,8 @@
 
 .PARAMETER Simulate
     Optional. A switch parameter. If present, the script runs in simulation mode.
-    Local archive creation, checksum generation, remote transfers, retention actions, and post-run system actions
-    will be logged but not executed.
+    Local archive creation, checksum generation, remote transfers, retention actions, log file retention,
+    and post-run system actions will be logged but not executed.
 
 .PARAMETER TestArchive
     Optional. A switch parameter. If present, this forces an integrity test of newly created local archives.
@@ -80,6 +82,10 @@
 
 .PARAMETER SevenZipCpuAffinityCLI
     Optional. CLI Override: 7-Zip CPU core affinity (e.g., '0,1' or '0x3'). Overrides config.
+
+.PARAMETER LogRetentionCountCLI
+    Optional. CLI Override: Number of log files to keep per job name pattern.
+    A value of 0 means infinite retention (keep all logs). Overrides all configured log retention counts.
 
 .PARAMETER TestConfig
     Optional. A switch parameter. If present, loads, validates configuration, prints summary, then exits.
@@ -116,15 +122,17 @@
     Valid values: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
 
 .EXAMPLE
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -VerifyLocalArchiveBeforeTransferCLI
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -VerifyLocalArchiveBeforeTransferCLI -LogRetentionCountCLI 5
     Runs the "MyDocs_To_UNC" job. The local archive will be created and then tested. If the test passes,
     it will be transferred to the remote UNC target. If the local test fails, the transfer is skipped.
+    After the job, only the 5 most recent log files for "MyDocs_To_UNC" will be kept.
 
 .EXAMPLE
     .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -PostRunActionCli "Hibernate" -PostRunActionDelaySecondsCli 60
     Runs all jobs in the "DailyCriticalBackups" set. After the entire set completes, the system will
     attempt to hibernate after a 60-second cancellable delay, regardless of the set's or jobs'
     configured PostRunAction settings, and regardless of the set's final status (due to default CLI trigger "ANY").
+    Log retention for jobs in this set will follow their set, job, or global configuration unless -LogRetentionCountCLI is also used.
 
 .EXAMPLE
     .\PoSh-Backup.ps1 -BackupLocationName "MyLargeArchiveJob" -SevenZipCpuAffinityCLI "0,1"
@@ -133,8 +141,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.12.3 # Added VerifyLocalArchiveBeforeTransferCLI parameter.
-    Date:           26-May-2025
+    Version:        1.13.0 # Added LogRetentionCountCLI parameter and log retention feature.
+    Date:           27-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -154,14 +162,14 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Optional. Path to the .psd1 configuration file. Defaults to '.\\Config\\Default.psd1' (and merges .\\Config\\User.psd1).")]
     [string]$ConfigFile,
 
-    [Parameter(Mandatory=$false, HelpMessage="Switch. Run in simulation mode (local archiving, checksums, remote transfers, and post-run actions simulated).")]
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Run in simulation mode (local archiving, checksums, remote transfers, log retention, and post-run actions simulated).")]
     [switch]$Simulate,
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Test local archive integrity after backup (includes checksum verification if enabled). Independent of -VerifyLocalArchiveBeforeTransferCLI.")]
     [switch]$TestArchive,
 
-    [Parameter(Mandatory=$false, HelpMessage="Switch. Verify local archive before remote transfer. Overrides config.")] # NEW
-    [switch]$VerifyLocalArchiveBeforeTransferCLI, # NEW
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Verify local archive before remote transfer. Overrides config.")]
+    [switch]$VerifyLocalArchiveBeforeTransferCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Attempt to use VSS. Requires Admin.")]
     [switch]$UseVSS,
@@ -181,6 +189,10 @@ param (
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: 7-Zip CPU core affinity (e.g., '0,1' or '0x3'). Overrides config.")]
     [string]$SevenZipCpuAffinityCLI,
+
+    [Parameter(Mandatory=$false, HelpMessage="CLI Override: Number of log files to keep per job name pattern. 0 for infinite. Overrides all config.")]
+    [ValidateRange(0, [int]::MaxValue)]
+    [int]$LogRetentionCountCLI, # NEW
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Load and validate the entire configuration file, prints summary, then exit. Post-run actions simulated.")]
     [switch]$TestConfig,
@@ -222,11 +234,12 @@ $cliOverrideSettings = @{
     UseVSS                             = if ($PSBoundParameters.ContainsKey('UseVSS')) { $UseVSS.IsPresent } else { $null }
     EnableRetries                      = if ($PSBoundParameters.ContainsKey('EnableRetriesCLI')) { $EnableRetriesCLI.IsPresent } else { $null }
     TestArchive                        = if ($PSBoundParameters.ContainsKey('TestArchive')) { $TestArchive.IsPresent } else { $null }
-    VerifyLocalArchiveBeforeTransferCLI = if ($PSBoundParameters.ContainsKey('VerifyLocalArchiveBeforeTransferCLI')) { $VerifyLocalArchiveBeforeTransferCLI.IsPresent } else { $null } # NEW
+    VerifyLocalArchiveBeforeTransferCLI = if ($PSBoundParameters.ContainsKey('VerifyLocalArchiveBeforeTransferCLI')) { $VerifyLocalArchiveBeforeTransferCLI.IsPresent } else { $null }
     GenerateHtmlReport                 = if ($PSBoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $GenerateHtmlReportCLI.IsPresent } else { $null }
     TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
     SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
     SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null } 
+    LogRetentionCountCLI               = if ($PSBoundParameters.ContainsKey('LogRetentionCountCLI')) { $LogRetentionCountCLI } else { $null } # NEW
     PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
     PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
     PostRunActionDelaySecondsCli       = if ($PSBoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $PostRunActionDelaySecondsCli } else { $null }
@@ -302,7 +315,7 @@ try {
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.12.3 (Added VerifyLocalArchiveBeforeTransferCLI parameter)" -Level "HEADING" # Updated Version
+& $LoggerScriptBlock -Message " Script Version: v1.13.0 (Added LogRetentionCountCLI parameter and log retention feature)" -Level "HEADING" # Updated Version
 if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
@@ -310,7 +323,8 @@ if ($ListBackupSets.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACK
 if ($SkipUserConfigCreation.IsPresent) { & $LoggerScriptBlock -Message " ***** SKIP USER CONFIG CREATION ACTIVE ***** " -Level "INFO" }
 if ($cliOverrideSettings.TreatSevenZipWarningsAsSuccess -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Treating 7-Zip warnings as success. ***** " -Level "INFO" }
 if ($cliOverrideSettings.SevenZipCpuAffinity) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip CPU Affinity specified: $($cliOverrideSettings.SevenZipCpuAffinity) ***** " -Level "INFO" } 
-if ($cliOverrideSettings.VerifyLocalArchiveBeforeTransferCLI -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Verify Local Archive Before Transfer ENABLED. ***** " -Level "INFO" } # NEW
+if ($cliOverrideSettings.VerifyLocalArchiveBeforeTransferCLI -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Verify Local Archive Before Transfer ENABLED. ***** " -Level "INFO" }
+if ($null -ne $cliOverrideSettings.LogRetentionCountCLI) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Log Retention Count specified: $($cliOverrideSettings.LogRetentionCountCLI) ***** " -Level "INFO" } # NEW
 if ($cliOverrideSettings.PostRunActionCli) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Post-Run Action specified: $($cliOverrideSettings.PostRunActionCli) ***** " -Level "INFO" }
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 #endregion

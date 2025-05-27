@@ -17,15 +17,15 @@
     This function resolves settings for local archive creation, local retention,
     remote target assignments (by looking up 'TargetNames' in the global 'BackupTargets'
     section), PostRunAction settings, Checksum settings, SFX creation (including SFX module type),
-    7-Zip CPU affinity, and the new VerifyLocalArchiveBeforeTransfer setting.
+    7-Zip CPU affinity, VerifyLocalArchiveBeforeTransfer setting, and the new LogRetentionCount setting.
     The resolved configuration is then used by the Operations module to execute the backup job.
 
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.6 # Added VerifyLocalArchiveBeforeTransfer resolution.
+    Version:        1.0.7 # Added LogRetentionCount resolution.
     DateCreated:    24-May-2025
-    LastModified:   26-May-2025
+    LastModified:   27-May-2025
     Purpose:        To modularise the effective job configuration building logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the parent 'Modules' directory for Get-ConfigValue.
@@ -47,7 +47,8 @@ function Get-PoShBackupJobEffectiveConfiguration {
     .SYNOPSIS
         Gathers the effective configuration for a single backup job by merging global,
         job-specific, and command-line override settings, including Backup Target, PostRunAction,
-        Checksum, SFX (with module type), 7-Zip CPU Affinity, and VerifyLocalArchiveBeforeTransfer resolution.
+        Checksum, SFX (with module type), 7-Zip CPU Affinity, VerifyLocalArchiveBeforeTransfer,
+        and LogRetentionCount resolution.
     .DESCRIPTION
         This function takes a specific job's raw configuration, the global configuration,
         and any command-line overrides, then resolves the final settings that will be
@@ -56,14 +57,14 @@ function Get-PoShBackupJobEffectiveConfiguration {
         It now also resolves 'TargetNames' specified in the job configuration by looking up
         the full definitions of those targets in the global 'BackupTargets' section,
         resolves 'PostRunAction' settings, 'Checksum' settings, 'CreateSFX', 'SFXModule',
-        'SevenZipCpuAffinity', and 'VerifyLocalArchiveBeforeTransfer' settings.
+        'SevenZipCpuAffinity', 'VerifyLocalArchiveBeforeTransfer', and 'LogRetentionCount' settings.
         If SFX is enabled, the effective archive extension becomes '.exe'.
     .PARAMETER JobConfig
         A hashtable containing the specific configuration settings for this backup job.
     .PARAMETER GlobalConfig
         A hashtable containing the global configuration settings for PoSh-Backup, including 'BackupTargets',
         'PostRunActionDefaults', 'Checksum' defaults, 'CreateSFX' defaults, 'SFXModule' defaults,
-        'SevenZipCpuAffinity' defaults, and 'DefaultVerifyLocalArchiveBeforeTransfer'.
+        'SevenZipCpuAffinity' defaults, 'DefaultVerifyLocalArchiveBeforeTransfer', and 'DefaultLogRetentionCount'.
     .PARAMETER CliOverrides
         A hashtable containing command-line parameter overrides.
     .PARAMETER JobReportDataRef
@@ -76,7 +77,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
         A hashtable representing the effective configuration for the job, including an array
         of 'ResolvedTargetInstances' if 'TargetNames' were specified, a 'PostRunAction' hashtable,
         checksum-related settings, SFX-related settings (including SFXModule), CPU affinity,
-        and VerifyLocalArchiveBeforeTransfer.
+        VerifyLocalArchiveBeforeTransfer, and LogRetentionCount.
     #>
     param(
         [Parameter(Mandatory)] [hashtable]$JobConfig,
@@ -239,14 +240,31 @@ function Get-PoShBackupJobEffectiveConfiguration {
 
     $effectiveConfig.JobTestArchiveAfterCreation = if ($CliOverrides.TestArchive) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'TestArchiveAfterCreation' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultTestArchiveAfterCreation' -DefaultValue $false) }
 
-    # NEW: VerifyLocalArchiveBeforeTransfer (CLI > Job > Global)
-    if ($CliOverrides.ContainsKey('VerifyLocalArchiveBeforeTransferCLI') -and $null -ne $CliOverrides.VerifyLocalArchiveBeforeTransferCLI) { # Assuming CLI override is a boolean
+    # VerifyLocalArchiveBeforeTransfer (CLI > Job > Global)
+    if ($CliOverrides.ContainsKey('VerifyLocalArchiveBeforeTransferCLI') -and $null -ne $CliOverrides.VerifyLocalArchiveBeforeTransferCLI) { 
         $effectiveConfig.VerifyLocalArchiveBeforeTransfer = $CliOverrides.VerifyLocalArchiveBeforeTransferCLI
     } else {
         $effectiveConfig.VerifyLocalArchiveBeforeTransfer = Get-ConfigValue -ConfigObject $JobConfig -Key 'VerifyLocalArchiveBeforeTransfer' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVerifyLocalArchiveBeforeTransfer' -DefaultValue $false)
     }
-    $reportData.VerifyLocalArchiveBeforeTransfer = $effectiveConfig.VerifyLocalArchiveBeforeTransfer # Add to report data
-    # END NEW
+    $reportData.VerifyLocalArchiveBeforeTransfer = $effectiveConfig.VerifyLocalArchiveBeforeTransfer 
+
+    # LogRetentionCount (CLI > Job > Global) - This is for the *job's effective config*.
+    # The final decision for log retention for a job run might also consider a Set-level override in JobOrchestrator.
+    if ($CliOverrides.ContainsKey('LogRetentionCountCLI') -and $null -ne $CliOverrides.LogRetentionCountCLI) {
+        $effectiveConfig.LogRetentionCount = $CliOverrides.LogRetentionCountCLI
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: Log Retention Count set by CLI override: $($CliOverrides.LogRetentionCountCLI)." -Level "DEBUG"
+    } else {
+        $jobLogRetention = Get-ConfigValue -ConfigObject $JobConfig -Key 'LogRetentionCount' -DefaultValue $null
+        if ($null -ne $jobLogRetention) {
+            $effectiveConfig.LogRetentionCount = $jobLogRetention
+            & $LocalWriteLog -Message "  - EffectiveConfigBuilder: Log Retention Count set by Job config: $jobLogRetention." -Level "DEBUG"
+        } else {
+            $effectiveConfig.LogRetentionCount = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultLogRetentionCount' -DefaultValue 30 # Default to 30 if no other value found
+            & $LocalWriteLog -Message "  - EffectiveConfigBuilder: Log Retention Count set by Global config: $($effectiveConfig.LogRetentionCount)." -Level "DEBUG"
+        }
+    }
+    $reportData.EffectiveJobLogRetentionCount = $effectiveConfig.LogRetentionCount # Add to report data
+    # END LogRetentionCount
 
     $effectiveConfig.JobMinimumRequiredFreeSpaceGB = Get-ConfigValue -ConfigObject $JobConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue 0)
     $effectiveConfig.JobExitOnLowSpace = Get-ConfigValue -ConfigObject $JobConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue $false)

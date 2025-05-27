@@ -13,6 +13,7 @@
     "CRITICAL (SYNTAX): When providing replacement strings for PowerShell's -replace operator that include special characters (e.g., HTML entities like '<'), ensure these replacement strings are correctly quoted (typically single quotes) to be treated as literal strings by PowerShell.",
     'CRITICAL (SYNTAX - PSD1/Strings): When generating PowerShell data files (.psd1) or strings that will be parsed by `Import-PowerShellDataFile` or similar, be extremely careful with nested quotes and variable expansion syntax like $($variable.Property). If a variable might be null or a property might not exist, this can lead to parsing errors (e.g., ''$()'' is invalid). Use string formatting (`-f`) or ensure variables/properties are resolved to actual values *before* embedding them in such strings, or use intermediate variables with checks.',
     "SYNTAX: PowerShell ordered dictionaries (`[ordered]@{}`) use `(theDictVariable.PSObject.Properties.Name -contains 'Key')`, NOT `theDictVariable.ContainsKey('Key')`. ",
+    "SYNTAX (PSSA): `$null` should be on the left side of equality comparisons (e.g., `if (`$null -eq `$variable)` not `if (`$variable -eq `$null)`).",
     "REGEX: Be cautious with string interpolation vs. literal characters in regex patterns. Test regex patterns carefully. Ensure PowerShell string parsing is correct before regex engine sees it.",
     "LOGIC: Verify `IsSimulateMode` flag is consistently propagated and handled, especially for I/O operations and status reporting, including through new Backup Target provider models and PostRunAction feature.",
     "DATA FLOW: Ensure data for reports (like `IsSimulationReport`, `OverallStatus`, `VSSStatus`, `VSSAttempted`, and new `TargetTransfers` array with its `ReplicationDetails`) is correctly set in `theReportDataRefRef` (a ref object) *before* report generation functions are called.",
@@ -55,9 +56,25 @@
   )
 
   conversation_summary            = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.12.3).",
-    "Modular design: Core modules, Reporting sub-modules (including Modules\Reporting\Assets and Modules\ConfigManagement\Assets directories), Config files, and Meta/ (bundler).",
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.13.0).",
+    "Modular design: Core modules (Modules\\Core\\), Reporting sub-modules (Modules\\Reporting\\Assets), ConfigManagement sub-modules (Modules\\ConfigManagement\\Assets), Utilities sub-modules (Modules\\Utilities\\), Manager modules (Modules\\*Manager.psm1 - to be refactored into Modules\\Managers\\), Config files, and Meta/ (bundler).",
     "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v1.1.10).", # Updated version
+    "--- Feature: Log File Retention (Current Session Segment) ---",
+    "  - Goal: Manage retention of generated log files to prevent indefinite growth of the Logs/ directory.",
+    "  - `Config\\Default.psd1` (v1.4.2 -> v1.4.3): Added global `DefaultLogRetentionCount`, job-level `LogRetentionCount`, and set-level `LogRetentionCount` settings. A value of 0 means infinite retention.",
+    "  - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for new `LogRetentionCount` settings (global, job, set) with validation (integer, min 0).",
+    "  - `PoSh-Backup.ps1` (v1.12.3 -> v1.13.0): Added `-LogRetentionCountCLI` parameter and included it in CLI override logic.",
+    "  - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.6 -> v1.0.7): Modified to resolve `LogRetentionCount` for a job (CLI > Job > Global) and add to report data.",
+    "  - New Module `Modules\\LogManager.psm1` (v1.0.0) created (placed in root `Modules\\` for this feature, to be moved to `Modules\\Managers\\` later):",
+    "    - Contains `Invoke-LogFileRetention` function to find and delete old log files based on job name pattern and retention count.",
+    "  - `Modules\\Utils.psm1` (v1.14.0 -> v1.13.3 - reverted): No longer facades `LogManager.psm1` as it's now a top-level module.",
+    "  - `Modules\\Core\\JobOrchestrator.psm1` (v1.0.1 -> v1.0.2):",
+    "    - Imports `Modules\\LogManager.psm1` directly.",
+    "    - After each job, determines final `LogRetentionCount` (CLI > Set > Job's effective config) and calls `Invoke-LogFileRetention`.",
+    "  - `README.md`: Updated with Log File Retention feature details, configuration options, and CLI parameter.",
+    "  - All changes tested successfully by the user after correcting initial file placement and import paths for `LogManager.psm1`.",
+    "  - PSSA warning `PSPossibleIncorrectComparisonWithNull` identified and manually fixed by user in `JobOrchestrator.psm1` and `PoSh-Backup.ps1`. Added to AI Watch List.",
+    "  - Next Step (Postponed): Refactor `*Manager.psm1` modules (including `LogManager.psm1`) into a new `Modules\\Managers\\` subdirectory.",
     "--- Feature: Verify Local Archive Before Remote Transfer (Current Session Segment) ---",
     "  - Goal: Ensure local backup is created and verified *before* remote transfer to prevent propagation of corrupt archives.",
     "  - `Config\\Default.psd1` (v1.4.1 -> v1.4.2): Added global `DefaultVerifyLocalArchiveBeforeTransfer` and job-level `VerifyLocalArchiveBeforeTransfer` (boolean) settings.",
@@ -149,10 +166,10 @@
     "--- Previous Work (Selected Highlights) ---",
     "Network Share Handling Improvements, Retention Policy Confirmation, HTML Report Enhancements, PSSA compliance.",
     "Bundler Script (Generate-ProjectBundleForAI.ps1 v1.25.2) is stable.",
-    "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums, SFX (with module choice), CPU Affinity, Verify Before Transfer features added. Extensive refactorings completed. PSSA summary expected to be clean except for known SFTP ConvertTo-SecureString items. Pester tests sort-of functional; ignoring for now."
+    "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums, SFX (with module choice), Log File Retention features added. Extensive refactorings completed (ConfigManager, Operations, PoSh-Backup.ps1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP ConvertTo-SecureString items. Pester tests for some utilities functional."
   )
 
-  main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.12.3
+  main_script_poSh_backup_version = "__POSH_BACKUP_VERSION_PLACEHOLDER__" # Will be 1.13.0
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

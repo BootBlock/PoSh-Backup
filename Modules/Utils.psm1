@@ -18,9 +18,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.13.3 # Refactored for modular utilities - FileUtils; Facade complete.
+    Version:        1.13.3
     DateCreated:    10-May-2025
-    LastModified:   25-May-2025
+    LastModified:   27-May-2025
     Purpose:        Facade for core utility functions for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+.
                     Sub-modules (Logging.psm1, ConfigUtils.psm1, SystemUtils.psm1, FileUtils.psm1)

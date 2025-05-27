@@ -3,7 +3,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.4.2: Added DefaultVerifyLocalArchiveBeforeTransfer option for data integrity.
+# Version 1.4.3: Added LogRetentionCount settings (global, job, set).
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -86,6 +86,9 @@
                                                                       # If a relative path (e.g., "Logs" or ".\MyLogs"), it's relative to the PoSh-Backup script's root directory.
                                                                       # Can also be an absolute path (e.g., "C:\BackupLogs").
                                                                       # The script will attempt to create this directory if it doesn't exist.
+    DefaultLogRetentionCount        = 2                              # NEW: Global default for the number of log files to keep per job name pattern.
+                                                                      # Set to 0 to keep all log files (infinite retention).
+                                                                      # Can be overridden at the job or set level.
     #endregion
 
     #region --- Reporting Settings (Global Defaults) ---
@@ -388,6 +391,7 @@
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Delete from local staging after successful transfer to ALL targets.
 
             LocalRetentionCount        = 5                            # Number of archive versions to keep in the local 'DestinationDir'.
+            # LogRetentionCount will use DefaultLogRetentionCount (e.g., 30)
             DeleteToRecycleBin         = $true                        # Note: Ensure this is appropriate if 'DestinationDir' is a network share (less common for staging).
             RetentionConfirmDelete     = $false                       # Example: This job will auto-delete old local archives without prompting.
 
@@ -421,6 +425,7 @@
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
 
             LocalRetentionCount        = 2
+            LogRetentionCount          = 0                            # NEW_EXAMPLE: Keep all log files for this job (infinite retention).
 
             ArchivePasswordMethod      = "None"
             EnableVSS                  = $true
@@ -446,6 +451,7 @@
 
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
             LocalRetentionCount     = 1
+            # LogRetentionCount will use DefaultLogRetentionCount
 
             ArchivePasswordMethod   = "SecretManagement"
             ArchivePasswordSecretName = "MyArchiveEncryptionPassword"
@@ -479,6 +485,7 @@
             DestinationDir          = "\\BACKUPSERVER\Share\WebApps\LocalStage_WebApp"
 
             LocalRetentionCount                       = 1
+            LogRetentionCount                         = 15                     # Example: Keep 15 logs for this specific job
             VerifyLocalArchiveBeforeTransfer          = $false                 # Job-specific override. $true to test local archive before remote transfer.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
             RetentionConfirmDelete  = $false
@@ -567,8 +574,7 @@
                 "CriticalData_To_SFTP_Example"
             )
             OnErrorInJob = "StopSet"
-
-
+            LogRetentionCount = 7 # NEW_EXAMPLE: Logs for jobs run as part of this set will keep only 7 files, overriding their individual or global settings.
 
             # PostRunAction = @{
             #     Enabled         = $true
@@ -584,6 +590,7 @@
                 "Docs_Replicated_Example"
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
+            # LogRetentionCount will be inherited from each job's config or global default.
             # PostRunAction = @{ Enabled = $false }
         }
         "Nightly_Full_System_Simulate" = @{

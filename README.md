@@ -1,5 +1,5 @@
 # PoSh-Backup
-A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, optional 7-Zip CPU core affinity (with validation and CLI override), and optional verification of local archives before remote transfer.
+A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, optional 7-Zip CPU core affinity (with validation and CLI override), optional verification of local archives before remote transfer, and configurable log file retention.
 
 > **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
@@ -40,7 +40,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   **Simulation Banner:** Clearly distinguishes reports generated from simulation runs.
     *   **Other Formats:** CSV, JSON, XML (CliXml), Plain Text (TXT), and Markdown (MD) also supported for data export and integration, updated to include target transfer and checksum details where appropriate.
 *   **Comprehensive Logging:** Get detailed, colour-coded console output and optional per-job text file logs for easy monitoring and troubleshooting of both local operations and remote transfers.
-*   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention, **post-run system actions**, and **checksum operations** without making any actual changes.
+*   **Log File Retention (New):** Automatically manage the number of log files kept per job. Configurable globally, per job, or per backup set, with a CLI override. A setting of `0` means infinite retention. This prevents the `Logs/` directory from growing indefinitely.
+*   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention (archive and log files), **post-run system actions**, and **checksum operations** without making any actual changes.
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`), including basic validation of Backup Target definitions. Optional advanced schema validation available.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the `DestinationDir` before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives using `7z t`.
@@ -72,6 +73,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   `Modules/`: Contains PowerShell modules that provide the core functionality.
         *   `Targets/`: **Sub-directory for Backup Target provider modules** (e.g., `UNC.Target.psm1`, `Replicate.Target.psm1`, `SFTP.Target.psm1` (New)).
         *   `SystemStateManager.psm1`: **New module for handling post-run system actions.**
+        *   `Utilities/`: **Sub-directory for specialized utility modules** (e.g., `Logging.psm1`, `ConfigUtils.psm1`, `SystemUtils.psm1`, `FileUtils.psm1`, `LogManager.psm1` (New)).
     *   `Meta/`: Contains scripts related to the development of PoSh-Backup itself (like the script to generate bundles for AI).
     *   `Logs/`: Default directory where text log files will be stored for each job run (if file logging is enabled in the configuration).
     *   `Reports/`: Default directory where generated backup reports (HTML, CSV, etc.) will be saved.
@@ -100,6 +102,10 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   Defaults to `$true`. If true, the archive in `DefaultDestinationDir` (or job-specific `DestinationDir`) will be deleted after it has been successfully transferred to ALL specified remote targets for that job. Has no effect if no remote targets are configured for the job. Can be overridden per job.
     *   **`TreatSevenZipWarningsAsSuccess`**: (Global Setting)
         *   Defaults to `$false`. If set to `$true`, 7-Zip warnings (like skipped files) will still result in a "SUCCESS" job status.
+    *   **`DefaultLogRetentionCount` (Global Setting - New):**
+        *   Defaults to `30`. This specifies the number of log files to keep for each job name pattern in the `LogDirectory`.
+        *   Set to `0` to keep all log files (infinite retention).
+        *   This can be overridden by `LogRetentionCount` at the job level or set level, or by the `-LogRetentionCountCLI` parameter.
     *   **Checksum Settings (Global Defaults):**
         *   `DefaultGenerateArchiveChecksum` (boolean, default `$false`): Set to `$true` to enable checksum generation for all jobs by default.
         *   `DefaultChecksumAlgorithm` (string, default `"SHA256"`): Specifies the default algorithm (e.g., "SHA1", "SHA256", "SHA512", "MD5").
@@ -186,6 +192,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   Key settings for local and remote behaviour:
             *   `DestinationDir`: Specifies the directory where this job's archive is created. If remote targets are used, this acts as a **local staging directory**. If no remote targets are used, this is the **final backup destination**. Overrides `DefaultDestinationDir`.
             *   `LocalRetentionCount`: (Renamed from `RetentionCount`) Defines how many archive versions to keep in the `DestinationDir`.
+            *   `LogRetentionCount` (New): Defines how many log files to keep for this specific job. Overrides `DefaultLogRetentionCount`. A value of `0` means infinite retention for this job's logs.
             *   `TargetNames` (New Setting): An array of strings. Each string must be a name of a target instance defined in the global `BackupTargets` section. If you specify target names here, the locally created archive will be transferred to each listed remote target. If `TargetNames` is omitted or empty, the backup is local-only to `DestinationDir`.
             *   `DeleteLocalArchiveAfterSuccessfulTransfer` (Job-Specific): Overrides the global setting for this job.
         *   **Checksum Settings (Job-Specific):**
@@ -204,7 +211,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 *   Examples: `"0,1"` (for cores 0 and 1), `"0x3"` (bitmask for cores 0 and 1).
                 *   An empty string or `$null` means no affinity is set (7-Zip uses all available cores).
                 *   User input is validated against available system cores and clamped if necessary.
-        *   Example job definition that creates a local archive, sends it to a remote target, includes checksum settings, creates an SFX, and sets CPU affinity:
+        *   Example job definition that creates a local archive, sends it to a remote target, includes checksum settings, creates an SFX, sets CPU affinity, and specifies log retention:
             ```powershell
             # Inside BackupLocations in User.psd1 or Default.psd1
             "MyDocumentsBackupSFX_GUI_Affinity" = @{
@@ -215,6 +222,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 Name           = "UserDocumentsSFX_GUI_Affinity"
                 DestinationDir = "E:\BackupStorage\MyDocsSFX"
                 LocalRetentionCount = 3
+                LogRetentionCount   = 15 # Keep last 15 logs for this job
 
                 TargetNames = @("MyMainUNCShare")
                 DeleteLocalArchiveAfterSuccessfulTransfer = $true
@@ -229,35 +237,23 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 VerifyLocalArchiveBeforeTransfer = $true # NEW: Ensure this archive is good before sending to MyMainUNCShare
                 SevenZipCpuAffinity         = "0,1"  # Restrict 7-Zip to CPU cores 0 and 1
             }
-
-            "ImportantProject_Replicated" = @{
-                Path           = "D:\Projects\CriticalProject"
-                Name           = "CriticalProject_MultiCopy"
-                DestinationDir = "C:\Temp\StagingAreaForReplication"
-                LocalRetentionCount = 1
-
-                TargetNames = @("MyReplicatedBackups")
-                DeleteLocalArchiveAfterSuccessfulTransfer = $true
-                CreateSFX = $false # Not an SFX
-                SFXModule = "Console" # Not strictly needed if CreateSFX is false, but shows the option
-                VerifyLocalArchiveBeforeTransfer = $false # NEW: Example of disabling it for this job
-                SevenZipCpuAffinity = "0x1" # Restrict to core 0 (using hex bitmask)
-            }
-
-            "MyDocumentsToSFTP" = @{
-                Path           = "C:\Users\YourUserName\Documents"
-                Name           = "UserDocuments_SFTP"
-                DestinationDir = "E:\BackupStaging\MyDocsSFTP"
-                LocalRetentionCount = 2
-
-                TargetNames = @("MySecureFTPServer")
-                DeleteLocalArchiveAfterSuccessfulTransfer = $true
-                CreateSFX = $false # Not an SFX
-
-                ArchivePasswordMethod = "SecretManagement"
-                ArchivePasswordSecretName = "MyArchiveEncryptionKey"
-                # SevenZipCpuAffinity will use global default (likely none)
-                # VerifyLocalArchiveBeforeTransfer will use global default (likely $false)
+            ```
+    *   **`BackupSets` (Set Definitions):**
+        *   Each set defined under `BackupSets` can also have its own `LogRetentionCount` (New).
+        *   This setting, if present, overrides both the job-level `LogRetentionCount` for jobs within that set and the `DefaultLogRetentionCount`.
+        *   Example for a set:
+            ```powershell
+            "NightlyServerMaintenance" = @{
+                JobNames     = @("WebAppBackup", "SQLBackup")
+                OnErrorInJob = "StopSet"
+                LogRetentionCount = 7 # Logs for WebAppBackup & SQLBackup will keep 7 files when run via this set.
+                PostRunAction = @{
+                    Enabled         = $true
+                    Action          = "Restart"
+                    DelaySeconds    = 300 # 5-minute delay
+                    TriggerOnStatus = @("SUCCESS", "WARNINGS") # Restart even if there were warnings
+                    ForceAction     = $true
+                }
             }
             ```
     *   **`PostRunActionDefaults` (Global Post-Run System Action Settings):**
@@ -300,6 +296,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             "NightlyServerMaintenance" = @{
                 JobNames     = @("WebAppBackup", "SQLBackup")
                 OnErrorInJob = "StopSet"
+                LogRetentionCount = 7 # Also applies log retention for jobs in this set
                 PostRunAction = @{
                     Enabled         = $true
                     Action          = "Restart"
@@ -315,9 +312,9 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 ### 4. Basic Usage Examples
 Once your `Config\User.psd1` is configured with at least one backup job, you can run PoSh-Backup from a PowerShell console located in the script's root directory:
 
-*   **Run a specific backup job and ensure it's verified before any remote transfer:**
+*   **Run a specific backup job, ensure it's verified before any remote transfer, and keep only the last 5 log files for this job:**
     ```powershell
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX_GUI_Affinity" -VerifyLocalArchiveBeforeTransferCLI
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX_GUI_Affinity" -VerifyLocalArchiveBeforeTransferCLI -LogRetentionCountCLI 5
     ```
     (Replace `"MyDocumentsBackupSFX_GUI_Affinity"` with the actual name of a job you defined in `BackupLocations`. If this job has a `PostRunAction` configured, it will be evaluated after the job.)
 
@@ -325,9 +322,9 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     ```powershell
     .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups"
     ```
-    (Replace `"DailyCriticalBackups"` with the name of a defined set. If the "DailyCriticalBackups" set has a `PostRunAction`, it will be evaluated after all jobs in the set complete. This set-level action overrides any job-level post-run actions within the set.)
+    (Replace `"DailyCriticalBackups"` with the name of a defined set. If the "DailyCriticalBackups" set has a `PostRunAction`, it will be evaluated after all jobs in the set complete. This set-level action overrides any job-level post-run actions within the set. Log retention for jobs in this set will follow the set's `LogRetentionCount` if defined, otherwise job or global settings.)
 
-*   **Simulate a backup job (local archive creation, any remote transfers, checksum operations, SFX creation, CPU affinity application, and post-run actions will be simulated):**
+*   **Simulate a backup job (local archive creation, any remote transfers, checksum operations, SFX creation, CPU affinity application, log retention, and post-run actions will be simulated):**
     ```powershell
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX_GUI_Affinity" -Simulate
     ```
@@ -372,9 +369,10 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges).
 *   `-TestArchive`: Forces an integrity test of newly created *local* archives for all processed jobs. If checksum generation and verification are enabled for the job, this will include checksum verification. This is independent of `-VerifyLocalArchiveBeforeTransferCLI`.
 *   `-VerifyLocalArchiveBeforeTransferCLI`: (New) Forces verification of the local archive (including checksum if enabled for the job) *before* any remote transfers are attempted. Overrides configuration settings. If verification fails, remote transfers for the job are skipped.
-*   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions, checksum operations, SFX creation, CPU affinity application, and post-run system actions are logged but not actually executed.
+*   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions (archive and log), checksum operations, SFX creation, CPU affinity application, and post-run system actions are logged but not actually executed.
 *   `-TreatSevenZipWarningsAsSuccessCLI`: Forces 7-Zip exit code 1 (Warning) from *local* archiving to be treated as a success for the job status, overriding any configuration settings.
 *   `-SevenZipCpuAffinityCLI <AffinityString>`: Overrides any configured 7-Zip CPU core affinity. Examples: `"0,1"` or `"0x3"`.
+*   `-LogRetentionCountCLI <Count>` (New): Overrides all configured log retention counts (global, job, set). Specifies the number of log files to keep per job name pattern. A value of `0` means infinite retention (keep all logs).
 *   `-PauseBehaviourCLI <Always|Never|OnFailure|OnWarning|OnFailureOrWarning>`: Controls if the script pauses with a "Press any key to continue" message before exiting. Overrides the `PauseBeforeExit` setting in the configuration file.
 *   `-PostRunActionCli <Action>`: Overrides all configured post-run actions.
     *   Valid `<Action>`: "None", "Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock".
