@@ -57,8 +57,6 @@ function Invoke-PoShBackupJobPreProcessing {
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet,
         [Parameter(Mandatory = $true)]
-        [string]$PSScriptRootForPaths, # Main script's PSScriptRoot
-        [Parameter(Mandatory = $true)]
         [string]$ActualConfigFile,
         [Parameter(Mandatory = $true)]
         [ref]$JobReportDataRef
@@ -228,7 +226,19 @@ function Invoke-PoShBackupJobPreProcessing {
         # Ensure any created temp password file is cleaned up if an error occurs within this scope
         if (-not [string]::IsNullOrWhiteSpace($tempPasswordFilePath) -and (Test-Path -LiteralPath $tempPasswordFilePath -PathType Leaf) `
             -and -not ($IsSimulateMode.IsPresent -and $tempPasswordFilePath.EndsWith("simulated_poshbackup_pass.tmp"))) {
-            try { Remove-Item -LiteralPath $tempPasswordFilePath -Force -ErrorAction SilentlyContinue } catch {}
+
+            try {
+                Remove-Item -LiteralPath $tempPasswordFilePath -Force -ErrorAction SilentlyContinue
+            }
+            catch {
+                # This catch block should ideally not be reached due to -ErrorAction SilentlyContinue
+                # on Remove-Item. If it is reached, it indicates an unexpected problem during
+                # the "silent" removal attempt. Logging this is important.
+                & $LocalWriteLog -Message "[WARNING] JobPreProcessor: Unexpected error occurred while attempting to silently remove temporary file '$tempPasswordFilePath'. Error details: $($_.ToString())" -Level "WARNING"
+
+                # Alternative below if the above $LocalWriteLog isn't available
+                # Write-Warning "JobPreProcessor: Unexpected error occurred while attempting to silently remove temporary file '$tempPasswordFilePath'. Error details: $($_.ToString())"
+            }
         }
         # Ensure VSS is cleaned up if an error occurs after VSS creation but before returning VSSPathsInUse
         if ($null -ne $VSSPathsInUse) {

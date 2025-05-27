@@ -129,7 +129,6 @@ function Invoke-PoShBackupJob {
             IsSimulateMode       = $IsSimulateMode.IsPresent
             Logger               = $Logger
             PSCmdlet             = $PSCmdlet
-            PSScriptRootForPaths = $PSScriptRootForPaths
             ActualConfigFile     = $ActualConfigFile
             JobReportDataRef     = $JobReportDataRef
         }
