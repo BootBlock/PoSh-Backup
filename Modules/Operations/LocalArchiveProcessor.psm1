@@ -33,9 +33,9 @@
 # $PSScriptRoot here is Modules\Operations.
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\7ZipManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\7ZipManager.psm1") -Force -ErrorAction Stop # UPDATED PATH
 } catch {
-    Write-Error "LocalArchiveProcessor.psm1 FATAL: Could not import dependent modules (Utils.psm1 or 7ZipManager.psm1). Error: $($_.Exception.Message)"
+    Write-Error "LocalArchiveProcessor.psm1 FATAL: Could not import dependent modules (Utils.psm1 or Managers\7ZipManager.psm1). Error: $($_.Exception.Message)" # Consider updating error message
     throw
 }
 

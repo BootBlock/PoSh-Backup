@@ -34,9 +34,9 @@
 #>
 
 # Explicitly import Utils.psm1 to ensure its functions are available, especially Get-ConfigValue.
-# $PSScriptRoot here refers to the directory of 7ZipManager.psm1 (Modules).
+# $PSScriptRoot here refers to the directory of 7ZipManager.psm1 (Modules\Managers). # UPDATED COMMENT
 try {
-    Import-Module -Name (Join-Path $PSScriptRoot "Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Utils.psm1") -Force -ErrorAction Stop # UPDATED PATH
 } catch {
     # If this fails, the module cannot function. Write-Error is appropriate.
     Write-Error "7ZipManager.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"

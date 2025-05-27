@@ -29,10 +29,10 @@
 # $PSScriptRoot here is Modules\ConfigManagement.
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\7ZipManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
     # PoShBackupValidator.psm1 is imported conditionally within Import-AppConfiguration
 } catch {
-    Write-Error "ConfigLoader.psm1 FATAL: Could not import dependent modules (Utils.psm1 or 7ZipManager.psm1). Error: $($_.Exception.Message)"
+    Write-Error "ConfigLoader.psm1 FATAL: Could not import dependent modules (Utils.psm1 or Managers\7ZipManager.psm1). Error: $($_.Exception.Message)"
     throw
 }
 

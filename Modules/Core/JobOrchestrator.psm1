@@ -30,7 +30,7 @@ try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
 
     # Other direct dependencies could be listed here if JobOrchestrator called them directly.
-    Import-Module -Name (Join-Path $PSScriptRoot "..\LogManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\LogManager.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "JobOrchestrator.psm1 FATAL: Could not import required Utils.psm1 module. Error: $($_.Exception.Message)"

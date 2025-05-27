@@ -54,10 +54,10 @@
 # $PSScriptRoot here refers to the directory of Operations.psm1 (Modules\Core).
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\PasswordManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\HookManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\VssManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\RetentionManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\PasswordManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\HookManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\VssManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\RetentionManager.psm1") -Force -ErrorAction Stop
     # Import sub-modules from Modules\Operations\
     Import-Module -Name (Join-Path $PSScriptRoot "..\Operations\LocalArchiveProcessor.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path $PSScriptRoot "..\Operations\RemoteTransferOrchestrator.psm1") -Force -ErrorAction Stop
