@@ -3,10 +3,12 @@
 .SYNOPSIS
     Handles the loading and merging of PoSh-Backup configuration files (Default.psd1, User.psd1),
     7-Zip path auto-detection, and basic structural validation including BackupTargets.
+    Now also handles the optional interactive creation of 'User.psd1'.
 .DESCRIPTION
     This module is a sub-component of the main ConfigManager module for PoSh-Backup.
     It is responsible for:
     - Loading the base configuration (Default.psd1).
+    - Optionally prompting the user to create 'User.psd1' if it doesn't exist and conditions are met.
     - Loading and merging the user-specific configuration (User.psd1) if it exists.
     - Handling a user-specified configuration file path.
     - Auto-detecting the 7-Zip executable path if not explicitly configured (delegates to 7ZipManager.psm1).
@@ -16,9 +18,9 @@
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.3 # Addressed PSSA warning for unused LoggerInternal and empty ReadKey catch.
     DateCreated:    24-May-2025
-    LastModified:   24-May-2025
+    LastModified:   27-May-2025
     Purpose:        To modularise configuration loading logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 and 7ZipManager.psm1 from the parent 'Modules' directory.
@@ -63,48 +65,124 @@ function Merge-DeepHashtable {
 }
 #endregion
 
+#region --- Private Helper Function: Invoke User.psd1 Creation ---
+# PSScriptAnalyzer Suppress PSUseApprovedVerbs[Invoke-UserConfigCreationPromptInternal] - Justification: Internal helper function, 'Invoke' reflects its orchestration of prompt & potential action.
+function Invoke-UserConfigCreationPromptInternal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DefaultUserConfigPathInternal,
+        [Parameter(Mandatory = $true)]
+        [string]$DefaultBaseConfigPathInternal,
+        [Parameter(Mandatory = $true)]
+        [string]$DefaultConfigDirInternal,
+        [Parameter(Mandatory = $true)]
+        [string]$DefaultUserConfigFileNameInternal,
+        [Parameter(Mandatory = $true)]
+        [string]$DefaultBaseConfigFileNameInternal,
+        [Parameter(Mandatory = $true)]
+        [bool]$SkipUserConfigCreationSwitchInternal,
+        [Parameter(Mandatory = $true)]
+        [bool]$IsTestConfigModeSwitchInternal,
+        [Parameter(Mandatory = $true)]
+        [bool]$IsSimulateModeSwitchInternal,
+        [Parameter(Mandatory = $true)]
+        [bool]$ListBackupLocationsSwitchInternal,
+        [Parameter(Mandatory = $true)]
+        [bool]$ListBackupSetsSwitchInternal,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$LoggerInternal,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$CliOverrideSettingsInternal # For PauseBehaviourCLI
+    )
+
+    $LocalWriteLogInternal = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
+            & $LoggerInternal -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $LoggerInternal -Message $Message -Level $Level
+        }
+    }
+    # Ensure LoggerInternal is used at least once for PSSA, this is the first executable line.
+    & $LocalWriteLogInternal -Message "ConfigLoader/Invoke-UserConfigCreationPromptInternal: Initializing." -Level "DEBUG"
+
+
+    if (-not (Test-Path -LiteralPath $DefaultUserConfigPathInternal -PathType Leaf)) {
+        if (Test-Path -LiteralPath $DefaultBaseConfigPathInternal -PathType Leaf) {
+            & $LocalWriteLogInternal -Message "[INFO] ConfigLoader: User configuration file ('$DefaultUserConfigPathInternal') not found." -Level "INFO"
+            if ($Host.Name -eq "ConsoleHost" -and `
+                -not $IsTestConfigModeSwitchInternal -and `
+                -not $IsSimulateModeSwitchInternal -and `
+                -not $ListBackupLocationsSwitchInternal -and `
+                -not $ListBackupSetsSwitchInternal -and `
+                -not $SkipUserConfigCreationSwitchInternal) {
+                $choiceTitle = "Create User Configuration?"
+                $choiceMessage = "The user-specific configuration file '$($DefaultUserConfigFileNameInternal)' was not found in '$($DefaultConfigDirInternal)'.`nIt is recommended to create this file as it allows you to customise settings without modifying`nthe default file, ensuring your settings are not overwritten by script upgrades.`n`nWould you like to create '$($DefaultUserConfigFileNameInternal)' now by copying the contents of '$($DefaultBaseConfigFileNameInternal)'?"
+                $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Create '$($DefaultUserConfigFileNameInternal)' from '$($DefaultBaseConfigFileNameInternal)'."
+                $no = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Do not create the file. The script will use '$($DefaultBaseConfigFileNameInternal)' only for this run."
+                $options = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
+                $decision = $Host.UI.PromptForChoice($choiceTitle, $choiceMessage, $options, 0)
+                if ($decision -eq 0) {
+                    try {
+                        Copy-Item -LiteralPath $DefaultBaseConfigPathInternal -Destination $DefaultUserConfigPathInternal -Force -ErrorAction Stop
+                        & $LocalWriteLogInternal -Message "[SUCCESS] ConfigLoader: '$DefaultUserConfigFileNameInternal' has been created from '$DefaultBaseConfigFileNameInternal' in '$DefaultConfigDirInternal'." -Level "SUCCESS"
+                        & $LocalWriteLogInternal -Message "          Please edit '$DefaultUserConfigFileNameInternal' with your desired settings and then re-run PoSh-Backup." -Level "INFO"
+                        & $LocalWriteLogInternal -Message "          Script will now exit." -Level "INFO"
+
+                        $_pauseBehaviorFromCliForExit = if ($CliOverrideSettingsInternal.PauseBehaviour) { $CliOverrideSettingsInternal.PauseBehaviour } else { "Always" }
+                        if ($_pauseBehaviorFromCliForExit -is [string] -and $_pauseBehaviorFromCliForExit.ToLowerInvariant() -ne "never" -and ($_pauseBehaviorFromCliForExit -isnot [bool] -or $_pauseBehaviorFromCliForExit -ne $false)) {
+                           if ($Host.Name -eq "ConsoleHost") {
+                               try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
+                               catch {
+                                   & $LocalWriteLogInternal -Message "ConfigLoader/Invoke-UserConfigCreationPromptInternal: Non-critical error during ReadKey for exit pause. Error: $($_.Exception.Message)" -Level "DEBUG"
+                               }
+                           }
+                        }
+                        exit 0 # Exit the entire script
+                    } catch {
+                        & $LocalWriteLogInternal -Message "[ERROR] ConfigLoader: Failed to copy '$DefaultBaseConfigPathInternal' to '$DefaultUserConfigPathInternal'. Error: $($_.Exception.Message)" -Level "ERROR"
+                        & $LocalWriteLogInternal -Message "          Please create '$DefaultUserConfigFileNameInternal' manually if desired. Script will continue with base configuration." -Level "WARNING"
+                    }
+                } else {
+                    & $LocalWriteLogInternal -Message "[INFO] ConfigLoader: User chose not to create '$DefaultUserConfigFileNameInternal'. '$DefaultBaseConfigFileNameInternal' will be used for this run." -Level "INFO"
+                }
+            } else {
+                 if ($SkipUserConfigCreationSwitchInternal) {
+                     & $LocalWriteLogInternal -Message "[INFO] ConfigLoader: Skipping User.psd1 creation prompt as -SkipUserConfigCreation was specified. '$DefaultBaseConfigFileNameInternal' will be used if '$DefaultUserConfigFileNameInternal' is not found." -Level "INFO"
+                 } elseif ($Host.Name -ne "ConsoleHost" -or $IsTestConfigModeSwitchInternal -or $IsSimulateModeSwitchInternal -or $ListBackupLocationsSwitchInternal -or $ListBackupSetsSwitchInternal) {
+                     & $LocalWriteLogInternal -Message "[INFO] ConfigLoader: Not prompting to create '$DefaultUserConfigFileNameInternal' (Non-interactive, TestConfig, Simulate, or List mode)." -Level "INFO"
+                 }
+                 & $LocalWriteLogInternal -Message "       If you wish to have user-specific overrides, please manually copy '$DefaultBaseConfigPathInternal' to '$DefaultUserConfigPathInternal' and edit it." -Level "INFO"
+            }
+        } else {
+            & $LocalWriteLogInternal -Message "[WARNING] ConfigLoader: Base configuration file ('$DefaultBaseConfigPathInternal') also not found. Cannot offer to create '$DefaultUserConfigPathInternal'." -Level "WARNING"
+        }
+    }
+    # If User.psd1 already exists, this function does nothing further.
+}
+#endregion
+
 #region --- Exported Configuration Loading and Validation Function ---
 function Import-AppConfiguration {
     [CmdletBinding()]
-    <#
-    .SYNOPSIS
-        Loads and validates the PoSh-Backup application configuration from .psd1 files.
-    .DESCRIPTION
-        This function is responsible for loading the PoSh-Backup configuration.
-        It first attempts to load the base configuration from 'Config\Default.psd1'.
-        Then, it checks for a 'Config\User.psd1' file and, if found, merges its settings over
-        the base configuration (user settings take precedence).
-        If a specific configuration file path is provided via -UserSpecifiedPath, only that file is loaded.
-
-        After loading, it performs basic validation (e.g., 7-Zip path, 'BackupTargets' structure)
-        and can optionally invoke advanced schema validation if 'EnableAdvancedSchemaValidation'
-        is set to $true in the loaded configuration and the 'PoShBackupValidator.psm1' module is available.
-        It also handles the auto-detection of the 7-Zip executable path if not explicitly set.
-    .PARAMETER UserSpecifiedPath
-        Optional. The full path to a specific .psd1 configuration file to load.
-        If provided, the default 'Config\Default.psd1' and 'Config\User.psd1' loading/merging logic is bypassed.
-    .PARAMETER IsTestConfigMode
-        Switch. Indicates if the script is running in -TestConfig mode. This affects some logging messages
-        and validation behaviours (e.g., more verbose feedback on schema validation status).
-    .PARAMETER MainScriptPSScriptRoot
-        The $PSScriptRoot of the main PoSh-Backup.ps1 script. Used to resolve relative paths
-        for default configuration files and modules.
-    .PARAMETER Logger
-        A mandatory scriptblock reference to the 'Write-LogMessage' function.
-        Used for all logging within this function and passed to other functions it calls if they require logging.
-    .EXAMPLE
-        # $configLoadResult = Import-AppConfiguration -MainScriptPSScriptRoot $PSScriptRoot -Logger ${function:Write-LogMessage}
-        # if ($configLoadResult.IsValid) { $Configuration = $configLoadResult.Configuration }
-    .OUTPUTS
-        System.Collections.Hashtable
-        Returns a hashtable with keys: IsValid, Configuration, ActualPath, ErrorMessage, UserConfigLoaded, UserConfigPath.
-    #>
     param (
         [string]$UserSpecifiedPath,
         [switch]$IsTestConfigMode,
         [string]$MainScriptPSScriptRoot,
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        # New parameters to pass CLI switch states
+        [Parameter(Mandatory = $false)]
+        [bool]$SkipUserConfigCreationSwitch = $false,
+        [Parameter(Mandatory = $false)]
+        [bool]$IsSimulateModeSwitch = $false,
+        [Parameter(Mandatory = $false)]
+        [bool]$ListBackupLocationsSwitch = $false,
+        [Parameter(Mandatory = $false)]
+        [bool]$ListBackupSetsSwitch = $false,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$CliOverrideSettings # For PauseBehaviourCLI needed by Invoke-UserConfigCreationPromptInternal
     )
 
     $LocalWriteLog = {
@@ -115,7 +193,6 @@ function Import-AppConfiguration {
             & $Logger -Message $Message -Level $Level
         }
     }
-    # PSSA: Logger parameter used via $LocalWriteLog
     & $LocalWriteLog -Message "ConfigLoader/Import-AppConfiguration: Logger active." -Level "DEBUG"
 
     $finalConfiguration = $null
@@ -146,6 +223,20 @@ function Import-AppConfiguration {
         }
     }
     else {
+        # Handle User.psd1 creation prompt before loading Default.psd1
+        Invoke-UserConfigCreationPromptInternal -DefaultUserConfigPathInternal $defaultUserConfigPath `
+                                                -DefaultBaseConfigPathInternal $defaultBaseConfigPath `
+                                                -DefaultConfigDirInternal $defaultConfigDir `
+                                                -DefaultUserConfigFileNameInternal $defaultUserConfigFileName `
+                                                -DefaultBaseConfigFileNameInternal $defaultBaseConfigFileName `
+                                                -SkipUserConfigCreationSwitchInternal $SkipUserConfigCreationSwitch `
+                                                -IsTestConfigModeSwitchInternal $IsTestConfigMode.IsPresent `
+                                                -IsSimulateModeSwitchInternal $IsSimulateModeSwitch `
+                                                -ListBackupLocationsSwitchInternal $ListBackupLocationsSwitch `
+                                                -ListBackupSetsSwitchInternal $ListBackupSetsSwitch `
+                                                -LoggerInternal $Logger `
+                                                -CliOverrideSettingsInternal $CliOverrideSettings
+
         $primaryConfigPathForReturn = $defaultBaseConfigPath
         & $LocalWriteLog -Message "`n[INFO] ConfigLoader: No -ConfigFile specified by user. Loading base configuration from: '$($defaultBaseConfigPath)'" -Level "INFO"
         if (-not (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf)) {
@@ -220,7 +311,16 @@ function Import-AppConfiguration {
             try {
                 Import-Module -Name (Join-Path -Path $MainScriptPSScriptRoot -ChildPath "Modules\PoShBackupValidator.psm1") -Force -ErrorAction Stop
                 & $LocalWriteLog -Message "  - ConfigLoader: PoShBackupValidator module loaded. Performing schema validation..." -Level "DEBUG"
-                Invoke-PoShBackupConfigValidation -ConfigurationToValidate $finalConfiguration -ValidationMessagesListRef ([ref]$validationMessages)
+                # Pass logger to Invoke-PoShBackupConfigValidation if it accepts it
+                $validatorParams = @{
+                    ConfigurationToValidate = $finalConfiguration
+                    ValidationMessagesListRef = ([ref]$validationMessages)
+                }
+                if ((Get-Command Invoke-PoShBackupConfigValidation).Parameters.ContainsKey('Logger')) {
+                    $validatorParams.Logger = $Logger
+                }
+                Invoke-PoShBackupConfigValidation @validatorParams
+
                 if ($IsTestConfigMode.IsPresent -and $validationMessages.Count -eq 0) {
                     & $LocalWriteLog -Message "[SUCCESS] ConfigLoader: Advanced schema validation completed (no schema errors found)." -Level "CONFIG_TEST"
                 }
@@ -270,8 +370,8 @@ function Import-AppConfiguration {
         else {
             & $LocalWriteLog -Message "[INFO] ConfigLoader: 'SevenZipPath' empty/not set. Attempting auto-detection..." -Level "INFO"
         }
-        
-        $foundPath = Find-SevenZipExecutable -Logger $Logger # Find-SevenZipExecutable is from 7ZipManager.psm1
+
+        $foundPath = Find-SevenZipExecutable -Logger $Logger
         if ($null -ne $foundPath) {
             $finalConfiguration.SevenZipPath = $foundPath
             $sevenZipPathSource = if ($initialPathIsEmpty) { "auto-detected (config was empty)" } else { "auto-detected (configured path was invalid)" }
@@ -319,8 +419,8 @@ function Import-AppConfiguration {
     }
 
     if (($null -eq $finalConfiguration.BackupLocations -or $finalConfiguration.BackupLocations.Count -eq 0) -and -not $IsTestConfigMode.IsPresent `
-            -and -not ($PSBoundParameters.ContainsKey('ListBackupLocations') -and $ListBackupLocations.IsPresent) `
-            -and -not ($PSBoundParameters.ContainsKey('ListBackupSets') -and $ListBackupSets.IsPresent) ) {
+            -and -not $ListBackupLocationsSwitch `
+            -and -not $ListBackupSetsSwitch ) {
         & $LocalWriteLog -Message "[WARNING] ConfigLoader: 'BackupLocations' empty. No jobs to run unless specified by -BackupLocationName." -Level "WARNING"
     }
     else {
@@ -413,5 +513,3 @@ function Import-AppConfiguration {
 #endregion
 
 Export-ModuleMember -Function Import-AppConfiguration, Merge-DeepHashtable
-# Merge-DeepHashtable is exported because it's a general utility, though primarily used internally here.
-# If it were strictly internal, it wouldn't need to be exported.

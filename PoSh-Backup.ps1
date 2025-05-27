@@ -4,7 +4,7 @@
     Features include VSS (Volume Shadow Copy), configurable retries, script execution hooks,
     multi-format reporting, backup sets, 7-Zip process priority control, extensive
     customisation via an external .psd1 configuration file, remote Backup Targets,
-    optional post-run system state actions (e.g., shutdown, restart), optional
+    optional post-run system actions (e.g., shutdown, restart), optional
     archive checksum generation and verification, optional Self-Extracting Archive (SFX) creation,
     optional 7-Zip CPU core affinity (with CLI override), optional verification of local
     archives before remote transfer, and configurable log file retention.
@@ -34,7 +34,7 @@
     - 7-Zip CPU Core Affinity: Optionally restrict 7-Zip to specific CPU cores, with validation
       and CLI override.
     - Verify Local Archive Before Transfer: Optionally test the local archive's integrity
-      (and checksum if enabled) *before* attempting any remote transfers. If verification fails,
+      (and checksum if enabled for the job) *before* attempting any remote transfers. If verification fails,
       remote transfers for that job are skipped.
     - Log File Retention (New): Configurable retention count for generated log files (global, per-job,
       per-set, or CLI override) to prevent indefinite growth of the Logs directory.
@@ -141,7 +141,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.13.0 # Added LogRetentionCountCLI parameter and log retention feature.
+    Version:        1.13.1 # User.psd1 creation prompt moved to ConfigLoader.psm1.
     Date:           27-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -192,7 +192,7 @@ param (
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Number of log files to keep per job name pattern. 0 for infinite. Overrides all config.")]
     [ValidateRange(0, [int]::MaxValue)]
-    [int]$LogRetentionCountCLI, # NEW
+    [int]$LogRetentionCountCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Load and validate the entire configuration file, prints summary, then exit. Post-run actions simulated.")]
     [switch]$TestConfig,
@@ -215,20 +215,20 @@ param (
     [string]$PostRunActionCli,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Delay in seconds for PostRunActionCli. Default 0.")]
-    [int]$PostRunActionDelaySecondsCli = 0, 
+    [int]$PostRunActionDelaySecondsCli = 0,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Force PostRunActionCli (Shutdown/Restart).")]
     [switch]$PostRunActionForceCli,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Status(es) to trigger PostRunActionCli. Default 'ANY'. Valid: SUCCESS, WARNINGS, FAILURE, SIMULATED_COMPLETE, ANY.")]
     [ValidateSet("SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY", IgnoreCase=$true)]
-    [string[]]$PostRunActionTriggerOnStatusCli = @("ANY") 
+    [string[]]$PostRunActionTriggerOnStatusCli = @("ANY")
 )
 #endregion
 
 #region --- Initial Script Setup & Module Import ---
 $ScriptStartTime                            = Get-Date
-$IsSimulateMode                             = $Simulate.IsPresent
+$IsSimulateMode                             = $Simulate.IsPresent # This is a bool
 
 $cliOverrideSettings = @{
     UseVSS                             = if ($PSBoundParameters.ContainsKey('UseVSS')) { $UseVSS.IsPresent } else { $null }
@@ -238,8 +238,8 @@ $cliOverrideSettings = @{
     GenerateHtmlReport                 = if ($PSBoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $GenerateHtmlReportCLI.IsPresent } else { $null }
     TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
     SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
-    SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null } 
-    LogRetentionCountCLI               = if ($PSBoundParameters.ContainsKey('LogRetentionCountCLI')) { $LogRetentionCountCLI } else { $null } # NEW
+    SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null }
+    LogRetentionCountCLI               = if ($PSBoundParameters.ContainsKey('LogRetentionCountCLI')) { $LogRetentionCountCLI } else { $null }
     PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
     PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
     PostRunActionDelaySecondsCli       = if ($PSBoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $PostRunActionDelaySecondsCli } else { $null }
@@ -290,7 +290,7 @@ try {
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
     exit 10
 }
-$LoggerScriptBlock = ${function:Write-LogMessage} 
+$LoggerScriptBlock = ${function:Write-LogMessage}
 
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
@@ -315,80 +315,35 @@ try {
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.13.0 (Added LogRetentionCountCLI parameter and log retention feature)" -Level "HEADING" # Updated Version
-if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
+& $LoggerScriptBlock -Message " Script Version: v1.13.1 (User.psd1 creation prompt moved to ConfigLoader.psm1)" -Level "HEADING"
+if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" } # $IsSimulateMode is already a bool
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupSets.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP SETS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($SkipUserConfigCreation.IsPresent) { & $LoggerScriptBlock -Message " ***** SKIP USER CONFIG CREATION ACTIVE ***** " -Level "INFO" }
 if ($cliOverrideSettings.TreatSevenZipWarningsAsSuccess -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Treating 7-Zip warnings as success. ***** " -Level "INFO" }
-if ($cliOverrideSettings.SevenZipCpuAffinity) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip CPU Affinity specified: $($cliOverrideSettings.SevenZipCpuAffinity) ***** " -Level "INFO" } 
+if ($cliOverrideSettings.SevenZipCpuAffinity) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip CPU Affinity specified: $($cliOverrideSettings.SevenZipCpuAffinity) ***** " -Level "INFO" }
 if ($cliOverrideSettings.VerifyLocalArchiveBeforeTransferCLI -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Verify Local Archive Before Transfer ENABLED. ***** " -Level "INFO" }
-if ($null -ne $cliOverrideSettings.LogRetentionCountCLI) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Log Retention Count specified: $($cliOverrideSettings.LogRetentionCountCLI) ***** " -Level "INFO" } # NEW
+if ($null -ne $cliOverrideSettings.LogRetentionCountCLI) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Log Retention Count specified: $($cliOverrideSettings.LogRetentionCountCLI) ***** " -Level "INFO" }
 if ($cliOverrideSettings.PostRunActionCli) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Post-Run Action specified: $($cliOverrideSettings.PostRunActionCli) ***** " -Level "INFO" }
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 #endregion
 
 #region --- Configuration Loading, Validation & Job Determination ---
 
-$defaultConfigDir = Join-Path -Path $PSScriptRoot -ChildPath "Config"
-$defaultBaseConfigFileName = "Default.psd1"
-$defaultUserConfigFileName = "User.psd1"
-$defaultBaseConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultBaseConfigFileName
-$defaultUserConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultUserConfigFileName
-
-if (-not $PSBoundParameters.ContainsKey('ConfigFile')) {
-    if (-not (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf)) {
-        if (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf) {
-            & $LoggerScriptBlock -Message "[INFO] User configuration file ('$defaultUserConfigPath') not found." -Level "INFO"
-            if ($Host.Name -eq "ConsoleHost" -and `
-                -not $TestConfig.IsPresent -and `
-                -not $IsSimulateMode -and `
-                -not $ListBackupLocations.IsPresent -and `
-                -not $ListBackupSets.IsPresent -and `
-                -not $SkipUserConfigCreation.IsPresent) {
-                $choiceTitle = "Create User Configuration?"
-                $choiceMessage = "The user-specific configuration file '$($defaultUserConfigFileName)' was not found in '$($defaultConfigDir)'.`nIt is recommended to create this file as it allows you to customise settings without modifying`nthe default file, ensuring your settings are not overwritten by script upgrades.`n`nWould you like to create '$($defaultUserConfigFileName)' now by copying the contents of '$($defaultBaseConfigFileName)'?"
-                $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Create '$($defaultUserConfigFileName)' from '$($defaultBaseConfigFileName)'."
-                $no = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Do not create the file. The script will use '$($defaultBaseConfigFileName)' only for this run."
-                $options = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
-                $decision = $Host.UI.PromptForChoice($choiceTitle, $choiceMessage, $options, 0)
-                if ($decision -eq 0) {
-                    try {
-                        Copy-Item -LiteralPath $defaultBaseConfigPath -Destination $defaultUserConfigPath -Force -ErrorAction Stop
-                        & $LoggerScriptBlock -Message "[SUCCESS] '$defaultUserConfigFileName' has been created from '$defaultBaseConfigFileName' in '$defaultConfigDir'." -Level "SUCCESS"
-                        & $LoggerScriptBlock -Message "          Please edit '$defaultUserConfigFileName' with your desired settings and then re-run PoSh-Backup." -Level "INFO"
-                        & $LoggerScriptBlock -Message "          Script will now exit." -Level "INFO"
-                        $_pauseBehaviorFromCli = if ($cliOverrideSettings.PauseBehaviour) { $cliOverrideSettings.PauseBehaviour } else { "Always" }
-                        if ($_pauseBehaviorFromCli -is [string] -and $_pauseBehaviorFromCli.ToLowerInvariant() -ne "never" -and ($_pauseBehaviorFromCli -isnot [bool] -or $_pauseBehaviorFromCli -ne $false)) {
-                           if ($Host.Name -eq "ConsoleHost") { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
-                        }
-                        exit 0
-                    } catch {
-                        & $LoggerScriptBlock -Message "[ERROR] Failed to copy '$defaultBaseConfigPath' to '$defaultUserConfigPath'. Error: $($_.Exception.Message)" -Level "ERROR"
-                        & $LoggerScriptBlock -Message "          Please create '$defaultUserConfigFileName' manually if desired. Script will continue with base configuration." -Level "WARNING"
-                    }
-                } else {
-                    & $LoggerScriptBlock -Message "[INFO] User chose not to create '$defaultUserConfigFileName'. '$defaultBaseConfigFileName' will be used for this run." -Level "INFO"
-                }
-            } else {
-                 if ($SkipUserConfigCreation.IsPresent) {
-                     & $LoggerScriptBlock -Message "[INFO] Skipping User.psd1 creation prompt as -SkipUserConfigCreation was specified. '$defaultBaseConfigFileName' will be used if '$defaultUserConfigFileName' is not found." -Level "INFO"
-                 } elseif ($Host.Name -ne "ConsoleHost" -or $TestConfig.IsPresent -or $IsSimulateMode -or $ListBackupLocations.IsPresent -or $ListBackupSets.IsPresent) {
-                     & $LoggerScriptBlock -Message "[INFO] Not prompting to create '$defaultUserConfigFileName' (Non-interactive, TestConfig, Simulate, or List mode)." -Level "INFO"
-                 }
-                 & $LoggerScriptBlock -Message "       If you wish to have user-specific overrides, please manually copy '$defaultBaseConfigPath' to '$defaultUserConfigPath' and edit it." -Level "INFO"
-            }
-        } else {
-            & $LoggerScriptBlock -Message "[WARNING] Base configuration file ('$defaultBaseConfigPath') also not found. Cannot offer to create '$defaultUserConfigPath'." -Level "WARNING"
-        }
-    }
+$configLoadParams = @{
+    UserSpecifiedPath           = $ConfigFile
+    IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) # Ensure this evaluates to a single boolean
+    MainScriptPSScriptRoot      = $PSScriptRoot
+    Logger                      = $LoggerScriptBlock
+    SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent # Explicit cast
+    IsSimulateModeSwitch        = [bool]$Simulate.IsPresent # Explicit cast ($IsSimulateMode already holds this)
+    ListBackupLocationsSwitch   = [bool]$ListBackupLocations.IsPresent # Explicit cast
+    ListBackupSetsSwitch        = [bool]$ListBackupSets.IsPresent # Explicit cast
+    CliOverrideSettings         = $cliOverrideSettings
 }
+$configResult = Import-AppConfiguration @configLoadParams
 
-$configResult = Import-AppConfiguration -UserSpecifiedPath $ConfigFile `
-                                         -IsTestConfigMode:(($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent)) `
-                                         -MainScriptPSScriptRoot $PSScriptRoot `
-                                         -Logger $LoggerScriptBlock
 if (-not $configResult.IsValid) {
     & $LoggerScriptBlock -Message "FATAL: Configuration loading or validation failed. Exiting." -Level "ERROR"
     exit 1
@@ -475,9 +430,9 @@ $setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
 #endregion
 
 #region --- Main Processing (Delegated to JobOrchestrator.psm1) ---
-$overallSetStatus = "SUCCESS" 
+$overallSetStatus = "SUCCESS"
 $finalPostRunActionToConsider = $null
-$actionSourceForLog = "None" 
+$actionSourceForLog = "None"
 
 if ($jobsToProcess.Count -gt 0) {
     $runParams = @{
@@ -488,7 +443,7 @@ if ($jobsToProcess.Count -gt 0) {
         Configuration            = $Configuration
         PSScriptRootForPaths     = $PSScriptRoot
         ActualConfigFile         = $ActualConfigFile
-        IsSimulateMode           = $IsSimulateMode
+        IsSimulateMode           = $IsSimulateMode # Pass the boolean $IsSimulateMode
         Logger                   = $LoggerScriptBlock
         PSCmdlet                 = $PSCmdlet
         CliOverrideSettings      = $cliOverrideSettings
@@ -517,7 +472,7 @@ if ($jobsToProcess.Count -gt 0) {
         $actionSourceForLog = "Backup Set '$currentSetName'"
     } elseif ($null -ne $orchestratorResult.JobSpecificPostRunActionForNonSet) {
         $finalPostRunActionToConsider = $orchestratorResult.JobSpecificPostRunActionForNonSet
-        $actionSourceForLog = "Job '$($jobsToProcess[0])'" 
+        $actionSourceForLog = "Job '$($jobsToProcess[0])'"
     } else {
         $globalDefaultsPRA = Utils\Get-ConfigValue -ConfigObject $Configuration -Key 'PostRunActionDefaults' -DefaultValue @{}
         if ($null -ne $globalDefaultsPRA -and $globalDefaultsPRA.ContainsKey('Enabled') -and $globalDefaultsPRA.Enabled) {
@@ -525,7 +480,7 @@ if ($jobsToProcess.Count -gt 0) {
             $actionSourceForLog = "Global Defaults"
         }
     }
-} else { 
+} else {
     & $LoggerScriptBlock -Message "[INFO] No jobs were processed." -Level "INFO"
     if ($null -ne $cliOverrideSettings.PostRunActionCli) {
         $finalPostRunActionToConsider = @{
@@ -615,7 +570,7 @@ if ($null -ne $finalPostRunActionToConsider -and `
     if ($TestConfig.IsPresent) { $effectiveOverallStatusForTrigger = "SIMULATED_COMPLETE" }
 
     if ($triggerStatuses -contains "ANY" -or $effectiveOverallStatusForTrigger -in $triggerStatuses) {
-        if (-not [string]::IsNullOrWhiteSpace($actionSourceForLog) -and $actionSourceForLog -ne "None") { 
+        if (-not [string]::IsNullOrWhiteSpace($actionSourceForLog) -and $actionSourceForLog -ne "None") {
             & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Using settings from $($actionSourceForLog)." -Level "INFO"
         }
         & $LoggerScriptBlock -Message "[INFO] Post-Run Action: Conditions met for action '$($finalPostRunActionToConsider.Action)' (Triggered by Status: $effectiveOverallStatusForTrigger)." -Level "INFO"
@@ -624,7 +579,7 @@ if ($null -ne $finalPostRunActionToConsider -and `
             Action          = $finalPostRunActionToConsider.Action
             DelaySeconds    = $finalPostRunActionToConsider.DelaySeconds
             ForceAction     = $finalPostRunActionToConsider.ForceAction
-            IsSimulateMode  = ($IsSimulateMode.IsPresent -or $TestConfig.IsPresent)
+            IsSimulateMode  = ($IsSimulateMode.IsPresent -or $TestConfig.IsPresent) # Pass boolean
             Logger          = $LoggerScriptBlock
             PSCmdletInstance = $PSCmdlet
         }
