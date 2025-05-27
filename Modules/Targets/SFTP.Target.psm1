@@ -4,6 +4,7 @@
     PoSh-Backup Target Provider for SFTP (SSH File Transfer Protocol).
     Handles transferring backup archives to SFTP servers, managing remote retention,
     and supporting various authentication methods via Posh-SSH and PowerShell SecretManagement.
+    Now includes a function for validating its specific TargetSpecificSettings and RemoteRetentionSettings.
 
 .DESCRIPTION
     This module implements the PoSh-Backup target provider interface for SFTP destinations.
@@ -24,11 +25,15 @@
     - Supports simulation mode for all SFTP operations.
     - Returns a detailed status hashtable.
 
+    A new function, 'Invoke-PoShBackupSFTPTargetSettingsValidation', is now included to validate
+    the 'TargetSpecificSettings' and 'RemoteRetentionSettings' specific to this SFTP provider.
+    This function is intended to be called by the PoShBackupValidator module.
+
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.3 # Added PSSA suppressions for ConvertTo-SecureString.
+    Version:        1.0.5 # Invoke-PoShBackupSFTPTargetSettingsValidation now also validates RemoteRetentionSettings.
     DateCreated:    22-May-2025
-    LastModified:   24-May-2025
+    LastModified:   27-May-2025
     Purpose:        SFTP Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The 'Posh-SSH' module must be installed (Install-Module Posh-SSH).
@@ -99,46 +104,74 @@ function Get-SecretFromVaultInternal-Sftp {
 }
 #endregion
 
+#region --- SFTP Target Settings Validation Function ---
+function Invoke-PoShBackupSFTPTargetSettingsValidation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$TargetSpecificSettings,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetInstanceName,
+        [Parameter(Mandatory = $true)]
+        [ref]$ValidationMessagesListRef, # Expects a [System.Collections.Generic.List[string]]
+        [Parameter(Mandatory = $false)]
+        [hashtable]$RemoteRetentionSettings, # Added to validate retention settings
+        [Parameter(Mandatory = $false)]
+        [scriptblock]$Logger
+    )
+
+    if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
+        & $Logger -Message "SFTP.Target/Invoke-PoShBackupSFTPTargetSettingsValidation: Validating settings for SFTP Target '$TargetInstanceName'." -Level "DEBUG"
+    }
+
+    $fullPathToSettings = "Configuration.BackupTargets.$TargetInstanceName.TargetSpecificSettings"
+    $fullPathToRetentionSettings = "Configuration.BackupTargets.$TargetInstanceName.RemoteRetentionSettings"
+
+    if (-not ($TargetSpecificSettings -is [hashtable])) {
+        $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'TargetSpecificSettings' must be a Hashtable, but found type '$($TargetSpecificSettings.GetType().Name)'. Path: '$fullPathToSettings'.")
+        return # Cannot proceed if the main settings block is not a hashtable
+    }
+
+    foreach ($sftpKey in @('SFTPServerAddress', 'SFTPRemotePath', 'SFTPUserName')) {
+        if (-not $TargetSpecificSettings.ContainsKey($sftpKey) -or -not ($TargetSpecificSettings.$sftpKey -is [string]) -or [string]::IsNullOrWhiteSpace($TargetSpecificSettings.$sftpKey)) {
+            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': '$sftpKey' in 'TargetSpecificSettings' is missing, not a string, or empty. Path: '$fullPathToSettings.$sftpKey'.")
+        }
+    }
+
+    if ($TargetSpecificSettings.ContainsKey('SFTPPort') -and -not ($TargetSpecificSettings.SFTPPort -is [int] -and $TargetSpecificSettings.SFTPPort -gt 0 -and $TargetSpecificSettings.SFTPPort -le 65535)) {
+        $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'SFTPPort' in 'TargetSpecificSettings' must be an integer between 1 and 65535 if defined. Path: '$fullPathToSettings.SFTPPort'.")
+    }
+
+    foreach ($sftpOptionalStringKey in @('SFTPPasswordSecretName', 'SFTPKeyFileSecretName', 'SFTPKeyFilePassphraseSecretName')) {
+        if ($TargetSpecificSettings.ContainsKey($sftpOptionalStringKey) -and (-not ($TargetSpecificSettings.$sftpOptionalStringKey -is [string]) -or [string]::IsNullOrWhiteSpace($TargetSpecificSettings.$sftpOptionalStringKey)) ) {
+            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': '$sftpOptionalStringKey' in 'TargetSpecificSettings' must be a non-empty string if defined. Path: '$fullPathToSettings.$sftpOptionalStringKey'.")
+        }
+    }
+
+    foreach ($sftpOptionalBoolKey in @('CreateJobNameSubdirectory', 'SkipHostKeyCheck')) {
+        if ($TargetSpecificSettings.ContainsKey($sftpOptionalBoolKey) -and -not ($TargetSpecificSettings.$sftpOptionalBoolKey -is [boolean])) {
+            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': '$sftpOptionalBoolKey' in 'TargetSpecificSettings' must be a boolean (`$true` or `$false`) if defined. Path: '$fullPathToSettings.$sftpOptionalBoolKey'.")
+        }
+    }
+
+    # Validate RemoteRetentionSettings for SFTP
+    if ($PSBoundParameters.ContainsKey('RemoteRetentionSettings') -and ($null -ne $RemoteRetentionSettings)) {
+        if (-not ($RemoteRetentionSettings -is [hashtable])) {
+            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'RemoteRetentionSettings' must be a Hashtable if defined. Path: '$fullPathToRetentionSettings'.")
+        }
+        elseif ($RemoteRetentionSettings.ContainsKey('KeepCount')) {
+            if (-not ($RemoteRetentionSettings.KeepCount -is [int]) -or $RemoteRetentionSettings.KeepCount -le 0) {
+                $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'RemoteRetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$fullPathToRetentionSettings.KeepCount'.")
+            }
+        }
+        # Add checks for other RemoteRetentionSettings keys if they are introduced for SFTP
+    }
+}
+#endregion
+
 #region --- SFTP Target Transfer Function ---
 function Invoke-PoShBackupTargetTransfer {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
-    <#
-    .SYNOPSIS
-        Transfers a local backup archive to an SFTP server and manages remote retention.
-    .DESCRIPTION
-        This is the main exported function for the SFTP target provider. It handles the connection,
-        authentication, directory creation, file upload, and remote retention for SFTP targets.
-        It relies on the Posh-SSH module.
-    .PARAMETER LocalArchivePath
-        The full path to the local backup archive file that needs to be transferred.
-    .PARAMETER TargetInstanceConfiguration
-        A hashtable containing the full configuration for this specific SFTP target instance.
-    .PARAMETER JobName
-        The name of the overall backup job being processed.
-    .PARAMETER ArchiveFileName
-        The filename (leaf part) of the archive being transferred.
-    .PARAMETER ArchiveBaseName
-        The base name of the archive, without the date stamp or extension.
-    .PARAMETER ArchiveExtension
-        The extension of the archive file, including the dot.
-    .PARAMETER IsSimulateMode
-        A switch. If $true, SFTP operations are simulated.
-    .PARAMETER Logger
-        A mandatory scriptblock reference to the 'Write-LogMessage' function.
-    .PARAMETER EffectiveJobConfig
-        The fully resolved effective configuration for the current PoSh-Backup job.
-    .PARAMETER LocalArchiveSizeBytes
-        The size of the local archive in bytes.
-    .PARAMETER LocalArchiveCreationTimestamp
-        The creation timestamp of the local archive.
-    .PARAMETER PasswordInUse
-        A boolean indicating if the local archive was password protected.
-    .PARAMETER PSCmdlet
-        The automatic $PSCmdlet variable from the calling scope, for ShouldProcess.
-    .OUTPUTS
-        System.Collections.Hashtable
-        Returns a hashtable with standard target provider output keys.
-    #>
     param(
         [Parameter(Mandatory = $true)]
         [string]$LocalArchivePath,
@@ -270,17 +303,14 @@ function Invoke-PoShBackupTargetTransfer {
             }
             $sessionParams.KeyFile = $sftpKeyFilePathOnLocalMachine
             if (-not [string]::IsNullOrWhiteSpace($sftpKeyPassphrase)) {
-                # Posh-SSH requires SecureString for passphrase. Password retrieved from SecretManagement might be plain text.
-                # This conversion is necessary for Posh-SSH compatibility.
                 # PSScriptAnalyzer Suppress PSAvoidUsingConvertToSecureStringWithPlainText - Justification: Posh-SSH cmdlet requires SecureString. Password/passphrase is from secure storage (SecretManagement) and only briefly in memory as SecureString.
-                $securePassphrase = ConvertTo-SecureString -String $sftpKeyPassphrase -AsPlainText -Force 
+                $securePassphrase = ConvertTo-SecureString -String $sftpKeyPassphrase -AsPlainText -Force
                 $sessionParams.KeyPassphrase = $securePassphrase
             }
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': Attempting key-based authentication." -f $targetNameForLog) -Level "INFO"
         } elseif (-not [string]::IsNullOrWhiteSpace($sftpPassword)) {
-            # Posh-SSH requires SecureString for password.
             # PSScriptAnalyzer Suppress PSAvoidUsingConvertToSecureStringWithPlainText - Justification: Posh-SSH cmdlet requires SecureString. Password is from secure storage (SecretManagement) and only briefly in memory as SecureString.
-            $securePassword = ConvertTo-SecureString -String $sftpPassword -AsPlainText -Force 
+            $securePassword = ConvertTo-SecureString -String $sftpPassword -AsPlainText -Force
             $sessionParams.Password = $securePassword
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': Attempting password-based authentication." -f $targetNameForLog) -Level "INFO"
         } else {
@@ -310,10 +340,10 @@ function Invoke-PoShBackupTargetTransfer {
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and `
             $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -is [int] -and `
             $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
-            
+
             $remoteKeepCount = $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': Applying remote retention (KeepCount: {1}) in '{2}'." -f $targetNameForLog, $remoteKeepCount, $remoteFinalDirectory) -Level "INFO"
-            
+
             $literalBaseNameForRemote = $ArchiveBaseName
             $remoteFilePattern = "$($literalBaseNameForRemote)*$($ArchiveExtension)"
 
@@ -367,4 +397,4 @@ function Invoke-PoShBackupTargetTransfer {
 }
 #endregion
 
-Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer
+Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupSFTPTargetSettingsValidation

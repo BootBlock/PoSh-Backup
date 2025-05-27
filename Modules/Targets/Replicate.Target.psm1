@@ -1,8 +1,10 @@
+# Modules\Targets\Replicate.Target.psm1
 <#
 .SYNOPSIS
     PoSh-Backup Target Provider for replicating a backup archive to multiple destinations.
     Each destination can be a local path or a UNC path and can have its own
     subdirectory creation and retention settings.
+    Now includes a function for validating its specific TargetSpecificSettings.
 
 .DESCRIPTION
     This module implements the PoSh-Backup target provider interface for replicating
@@ -23,11 +25,15 @@
         to succeed. Detailed information about each individual replication attempt is also
         returned for comprehensive reporting.
 
+    A new function, 'Invoke-PoShBackupReplicateTargetSettingsValidation', is now included to validate
+    the 'TargetSpecificSettings' specific to this Replicate provider. This function is intended to be
+    called by the PoShBackupValidator module.
+
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1
+    Version:        1.0.2 # Added Invoke-PoShBackupReplicateTargetSettingsValidation function.
     DateCreated:    19-May-2025
-    LastModified:   19-May-2025
+    LastModified:   27-May-2025
     Purpose:        Replicate Target Provider for PoSh-Backup, allowing one-to-many archive distribution.
     Prerequisites:  PowerShell 5.1+.
                     The user/account running PoSh-Backup must have appropriate permissions
@@ -48,61 +54,70 @@ function Format-BytesInternal-Replicate {
 }
 #endregion
 
+#region --- Replicate Target Settings Validation Function ---
+function Invoke-PoShBackupReplicateTargetSettingsValidation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [array]$TargetSpecificSettings, # For Replicate, this is an array of destination configs
+        [Parameter(Mandatory = $true)]
+        [string]$TargetInstanceName,
+        [Parameter(Mandatory = $true)]
+        [ref]$ValidationMessagesListRef, # Expects a [System.Collections.Generic.List[string]]
+        [Parameter(Mandatory = $false)] # Optional logger, if needed for complex validation logging
+        [scriptblock]$Logger
+    )
+
+    # PSSA: Logger parameter used if provided
+    if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
+        & $Logger -Message "Replicate.Target/Invoke-PoShBackupReplicateTargetSettingsValidation: Validating settings for Replicate Target '$TargetInstanceName'." -Level "DEBUG"
+    }
+
+    $fullPathToSettings = "Configuration.BackupTargets.$TargetInstanceName.TargetSpecificSettings"
+
+    if (-not ($TargetSpecificSettings -is [array])) {
+        $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': 'TargetSpecificSettings' must be an Array of destination configurations, but found type '$($TargetSpecificSettings.GetType().Name)'. Path: '$fullPathToSettings'.")
+        return # Cannot proceed if not an array
+    }
+    if ($TargetSpecificSettings.Count -eq 0) {
+        $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': 'TargetSpecificSettings' array is empty. At least one destination configuration is required. Path: '$fullPathToSettings'.")
+    }
+
+    for ($i = 0; $i -lt $TargetSpecificSettings.Count; $i++) {
+        $destConfig = $TargetSpecificSettings[$i]
+        $destConfigPath = "$fullPathToSettings[$i]"
+
+        if (-not ($destConfig -is [hashtable])) {
+            $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': Item at index $i in 'TargetSpecificSettings' is not a Hashtable. Path: '$destConfigPath'.")
+            continue # Skip to next item in the array
+        }
+
+        if (-not $destConfig.ContainsKey('Path') -or -not ($destConfig.Path -is [string]) -or [string]::IsNullOrWhiteSpace($destConfig.Path)) {
+            $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': Destination at index $i is missing 'Path', or it's not a non-empty string. Path: '$destConfigPath.Path'.")
+        }
+
+        if ($destConfig.ContainsKey('CreateJobNameSubdirectory') -and -not ($destConfig.CreateJobNameSubdirectory -is [boolean])) {
+            $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': Destination at index $i 'CreateJobNameSubdirectory' must be a boolean (`$true` or `$false`) if defined. Path: '$destConfigPath.CreateJobNameSubdirectory'.")
+        }
+
+        if ($destConfig.ContainsKey('RetentionSettings')) {
+            if (-not ($destConfig.RetentionSettings -is [hashtable])) {
+                $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': Destination at index $i 'RetentionSettings' must be a Hashtable if defined. Path: '$destConfigPath.RetentionSettings'.")
+            }
+            elseif ($destConfig.RetentionSettings.ContainsKey('KeepCount')) {
+                if (-not ($destConfig.RetentionSettings.KeepCount -is [int]) -or $destConfig.RetentionSettings.KeepCount -le 0) {
+                    $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': Destination at index $i 'RetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$destConfigPath.RetentionSettings.KeepCount'.")
+                }
+            }
+            # Add checks for other RetentionSettings keys if they are introduced
+        }
+    }
+}
+#endregion
+
 #region --- Replicate Target Transfer Function ---
 function Invoke-PoShBackupTargetTransfer {
     [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')]
-    <#
-    .SYNOPSIS
-        Replicates a local backup archive to multiple configured destination paths (local or UNC)
-        and manages retention individually for each destination.
-    .DESCRIPTION
-        This is the main exported function for the "Replicate" target provider.
-        It iterates through a list of destination configurations provided in 'TargetSpecificSettings'.
-        For each destination, it copies the local archive and applies any specified retention policy.
-        The overall operation is successful only if all individual replications succeed.
-    .PARAMETER LocalArchivePath
-        The full path to the local backup archive file that needs to be replicated.
-    .PARAMETER TargetInstanceConfiguration
-        A hashtable containing the configuration for this "Replicate" target instance.
-        'TargetSpecificSettings' within this hashtable is expected to be an array, where
-        each element is a hashtable defining a single destination:
-        - 'Path' (string, mandatory): The local or UNC path for this destination.
-        - 'CreateJobNameSubdirectory' (boolean, optional, default $false): If $true, a subdirectory
-          named after the 'JobName' is created under 'Path'.
-        - 'RetentionSettings' (hashtable, optional): Retention rules for this specific 'Path'.
-          Currently supports 'KeepCount' (int).
-        - '_TargetInstanceName_' (string, added by ConfigManager for logging).
-    .PARAMETER JobName
-        The name of the overall backup job being processed.
-    .PARAMETER ArchiveFileName
-        The filename (leaf part) of the archive being replicated.
-    .PARAMETER ArchiveBaseName
-        The base name of the archive, without the date stamp or extension.
-    .PARAMETER ArchiveExtension
-        The extension of the archive file, including the dot.
-    .PARAMETER IsSimulateMode
-        A switch. If $true, replication and deletion operations are simulated.
-    .PARAMETER Logger
-        A mandatory scriptblock reference to the 'Write-LogMessage' function.
-    .PARAMETER EffectiveJobConfig
-        The fully resolved effective configuration for the current PoSh-Backup job.
-    .PARAMETER LocalArchiveSizeBytes
-        The size of the local archive in bytes.
-    .PARAMETER LocalArchiveCreationTimestamp
-        The creation timestamp of the local archive.
-    .PARAMETER PasswordInUse
-        A boolean indicating if the local archive was password protected.
-    .OUTPUTS
-        System.Collections.Hashtable
-        Returns a hashtable with:
-        - Success (boolean): $true if ALL replications (and their retentions) were successful.
-        - RemotePath (string): A summary string, e.g., "Replicated to X locations (see details)".
-        - ErrorMessage (string): Consolidated error message if any replication failed.
-        - TransferSize (long): Size of the source local archive in bytes.
-        - TransferDuration (System.TimeSpan): Total duration for all replication operations.
-        - ReplicationDetails (System.Array): An array of hashtables, each detailing the outcome
-          for one specific destination path (Path, Status, Error, Size, Duration).
-    #>
     param(
         [Parameter(Mandatory=$true)]
         [string]$LocalArchivePath,
@@ -121,13 +136,15 @@ function Invoke-PoShBackupTargetTransfer {
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory=$true)]
-        [hashtable]$EffectiveJobConfig, 
+        [hashtable]$EffectiveJobConfig,
         [Parameter(Mandatory=$true)]
         [long]$LocalArchiveSizeBytes,
         [Parameter(Mandatory=$true)]
         [datetime]$LocalArchiveCreationTimestamp,
         [Parameter(Mandatory=$true)]
-        [bool]$PasswordInUse
+        [bool]$PasswordInUse,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet # Added for ShouldProcess
     )
 
     # Defensive PSSA appeasement line: Directly use the $Logger parameter once.
@@ -142,7 +159,7 @@ function Invoke-PoShBackupTargetTransfer {
             & $Logger -Message $Message -Level $Level
         }
     }
-    
+
     # PSSA: Logger parameter used via $LocalWriteLog
     & $LocalWriteLog -Message "Replicate.Target/Invoke-PoShBackupTargetTransfer: Logger active for Job '$JobName', Target '$($TargetInstanceConfiguration._TargetInstanceName_)'." -Level "DEBUG"
 
@@ -157,7 +174,7 @@ function Invoke-PoShBackupTargetTransfer {
 
 
     $overallStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $allReplicationsSucceeded = $true 
+    $allReplicationsSucceeded = $true
     $aggregatedErrorMessages = [System.Collections.Generic.List[string]]::new()
     $replicationDetailsList = [System.Collections.Generic.List[hashtable]]::new()
     $firstSuccessfulRemotePath = $null
@@ -170,9 +187,9 @@ function Invoke-PoShBackupTargetTransfer {
             Success          = $false
             RemotePath       = "Configuration Error"
             ErrorMessage     = $errorMessageText
-            TransferSize     = $LocalArchiveSizeBytes 
+            TransferSize     = $LocalArchiveSizeBytes
             TransferDuration = $overallStopwatch.Elapsed
-            ReplicationDetails = $replicationDetailsList 
+            ReplicationDetails = $replicationDetailsList
         }
     }
     $destinationConfigs = $TargetInstanceConfiguration.TargetSpecificSettings
@@ -194,7 +211,7 @@ function Invoke-PoShBackupTargetTransfer {
             $aggregatedErrorMessages.Add($currentDestErrorMessage)
             $singleDestStopwatch.Stop()
             $replicationDetailsList.Add(@{ Path = "Invalid Config Item"; Status = "Failure"; Error = $currentDestErrorMessage; Size = 0; Duration = $singleDestStopwatch.Elapsed })
-            continue 
+            continue
         }
 
         $currentDestPathRaw = $destConfig.Path
@@ -211,7 +228,7 @@ function Invoke-PoShBackupTargetTransfer {
         $currentDestCreateJobSubDir = if ($destConfig.ContainsKey('CreateJobNameSubdirectory') -and $destConfig.CreateJobNameSubdirectory -is [boolean]) {
             $destConfig.CreateJobNameSubdirectory
         } else {
-            $false 
+            $false
         }
 
         $currentDestFinalDir = if ($currentDestCreateJobSubDir) {
@@ -227,13 +244,13 @@ function Invoke-PoShBackupTargetTransfer {
             & $LocalWriteLog -Message "SIMULATE: Replicate Target '$targetNameForLog': Would ensure directory exists: '$currentDestFinalDir'." -Level "SIMULATE"
             & $LocalWriteLog -Message "SIMULATE: Replicate Target '$targetNameForLog': Would copy '$LocalArchivePath' to '$currentFullDestArchivePath'." -Level "SIMULATE"
             $currentDestSuccess = $true
-            $currentDestTransferSize = $LocalArchiveSizeBytes 
+            $currentDestTransferSize = $LocalArchiveSizeBytes
             if ($null -eq $firstSuccessfulRemotePath) { $firstSuccessfulRemotePath = $currentFullDestArchivePath }
         } else {
             if (-not $PSCmdlet.ShouldProcess($currentDestFinalDir, "Ensure Destination Directory Exists for Replication")) {
                 $currentDestErrorMessage = "Replicate Target '$targetNameForLog': Directory creation/check at '$currentDestFinalDir' skipped by user (ShouldProcess)."
                 & $LocalWriteLog -Message "[WARNING] $currentDestErrorMessage" -Level "WARNING"
-                $allReplicationsSucceeded = $false 
+                $allReplicationsSucceeded = $false
                 $aggregatedErrorMessages.Add($currentDestErrorMessage)
             } else {
                 if (-not (Test-Path -LiteralPath $currentDestFinalDir -PathType Container)) {
@@ -248,7 +265,7 @@ function Invoke-PoShBackupTargetTransfer {
                         $aggregatedErrorMessages.Add($currentDestErrorMessage)
                     }
                 }
-            } 
+            }
 
             if ($null -eq $currentDestErrorMessage) {
                 if (-not $PSCmdlet.ShouldProcess($currentFullDestArchivePath, "Replicate Archive to Destination")) {
@@ -273,13 +290,13 @@ function Invoke-PoShBackupTargetTransfer {
                         $aggregatedErrorMessages.Add($currentDestErrorMessage)
                     }
                 }
-            } 
-        } 
+            }
+        }
 
         if ($currentDestSuccess -and $destConfig.ContainsKey('RetentionSettings') -and $destConfig.RetentionSettings -is [hashtable] -and `
             $destConfig.RetentionSettings.ContainsKey('KeepCount') -and $destConfig.RetentionSettings.KeepCount -is [int] -and `
             $destConfig.RetentionSettings.KeepCount -gt 0) {
-            
+
             $destKeepCount = $destConfig.RetentionSettings.KeepCount
             & $LocalWriteLog -Message "      - Replicate Target '$targetNameForLog': Applying retention (KeepCount: $destKeepCount) in directory '$currentDestFinalDir'." -Level "INFO"
 
@@ -310,8 +327,8 @@ function Invoke-PoShBackupTargetTransfer {
                                     $retentionErrorMessageText = "Failed to delete archive '$($destBackupFile.FullName)' for retention. Error: $($_.Exception.Message)"
                                     & $LocalWriteLog -Message "            - Status: FAILED! $retentionErrorMessageText" -Level "ERROR"
                                     $aggregatedErrorMessages.Add("Replicate Target '$targetNameForLog' (dest: '$currentDestPathBase'): $retentionErrorMessageText")
-                                    $allReplicationsSucceeded = $false 
-                                    $currentDestSuccess = $false 
+                                    $allReplicationsSucceeded = $false
+                                    $currentDestSuccess = $false
                                     if ($null -eq $currentDestErrorMessage) { $currentDestErrorMessage = $retentionErrorMessageText } else { $currentDestErrorMessage += "; $retentionErrorMessageText" }
                                 }
                             }
@@ -331,7 +348,7 @@ function Invoke-PoShBackupTargetTransfer {
         }
         $singleDestStopwatch.Stop()
         $replicationDetailsList.Add(@{
-            Path            = $currentFullDestArchivePath 
+            Path            = $currentFullDestArchivePath
             Status          = if ($currentDestSuccess) { "Success" } else { "Failure" }
             Error           = $currentDestErrorMessage
             Size            = $currentDestTransferSize
@@ -341,12 +358,12 @@ function Invoke-PoShBackupTargetTransfer {
         if (-not $currentDestSuccess) {
             $allReplicationsSucceeded = $false
         }
-    } 
+    }
 
     $overallStopwatch.Stop()
     $finalRemotePathDisplay = if ($allReplicationsSucceeded -and $replicationDetailsList.Count -gt 0) {
         if ($replicationDetailsList.Count -eq 1) {
-            $firstSuccessfulRemotePath 
+            $firstSuccessfulRemotePath
         } else {
             "Replicated to $($replicationDetailsList.Count) locations successfully."
         }
@@ -362,11 +379,11 @@ function Invoke-PoShBackupTargetTransfer {
         Success             = $allReplicationsSucceeded
         RemotePath          = $finalRemotePathDisplay
         ErrorMessage        = if ($aggregatedErrorMessages.Count -gt 0) { $aggregatedErrorMessages -join "; " } else { $null }
-        TransferSize        = $LocalArchiveSizeBytes 
+        TransferSize        = $LocalArchiveSizeBytes
         TransferDuration    = $overallStopwatch.Elapsed
-        ReplicationDetails  = $replicationDetailsList 
+        ReplicationDetails  = $replicationDetailsList
     }
 }
 #endregion
 
-Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer
+Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupReplicateTargetSettingsValidation
