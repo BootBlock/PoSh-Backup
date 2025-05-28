@@ -9,19 +9,21 @@
       especially UNC paths.
     - Validating and, if necessary, creating the local destination (staging) directory.
     - Retrieving the archive password based on the job's configuration (delegates
-      to PasswordManager.psm1).
+      to PasswordManager.psm1). If password retrieval fails for an expected method
+      (e.g., user cancels interactive prompt), it now gracefully sets an error
+      and returns a failure status rather than throwing a raw exception.
     - Executing any user-defined pre-backup hook scripts (delegates to HookManager.psm1).
     - Managing the creation of Volume Shadow Copies (VSS) if enabled for the job,
       and determining the effective source paths for 7-Zip (delegates to VssManager.psm1).
 
     The main exported function, Invoke-PoShBackupJobPreProcessing, returns critical
     information needed for the subsequent archiving phase, such as the resolved source
-    paths (which might be VSS paths) and the path to any temporary password file.
+    paths (which might be VSS paths) and the actual plain text password if retrieved.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Added SupportsShouldProcess to Invoke-PoShBackupJobPreProcessing.
+    Version:        1.0.3 # Gemini is incredibly thick and totally made up a 7-ZIP feature that doesn't exist
     DateCreated:    27-May-2025
-    LastModified:   27-May-2025
+    LastModified:   28-May-2025
     Purpose:        To modularise pre-archive creation logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1, PasswordManager.psm1, HookManager.psm1,
@@ -44,7 +46,7 @@ catch {
 
 #region --- Exported Function ---
 function Invoke-PoShBackupJobPreProcessing {
-    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')] # Added SupportsShouldProcess
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')] 
     param(
         [Parameter(Mandatory = $true)]
         [string]$JobName,
@@ -66,17 +68,18 @@ function Invoke-PoShBackupJobPreProcessing {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
     & $LocalWriteLog -Message "JobPreProcessor/Invoke-PoShBackupJobPreProcessing: Initializing for job '$JobName'." -Level "DEBUG"
 
     $reportData = $JobReportDataRef.Value
-    $currentJobSourcePathFor7Zip = $EffectiveJobConfig.OriginalSourcePath # Start with original
-    $tempPasswordFilePath = $null
+    $currentJobSourcePathFor7Zip = $EffectiveJobConfig.OriginalSourcePath 
     $VSSPathsInUse = $null
-    $plainTextPasswordForJob = $null # For secure clearing
+    $plainTextPasswordForJob = $null 
+    $preProcessingErrorMessage = $null # To store a specific error message
 
     try {
         $destinationDirTerm = if ($EffectiveJobConfig.ResolvedTargetInstances.Count -eq 0) { "Final Destination Directory" } else { "Local Staging Directory" }
@@ -86,7 +89,8 @@ function Invoke-PoShBackupJobPreProcessing {
         $sourcePathsToCheck = @()
         if ($EffectiveJobConfig.OriginalSourcePath -is [array]) {
             $sourcePathsToCheck = $EffectiveJobConfig.OriginalSourcePath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-        } elseif (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.OriginalSourcePath)) {
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.OriginalSourcePath)) {
             $sourcePathsToCheck = @($EffectiveJobConfig.OriginalSourcePath)
         }
         foreach ($individualSourcePath in $sourcePathsToCheck) {
@@ -95,12 +99,16 @@ function Invoke-PoShBackupJobPreProcessing {
                 if ($individualSourcePath -match '[\*\?\[]') { $uncPathToTestForSource = Split-Path -LiteralPath $individualSourcePath -Parent }
                 if ([string]::IsNullOrWhiteSpace($uncPathToTestForSource) -or ($uncPathToTestForSource -match '^\\\\([^\\]+)$')) {
                     & $LocalWriteLog -Message "[WARNING] JobPreProcessor: Could not determine a valid UNC base directory to test accessibility for source path '$individualSourcePath'. Check skipped." -Level WARNING
-                } else {
+                }
+                else {
                     if (-not $IsSimulateMode.IsPresent) {
                         if (-not (Test-Path -LiteralPath $uncPathToTestForSource)) {
-                            throw "JobPreProcessor: UNC source path '$individualSourcePath' (base '$uncPathToTestForSource') is inaccessible. Job '$JobName' cannot proceed."
-                        } else { & $LocalWriteLog -Message "  - JobPreProcessor: UNC source path '$individualSourcePath' (tested base: '$uncPathToTestForSource') accessibility: PASSED." -Level DEBUG }
-                    } else { & $LocalWriteLog -Message "SIMULATE: JobPreProcessor: Would test accessibility of UNC source path '$individualSourcePath' (base '$uncPathToTestForSource')." -Level SIMULATE }
+                            $preProcessingErrorMessage = "UNC source path '$individualSourcePath' (base '$uncPathToTestForSource') is inaccessible. Job '$JobName' cannot proceed."
+                            throw $preProcessingErrorMessage # Throw to be caught by this function's catch block
+                        }
+                        else { & $LocalWriteLog -Message "  - JobPreProcessor: UNC source path '$individualSourcePath' (tested base: '$uncPathToTestForSource') accessibility: PASSED." -Level DEBUG }
+                    }
+                    else { & $LocalWriteLog -Message "SIMULATE: JobPreProcessor: Would test accessibility of UNC source path '$individualSourcePath' (base '$uncPathToTestForSource')." -Level SIMULATE }
                 }
             }
         }
@@ -110,61 +118,78 @@ function Invoke-PoShBackupJobPreProcessing {
             if (-not [string]::IsNullOrWhiteSpace($uncDestinationBasePathToTest)) {
                 if (-not $IsSimulateMode.IsPresent) {
                     if (-not (Test-Path -LiteralPath $uncDestinationBasePathToTest)) {
-                        throw "JobPreProcessor: Base UNC ${destinationDirTerm} share '$uncDestinationBasePathToTest' (from '$($EffectiveJobConfig.DestinationDir)') is inaccessible. Job '$JobName' cannot proceed."
-                    } else { & $LocalWriteLog -Message "  - JobPreProcessor: Base UNC ${destinationDirTerm} share '$uncDestinationBasePathToTest' accessibility: PASSED." -Level DEBUG }
-                } else { & $LocalWriteLog -Message "SIMULATE: JobPreProcessor: Would test accessibility of base UNC ${destinationDirTerm} share '$uncDestinationBasePathToTest'." -Level SIMULATE }
-            } else { & $LocalWriteLog -Message "[WARNING] JobPreProcessor: Could not determine base UNC share for ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)'. Full path creation attempted later." -Level WARNING }
+                        $preProcessingErrorMessage = "Base UNC ${destinationDirTerm} share '$uncDestinationBasePathToTest' (from '$($EffectiveJobConfig.DestinationDir)') is inaccessible. Job '$JobName' cannot proceed."
+                        throw $preProcessingErrorMessage
+                    }
+                    else { & $LocalWriteLog -Message "  - JobPreProcessor: Base UNC ${destinationDirTerm} share '$uncDestinationBasePathToTest' accessibility: PASSED." -Level DEBUG }
+                }
+                else { & $LocalWriteLog -Message "SIMULATE: JobPreProcessor: Would test accessibility of base UNC ${destinationDirTerm} share '$uncDestinationBasePathToTest'." -Level SIMULATE }
+            }
+            else { & $LocalWriteLog -Message "[WARNING] JobPreProcessor: Could not determine base UNC share for ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)'. Full path creation attempted later." -Level WARNING }
         }
         & $LocalWriteLog -Message "[INFO] JobPreProcessor: Early accessibility checks completed." -Level INFO
         #endregion
 
         if ([string]::IsNullOrWhiteSpace($EffectiveJobConfig.DestinationDir)) {
-            throw "JobPreProcessor: ${destinationDirTerm} for job '$JobName' is not defined. Cannot proceed."
+            $preProcessingErrorMessage = "${destinationDirTerm} for job '$JobName' is not defined. Cannot proceed."
+            throw $preProcessingErrorMessage
         }
         if (-not (Test-Path -LiteralPath $EffectiveJobConfig.DestinationDir -PathType Container)) {
             & $LocalWriteLog -Message "[INFO] JobPreProcessor: ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)' for job '$JobName' does not exist. Attempting to create..."
             if (-not $IsSimulateMode.IsPresent) {
                 if ($PSCmdlet.ShouldProcess($EffectiveJobConfig.DestinationDir, "Create ${destinationDirTerm}")) {
                     try { New-Item -Path $EffectiveJobConfig.DestinationDir -ItemType Directory -Force -ErrorAction Stop | Out-Null; & $LocalWriteLog -Message "  - ${destinationDirTerm} created successfully." -Level SUCCESS }
-                    catch { throw "JobPreProcessor: Failed to create ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)'. Error: $($_.Exception.Message)" }
+                    catch { 
+                        $preProcessingErrorMessage = "Failed to create ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)'. Error: $($_.Exception.Message)"
+                        throw $preProcessingErrorMessage
+                    }
                 }
-            } else {
+                else {
+                    # User chose No for ShouldProcess
+                    $preProcessingErrorMessage = "${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)' creation skipped by user."
+                    # This is a deliberate stop, so we should indicate failure to proceed.
+                    & $LocalWriteLog -Message "[WARNING] JobPreProcessor: $preProcessingErrorMessage" -Level WARNING
+                    return @{ Success = $false; ErrorMessage = $preProcessingErrorMessage; VSSPathsInUse = $null; PlainTextPasswordToClear = $null; ActualPlainTextPassword = $plainTextPasswordForJob; CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip }
+                }
+            }
+            else {
                 & $LocalWriteLog -Message "SIMULATE: JobPreProcessor: Would create ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)'." -Level SIMULATE
             }
         }
 
         $isPasswordRequiredOrConfigured = ($EffectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -ne "NONE") -or $EffectiveJobConfig.UsePassword
-        $EffectiveJobConfig.PasswordInUseFor7Zip = $false # Ensure this is part of the effective config being built
+        $EffectiveJobConfig.PasswordInUseFor7Zip = $false 
         if ($isPasswordRequiredOrConfigured) {
             try {
                 $passwordParams = @{
                     JobConfigForPassword = $EffectiveJobConfig; JobName = $JobName
                     IsSimulateMode = $IsSimulateMode.IsPresent; Logger = $Logger
                 }
-                # Pass PSCmdlet if Get-PoShBackupArchivePassword supports it (for interactive prompts respecting -Confirm)
                 if ((Get-Command Get-PoShBackupArchivePassword).Parameters.ContainsKey('PSCmdlet')) {
                     $passwordParams.PSCmdlet = $PSCmdlet
                 }
                 $passwordResult = Get-PoShBackupArchivePassword @passwordParams
                 $reportData.PasswordSource = $passwordResult.PasswordSource
+                
                 if ($null -ne $passwordResult -and (-not [string]::IsNullOrWhiteSpace($passwordResult.PlainTextPassword))) {
-                    $plainTextPasswordForJob = $passwordResult.PlainTextPassword # Store locally for cleanup
+                    $plainTextPasswordForJob = $passwordResult.PlainTextPassword 
                     $EffectiveJobConfig.PasswordInUseFor7Zip = $true
-                    if ($IsSimulateMode.IsPresent) {
-                        $tempPasswordFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "simulated_poshbackup_pass.tmp")
-                        & $LocalWriteLog -Message "SIMULATE: JobPreProcessor: Would write password (obtained via $($reportData.PasswordSource)) to temporary file '$tempPasswordFilePath' for 7-Zip." -Level SIMULATE
-                    } else {
-                        if ($PSCmdlet.ShouldProcess("Temporary Password File", "Create and Write Password (details in DEBUG log)")) {
-                            $tempPasswordFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-                            Set-Content -Path $tempPasswordFilePath -Value $plainTextPasswordForJob -Encoding UTF8 -Force -ErrorAction Stop
-                            & $LocalWriteLog -Message "   - JobPreProcessor: Password (obtained via $($reportData.PasswordSource)) written to temporary file '$tempPasswordFilePath' for 7-Zip." -Level DEBUG
-                        }
-                    }
-                } elseif ($isPasswordRequiredOrConfigured -and $EffectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -ne "NONE" -and (-not $IsSimulateMode.IsPresent)) {
-                    throw "JobPreProcessor: Password was required for job '$JobName' via method '$($EffectiveJobConfig.ArchivePasswordMethod)' but could not be obtained or was empty."
                 }
-            } catch { throw "JobPreProcessor: Error during password retrieval process for job '$JobName'. Error: $($_.Exception.ToString())" }
-        } elseif ($EffectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -eq "NONE") {
+                elseif ($isPasswordRequiredOrConfigured -and $EffectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -ne "NONE" -and (-not $IsSimulateMode.IsPresent)) {
+                    # MODIFIED: Graceful handling instead of throw
+                    $preProcessingErrorMessage = "Password was required for job '$JobName' via method '$($EffectiveJobConfig.ArchivePasswordMethod)' but was not provided or was cancelled."
+                    & $LocalWriteLog -Message "[ERROR] JobPreProcessor: $preProcessingErrorMessage" -Level ERROR
+                    $reportData.ErrorMessage = $preProcessingErrorMessage
+                    return @{ Success = $false; ErrorMessage = $preProcessingErrorMessage; VSSPathsInUse = $null; PlainTextPasswordToClear = $null; ActualPlainTextPassword = $plainTextPasswordForJob; CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip }
+                }
+            }
+            catch { 
+                # Catch errors from Get-PoShBackupArchivePassword (e.g., secret not found, file not found)
+                $preProcessingErrorMessage = "Error during password retrieval process for job '$JobName'. Error: $($_.Exception.Message)"
+                throw $preProcessingErrorMessage # Re-throw to be caught by the main catch block of this function
+            }
+        }
+        elseif ($EffectiveJobConfig.ArchivePasswordMethod.ToString().ToUpperInvariant() -eq "NONE") {
             $reportData.PasswordSource = "None (Explicitly Configured)"; $EffectiveJobConfig.PasswordInUseFor7Zip = $false
         }
 
@@ -174,9 +199,12 @@ function Invoke-PoShBackupJobPreProcessing {
 
         if ($EffectiveJobConfig.JobEnableVSS) {
             & $LocalWriteLog -Message "`n[INFO] JobPreProcessor: VSS (Volume Shadow Copy Service) is enabled for job '$JobName'." -Level "VSS"
-            if (-not (Test-AdminPrivilege -Logger $Logger)) { throw "JobPreProcessor: VSS requires Administrator privileges for job '$JobName', but script is not running as Admin." }
+            if (-not (Test-AdminPrivilege -Logger $Logger)) { 
+                $preProcessingErrorMessage = "VSS requires Administrator privileges for job '$JobName', but script is not running as Admin."
+                throw $preProcessingErrorMessage
+            }
             $vssParams = @{
-                SourcePathsToShadow = if ($EffectiveJobConfig.OriginalSourcePath -is [array]) {$EffectiveJobConfig.OriginalSourcePath} else {@($EffectiveJobConfig.OriginalSourcePath)}
+                SourcePathsToShadow = if ($EffectiveJobConfig.OriginalSourcePath -is [array]) { $EffectiveJobConfig.OriginalSourcePath } else { @($EffectiveJobConfig.OriginalSourcePath) }
                 VSSContextOption = $EffectiveJobConfig.JobVSSContextOption; MetadataCachePath = $EffectiveJobConfig.VSSMetadataCachePath
                 PollingTimeoutSeconds = $EffectiveJobConfig.VSSPollingTimeoutSeconds; PollingIntervalSeconds = $EffectiveJobConfig.VSSPollingIntervalSeconds
                 IsSimulateMode = $IsSimulateMode.IsPresent; Logger = $Logger
@@ -184,74 +212,89 @@ function Invoke-PoShBackupJobPreProcessing {
             if ((Get-Command New-VSSShadowCopy).Parameters.ContainsKey('PSCmdlet')) {
                 $vssParams.PSCmdlet = $PSCmdlet
             }
-            $VSSPathsInUse = New-VSSShadowCopy @vssParams
+            $VSSPathsInUse = New-VSSShadowCopy @vssParams # This can return $null or a map
             if ($null -ne $VSSPathsInUse -and $VSSPathsInUse.Count -gt 0) {
                 & $LocalWriteLog -Message "  - JobPreProcessor: VSS shadow copies created/mapped. Attempting to use shadow paths for backup." -Level VSS
                 $currentJobSourcePathFor7Zip = if ($EffectiveJobConfig.OriginalSourcePath -is [array]) {
                     $EffectiveJobConfig.OriginalSourcePath | ForEach-Object { if ($VSSPathsInUse.ContainsKey($_) -and $VSSPathsInUse[$_] -ne $_) { $VSSPathsInUse[$_] } else { $_ } }
-                } else { if ($VSSPathsInUse.ContainsKey($EffectiveJobConfig.OriginalSourcePath) -and $VSSPathsInUse[$EffectiveJobConfig.OriginalSourcePath] -ne $EffectiveJobConfig.OriginalSourcePath) { $VSSPathsInUse[$EffectiveJobConfig.OriginalSourcePath] } else { $EffectiveJobConfig.OriginalSourcePath } }
+                }
+                else { if ($VSSPathsInUse.ContainsKey($EffectiveJobConfig.OriginalSourcePath) -and $VSSPathsInUse[$EffectiveJobConfig.OriginalSourcePath] -ne $EffectiveJobConfig.OriginalSourcePath) { $VSSPathsInUse[$EffectiveJobConfig.OriginalSourcePath] } else { $EffectiveJobConfig.OriginalSourcePath } }
                 $reportData.VSSShadowPaths = $VSSPathsInUse
             }
+            elseif ($EffectiveJobConfig.JobEnableVSS -and ($null -eq $VSSPathsInUse)) {
+                # VSS was enabled but New-VSSShadowCopy returned null (failure)
+                $preProcessingErrorMessage = "VSS shadow copy creation failed for job '$JobName'. Check VSSManager logs."
+                # Do not throw here, allow job to proceed with original paths but log error.
+                # Operations.psm1 will use original paths if VSSPathsInUse is null.
+                & $LocalWriteLog -Message "[ERROR] JobPreProcessor: $preProcessingErrorMessage" -Level ERROR
+                # Set VSSStatus to reflect failure
+                $reportData.VSSStatus = "Failed (Creation Error)"
+            }
         }
+        # Update VSSStatus in reportData
         if ($EffectiveJobConfig.JobEnableVSS) {
-            $reportData.VSSAttempted = $true; $originalSourcePathsForJob = if ($EffectiveJobConfig.OriginalSourcePath -is [array]) { $EffectiveJobConfig.OriginalSourcePath } else { @($EffectiveJobConfig.OriginalSourcePath) }
-            $containsUncPath = $false; $containsLocalPath = $false; $localPathVssUsedSuccessfully = $false
-            if ($null -ne $originalSourcePathsForJob) {
-                foreach ($originalPathItem in $originalSourcePathsForJob) {
-                    if (-not [string]::IsNullOrWhiteSpace($originalPathItem)) {
-                        $isUncPathItem = $false; try { if (([uri]$originalPathItem).IsUnc) { $isUncPathItem = $true } } catch { & $LocalWriteLog -Message "JobPreProcessor: Path '$originalPathItem' could not be parsed as URI for UNC check. Assuming local. Error: $($_.Exception.Message)" -Level "DEBUG" }
-                        if ($isUncPathItem) { $containsUncPath = $true }
-                        else { $containsLocalPath = $true; if ($null -ne $VSSPathsInUse -and $VSSPathsInUse.ContainsKey($originalPathItem) -and $VSSPathsInUse[$originalPathItem] -ne $originalPathItem) { $localPathVssUsedSuccessfully = $true } }
+            $reportData.VSSAttempted = $true
+            if ($IsSimulateMode.IsPresent) { 
+                $reportData.VSSStatus = "Simulated" # Simplified for simulation
+            }
+            elseif ($null -ne $VSSPathsInUse -and $VSSPathsInUse.Count -gt 0) {
+                # Check if all local paths were successfully shadowed
+                $allLocalShadowed = $true
+                $originalLocalPaths = @($EffectiveJobConfig.OriginalSourcePath | Where-Object { $_ -notmatch '^\\\\' -and (-not [string]::IsNullOrWhiteSpace($_)) })
+                if ($originalLocalPaths.Count -gt 0) {
+                    foreach ($lp in $originalLocalPaths) {
+                        if (-not ($VSSPathsInUse.ContainsKey($lp) -and $VSSPathsInUse[$lp] -ne $lp)) {
+                            $allLocalShadowed = $false; break
+                        }
                     }
+                    $reportData.VSSStatus = if ($allLocalShadowed) { "Used Successfully" } else { "Partially Used or Failed for some local paths" }
+                }
+                else {
+                    # No local paths to shadow
+                    $reportData.VSSStatus = "Not Applicable (No local paths)"
                 }
             }
-            if ($IsSimulateMode.IsPresent) { $reportData.VSSStatus = if ($containsLocalPath -and $containsUncPath) { "Simulated (Used for local, Skipped for network)" } elseif ($containsUncPath -and -not $containsLocalPath) { "Simulated (Skipped - All Network Paths)" } elseif ($containsLocalPath) { "Simulated (Used for local paths)" } else { "Simulated (No paths processed for VSS)" } }
-            else { if ($containsLocalPath) { $reportData.VSSStatus = if ($localPathVssUsedSuccessfully) { if ($containsUncPath) { "Partially Used (Local success, Network skipped)" } else { "Used Successfully" } } else { if ($containsUncPath) { "Failed (Local VSS failed/skipped, Network skipped)" } else { "Failed (Local VSS failed/skipped)" } } } elseif ($containsUncPath) { $reportData.VSSStatus = "Not Applicable (All Source Paths Network)" } else { $reportData.VSSStatus = "Not Applicable (No Source Paths Specified)" } }
-        } else { $reportData.VSSAttempted = $false; $reportData.VSSStatus = "Not Enabled" }
-        $reportData.EffectiveSourcePath = if ($currentJobSourcePathFor7Zip -is [array]) {$currentJobSourcePathFor7Zip} else {@($currentJobSourcePathFor7Zip)}
+            elseif (-not $reportData.ContainsKey("VSSStatus")) {
+                # If not already set to Failed by earlier VSS error
+                $reportData.VSSStatus = "Failed or Not Used (No shadow paths returned)"
+            }
+        }
+        else { 
+            $reportData.VSSAttempted = $false
+            $reportData.VSSStatus = "Not Enabled"
+        }
+        $reportData.EffectiveSourcePath = if ($currentJobSourcePathFor7Zip -is [array]) { $currentJobSourcePathFor7Zip } else { @($currentJobSourcePathFor7Zip) }
 
 
         return @{
             Success                     = $true
             CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip
-            TempPasswordFilePath        = $tempPasswordFilePath
             VSSPathsInUse               = $VSSPathsInUse
-            PlainTextPasswordToClear    = $plainTextPasswordForJob # Pass this back for secure clearing by the caller
+            PlainTextPasswordToClear    = $plainTextPasswordForJob 
+            ActualPlainTextPassword     = $plainTextPasswordForJob
             ErrorMessage                = $null
         }
 
-    } catch {
-        $errorMessageText = "JobPreProcessor: Error during pre-processing for job '$JobName': $($_.Exception.ToString())"
-        & $LocalWriteLog -Message $errorMessageText -Level "ERROR"
-        # Ensure any created temp password file is cleaned up if an error occurs within this scope
-        if (-not [string]::IsNullOrWhiteSpace($tempPasswordFilePath) -and (Test-Path -LiteralPath $tempPasswordFilePath -PathType Leaf) `
-            -and -not ($IsSimulateMode.IsPresent -and $tempPasswordFilePath.EndsWith("simulated_poshbackup_pass.tmp"))) {
-
-            try {
-                Remove-Item -LiteralPath $tempPasswordFilePath -Force -ErrorAction SilentlyContinue
-            }
-            catch {
-                # This catch block should ideally not be reached due to -ErrorAction SilentlyContinue
-                # on Remove-Item. If it is reached, it indicates an unexpected problem during
-                # the "silent" removal attempt. Logging this is important.
-                & $LocalWriteLog -Message "[WARNING] JobPreProcessor: Unexpected error occurred while attempting to silently remove temporary file '$tempPasswordFilePath'. Error details: $($_.ToString())" -Level "WARNING"
-
-                # Alternative below if the above $LocalWriteLog isn't available
-                # Write-Warning "JobPreProcessor: Unexpected error occurred while attempting to silently remove temporary file '$tempPasswordFilePath'. Error details: $($_.ToString())"
-            }
+    }
+    catch {
+        # This main catch block now handles exceptions from path checks, dir creation, VSS admin check, or re-thrown password errors.
+        $finalErrorMessage = if (-not [string]::IsNullOrWhiteSpace($preProcessingErrorMessage)) { $preProcessingErrorMessage } else { $_.Exception.Message }
+        & $LocalWriteLog -Message "[ERROR] JobPreProcessor: Error during pre-processing for job '$JobName': $finalErrorMessage" -Level "ERROR"
+        if ($_.Exception.ToString() -ne $finalErrorMessage) {
+            # Log full exception if different
+            & $LocalWriteLog -Message "  Full Exception: $($_.Exception.ToString())" -Level "DEBUG"
         }
-        # Ensure VSS is cleaned up if an error occurs after VSS creation but before returning VSSPathsInUse
+        
         if ($null -ne $VSSPathsInUse) {
-            # Call VssManager's Remove-VSSShadowCopy directly
-            Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode -Logger $Logger # Assumes VssManager is loaded
+            Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode -Logger $Logger 
         }
         return @{
             Success                     = $false
-            CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip # Might be original or partially VSS
-            TempPasswordFilePath        = $null # Already attempted cleanup or was not created
-            VSSPathsInUse               = $null # Already attempted cleanup
-            PlainTextPasswordToClear    = $plainTextPasswordForJob # Still needs clearing if obtained
-            ErrorMessage                = $_.Exception.ToString()
+            CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip 
+            VSSPathsInUse               = $null 
+            PlainTextPasswordToClear    = $plainTextPasswordForJob 
+            ActualPlainTextPassword     = $plainTextPasswordForJob
+            ErrorMessage                = $finalErrorMessage
         }
     }
 }

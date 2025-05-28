@@ -1,3 +1,4 @@
+# Modules\Managers\PasswordManager.psm1
 <#
 .SYNOPSIS
     Handles the retrieval of archive passwords for PoSh-Backup jobs using various configurable
@@ -17,17 +18,29 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.2
+    Version:        1.2.3 # Added explicit import of Utils.psm1.
     DateCreated:    10-May-2025
-    LastModified:   17-May-2025
+    LastModified:   28-May-2025
     Purpose:        Centralised password management for archive encryption within PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
+                    Depends on Utils.psm1.
                     For the 'SecretManagement' method, the 'Microsoft.PowerShell.SecretManagement'
                     module and a configured vault provider (e.g., 'Microsoft.PowerShell.SecretStore')
                     are required on the system executing the backup.
                     For the 'SecureStringFile' method, a valid .clixml file created via Export-CliXml
                     from a SecureString object is needed.
 #>
+
+#region --- Module Dependencies ---
+# $PSScriptRoot here is Modules\Managers
+try {
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Utils.psm1") -Force -ErrorAction Stop
+}
+catch {
+    Write-Error "PasswordManager.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw # Critical dependency
+}
+#endregion
 
 #region --- Private Helper: SecureString to PlainText ---
 # This function converts a SecureString object into a plain text string.
@@ -133,6 +146,7 @@ function Get-PoShBackupArchivePassword {
     $passwordSource = "None (Initial)" # Default source if no specific method is triggered successfully
 
     # Determine the password retrieval method from the job's configuration.
+    # Get-ConfigValue is now available because Utils.psm1 (which exports it via ConfigUtils.psm1) was imported at the top of this module.
     $passwordMethodFromConfig = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordMethod' -DefaultValue "None"
     $effectivePasswordMethod = $passwordMethodFromConfig.ToString().ToUpperInvariant() # Standardise for switch statement
 
@@ -203,13 +217,13 @@ function Get-PoShBackupArchivePassword {
                              & $LocalWriteLog -Message "FATAL: Secret '$secretName'$vaultInfoString retrieved, but its content was not a SecureString or a plain String. Type found: $($secretObject.Secret.GetType().FullName)" -Level ERROR
                              throw "Invalid secret type for '$secretName' from SecretManagement."
                         }
-                    } else { # Get-Secret returned null, implying secret not found with given name/vault
+                    } else { 
                         & $LocalWriteLog -Message "FATAL: Secret '$secretName'$vaultInfoString not found or could not be retrieved using Get-Secret (returned null)." -Level ERROR
                         throw "Secret '$secretName' not found or Get-Secret returned null from SecretManagement."
                     }
                 } catch {
                     & $LocalWriteLog -Message "FATAL: Failed to retrieve secret '$secretName'$vaultInfoString using SecretManagement. Error: $($_.Exception.Message)" -Level ERROR
-                    throw "Failed to retrieve secret for job '$JobName' via SecretManagement: $($_.Exception.Message)" # Re-throw to halt
+                    throw "Failed to retrieve secret for job '$JobName' via SecretManagement: $($_.Exception.Message)" 
                 }
             }
         }
@@ -243,7 +257,7 @@ function Get-PoShBackupArchivePassword {
                     }
                 } catch {
                     & $LocalWriteLog -Message "FATAL: Failed to read or decrypt SecureStringFile '$secureStringPath' for job '$JobName'. Ensure the file was created correctly and is accessible by the current user. Error: $($_.Exception.Message)" -Level ERROR
-                    throw "Failed to process SecureStringFile for job '$JobName': $($_.Exception.Message)" # Re-throw to halt
+                    throw "Failed to process SecureStringFile for job '$JobName': $($_.Exception.Message)" 
                 }
             }
         }
@@ -256,28 +270,23 @@ function Get-PoShBackupArchivePassword {
                 & $LocalWriteLog -Message "FATAL: 'ArchivePasswordMethod' is 'PlainText' but 'ArchivePasswordPlainText' is empty or not defined in the configuration for job '$JobName'." -Level ERROR
                 throw "ArchivePasswordPlainText not configured or is empty for PlainText method in job '$JobName'."
             }
-            # This method is inherently insecure.
             & $LocalWriteLog -Message "[SECURITY WARNING] Using PLAIN TEXT password from configuration for job '$JobName'. This is INSECURE and NOT RECOMMENDED for production environments." -Level WARNING
             if ($IsSimulateMode.IsPresent) {
                  & $LocalWriteLog -Message "SIMULATE: Would use plain text password directly from configuration for job '$JobName'." -Level SIMULATE
-                 # In simulation, we don't need to assign the actual plain text password again, as it's already in $plainTextPassword.
             }
         }
 
-        "NONE" { # Explicitly configured as "None" or defaulted to it (and UsePassword was not $true)
+        "NONE" { 
             $passwordSource = "None (Explicitly Configured or Defaulted)"
             & $LocalWriteLog -Message "  - No archive password will be used for job '$JobName' as per configuration (Method: None)." -Level DEBUG
-            # $plainTextPassword remains $null
         }
 
-        Default { # Should only be hit if $effectivePasswordMethod was somehow an unknown value not caught by initial checks
+        Default { 
             & $LocalWriteLog -Message "FATAL: Invalid or unrecognised 'ArchivePasswordMethod' ('$($passwordMethodFromConfig)') specified for job '$JobName'. Supported methods: None, Interactive, SecretManagement, SecureStringFile, PlainText." -Level ERROR
             throw "Invalid ArchivePasswordMethod ('$passwordMethodFromConfig') specified for job '$JobName'."
         }
     }
 
-    # Return the plain text password (which will be null if no password method was used or if simulation didn't set one)
-    # and the source from which it was (or would have been) obtained.
     return @{ PlainTextPassword = $plainTextPassword; PasswordSource = $passwordSource }
 }
 

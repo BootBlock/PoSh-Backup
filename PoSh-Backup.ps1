@@ -7,8 +7,8 @@
     optional post-run system actions (e.g., shutdown, restart), optional
     archive checksum generation and verification, optional Self-Extracting Archive (SFX) creation,
     optional 7-Zip CPU core affinity (with CLI override), optional verification of local
-    archives before remote transfer, configurable log file retention, and support for
-    7-Zip include/exclude list files.
+    archives before remote transfer, configurable log file retention, support for
+    7-Zip include/exclude list files, and backup job chaining/dependencies.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -16,6 +16,7 @@
     Core logic is managed by this main script, which orchestrates operations performed by dedicated
     PowerShell modules. The main job/set processing loop is now handled by 'JobOrchestrator.psm1'.
     Post-run system action logic is now handled by 'PostRunActionOrchestrator.psm1'.
+    Job dependency resolution and execution ordering is handled by 'JobDependencyManager.psm1'.
 
     Key Features:
     - Modular Design, External Configuration, Local and Remote Backups, Granular Job Control.
@@ -40,14 +41,19 @@
       remote transfers for that job are skipped.
     - Log File Retention: Configurable retention count for generated log files (global, per-job,
       per-set, or CLI override) to prevent indefinite growth of the Logs directory.
-    - 7-Zip Include/Exclude List Files (New): Specify external files containing lists of
+    - 7-Zip Include/Exclude List Files: Specify external files containing lists of
       include or exclude patterns for 7-Zip, configurable globally, per-job, per-set, or via CLI.
+    - Backup Job Chaining / Dependencies (New): Define job dependencies so that a job only runs
+      after its prerequisite jobs have completed successfully (considering 'TreatSevenZipWarningsAsSuccess').
+      Circular dependencies are detected.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
+    If this job has dependencies, they will be processed first.
 
 .PARAMETER RunSet
-    Optional. The name of a Backup Set to process.
+    Optional. The name of a Backup Set to process. Jobs within the set will be ordered
+    based on any defined dependencies.
 
 .PARAMETER ConfigFile
     Optional. Specifies the full path to a PoSh-Backup '.psd1' configuration file.
@@ -98,8 +104,8 @@
     A value of 0 means infinite retention (keep all logs). Overrides all configured log retention counts.
 
 .PARAMETER TestConfig
-    Optional. A switch parameter. If present, loads, validates configuration, prints summary, then exits.
-    Post-run system actions will be logged as if they would occur but not executed.
+    Optional. A switch parameter. If present, loads, validates configuration (including job dependencies),
+    prints summary, then exits. Post-run system actions will be logged as if they would occur but not executed.
 
 .PARAMETER ListBackupLocations
     Optional. A switch parameter. If present, lists defined Backup Locations (jobs) and exits.
@@ -134,15 +140,16 @@
 .EXAMPLE
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -SevenZipExcludeListFileCLI "C:\Config\MyGlobalExcludes.txt"
     Runs the "MyDocs_To_UNC" job and uses the specified file for 7-Zip exclusion rules, overriding any
-    include/exclude list files defined in the configuration for this job or globally.
+    include/exclude list files defined in the configuration for this job or globally. If "MyDocs_To_UNC"
+    has dependencies, they will run first.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.13.3 # Added SevenZipIncludeListFileCLI and SevenZipExcludeListFileCLI parameters.
+    Version:        1.14.0 # Added Job Chaining/Dependency feature. Debug lines removed.
     Date:           28-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
-                    'Core\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
+                    'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
                     Optional: 'PoShBackupValidator.psm1'.
     Configuration:  Via '.\Config\Default.psd1' and '.\Config\User.psd1'.
     Script Name:    PoSh-Backup.ps1
@@ -188,11 +195,21 @@ param (
     [string]$SevenZipCpuAffinityCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Path to a text file containing 7-Zip include patterns. Overrides all configured include list files.")]
-    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf -IsValid })]
+    [ValidateScript({ 
+        # If the path is provided, it must exist as a file.
+        # If no path is provided (empty string or $null from CLI not setting it), validation passes.
+        if ([string]::IsNullOrWhiteSpace($_)) { return $true }
+        if (Test-Path -LiteralPath $_ -PathType Leaf) { return $true }
+        throw "File not found at path: $_"
+    })]
     [string]$SevenZipIncludeListFileCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Path to a text file containing 7-Zip exclude patterns. Overrides all configured exclude list files.")]
-    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf -IsValid })]
+    [ValidateScript({
+        if ([string]::IsNullOrWhiteSpace($_)) { return $true }
+        if (Test-Path -LiteralPath $_ -PathType Leaf) { return $true }
+        throw "File not found at path: $_"
+    })]
     [string]$SevenZipExcludeListFileCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Number of log files to keep per job name pattern. 0 for infinite. Overrides all config.")]
@@ -233,7 +250,7 @@ param (
 
 #region --- Initial Script Setup & Module Import ---
 $ScriptStartTime                            = Get-Date
-$IsSimulateMode                             = $Simulate.IsPresent # This is a bool
+$IsSimulateMode                             = $Simulate.IsPresent 
 
 $cliOverrideSettings = @{
     UseVSS                             = if ($PSBoundParameters.ContainsKey('UseVSS')) { $UseVSS.IsPresent } else { $null }
@@ -244,8 +261,8 @@ $cliOverrideSettings = @{
     TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
     SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
     SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null }
-    SevenZipIncludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $SevenZipIncludeListFileCLI } else { $null } # NEW
-    SevenZipExcludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $SevenZipExcludeListFileCLI } else { $null } # NEW
+    SevenZipIncludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $SevenZipIncludeListFileCLI } else { $null } 
+    SevenZipExcludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $SevenZipExcludeListFileCLI } else { $null } 
     LogRetentionCountCLI               = if ($PSBoundParameters.ContainsKey('LogRetentionCountCLI')) { $LogRetentionCountCLI } else { $null }
     PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
     PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
@@ -254,7 +271,6 @@ $cliOverrideSettings = @{
     PostRunActionTriggerOnStatusCli    = if ($PSBoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $PostRunActionTriggerOnStatusCli } else { $null }
 }
 
-# Global colour definitions for Write-LogMessage
 $Global:ColourInfo                          = "Cyan"
 $Global:ColourSuccess                       = "Green"
 $Global:ColourWarning                       = "Yellow"
@@ -282,12 +298,13 @@ $Global:StatusToColourMap = @{
     "DEFAULT"           = $Global:ColourInfo
 }
 
-# Global variables for per-job logging and hook data, managed by JobOrchestrator.psm1
 $Global:GlobalLogFile                       = $null
 $Global:GlobalEnableFileLogging             = $false
 $Global:GlobalLogDirectory                  = $null
 $Global:GlobalJobLogEntries                 = $null
 $Global:GlobalJobHookScriptData             = $null
+
+$script:BuildJobExecutionOrderFuncRef = $null # Initialize
 
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -Global -ErrorAction Stop
@@ -311,19 +328,30 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\HookManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\SystemStateManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
+    
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop 
 
-    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including JobOrchestrator and PostRunActionOrchestrator." -Level "INFO"
+    $cmdInfo = Get-Command Build-JobExecutionOrder -ErrorAction SilentlyContinue
+    if (-not $cmdInfo) {
+        & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Build-JobExecutionOrder from JobDependencyManager is NOT available after import!" -Level "ERROR"
+        exit 99 
+    } else {
+        & $LoggerScriptBlock -Message "[INFO] PoSh-Backup.ps1: Build-JobExecutionOrder IS available. Type: $($cmdInfo.CommandType)" -Level "INFO"
+        $script:BuildJobExecutionOrderFuncRef = $cmdInfo 
+    }
+
+    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including JobOrchestrator, PostRunActionOrchestrator, and JobDependencyManager." -Level "INFO"
 
 } catch {
     & $LoggerScriptBlock -Message "[FATAL] Failed to import one or more required script modules." -Level "ERROR"
-    & $LoggerScriptBlock -Message "Ensure core modules are in '.\Modules\' (or '.\Modules\Core\') relative to PoSh-Backup.ps1." -Level "ERROR"
+    & $LoggerScriptBlock -Message "Ensure core modules are in '.\Modules\' (or subdirectories) relative to PoSh-Backup.ps1." -Level "ERROR" 
     & $LoggerScriptBlock -Message "Error details: $($_.Exception.Message)" -Level "ERROR"
     exit 10
 }
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.13.3 (Added 7-Zip include/exclude list file CLI parameters)" -Level "HEADING"
+& $LoggerScriptBlock -Message " Script Version: v1.14.0 (Added Job Chaining/Dependency feature)" -Level "HEADING" 
 if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
@@ -331,8 +359,8 @@ if ($ListBackupSets.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACK
 if ($SkipUserConfigCreation.IsPresent) { & $LoggerScriptBlock -Message " ***** SKIP USER CONFIG CREATION ACTIVE ***** " -Level "INFO" }
 if ($cliOverrideSettings.TreatSevenZipWarningsAsSuccess -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Treating 7-Zip warnings as success. ***** " -Level "INFO" }
 if ($cliOverrideSettings.SevenZipCpuAffinity) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip CPU Affinity specified: $($cliOverrideSettings.SevenZipCpuAffinity) ***** " -Level "INFO" }
-if ($cliOverrideSettings.SevenZipIncludeListFile) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip Include List File specified: $($cliOverrideSettings.SevenZipIncludeListFile) ***** " -Level "INFO" } # NEW
-if ($cliOverrideSettings.SevenZipExcludeListFile) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip Exclude List File specified: $($cliOverrideSettings.SevenZipExcludeListFile) ***** " -Level "INFO" } # NEW
+if ($cliOverrideSettings.SevenZipIncludeListFile) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip Include List File specified: $($cliOverrideSettings.SevenZipIncludeListFile) ***** " -Level "INFO" } 
+if ($cliOverrideSettings.SevenZipExcludeListFile) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip Exclude List File specified: $($cliOverrideSettings.SevenZipExcludeListFile) ***** " -Level "INFO" } 
 if ($cliOverrideSettings.VerifyLocalArchiveBeforeTransferCLI -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Verify Local Archive Before Transfer ENABLED. ***** " -Level "INFO" }
 if ($null -ne $cliOverrideSettings.LogRetentionCountCLI) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Log Retention Count specified: $($cliOverrideSettings.LogRetentionCountCLI) ***** " -Level "INFO" }
 if ($cliOverrideSettings.PostRunActionCli) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Post-Run Action specified: $($cliOverrideSettings.PostRunActionCli) ***** " -Level "INFO" }
@@ -353,6 +381,7 @@ $configLoadParams = @{
     CliOverrideSettings         = $cliOverrideSettings
 }
 $configResult = Import-AppConfiguration @configLoadParams
+
 
 if (-not $configResult.IsValid) {
     & $LoggerScriptBlock -Message "FATAL: Configuration loading or validation failed. Exiting." -Level "ERROR"
@@ -383,6 +412,7 @@ Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPr
                             -ActualConfigFile $ActualConfigFile `
                             -ConfigLoadResult $configResult `
                             -Logger $LoggerScriptBlock
+
 
 $sevenZipPathFromFinalConfig = if ($Configuration.ContainsKey('SevenZipPath')) { $Configuration.SevenZipPath } else { $null }
 if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
@@ -429,14 +459,50 @@ if ($Global:GlobalEnableFileLogging) {
 }
 
 $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
+
 if (-not $jobResolutionResult.Success) {
     & $LoggerScriptBlock -Message "FATAL: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
     exit 1
 }
-$jobsToProcess = $jobResolutionResult.JobsToRun
+$initialJobsToConsider = $jobResolutionResult.JobsToRun 
 $currentSetName = $jobResolutionResult.SetName
 $stopSetOnError = $jobResolutionResult.StopSetOnErrorPolicy
 $setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
+
+# --- NEW: Build Job Execution Order based on Dependencies ---
+$jobsToProcess = [System.Collections.Generic.List[string]]::new() 
+if ($initialJobsToConsider.Count -gt 0) {
+    & $LoggerScriptBlock -Message "[INFO] Building job execution order considering dependencies..." -Level "INFO"
+    
+    if ($null -eq $script:BuildJobExecutionOrderFuncRef) {
+        & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Function reference for Build-JobExecutionOrder is null before calling!" -Level "ERROR"
+        exit 98
+    }
+    
+    $executionOrderResult = & $script:BuildJobExecutionOrderFuncRef -InitialJobsToConsider $initialJobsToConsider `
+                                                                    -AllBackupLocations $Configuration.BackupLocations `
+                                                                    -Logger $LoggerScriptBlock
+    if (-not $executionOrderResult.Success) {
+        & $LoggerScriptBlock -Message "FATAL: Could not build job execution order. Error: $($executionOrderResult.ErrorMessage)" -Level "ERROR"
+        exit 1
+    }
+    
+    if ($executionOrderResult.OrderedJobs -is [array]) {
+        $jobsToProcess = New-Object System.Collections.Generic.List[string]
+        $executionOrderResult.OrderedJobs | ForEach-Object { $jobsToProcess.Add($_) }
+    } elseif ($executionOrderResult.OrderedJobs -is [System.Collections.Generic.List[string]]) {
+        $jobsToProcess = $executionOrderResult.OrderedJobs
+    } else {
+        & $LoggerScriptBlock -Message "FATAL: Build-JobExecutionOrder returned unexpected type for OrderedJobs: $($executionOrderResult.OrderedJobs.GetType().FullName)" -Level "ERROR"
+        exit 1
+    }
+
+    if ($jobsToProcess.Count -gt 0) {
+        & $LoggerScriptBlock -Message "[INFO] Final job execution order: $($jobsToProcess -join ', ')" -Level "INFO"
+    }
+}
+# --- END: Build Job Execution Order ---
+
 #endregion
 
 #region --- Main Processing (Delegated to JobOrchestrator.psm1) ---
@@ -445,7 +511,7 @@ $jobSpecificPostRunActionForNonSetRun = $null
 
 if ($jobsToProcess.Count -gt 0) {
     $runParams = @{
-        JobsToProcess            = $jobsToProcess
+        JobsToProcess            = $jobsToProcess 
         CurrentSetName           = $currentSetName
         StopSetOnErrorPolicy     = $stopSetOnError
         SetSpecificPostRunAction = $setSpecificPostRunAction
@@ -468,7 +534,7 @@ if ($jobsToProcess.Count -gt 0) {
     $overallSetStatus = $orchestratorResult.OverallSetStatus
     $jobSpecificPostRunActionForNonSetRun = $orchestratorResult.JobSpecificPostRunActionForNonSet
 } else {
-    & $LoggerScriptBlock -Message "[INFO] No jobs were processed." -Level "INFO"
+    & $LoggerScriptBlock -Message "[INFO] No jobs were processed (either none specified or dependency analysis resulted in an empty list)." -Level "INFO" 
 }
 #endregion
 

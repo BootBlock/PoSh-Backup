@@ -31,7 +31,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.5 # Invoke-PoShBackupSFTPTargetSettingsValidation now also validates RemoteRetentionSettings.
+    Version:        1.0.6 # Useless inline supression that doesn't do anything
     DateCreated:    22-May-2025
     LastModified:   27-May-2025
     Purpose:        SFTP Target Provider for PoSh-Backup.
@@ -46,7 +46,7 @@
 # Internal helper function to format byte sizes into human-readable strings (KB, MB, GB).
 function Format-BytesInternal-Sftp {
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [long]$Bytes
     )
     if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
@@ -90,14 +90,17 @@ function Get-SecretFromVaultInternal-Sftp {
                 $plainText = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
                 [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
                 return $plainText
-            } elseif ($secretValue.Secret -is [string]) {
+            }
+            elseif ($secretValue.Secret -is [string]) {
                 return $secretValue.Secret
-            } else {
+            }
+            else {
                 & $LocalWriteLog -Message ("[WARNING] GetSecret: Secret '{0}' for {1} was retrieved but is not a SecureString or String. Type: {2}." -f $SecretName, $SecretPurposeForLog, $secretValue.Secret.GetType().FullName) -Level "WARNING"
                 return $null
             }
         }
-    } catch {
+    }
+    catch {
         & $LocalWriteLog -Message ("[ERROR] GetSecret: Failed to retrieve secret '{0}' for {1}. Error: {2}" -f $SecretName, $SecretPurposeForLog, $_.Exception.Message) -Level "ERROR"
     }
     return $null
@@ -303,17 +306,19 @@ function Invoke-PoShBackupTargetTransfer {
             }
             $sessionParams.KeyFile = $sftpKeyFilePathOnLocalMachine
             if (-not [string]::IsNullOrWhiteSpace($sftpKeyPassphrase)) {
-                # PSScriptAnalyzer Suppress PSAvoidUsingConvertToSecureStringWithPlainText - Justification: Posh-SSH cmdlet requires SecureString. Password/passphrase is from secure storage (SecretManagement) and only briefly in memory as SecureString.
+                # PSScriptAnalyzer Suppress PSAvoidUsingConvertToSecureStringWithPlainText - Posh-SSH cmdlet requires SecureString. Passphrase is from secure storage.
                 $securePassphrase = ConvertTo-SecureString -String $sftpKeyPassphrase -AsPlainText -Force
                 $sessionParams.KeyPassphrase = $securePassphrase
             }
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': Attempting key-based authentication." -f $targetNameForLog) -Level "INFO"
-        } elseif (-not [string]::IsNullOrWhiteSpace($sftpPassword)) {
-            # PSScriptAnalyzer Suppress PSAvoidUsingConvertToSecureStringWithPlainText - Justification: Posh-SSH cmdlet requires SecureString. Password is from secure storage (SecretManagement) and only briefly in memory as SecureString.
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($sftpPassword)) {
+            # PSScriptAnalyzer Suppress PSAvoidUsingConvertToSecureStringWithPlainText - Posh-SSH cmdlet requires SecureString. Password is from secure storage.
             $securePassword = ConvertTo-SecureString -String $sftpPassword -AsPlainText -Force
             $sessionParams.Password = $securePassword
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': Attempting password-based authentication." -f $targetNameForLog) -Level "INFO"
-        } else {
+        }
+        else {
             throw ("SFTP Target '{0}': No password secret or key file path secret provided for authentication." -f $targetNameForLog)
         }
 
@@ -338,8 +343,8 @@ function Invoke-PoShBackupTargetTransfer {
 
         # Remote Retention
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and `
-            $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -is [int] -and `
-            $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
+                $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -is [int] -and `
+                $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
 
             $remoteKeepCount = $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': Applying remote retention (KeepCount: {1}) in '{2}'." -f $targetNameForLog, $remoteKeepCount, $remoteFinalDirectory) -Level "INFO"
@@ -348,8 +353,8 @@ function Invoke-PoShBackupTargetTransfer {
             $remoteFilePattern = "$($literalBaseNameForRemote)*$($ArchiveExtension)"
 
             $existingRemoteBackups = Get-SFTPChildItem -SessionId $sftpSessionId -Path $remoteFinalDirectory -ErrorAction SilentlyContinue |
-                                     Where-Object { $_.Name -like $remoteFilePattern -and (-not $_.IsDirectory) } |
-                                     Sort-Object LastWriteTime -Descending
+            Where-Object { $_.Name -like $remoteFilePattern -and (-not $_.IsDirectory) } |
+            Sort-Object LastWriteTime -Descending
 
             if (($null -ne $existingRemoteBackups) -and ($existingRemoteBackups.Count -gt $remoteKeepCount)) {
                 $remoteBackupsToDelete = $existingRemoteBackups | Select-Object -Skip $remoteKeepCount
@@ -364,23 +369,27 @@ function Invoke-PoShBackupTargetTransfer {
                     try {
                         Remove-SFTPItem -SessionId $sftpSessionId -Path $fileToDeletePath -ErrorAction Stop
                         & $LocalWriteLog -Message "        - Status: DELETED (Remote SFTP Retention)" -Level "SUCCESS"
-                    } catch {
+                    }
+                    catch {
                         & $LocalWriteLog -Message ("        - Status: FAILED to delete remote SFTP archive! Error: {0}" -f $_.Exception.Message) -Level "ERROR"
                         if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = "One or more SFTP retention deletions failed." }
                         else { $result.ErrorMessage += " Additionally, one or more SFTP retention deletions failed." }
                         $result.Success = $false
                     }
                 }
-            } else {
+            }
+            else {
                 & $LocalWriteLog -Message ("    - SFTP Target '{0}': No old remote archives to delete based on retention count {1}." -f $targetNameForLog, $remoteKeepCount) -Level "INFO"
             }
         }
 
-    } catch {
+    }
+    catch {
         $result.ErrorMessage = "SFTP Target '$targetNameForLog': Operation failed. Error: $($_.Exception.Message)"
         & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"
         $result.Success = $false
-    } finally {
+    }
+    finally {
         if ($sftpSessionId) {
             Remove-SSHSession -SessionId $sftpSessionId -ErrorAction SilentlyContinue
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': SSH Session ID {1} closed." -f $targetNameForLog, $sftpSessionId) -Level "DEBUG"

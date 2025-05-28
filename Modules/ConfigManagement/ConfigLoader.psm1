@@ -18,7 +18,7 @@
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.4 # Moved _PoShBackup_PSScriptRoot injection before validation.
+    Version:        1.1.5 # Added Out-Null to Copy-Item to prevent output pollution.
     DateCreated:    24-May-2025
     LastModified:   28-May-2025
     Purpose:        To modularise configuration loading logic from the main ConfigManager module.
@@ -129,7 +129,7 @@ function Invoke-UserConfigCreationPromptInternal {
                 $decision = $Host.UI.PromptForChoice($choiceTitle, $choiceMessage, $options, 0)
                 if ($decision -eq 0) {
                     try {
-                        Copy-Item -LiteralPath $DefaultBaseConfigPathInternal -Destination $DefaultUserConfigPathInternal -Force -ErrorAction Stop
+                        Copy-Item -LiteralPath $DefaultBaseConfigPathInternal -Destination $DefaultUserConfigPathInternal -Force -ErrorAction Stop | Out-Null # MODIFIED
                         & $LocalWriteLogInternal -Message "[SUCCESS] ConfigLoader: '$DefaultUserConfigFileNameInternal' has been created from '$DefaultBaseConfigFileNameInternal' in '$DefaultConfigDirInternal'." -Level "SUCCESS"
                         & $LocalWriteLogInternal -Message "          Please edit '$DefaultUserConfigFileNameInternal' with your desired settings and then re-run PoSh-Backup." -Level "INFO"
                         & $LocalWriteLogInternal -Message "          Script will now exit." -Level "INFO"
@@ -286,18 +286,14 @@ function Import-AppConfiguration {
         return @{ IsValid = $false; ErrorMessage = "Final configuration is not a valid hashtable." }
     }
 
-    # MOVED: Inject _PoShBackup_PSScriptRoot *before* validation
     if ($null -ne $MainScriptPSScriptRoot) {
         $finalConfiguration['_PoShBackup_PSScriptRoot'] = $MainScriptPSScriptRoot
     } else {
-        # This case should ideally not happen if PoSh-Backup.ps1 always passes its $PSScriptRoot
         & $LocalWriteLog -Message "[CRITICAL] ConfigLoader: MainScriptPSScriptRoot was not provided to Import-AppConfiguration. _PoShBackup_PSScriptRoot cannot be set. Target provider validation will likely fail." -Level "ERROR"
-        # Do not return yet, let validator try and report the specific missing key.
     }
 
     $validationMessages = [System.Collections.Generic.List[string]]::new()
 
-    # --- Basic Validation for BackupTargets ---
     if ($finalConfiguration.ContainsKey('BackupTargets')) {
         if ($finalConfiguration.BackupTargets -isnot [hashtable]) {
             $validationMessages.Add("ConfigLoader: Global 'BackupTargets' must be a Hashtable if defined.")
@@ -316,7 +312,6 @@ function Import-AppConfiguration {
         }
     }
 
-    # Advanced Schema Validation
     if ($validationMessages.Count -eq 0) {
         $enableAdvancedValidation = Get-ConfigValue -ConfigObject $finalConfiguration -Key 'EnableAdvancedSchemaValidation' -DefaultValue $false
         if ($enableAdvancedValidation -eq $true) {

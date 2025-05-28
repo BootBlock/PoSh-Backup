@@ -21,9 +21,9 @@
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.9 # Added VerifyLocalArchiveBeforeTransfer logic.
+    Version:        1.0.10    # Gemini sucks
     DateCreated:    24-May-2025
-    LastModified:   26-May-2025
+    LastModified:   28-May-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 and 7ZipManager.psm1 from the parent 'Modules' directory.
@@ -45,8 +45,6 @@ function Invoke-LocalArchiveOperation {
         [hashtable]$EffectiveJobConfig,
         [Parameter(Mandatory = $true)]
         [string]$CurrentJobSourcePathFor7Zip,
-        [Parameter(Mandatory = $false)]
-        [string]$TempPasswordFilePath, 
         [Parameter(Mandatory = $true)]
         [ref]$JobReportDataRef,
         [Parameter(Mandatory = $true)]
@@ -57,6 +55,8 @@ function Invoke-LocalArchiveOperation {
         [System.Management.Automation.PSCmdlet]$PSCmdlet,
         [Parameter(Mandatory = $true)]
         [hashtable]$GlobalConfig,
+        [Parameter(Mandatory = $false)] 
+        [string]$ArchivePasswordPlainText = $null,
         [Parameter(Mandatory = $false)]
         [string]$SevenZipCpuAffinityString = $null
     )
@@ -105,22 +105,22 @@ function Invoke-LocalArchiveOperation {
         $sevenZipArgsArray = Get-PoShBackup7ZipArgument -EffectiveConfig $EffectiveJobConfig `
             -FinalArchivePath $finalArchivePathForReturn `
             -CurrentJobSourcePathFor7Zip $CurrentJobSourcePathFor7Zip `
-            -TempPassFile $TempPasswordFilePath `
             -Logger $scriptBlockLogger 
 
         $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath'
         $zipOpParams = @{
-            SevenZipPathExe        = $sevenZipPathGlobal
-            SevenZipArguments      = $sevenZipArgsArray
-            ProcessPriority        = $EffectiveJobConfig.JobSevenZipProcessPriority
+            SevenZipPathExe           = $sevenZipPathGlobal
+            SevenZipArguments         = $sevenZipArgsArray
+            ProcessPriority           = $EffectiveJobConfig.JobSevenZipProcessPriority
             SevenZipCpuAffinityString = $SevenZipCpuAffinityString
-            HideOutput             = $EffectiveJobConfig.HideSevenZipOutput
-            MaxRetries             = $EffectiveJobConfig.JobMaxRetryAttempts
-            RetryDelaySeconds      = $EffectiveJobConfig.JobRetryDelaySeconds
-            EnableRetries          = $EffectiveJobConfig.JobEnableRetries
-            TreatWarningsAsSuccess = $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess
-            IsSimulateMode         = $IsSimulateMode.IsPresent
-            Logger                 = $scriptBlockLogger 
+            PlainTextPassword         = $ArchivePasswordPlainText 
+            HideOutput                = $EffectiveJobConfig.HideSevenZipOutput
+            MaxRetries                = $EffectiveJobConfig.JobMaxRetryAttempts
+            RetryDelaySeconds         = $EffectiveJobConfig.JobRetryDelaySeconds
+            EnableRetries             = $EffectiveJobConfig.JobEnableRetries
+            TreatWarningsAsSuccess    = $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess
+            IsSimulateMode            = $IsSimulateMode.IsPresent
+            Logger                    = $scriptBlockLogger 
         }
         if ((Get-Command Invoke-7ZipOperation).Parameters.ContainsKey('PSCmdlet')) {
             $zipOpParams.PSCmdlet = $PSCmdlet
@@ -203,7 +203,7 @@ function Invoke-LocalArchiveOperation {
             $testArchiveParams = @{
                 SevenZipPathExe        = $sevenZipPathGlobal
                 ArchivePath            = $finalArchivePathForReturn
-                TempPassFile           = $TempPasswordFilePath 
+                PlainTextPassword      = $ArchivePasswordPlainText
                 ProcessPriority        = $EffectiveJobConfig.JobSevenZipProcessPriority
                 SevenZipCpuAffinityString = $SevenZipCpuAffinityString
                 HideOutput             = $EffectiveJobConfig.HideSevenZipOutput

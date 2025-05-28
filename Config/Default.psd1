@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.4.4: Added SevenZipIncludeListFile and SevenZipExcludeListFile settings (global, job, set).
+# Version 1.4.5: Added job-level DependsOnJobs setting.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -206,8 +206,8 @@
                                                                       # Examples: "0,1" (for cores 0 and 1), "0x3" (bitmask for cores 0 and 1).
                                                                       # Empty string or $null means no affinity is set (7-Zip uses all available cores).
                                                                       # This is passed to Start-Process -Affinity.
-    DefaultSevenZipIncludeListFile  = ""                              # NEW: Global default path to a 7-Zip include list file (e.g., "C:\BackupConfig\GlobalIncludes.txt"). Used with -i@.
-    DefaultSevenZipExcludeListFile  = ""                              # NEW: Global default path to a 7-Zip exclude list file (e.g., "C:\BackupConfig\GlobalExcludes.txt"). Used with -x@.
+    DefaultSevenZipIncludeListFile  = ""                              # Global default path to a 7-Zip include list file (e.g., "C:\BackupConfig\GlobalIncludes.txt"). Used with -i@.
+    DefaultSevenZipExcludeListFile  = ""                              # Global default path to a 7-Zip exclude list file (e.g., "C:\BackupConfig\GlobalExcludes.txt"). Used with -x@.
 
     DefaultArchiveType              = "-t7z"                          # 7-Zip -t (type) switch. Examples: -t7z, -tzip, -ttar, -tgzip.
                                                                       # This determines the internal format of the archive, even if an SFX (.exe) is created.
@@ -354,6 +354,8 @@
             DeleteToRecycleBin      = $false                          # For local retention in 'DestinationDir'.
             RetentionConfirmDelete  = $false                          # Job-specific override for local retention: auto-delete old local archives without prompting.
 
+            DependsOnJobs           = @()                             # NEW: Array of job names this job depends on. E.g., @("DatabaseBackupJob")
+
             ArchivePasswordMethod   = "None"                          # Password method: "None", "Interactive", "SecretManagement", "SecureStringFile", "PlainText". See instructions at top.
             # CredentialUserNameHint  = "ProjectBackupUser"           # For "Interactive" method.
             # ArchivePasswordSecretName = ""                          # For "SecretManagement" method.
@@ -366,8 +368,8 @@
             EnableVSS               = $false                          # $true to use VSS for this job (requires Admin). Overrides global EnableVSS.
             SevenZipProcessPriority = "Normal"                        # Override global 7-Zip priority for this specific job.
             SevenZipCpuAffinity     = ""                              # Job-specific CPU affinity for 7-Zip. E.g., "0,1" or "0x3". Empty means use global default.
-            #SevenZipIncludeListFile = "D:\MyIncludes.txt"            # NEW: Job-specific include list file.
-            #SevenZipExcludeListFile = "D:\MyExcludes.txt"            # NEW: Job-specific exclude list file.
+            # SevenZipIncludeListFile = "D:\MyIncludes.txt"           # Job-specific include list file.
+            # SevenZipExcludeListFile = "D:\MyExcludes.txt"           # Job-specific exclude list file.
             ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
 
@@ -401,6 +403,8 @@
             DeleteToRecycleBin         = $true                        # Note: Ensure this is appropriate if 'DestinationDir' is a network share (less common for staging).
             RetentionConfirmDelete     = $false                       # Example: This job will auto-delete old local archives without prompting.
 
+            DependsOnJobs              = @()                          # NEW
+
             ArchivePasswordMethod      = "Interactive"                # Example: Prompts for password for this job.
             CredentialUserNameHint     = "DocsUser"
 
@@ -414,8 +418,8 @@
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
             TreatSevenZipWarningsAsSuccess = $true                    # Example: For this job, 7-Zip warnings are considered success.
             SevenZipCpuAffinity        = "0"                          # Example: Restrict 7-Zip to core 0 for this job.
-            # SevenZipIncludeListFile = ""                            # NEW
-            # SevenZipExcludeListFile = ""                            # NEW
+            SevenZipIncludeListFile    = ""                           
+            SevenZipExcludeListFile    = ""                           
 
             # Checksum settings (will use global defaults if not specified here, e.g., DefaultGenerateArchiveChecksum = $false)
             # GenerateArchiveChecksum     = $false
@@ -435,6 +439,8 @@
             LocalRetentionCount        = 2
             LogRetentionCount          = 0                            # Example: Keep all log files for this job (infinite retention).
 
+            DependsOnJobs              = @()                          # NEW
+
             ArchivePasswordMethod      = "None"
             EnableVSS                  = $true
 
@@ -447,8 +453,8 @@
             ChecksumAlgorithm           = "MD5"
             VerifyArchiveChecksumOnTest = $true
             SevenZipCpuAffinity         = "0x1"                       # Example: Restrict 7-Zip to core 0 (bitmask) for this job.
-            # SevenZipIncludeListFile = ""                            # NEW
-            # SevenZipExcludeListFile = ""                            # NEW
+            SevenZipIncludeListFile    = ""                           
+            SevenZipExcludeListFile    = ""                           
 
             # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
         }
@@ -463,6 +469,8 @@
             LocalRetentionCount     = 1
             # LogRetentionCount will use DefaultLogRetentionCount
 
+            DependsOnJobs           = @()                             # NEW
+
             ArchivePasswordMethod   = "SecretManagement"
             ArchivePasswordSecretName = "MyArchiveEncryptionPassword"
 
@@ -476,8 +484,8 @@
             ChecksumAlgorithm           = "SHA512"
             VerifyArchiveChecksumOnTest = $true
             # SevenZipCpuAffinity will use global default if not specified
-            # SevenZipIncludeListFile = ""                            # NEW
-            # SevenZipExcludeListFile = ""                            # NEW
+            SevenZipIncludeListFile    = ""                           
+            SevenZipExcludeListFile    = ""                           
 
             PostRunAction = @{
                 Enabled         = $true
@@ -502,6 +510,8 @@
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
             RetentionConfirmDelete  = $false
 
+            DependsOnJobs           = @("ComprehensiveExample_Database") # NEW EXAMPLE
+
             TargetNames             = @(
                                         "ExampleUNCShare"
                                         # "ExampleS3Bucket"
@@ -520,8 +530,8 @@
             ThreadsToUse            = 2
             SevenZipProcessPriority = "BelowNormal"
             SevenZipCpuAffinity     = "0,1,2,3"                       # Example: Use first 4 cores
-            SevenZipIncludeListFile = "\\SHARE\Config\WebApp_Includes.txt" # NEW
-            SevenZipExcludeListFile = "\\SHARE\Config\WebApp_Excludes.txt" # NEW
+            SevenZipIncludeListFile = "\\SHARE\Config\WebApp_Includes.txt" 
+            SevenZipExcludeListFile = "\\SHARE\Config\WebApp_Excludes.txt" 
             AdditionalExclusions    = @(
                                         "*\logs\*.log",
                                         "*\temp\*",
@@ -570,6 +580,14 @@
             #     TriggerOnStatus = @("ANY")
             # }
         }
+        "ComprehensiveExample_Database" = @{ # Example of a prerequisite job
+            Path                    = "D:\SQL_Backups\MyWebAppDB.bak"
+            Name                    = "Database_Production"
+            DestinationDir          = "\\BACKUPSERVER\Share\DBs\LocalStage_DB"
+            LocalRetentionCount     = 3
+            DependsOnJobs           = @() # No dependencies for this one
+            # ... other settings ...
+        }
         #>
         #endregion
     }
@@ -588,8 +606,8 @@
             )
             OnErrorInJob = "StopSet"
             LogRetentionCount = 7 # Logs for jobs run as part of this set will keep only 7 files, overriding their individual or global settings.
-            # SevenZipIncludeListFile = "C:\BackupConfig\Set_DailyCritical_Includes.txt" # NEW: Set-level include list file.
-            # SevenZipExcludeListFile = "C:\BackupConfig\Set_DailyCritical_Excludes.txt" # NEW: Set-level exclude list file.
+            SevenZipIncludeListFile = "C:\BackupConfig\Set_DailyCritical_Includes.txt" 
+            SevenZipExcludeListFile = "C:\BackupConfig\Set_DailyCritical_Excludes.txt" 
 
             # PostRunAction = @{
             #     Enabled         = $true
@@ -606,15 +624,15 @@
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
             # LogRetentionCount will be inherited from each job's config or global default.
-            # SevenZipIncludeListFile = "" # NEW
-            # SevenZipExcludeListFile = "" # NEW
+            SevenZipIncludeListFile = "" 
+            SevenZipExcludeListFile = "" 
             # PostRunAction = @{ Enabled = $false }
         }
         "Nightly_Full_System_Simulate" = @{
             JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example", "CriticalData_To_SFTP_Example")
             OnErrorInJob = "ContinueSet"
-            # SevenZipIncludeListFile = "" # NEW
-            # SevenZipExcludeListFile = "" # NEW
+            SevenZipIncludeListFile = "" 
+            SevenZipExcludeListFile = "" 
             # Note: To run this set in simulation mode, you would use:
             # .\PoSh-Backup.ps1 -RunSet "Nightly_Full_System_Simulate" -Simulate
         }

@@ -11,7 +11,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   If remote targets (e.g., UNC shares, SFTP servers) are configured for the job, this `DestinationDir` acts as a **local staging area** before the archive is transferred.
     *   If no remote targets are specified for a job, the archive in `DestinationDir` serves as the **final backup location**.
 *   **Granular Backup Job Control:** Precisely define sources, the primary archive creation directory (`DestinationDir`), archive names, local retention policies, **remote target assignments**, and **post-run actions** for each individual backup job.
-*   **Backup Sets:** Group multiple jobs to run sequentially, with set-level error handling (stop on error or continue) and **set-level post-run actions** for automated workflows.
+*   **Backup Job Chaining / Dependencies (New):** Define prerequisite jobs for a backup job using the `DependsOnJobs` array setting in the configuration. A job will only execute if all its specified prerequisite jobs have completed successfully. Success for a prerequisite is determined by its final status, taking into account its specific `TreatSevenZipWarningsAsSuccess` setting (i.e., a status of "SUCCESS", "SIMULATED_COMPLETE", or "WARNINGS" if that job treats warnings as success, will allow dependent jobs to proceed). The script automatically builds a valid execution order for the targeted job(s) and their dependencies, and will detect and report circular dependencies during configuration testing (`-TestConfig`) or before a run.
+*   **Backup Sets:** Group multiple jobs to run. If jobs within a set have dependencies defined via `DependsOnJobs`, they will be ordered accordingly within the set's execution. The set-level error handling (`OnErrorInJob`: "StopSet" or "ContinueSet") interacts with both operational job failures and jobs skipped due to failed prerequisites. For example, if `OnErrorInJob` is "StopSet", a critical prerequisite failure that causes a dependent job to be skipped can halt the entire set. Set-level post-run actions are also supported.
 *   **Extensible Backup Target Providers:** A modular system (located in `Modules\Targets\`) allows for adding support for various remote storage types.
     *   **UNC Provider:** Transfers archives to standard network shares.
     *   **Replicate Provider (New):** Copies an archive to multiple specified local or UNC paths, with individual retention settings per destination.
@@ -22,7 +23,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Live File Backups with VSS:** Utilise the Windows Volume Shadow Copy Service (VSS) to seamlessly back up open or locked files (requires Administrator privileges). Features configurable VSS context, reliable shadow copy creation, and a configurable metadata cache path.
 *   **Advanced 7-Zip Integration:** Leverage 7-Zip for efficient, highly configurable compression. Customise archive type, compression level, method, dictionary/word/solid block sizes, and thread count for local archive creation.
     *   **Include/Exclude List Files (New):** Define complex include or exclude rules for 7-Zip by specifying paths to external text files. These files contain patterns (one per line) that 7-Zip will use with its `-i@listfile` or `-x@listfile` switches. Configurable globally, per-job, per-set, or via CLI.
-*   **Secure Password Protection:** Encrypt local backup archives with passwords, handled securely via temporary files (using 7-Zip's `-spf` switch) to prevent command-line exposure. Multiple password sources supported (Interactive, PowerShell SecretManagement, Encrypted File, Plaintext).
+*   **Secure Password Protection:** Encrypt local backup archives with passwords. The password, whether obtained interactively, from PowerShell SecretManagement, an encrypted file, or plain text (discouraged), is now passed directly to 7-Zip using its standard `-p{password}` switch. While this avoids intermediate temporary password files, the command line itself (which can sometimes be logged or inspected) will contain the password switch.
 *   **Customisable Archive Naming:** Tailor local archive filenames with a base name and a configurable date stamp (e.g., "yyyy-MMM-dd", "yyyyMMdd_HHmmss"). Set archive extensions (e.g., .7z, .zip) per job.
 *   **Automatic Retry Mechanism:** Overcome transient failures during 7-Zip operations for local archive creation. (Note: Retries for remote transfers are the responsibility of the specific Backup Target provider module, if implemented.)
 *   **CPU Priority Control:** Manage system resource impact by setting the 7-Zip process priority (e.g., Idle, BelowNormal, Normal, High) for local archiving.
@@ -43,7 +44,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Comprehensive Logging:** Get detailed, colour-coded console output and optional per-job text file logs for easy monitoring and troubleshooting of both local operations and remote transfers.
 *   **Log File Retention (New):** Automatically manage the number of log files kept per job. Configurable globally, per job, or per backup set, with a CLI override. A setting of `0` means infinite retention. This prevents the `Logs/` directory from growing indefinitely.
 *   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention (archive and log files), **post-run system actions**, and **checksum operations** without making any actual changes.
-*   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`), including basic validation of Backup Target definitions. Optional advanced schema validation available.
+*   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`). This includes basic validation of Backup Target definitions and **job dependency validation** (checking for circular references and dependencies on non-existent jobs). Optional advanced schema validation for the overall configuration structure is also available.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the `DestinationDir` before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives using `7z t`.
 *   **Archive Checksum Generation & Verification:** Optionally generate a checksum file (e.g., SHA256, MD5) for the local archive. If archive testing is enabled, this checksum can also be verified against the archive content for an additional layer of integrity validation.
@@ -66,18 +67,19 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   Download the project files (e.g., as a ZIP archive from the project page) or clone the repository if you use Git.
     *   Extract/place the `PoSh-Backup` folder in your desired location (e.g., `C:\Scripts\PoSh-Backup`).
 2.  **Directory Structure Overview:**
-    *   `PoSh-Backup.ps1`: The main executable script you will run (Current version: **1.13.3**).
+    *   `PoSh-Backup.ps1`: The main executable script you will run.
     *   `Config/`: Contains all configuration files.
         *   `Default.psd1`: The master configuration file. It lists all available settings with detailed comments explaining each one. **It's recommended not to edit this file directly**, as your changes would be overwritten if you update the script.
         *   `User.psd1`: (Will be created on first run if it doesn't exist) This is where your custom settings go.
         *   `Themes/`: Contains CSS files for different HTML report themes.
     *   `Modules/`: Contains PowerShell modules that provide the core functionality.
-        *   `Targets/`: **Sub-directory for Backup Target provider modules** (e.g., `UNC.Target.psm1`, `Replicate.Target.psm1`, `SFTP.Target.psm1` (New)).
-        *   `SystemStateManager.psm1`: **New module for handling post-run system actions.**
-        *   `Utilities/`: **Sub-directory for specialized utility modules** (e.g., `Logging.psm1`, `ConfigUtils.psm1`, `SystemUtils.psm1`, `FileUtils.psm1`, `LogManager.psm1` (New)).
-    *   `Meta/`: Contains scripts related to the development of PoSh-Backup itself (like the script to generate bundles for AI).
-    *   `Logs/`: Default directory where text log files will be stored for each job run (if file logging is enabled in the configuration).
-    *   `Reports/`: Default directory where generated backup reports (HTML, CSV, etc.) will be saved.
+        *   `Core/`: Core orchestration and operational logic (e.g., `JobOrchestrator.psm1`, `Operations.psm1`).
+        *   `Managers/`: Modules for managing specific functionalities (e.g., `7ZipManager.psm1`, `VssManager.psm1`, `LogManager.psm1`, `JobDependencyManager.psm1`, `SystemStateManager.psm1`, etc.).
+        *   `Operations/`: Sub-modules for specific phases of a backup job (e.g., `JobPreProcessor.psm1`, `LocalArchiveProcessor.psm1`).
+        *   `Reporting/`: Modules related to report generation.
+        *   `Targets/`: Sub-directory for Backup Target provider modules.
+        *   `Utilities/`: Sub-directory for specialized utility modules.
+        *   (Other direct .psm1 files like `Utils.psm1`, `ScriptModeHandler.psm1`, `PoShBackupValidator.psm1`)
 3.  **First Run & User Configuration:**
     *   Open a PowerShell console.
     *   Navigate to the root directory where you placed the `PoSh-Backup` folder (e.g., `cd C:\Scripts\PoSh-Backup`).
@@ -194,6 +196,11 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   Each job definition requires:
             *   `Path`: Source path(s) to back up (string or array of strings).
             *   `Name`: Base name for the archive file.
+        *   **`DependsOnJobs` (New Job-Level Setting):**
+            *   An array of job name strings that this job depends on. Example: `DependsOnJobs = @("DatabaseBackupJob", "LogArchiveJob")`
+            *   The current job will only run if all jobs listed in `DependsOnJobs` complete successfully (success considers the prerequisite job's `TreatSevenZipWarningsAsSuccess` setting).
+            *   The script will attempt to order jobs to satisfy these dependencies and will detect circular dependencies.
+        *   Key settings for local and remote behaviour:
         *   Key settings for local and remote behaviour:
             *   `DestinationDir`: Specifies the directory where this job's archive is created. If remote targets are used, this acts as a **local staging directory**. If no remote targets are used, this is the **final backup destination**. Overrides `DefaultDestinationDir`.
             *   `LocalRetentionCount`: (Renamed from `RetentionCount`) Defines how many archive versions to keep in the `DestinationDir`.
@@ -354,7 +361,7 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     ```powershell
     .\PoSh-Backup.ps1 -TestConfig
     ```
-    (This is very useful after making changes to `User.psd1`.)
+    (This is very useful after making changes to `User.psd1`. If this job has dependencies, they will be processed first according to the defined order.)
 
 *   **List all defined backup jobs and their basic details:**
     ```powershell

@@ -6,36 +6,39 @@
     to allowed values, helping to ensure configuration integrity before a backup job is run.
     The schema is loaded from an external file: 'Modules\ConfigManagement\Assets\ConfigSchema.psd1'.
     This module now delegates detailed validation for specific Backup Target types to functions
-    within the respective target provider modules.
+    within the respective target provider modules and job dependency validation to JobDependencyManager.
 
 .DESCRIPTION
     This PowerShell module uses a detailed schema definition, loaded from an external .psd1 file,
     to validate a PoSh-Backup configuration object (hashtable). It provides functions to
     recursively validate the configuration against this schema.
 
-    After generic schema validation, it dynamically discovers and invokes type-specific validation
-    functions (e.g., 'Invoke-PoShBackupUNCTargetSettingsValidation') from the relevant target
-    provider modules (e.g., UNC.Target.psm1) for each defined Backup Target instance.
+    After generic schema validation, it:
+    - Calls 'Test-PoShBackupJobDependencyGraph' from 'JobDependencyManager.psm1' to validate job dependency
+      chains (e.g., for circular references or dependencies on non-existent jobs).
+    - Dynamically discovers and invokes type-specific validation functions
+      (e.g., 'Invoke-PoShBackupUNCTargetSettingsValidation') from the relevant target
+      provider modules (e.g., UNC.Target.psm1) for each defined Backup Target instance.
 
     The validation process can help detect common configuration errors such as:
     - Typographical errors in setting names.
     - Incorrect data types for setting values.
     - Missing mandatory configuration settings.
     - Use of unsupported or invalid values for specific settings.
-    - Incorrect structure or missing required fields in 'BackupTargets' definitions,
-      with detailed checks for 'TargetSpecificSettings' now handled by the providers.
+    - Incorrect structure or missing required fields in 'BackupTargets' definitions.
+    - Invalid job dependencies.
     - Incorrect structure or values for 'PostRunAction' and 'Checksum' settings.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.6.2 # Added explicit check for _PoShBackup_PSScriptRoot before target validation.
+    Version:        1.6.5 # Fixing dumb Gemini screw-ups
     DateCreated:    14-May-2025
     LastModified:   28-May-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Schema file 'ConfigSchema.psd1' must exist in 'Modules\ConfigManagement\Assets\'.
-                    Target provider modules (e.g., UNC.Target.psm1) must exist in 'Modules\Targets\'
-                    and export their respective validation functions.
+                    Target provider modules (e.g., UNC.Target.psm1) must exist in 'Modules\Targets\'.
+                    JobDependencyManager.psm1 must exist in 'Modules\Managers\'.
                     This module is typically invoked by 'ConfigManager.psm1' if schema validation is
                     enabled in the main PoSh-Backup configuration.
 #>
@@ -61,6 +64,14 @@ if (Test-Path -LiteralPath $schemaFilePath -PathType Leaf) {
 }
 else {
     Write-Error "[PoShBackupValidator.psm1] CRITICAL: Configuration schema file not found at '$schemaFilePath'. Advanced validation will be unavailable."
+}
+
+# Import JobDependencyManager for dependency validation
+try {
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
+}
+catch {
+    Write-Error "[PoShBackupValidator.psm1] CRITICAL: Failed to import or fully parse JobDependencyManager.psm1. Job dependency validation will be unavailable. Error: $($_.Exception.ToString())"
 }
 #endregion
 
@@ -262,14 +273,29 @@ function Invoke-PoShBackupConfigValidation {
     # Perform generic schema validation first
     Test-SchemaRecursiveInternal -ConfigObject $ConfigurationToValidate -Schema $Script:LoadedConfigSchema -ValidationMessages $ValidationMessagesListRef -CurrentPath "Configuration"
 
+    # --- NEW: Job Dependency Validation ---
+    if ($ConfigurationToValidate.ContainsKey('BackupLocations') -and $ConfigurationToValidate.BackupLocations -is [hashtable] -and (Get-Command Test-PoShBackupJobDependencyGraph -ErrorAction SilentlyContinue)) {
+        & $LocalWriteLog -Message "PoShBackupValidator: Performing job dependency validation..." -Level "DEBUG"
+        $dependencyParams = @{
+            AllBackupLocations       = $ConfigurationToValidate.BackupLocations
+            ValidationMessagesListRef = $ValidationMessagesListRef
+        }
+        if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
+            $dependencyParams.Logger = $Logger
+        }
+        Test-JoTest-PoShBackupJobDependencyGraphbDependencies @dependencyParams
+    } elseif (-not (Get-Command Test-PoShBackupJobDependencyGraph -ErrorAction SilentlyContinue)) {
+        & $LocalWriteLog -Message "PoShBackupValidator: JobDependencyManager module or Test-PoShBackupJobDependencyGraph function not available. Skipping job dependency validation." -Level "WARNING"
+    }
+    # --- END: Job Dependency Validation ---
+
     # Perform target-specific validation by calling functions from target provider modules
     if ($ConfigurationToValidate.ContainsKey('BackupTargets') -and $ConfigurationToValidate.BackupTargets -is [hashtable]) {
         $mainScriptPSScriptRoot = $ConfigurationToValidate['_PoShBackup_PSScriptRoot'] 
 
-        # NEW: Explicit check for _PoShBackup_PSScriptRoot
         if ([string]::IsNullOrWhiteSpace($mainScriptPSScriptRoot)) {
             $ValidationMessagesListRef.Value.Add("CRITICAL (PoShBackupValidator): '_PoShBackup_PSScriptRoot' key is missing or empty in the configuration object. Cannot resolve paths for target provider modules. Target-specific validation skipped.")
-            return # Cannot proceed with target validation without this.
+            return 
         }
         if (-not (Test-Path -LiteralPath $mainScriptPSScriptRoot -PathType Container)) {
              $ValidationMessagesListRef.Value.Add("CRITICAL (PoShBackupValidator): '_PoShBackup_PSScriptRoot' path ('$mainScriptPSScriptRoot') does not exist or is not a directory. Cannot resolve paths for target provider modules. Target-specific validation skipped.")

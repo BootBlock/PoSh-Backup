@@ -31,51 +31,64 @@
   )
 
   conversation_summary            = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.13.3).", # Updated version
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.14.0).", # Updated version
     "Modular design: Core (Modules\\Core\\), Managers (Modules\\Managers\\), Utilities (Modules\\Utilities\\), Operations (Modules\\Operations\\), ConfigManagement (Modules\\ConfigManagement\\), Reporting (Modules\\Reporting\\), Targets (Modules\\Targets\\).",
     "AI State structure loaded from 'Meta\\AIState.template.psd1', dynamically populated by Bundler (v__BUNDLER_VERSION_PLACEHOLDER__).",
     "--- CURRENT FOCUS & RECENTLY COMPLETED (Current Session Segment) ---",
+    "  - Feature: Backup Job Chaining / Dependencies:",
+    "    - Goal: Define dependencies, so a job runs only after another's success.",
+    "    - New Module `Modules\\Managers\\JobDependencyManager.psm1` (v0.3.5):",
+    "      - `Test-PoShBackupJobDependencyGraph`: Validates for non-existent jobs and circular dependencies.",
+    "      - `Build-JobExecutionOrder`: Builds job execution order using topological sort, considering all direct/indirect dependencies of initially targeted jobs.",
+    "      - Internal collections refactored to use PowerShell native arrays/hashtables and `New-Object System.Collections.Queue` to resolve environment-specific instantiation errors for generic types.",
+    "      - Added more explicit logging to satisfy PSScriptAnalyzer warnings for Logger parameters.",
+    "    - `Config\\Default.psd1` (v1.4.4 -> v1.4.5): Added job-level `DependsOnJobs = @()` setting.",
+    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for `DependsOnJobs` setting.",
+    "    - `Modules\\PoShBackupValidator.psm1` (v1.6.3 -> v1.6.5): Imports `JobDependencyManager` and calls `Test-PoShBackupJobDependencyGraph` for dependency validation. Debug Write-Host lines removed.",
+    "    - `PoSh-Backup.ps1` (v1.13.3 -> v1.14.0): Imports `JobDependencyManager`. Calls `Build-JobExecutionOrder` to get the final ordered list of jobs. Handles errors from this process. Debugging constructs for function referencing removed.",
+    "    - `Modules\\Core\\JobOrchestrator.psm1` (v1.0.3 -> v1.1.1):",
+    "      - Consumes the dependency-ordered job list.",
+    "      - Tracks effective success status of completed jobs (considers `TreatSevenZipWarningsAsSuccess`).",
+    "      - Checks prerequisite job success before running dependent jobs; skips jobs if dependencies unmet.",
+    "      - Interacts with `StopSetOnErrorPolicy` for skipped/failed jobs.",
+    "  - Correction: 7-Zip Password Handling:",
+    "    - Identified that `-spf` 7-Zip switch was misunderstood; it's for storing full paths, not password files.",
+    "    - Refactored to use the correct `-p{password}` switch for archive encryption.",
+    "    - `Modules\\Operations\\JobPreProcessor.psm1` (v1.0.2 -> v1.0.3): No longer creates temp password files; returns plain text password directly.",
+    "    - `Modules\\Core\\Operations.psm1` (v1.21.1 -> v1.21.2): Retrieves plain text password from pre-processor, passes it to local archive operations, and removed temp file cleanup.",
+    "    - `Modules\\Operations\\LocalArchiveProcessor.psm1` (v1.0.9 -> v1.0.10): Accepts plain text password and passes it to 7ZipManager functions.",
+    "    - `Modules\\Managers\\7ZipManager.psm1` (v1.0.14 -> v1.1.1):", # Assuming v1.0.14 was the one with the bad -spf space fix.
+    "      - `Get-PoShBackup7ZipArgument`: No longer handles any password-related switches.",
+    "      - `Invoke-7ZipOperation`: Accepts plain text password, adds `-mhe=on` and `-p{password}` to arguments.",
+    "      - `Test-7ZipArchive`: Accepts plain text password, adds `-p{password}` to test arguments.",
+    "    - Resolved `Unsupported -spf` errors from 7-Zip.",
+    "  - PSScriptAnalyzer Cleanup:",
+    "    - `Modules\\Managers\\7ZipManager.psm1` (v1.1.0 -> v1.1.1): Removed unused `TempPassFile` parameter from `Get-PoShBackup7ZipArgument`.",
+    "    - `Modules\\Managers\\JobDependencyManager.psm1` (v0.3.3 -> v0.3.5): Renamed `Test-JobDependencies` to `Test-PoShBackupJobDependencyGraph`; added logging to satisfy PSSA for Logger parameters.",
+    "    - `Modules\\PoShBackupValidator.psm1` (v1.6.4 -> v1.6.5): Updated to call renamed `Test-PoShBackupJobDependencyGraph`.",
+    "--- PREVIOUS SESSION SEGMENTS (Highlights, from user baseline) ---",
     "  - Feature: Granular Include/Exclude Lists from Files (7-Zip):",
-    "    - Goal: Enhance include/exclude capabilities by allowing rules to be read from external list files.",
-    "    - `Config\\Default.psd1` (v1.4.3 -> v1.4.4): Added global `DefaultSevenZipIncludeListFile`/`DefaultSevenZipExcludeListFile`, job-level `SevenZipIncludeListFile`/`SevenZipExcludeListFile`, and set-level `SevenZipIncludeListFile`/`SevenZipExcludeListFile` settings.",
-    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for new list file settings. Corrected `ValidateScript` for list file paths (removed `-IsValid` parameter from `Test-Path`).",
-    "    - `PoSh-Backup.ps1` (v1.13.2 -> v1.13.3): Added `-SevenZipIncludeListFileCLI` and `-SevenZipExcludeListFileCLI` parameters and updated `$cliOverrideSettings`.",
-    "    - `Modules\\Core\\JobOrchestrator.psm1` (v1.0.2 -> v1.0.3): Retrieves set-level list file paths to pass to `EffectiveConfigBuilder`.",
-    "    - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.7 -> v1.0.8): Updated to resolve include/exclude list file paths considering CLI > Set > Job > Global hierarchy and add to report data.",
-    "    - `Modules\\Managers\\7ZipManager.psm1` (v1.0.12 -> v1.0.13): `Get-PoShBackup7ZipArgument` now uses resolved list file paths to add `-i@listfile.txt` / `-x@listfile.txt` switches, with warnings for non-existent files.",
-    "    - `README.md`: Updated with new feature documentation.",
-    "    - Resolved `PoShBackupValidator` warning related to `_PoShBackup_PSScriptRoot` being null during validation by adjusting its injection order in `ConfigLoader.psm1` (v1.1.3 -> v1.1.4).",
-    "  - Refactor: `Operations.psm1` (v1.20.2 -> v1.21.2):", # Preserved from user's baseline
-    "    - Goal: Improve readability and maintainability of `Invoke-PoShBackupJob`.",
-    "    - Action: Refactored `Invoke-PoShBackupJob` into several internal, phase-based helper functions:",
-    "      - Invoke-OperationsPhase_InitializeAndPreChecks",
-    "      - Invoke-OperationsPhase_PreBackupHooksAndVSS",
-    "      - Invoke-OperationsPhase_LocalArchiveAndRetention",
-    "      - Invoke-OperationsPhase_RemoteTransfers",
-    "    - State variables (`$currentJobStatus`, paths, etc.) managed in the main function, populated by helper return values.",
-    "    - PSScriptAnalyzer warnings (PSAvoidAssignmentToAutomaticVariable, PSShouldProcess, PSAvoidUsingPlainTextForPassword) from initial refactoring addressed.",
-    "    - `$TempPasswordFilePath` renamed to `$TempPassFilePath`.",
-    "    - Tested successfully by the user.",
-    "  - Refactor: Logging Function Relocation (Completed in Current Session Segment):", # Preserved from user's baseline
-    "    - `Write-LogMessage` moved from `Modules\\Utilities\\Logging.psm1` to `Modules\\Managers\\LogManager.psm1` (v1.0.0 -> v1.1.0).",
-    "    - `Modules\\Utilities\\Logging.psm1` (v1.0.0 -> v1.0.1) deprecated and deleted by the user.",
-    "    - `Modules\\Utils.psm1` (v1.13.3 -> v1.14.0) updated to source `Write-LogMessage` from `Managers\\LogManager.psm1`.",
-    "    - Tested successfully by the user.",
-    "--- PREVIOUS SESSION SEGMENTS (Highlights) ---", # Preserved from user's baseline
-    "  - Refactor: Manager Modules: Centralized manager modules (7Zip, Hook, Log (initial), Password, Retention, SystemState, Vss) into `Modules\\Managers\\`.",
+    "    - `Config\\Default.psd1` (v1.4.3 -> v1.4.4): Added global, job, and set-level list file settings.",
+    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for list files, corrected `ValidateScript`.",
+    "    - `PoSh-Backup.ps1` (v1.13.2 -> v1.13.3): Added CLI params for list files.",
+    "    - `Modules\\Core\\JobOrchestrator.psm1` (v1.0.2 -> v1.0.3): Retrieves set-level list files.",
+    "    - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.7 -> v1.0.8): Resolves list file hierarchy.",
+    "    - `Modules\\Managers\\7ZipManager.psm1` (v1.0.12 -> v1.1.1): Uses list files for `-i@`/`-x@` switches.",
+    "    - `README.md`: Updated.",
+    "    - Resolved `PoShBackupValidator` warning for `_PoShBackup_PSScriptRoot` in `ConfigLoader.psm1` (v1.1.3 -> v1.1.4).",
+    "  - Refactor: `Operations.psm1` (v1.20.2 -> v1.21.2): Refactored `Invoke-PoShBackupJob` into internal, phase-based helper functions.",
+    "  - Refactor: Logging Function Relocation: `Write-LogMessage` moved to `Modules\\Managers\\LogManager.psm1`.",
+    "  - Refactor: Manager Modules: Centralized manager modules into `Modules\\Managers\\`.",
     "  - Feature: Log File Retention: Implemented log file retention based on count.",
     "  - Feature: CPU Affinity/Core Limiting for 7-Zip: Added `SevenZipCpuAffinity` settings.",
-    "  - Pester Testing - Phase 1: Utilities:",
-    "    - Established Pattern A (direct import testing) for `ConfigUtils.Tests.ps1` (`Get-ConfigValue`).",
-    "    - Established Pattern B (local copy testing) for `FileUtils.Tests.ps1` (its functions).",
-    "    - Next Steps: Re-create `SystemUtils.Tests.ps1`.",
-    "--- STABLE COMPLETED FEATURES (Brief Overview) ---", # Preserved from user's baseline
+    "  - Pester Testing - Phase 1: Utilities: Established Pattern A (direct import) and Pattern B (local copy) for utility function testing.",
+    "--- STABLE COMPLETED FEATURES (Brief Overview, from user baseline) ---",
     "  - SFX Archives, Core Refactoring (JobOrchestrator, Utils facade, etc.), Archive Checksums, Post-Run System Actions, Backup Target Providers (UNC, Replicate, SFTP).",
-    "--- PROJECT STATUS ---", # Updated
-    "Overall: Core local/remote backup stable. Extensive refactoring complete including `Operations.psm1`. Log retention, CPU affinity, SFX, checksums, post-run actions, and 7-Zip include/exclude list files are implemented. Pester testing for utilities in progress. Logging function (`Write-LogMessage`) now managed by `LogManager.psm1`."
+    "--- PROJECT STATUS ---", 
+    "Overall: Core local/remote backup stable. Extensive refactoring complete. Log retention, CPU affinity, SFX, checksums, post-run actions, 7-Zip include/exclude list files, and job dependency/chaining features are implemented. Pester testing for utilities in progress. Logging function (`Write-LogMessage`) now managed by `LogManager.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.13.3" # Updated version
+  main_script_poSh_backup_version = "1.14.0" # Reflects Job Chaining/Dependency feature
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

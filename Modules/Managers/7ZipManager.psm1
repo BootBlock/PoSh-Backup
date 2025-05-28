@@ -26,7 +26,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.13 # Added support for -i@ and -x@ list files.
+    Version:        1.1.1    # Gemini sucks, obv
     DateCreated:    17-May-2025
     LastModified:   28-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
@@ -40,7 +40,8 @@
 # $PSScriptRoot here refers to the directory of 7ZipManager.psm1 (Modules\Managers).
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Utils.psm1") -Force -ErrorAction Stop
-} catch {
+}
+catch {
     # If this fails, the module cannot function. Write-Error is appropriate.
     Write-Error "7ZipManager.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
@@ -67,7 +68,7 @@ function Find-SevenZipExecutable {
         # if ($sevenZipPath) { Write-Host "Found 7-Zip at $sevenZipPath" }
     #>
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
 
@@ -79,7 +80,8 @@ function Find-SevenZipExecutable {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -154,9 +156,7 @@ function Get-PoShBackup7ZipArgument {
         [Parameter(Mandatory)] [hashtable]$EffectiveConfig,
         [Parameter(Mandatory)] [string]$FinalArchivePath,
         [Parameter(Mandatory)] [object]$CurrentJobSourcePathFor7Zip, # Can be string or array of strings
-        [Parameter(Mandatory=$false)]
-        [string]$TempPassFile = $null, 
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
 
@@ -168,7 +168,8 @@ function Get-PoShBackup7ZipArgument {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -185,7 +186,7 @@ function Get-PoShBackup7ZipArgument {
     if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobWordSize)) { $sevenZipArgs.Add($EffectiveConfig.JobWordSize) }
     if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSolidBlockSize)) { $sevenZipArgs.Add($EffectiveConfig.JobSolidBlockSize) }
     if ($EffectiveConfig.JobCompressOpenFiles) { $sevenZipArgs.Add("-ssw") } # Compress shared files
-    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.ThreadsSetting)) {$sevenZipArgs.Add($EffectiveConfig.ThreadsSetting) } # -mmt or -mmt=N
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.ThreadsSetting)) { $sevenZipArgs.Add($EffectiveConfig.ThreadsSetting) } # -mmt or -mmt=N
 
     # Add -sfx switch if creating a self-extracting archive
     if ($EffectiveConfig.ContainsKey('CreateSFX') -and $EffectiveConfig.CreateSFX -eq $true) {
@@ -194,7 +195,7 @@ function Get-PoShBackup7ZipArgument {
             $sfxModuleType = $EffectiveConfig.SFXModule.ToString().ToUpperInvariant()
 
             switch ($sfxModuleType) {
-                "GUI"       { $sfxModuleSwitch = "-sfx7zS.sfx" } # Standard GUI SFX
+                "GUI" { $sfxModuleSwitch = "-sfx7zS.sfx" } # Standard GUI SFX
                 "INSTALLER" { $sfxModuleSwitch = "-sfx7zSD.sfx" } # Installer GUI SFX
                 # "CONSOLE" or "DEFAULT" or any other value will use the plain "-sfx"
             }
@@ -227,7 +228,8 @@ function Get-PoShBackup7ZipArgument {
         if (Test-Path -LiteralPath $EffectiveConfig.JobSevenZipIncludeListFile -PathType Leaf) {
             $sevenZipArgs.Add("-i@`"$($EffectiveConfig.JobSevenZipIncludeListFile)`"")
             & $LocalWriteLog -Message "  - Get-PoShBackup7ZipArgument: Added include list file: '$($EffectiveConfig.JobSevenZipIncludeListFile)'." -Level "DEBUG"
-        } else {
+        }
+        else {
             & $LocalWriteLog -Message "[WARNING] Get-PoShBackup7ZipArgument: Specified 7-Zip Include List File '$($EffectiveConfig.JobSevenZipIncludeListFile)' not found. It will be ignored." -Level "WARNING"
         }
     }
@@ -237,18 +239,9 @@ function Get-PoShBackup7ZipArgument {
         if (Test-Path -LiteralPath $EffectiveConfig.JobSevenZipExcludeListFile -PathType Leaf) {
             $sevenZipArgs.Add("-x@`"$($EffectiveConfig.JobSevenZipExcludeListFile)`"")
             & $LocalWriteLog -Message "  - Get-PoShBackup7ZipArgument: Added exclude list file: '$($EffectiveConfig.JobSevenZipExcludeListFile)'." -Level "DEBUG"
-        } else {
-            & $LocalWriteLog -Message "[WARNING] Get-PoShBackup7ZipArgument: Specified 7-Zip Exclude List File '$($EffectiveConfig.JobSevenZipExcludeListFile)' not found. It will be ignored." -Level "WARNING"
         }
-    }
-
-    # Add password related switches if a password is in use
-    if ($EffectiveConfig.PasswordInUseFor7Zip) {
-        $sevenZipArgs.Add("-mhe=on") # Encrypt archive headers
-        if (-not [string]::IsNullOrWhiteSpace($TempPassFile)) { 
-            $sevenZipArgs.Add("-spf`"$TempPassFile`"") # Read password from temp file
-        } else {
-            & $LocalWriteLog -Message "[WARNING] PasswordInUseFor7Zip is true but no temporary password file was provided to 7-Zip; the archive might not be password-protected as intended." -Level WARNING
+        else {
+            & $LocalWriteLog -Message "[WARNING] Get-PoShBackup7ZipArgument: Specified 7-Zip Exclude List File '$($EffectiveConfig.JobSevenZipExcludeListFile)' not found. It will be ignored." -Level "WARNING"
         }
     }
 
@@ -259,8 +252,9 @@ function Get-PoShBackup7ZipArgument {
 
     # Add source paths to be archived
     if ($CurrentJobSourcePathFor7Zip -is [array]) {
-        $CurrentJobSourcePathFor7Zip | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) {$sevenZipArgs.Add($_)} }
-    } elseif (-not [string]::IsNullOrWhiteSpace($CurrentJobSourcePathFor7Zip)) {
+        $CurrentJobSourcePathFor7Zip | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) { $sevenZipArgs.Add($_) } }
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($CurrentJobSourcePathFor7Zip)) {
         $sevenZipArgs.Add($CurrentJobSourcePathFor7Zip)
     }
     return $sevenZipArgs.ToArray()
@@ -269,7 +263,7 @@ function Get-PoShBackup7ZipArgument {
 
 #region --- 7-Zip Operation Invoker ---
 function Invoke-7ZipOperation {
-    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')] # Archiving can be medium impact
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')] # Archiving can be medium impact
     <#
     .SYNOPSIS
         Invokes a 7-Zip command (typically for archiving or testing) with support for retries,
@@ -324,8 +318,10 @@ function Invoke-7ZipOperation {
     param(
         [string]$SevenZipPathExe,
         [array]$SevenZipArguments,
+        [Parameter(Mandatory = $false)]
+        [string]$PlainTextPassword = $null,
         [string]$ProcessPriority = "Normal",
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory = $false)]
         [string]$SevenZipCpuAffinityString = $null,
         [switch]$HideOutput,
         [switch]$IsSimulateMode,
@@ -333,7 +329,7 @@ function Invoke-7ZipOperation {
         [int]$RetryDelaySeconds = 60,
         [bool]$EnableRetries = $false,
         [bool]$TreatWarningsAsSuccess = $false,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
 
@@ -345,7 +341,8 @@ function Invoke-7ZipOperation {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -357,17 +354,38 @@ function Invoke-7ZipOperation {
     $operationElapsedTime = New-TimeSpan -Seconds 0
     $attemptsMade = 0
 
-    # Prepare argument string for display and process execution, ensuring paths with spaces are quoted
+    # --- MODIFIED/NEW: Prepare arguments including password ---
+    $argumentsForThisAttempt = [System.Collections.Generic.List[string]]::new()
+    if (-not [string]::IsNullOrWhiteSpace($PlainTextPassword)) {
+        $argumentsForThisAttempt.Add("-mhe=on")
+        # For passwords with special characters, directly embedding them can be risky.
+        # However, -p switch is designed to take the rest of the argument as password.
+        # Let's ensure it's treated as a single token for Start-Process.
+        $argumentsForThisAttempt.Add("-p$PlainTextPassword") 
+        & $LocalWriteLog -Message "  - Invoke-7ZipOperation: Password switch added to arguments." -Level "DEBUG"
+    }
+    $SevenZipArguments | ForEach-Object { $argumentsForThisAttempt.Add($_) }
+    
+    # Prepare argument string for display and process execution
     $argumentStringForProcess = ""
-    foreach ($argItem in $SevenZipArguments) {
-        if ($argItem -match "\s" -and -not (($argItem.StartsWith('"') -and $argItem.EndsWith('"')) -or ($argItem.StartsWith("'") -and $argItem.EndsWith("'")))) {
+    foreach ($argItem in $argumentsForThisAttempt) {
+        # Use $argumentsForThisAttempt
+        # This quoting logic might need review for -p{password} if password has quotes
+        if ($argItem.StartsWith("-p") -and (-not [string]::IsNullOrWhiteSpace($PlainTextPassword)) ) {
+            # For the -p switch, avoid adding extra quotes around the switch itself if password has spaces
+            # 7zip -p"my password" -> -p"my password"
+            # The password part is already part of $argItem
+            $argumentStringForProcess += "$argItem "
+        }
+        elseif ($argItem -match "\s" -and -not (($argItem.StartsWith('"') -and $argItem.EndsWith('"')) -or ($argItem.StartsWith("'") -and $argItem.EndsWith("'")))) {
             $argumentStringForProcess += """$argItem"" "
-        } else {
+        }
+        else {
             $argumentStringForProcess += "$argItem "
         }
     }
     $argumentStringForProcess = $argumentStringForProcess.TrimEnd()
-
+    
     # --- CPU Affinity Parsing & Validation ---
     $cpuAffinityBitmask = $null
     $originalSevenZipCpuAffinityString = $SevenZipCpuAffinityString # Store original for logging
@@ -379,14 +397,17 @@ function Invoke-7ZipOperation {
             $numberOfLogicalProcessors = [int]$env:NUMBER_OF_PROCESSORS
             if ($numberOfLogicalProcessors -le 0) { throw "NUMBER_OF_PROCESSORS environment variable is invalid (<=0)." }
             & $LocalWriteLog -Message "  - CPU Affinity: System has $numberOfLogicalProcessors logical processors." -Level "DEBUG"
-        } catch {
+        }
+        catch {
             & $LocalWriteLog -Message "[WARNING] CPU Affinity: Could not determine a valid number of logical processors from `$env:NUMBER_OF_PROCESSORS. Error: $($_.Exception.Message). CPU Affinity will not be applied." -Level "WARNING"
             $numberOfLogicalProcessors = 0 # Mark as invalid
             $finalAffinityStringForLog = "None (System core count undetermined for input '$originalSevenZipCpuAffinityString')"
         }
 
-        if ($numberOfLogicalProcessors -gt 0) { # Only proceed if we have a valid processor count
-            if ($originalSevenZipCpuAffinityString -match '^0x([0-9a-fA-F]+)$') { # Hex bitmask
+        if ($numberOfLogicalProcessors -gt 0) {
+            # Only proceed if we have a valid processor count
+            if ($originalSevenZipCpuAffinityString -match '^0x([0-9a-fA-F]+)$') {
+                # Hex bitmask
                 $userHexBitmaskString = $matches[0]
                 try {
                     $userBitmask = [Convert]::ToInt64($userHexBitmaskString, 16)
@@ -397,15 +418,19 @@ function Invoke-7ZipOperation {
                     if ($clampedBitmask -ne $userBitmask) {
                         & $LocalWriteLog -Message "[WARNING] CPU Affinity: User-provided hex bitmask '$userHexBitmaskString' (Decimal: $userBitmask) exceeds system's capabilities (Max valid: 0x$($systemMaxValidBitmask.ToString('X'))). Clamped to effective bitmask 0x$($clampedBitmask.ToString('X')) (Decimal: $clampedBitmask)." -Level "WARNING"
                         $finalAffinityStringForLog = "Bitmask: 0x$($clampedBitmask.ToString('X')) (from input '$userHexBitmaskString', clamped to system max 0x$($systemMaxValidBitmask.ToString('X')))"
-                    } else {
+                    }
+                    else {
                         $finalAffinityStringForLog = "Bitmask: $userHexBitmaskString (Decimal: $userBitmask)"
                     }
-                } catch {
+                }
+                catch {
                     & $LocalWriteLog -Message "[WARNING] CPU Affinity: Error converting user-provided hex bitmask '$userHexBitmaskString' to integer. Error: $($_.Exception.Message). Affinity will not be applied." -Level "WARNING"
                     $cpuAffinityBitmask = $null
                     $finalAffinityStringForLog = "None (input '$userHexBitmaskString' was an invalid hex number)"
                 }
-            } elseif ($originalSevenZipCpuAffinityString -match '^(\d+(,\d+)*)$') { # Comma-separated core numbers
+            }
+            elseif ($originalSevenZipCpuAffinityString -match '^(\d+(,\d+)*)$') {
+                # Comma-separated core numbers
                 $userInputCoreListString = $matches[0]
                 $coreNumbersFromInput = $userInputCoreListString.Split(',') | ForEach-Object { try { [int]$_ } catch { -999 } } # Use -999 for unparsable
 
@@ -414,7 +439,8 @@ function Invoke-7ZipOperation {
                 $calculatedBitmask = 0L
 
                 foreach ($coreNum in $coreNumbersFromInput) {
-                    if ($coreNum -eq -999) { # Unparsable entry
+                    if ($coreNum -eq -999) {
+                        # Unparsable entry
                         $invalidCoreNumbersSpecified.Add("(unparsable entry)")
                         & $LocalWriteLog -Message "[WARNING] CPU Affinity: Unparsable entry found in core list '$userInputCoreListString'. It will be ignored." -Level "WARNING"
                         continue
@@ -422,7 +448,8 @@ function Invoke-7ZipOperation {
                     if ($coreNum -ge 0 -and $coreNum -lt $numberOfLogicalProcessors) {
                         $validCoreNumbers.Add($coreNum)
                         $calculatedBitmask = $calculatedBitmask -bor (1L -shl $coreNum)
-                    } else {
+                    }
+                    else {
                         $invalidCoreNumbersSpecified.Add($coreNum.ToString())
                         & $LocalWriteLog -Message "[WARNING] CPU Affinity: Specified core '$coreNum' is out of valid range (0 to $($numberOfLogicalProcessors - 1)). It will be ignored." -Level "WARNING"
                     }
@@ -433,15 +460,19 @@ function Invoke-7ZipOperation {
                     $effectiveCoresString = $validCoreNumbers -join ','
                     if ($invalidCoreNumbersSpecified.Count -gt 0) {
                         $finalAffinityStringForLog = "Cores: $effectiveCoresString (from input '$userInputCoreListString', invalid/ignored: $($invalidCoreNumbersSpecified -join ','), effective bitmask 0x$($cpuAffinityBitmask.ToString('X')))"
-                    } else {
+                    }
+                    else {
                         $finalAffinityStringForLog = "Cores: $effectiveCoresString (from input '$userInputCoreListString', effective bitmask 0x$($cpuAffinityBitmask.ToString('X')))"
                     }
-                } else {
+                }
+                else {
                     $cpuAffinityBitmask = $null
                     & $LocalWriteLog -Message "[WARNING] CPU Affinity: No valid CPU cores specified in input '$userInputCoreListString' after validation against $numberOfLogicalProcessors system cores. No affinity will be applied." -Level "WARNING"
                     $finalAffinityStringForLog = "None (input '$userInputCoreListString' resulted in no valid cores for system with $numberOfLogicalProcessors cores)"
                 }
-            } else { # Invalid format
+            }
+            else {
+                # Invalid format
                 & $LocalWriteLog -Message "[WARNING] CPU Affinity: Invalid SevenZipCpuAffinity string format: '$originalSevenZipCpuAffinityString'. Expected comma-separated core numbers (e.g., '0,1') or a hex bitmask (e.g., '0x3'). Affinity will not be applied." -Level "WARNING"
                 $cpuAffinityBitmask = $null
                 $finalAffinityStringForLog = "None (input '$originalSevenZipCpuAffinityString' has invalid format)"
@@ -456,12 +487,14 @@ function Invoke-7ZipOperation {
 
         if ($IsSimulateMode.IsPresent) {
             $affinitySimMsg = if (-not [string]::IsNullOrWhiteSpace($originalSevenZipCpuAffinityString)) {
-                                  " (Affinity input: '$originalSevenZipCpuAffinityString', Effective: $finalAffinityStringForLog)"
-                              } elseif ($finalAffinityStringForLog -ne "None (Not configured)") {
-                                  " (Affinity: $finalAffinityStringForLog)"
-                              } else {
-                                  " (Affinity: Not configured)"
-                              }
+                " (Affinity input: '$originalSevenZipCpuAffinityString', Effective: $finalAffinityStringForLog)"
+            }
+            elseif ($finalAffinityStringForLog -ne "None (Not configured)") {
+                " (Affinity: $finalAffinityStringForLog)"
+            }
+            else {
+                " (Affinity: Not configured)"
+            }
             & $LocalWriteLog -Message "SIMULATE: 7-Zip Operation (Attempt $currentTry/$actualMaxTries would be): `"$SevenZipPathExe`" $argumentStringForProcess$affinitySimMsg" -Level SIMULATE
             $operationExitCode = 0
             $operationElapsedTime = New-TimeSpan -Seconds 0
@@ -469,9 +502,9 @@ function Invoke-7ZipOperation {
         }
 
         if (-not $PSCmdlet.ShouldProcess("Target: $($SevenZipArguments | Where-Object {$_ -notlike '-*'} | Select-Object -Last 1)", "Execute 7-Zip ($($SevenZipArguments[0]))")) {
-             & $LocalWriteLog -Message "   - 7-Zip execution (Attempt $currentTry/$actualMaxTries) skipped by user (ShouldProcess)." -Level WARNING
-             $operationExitCode = -1000
-             break
+            & $LocalWriteLog -Message "   - 7-Zip execution (Attempt $currentTry/$actualMaxTries) skipped by user (ShouldProcess)." -Level WARNING
+            $operationExitCode = -1000
+            break
         }
 
         & $LocalWriteLog -Message "   - Attempting 7-Zip execution (Attempt $currentTry/$actualMaxTries)..."
@@ -489,7 +522,7 @@ function Invoke-7ZipOperation {
             $startInfo.Arguments = $argumentStringForProcess
             $startInfo.UseShellExecute = $false
             $startInfo.CreateNoWindow = $HideOutput.IsPresent
-            $startInfo.WindowStyle = if($HideOutput.IsPresent) { [System.Diagnostics.ProcessWindowStyle]::Hidden } else { [System.Diagnostics.ProcessWindowStyle]::Normal }
+            $startInfo.WindowStyle = if ($HideOutput.IsPresent) { [System.Diagnostics.ProcessWindowStyle]::Hidden } else { [System.Diagnostics.ProcessWindowStyle]::Normal }
             $startInfo.RedirectStandardError = $true
             if ($HideOutput.IsPresent) {
                 $startInfo.RedirectStandardOutput = $true
@@ -503,24 +536,30 @@ function Invoke-7ZipOperation {
             try { $process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]$ProcessPriority }
             catch { & $LocalWriteLog -Message "[WARNING] Failed to set 7-Zip process priority to '$ProcessPriority'. Error: $($_.Exception.Message)" -Level WARNING }
 
-            if ($null -ne $cpuAffinityBitmask -and $cpuAffinityBitmask -ne 0L) { # Only apply if valid and non-zero
+            if ($null -ne $cpuAffinityBitmask -and $cpuAffinityBitmask -ne 0L) {
+                # Only apply if valid and non-zero
                 try {
                     $process.ProcessorAffinity = [System.IntPtr]$cpuAffinityBitmask
                     & $LocalWriteLog -Message "  - CPU Affinity applied to 7-Zip process (PID: $($process.Id)). Effective affinity: $finalAffinityStringForLog." -Level "INFO"
-                } catch {
+                }
+                catch {
                     & $LocalWriteLog -Message "[WARNING] Failed to set CPU Affinity for 7-Zip process (PID: $($process.Id)). Effective affinity string: $finalAffinityStringForLog. Error: $($_.Exception.Message)" -Level "WARNING"
                 }
-            } elseif ($null -ne $cpuAffinityBitmask -and $cpuAffinityBitmask -eq 0L) {
+            }
+            elseif ($null -ne $cpuAffinityBitmask -and $cpuAffinityBitmask -eq 0L) {
                 & $LocalWriteLog -Message "  - CPU Affinity: Resulting bitmask is 0 (no cores selected). No affinity will be applied. Original input: '$originalSevenZipCpuAffinityString'." -Level "INFO"
-            } elseif (-not [string]::IsNullOrWhiteSpace($originalSevenZipCpuAffinityString)) { # Input was provided but resulted in no affinity
-                 & $LocalWriteLog -Message "  - CPU Affinity: Not applied. Reason: $finalAffinityStringForLog." -Level "INFO"
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace($originalSevenZipCpuAffinityString)) {
+                # Input was provided but resulted in no affinity
+                & $LocalWriteLog -Message "  - CPU Affinity: Not applied. Reason: $finalAffinityStringForLog." -Level "INFO"
             } # Else: No affinity configured, no message needed here.
 
             $stdError = ""
             if ($HideOutput.IsPresent) {
                 $process.WaitForExit()
                 $stdError = $process.StandardError.ReadToEnd()
-            } else {
+            }
+            else {
                 $process.WaitForExit()
             }
 
@@ -531,10 +570,12 @@ function Invoke-7ZipOperation {
                 & $LocalWriteLog -Message "  - 7-Zip STDERR (captured as HideSevenZipOutput is true):" -Level $logLevelForStdErr
                 $stdError.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "    | $_" -Level $logLevelForStdErr -NoTimestampToLogFile }
             }
-        } catch {
+        }
+        catch {
             & $LocalWriteLog -Message "[ERROR] Failed to start or manage the 7-Zip process. Error: $($_.Exception.ToString())" -Level ERROR
             $operationExitCode = -999
-        } finally {
+        }
+        finally {
             $stopwatch.Stop()
             $operationElapsedTime = $stopwatch.Elapsed
             if ($null -ne $process) { $process.Dispose() }
@@ -554,7 +595,8 @@ function Invoke-7ZipOperation {
             if ($currentTry -lt $actualMaxTries) {
                 & $LocalWriteLog -Message "[WARNING] 7-Zip operation indicated an issue (Exit Code: $operationExitCode). Retrying in $actualDelaySeconds seconds..." -Level WARNING
                 Start-Sleep -Seconds $actualDelaySeconds
-            } else {
+            }
+            else {
                 & $LocalWriteLog -Message "[ERROR] 7-Zip operation failed after $actualMaxTries attempt(s) (Final Exit Code: $operationExitCode)." -Level ERROR
             }
         }
@@ -565,7 +607,7 @@ function Invoke-7ZipOperation {
 
 #region --- 7-Zip Archive Tester ---
 function Test-7ZipArchive {
-    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Low')] # Testing is low impact
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')] # Testing is low impact
     <#
     .SYNOPSIS
         Tests the integrity of a 7-Zip archive using '7z t' command.
@@ -611,17 +653,17 @@ function Test-7ZipArchive {
     param(
         [string]$SevenZipPathExe,
         [string]$ArchivePath,
-        [Parameter(Mandatory=$false)]
-        [string]$TempPassFile = $null, 
+        [Parameter(Mandatory = $false)]
+        [string]$PlainTextPassword = $null,
         [string]$ProcessPriority = "Normal",
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory = $false)]
         [string]$SevenZipCpuAffinityString = $null,
         [switch]$HideOutput,
         [int]$MaxRetries = 1,
         [int]$RetryDelaySeconds = 60,
         [bool]$EnableRetries = $false,
         [bool]$TreatWarningsAsSuccess = $false,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
 
@@ -633,7 +675,8 @@ function Test-7ZipArchive {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if ($null -ne $ForegroundColour) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -643,19 +686,22 @@ function Test-7ZipArchive {
     $testArguments.Add("t")
     $testArguments.Add($ArchivePath)
 
-    if (-not [string]::IsNullOrWhiteSpace($TempPassFile) -and (Test-Path -LiteralPath $TempPassFile)) { 
-        $testArguments.Add("-spf`"$TempPassFile`"")
+    if (-not [string]::IsNullOrWhiteSpace($PlainTextPassword)) {
+        $testArguments.Add("-p$($PlainTextPassword)")
+        # No -mhe=on needed for test, 7zip detects encrypted headers
     }
+
     & $LocalWriteLog -Message "   - Test Command (raw args before Invoke-7ZipOperation internal quoting): `"$SevenZipPathExe`" $($testArguments -join ' ')" -Level DEBUG
 
     $invokeParams = @{
-        SevenZipPathExe        = $SevenZipPathExe; SevenZipArguments = $testArguments.ToArray()
-        ProcessPriority        = $ProcessPriority; HideOutput = $HideOutput.IsPresent
+        SevenZipPathExe = $SevenZipPathExe; SevenZipArguments = $testArguments.ToArray()
+        ProcessPriority = $ProcessPriority; HideOutput = $HideOutput.IsPresent
+        PlainTextPassword = $PlainTextPassword
         SevenZipCpuAffinityString = $SevenZipCpuAffinityString
-        MaxRetries             = $MaxRetries; RetryDelaySeconds = $RetryDelaySeconds; EnableRetries = $EnableRetries
+        MaxRetries = $MaxRetries; RetryDelaySeconds = $RetryDelaySeconds; EnableRetries = $EnableRetries
         TreatWarningsAsSuccess = $TreatWarningsAsSuccess
-        IsSimulateMode         = $false
-        Logger                 = $Logger
+        IsSimulateMode = $false
+        Logger = $Logger
     }
     if ((Get-Command Invoke-7ZipOperation).Parameters.ContainsKey('PSCmdlet')) {
         $invokeParams.PSCmdlet = $PSCmdlet
@@ -665,9 +711,11 @@ function Test-7ZipArchive {
 
     $msg = if ($result.ExitCode -eq 0) {
         "PASSED"
-    } elseif ($result.ExitCode -eq 1 -and $TreatWarningsAsSuccess) {
+    }
+    elseif ($result.ExitCode -eq 1 -and $TreatWarningsAsSuccess) {
         "PASSED (7-Zip Test Warning Exit Code: 1, treated as success)"
-    } else {
+    }
+    else {
         "FAILED (7-Zip Test Exit Code: $($result.ExitCode))"
     }
 
