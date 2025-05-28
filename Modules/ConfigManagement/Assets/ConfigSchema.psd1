@@ -1,8 +1,10 @@
+# Modules\ConfigManagement\Assets\ConfigSchema.psd1
 # PoSh-Backup Configuration Schema
 # File: Modules\ConfigManagement\Assets\ConfigSchema.psd1
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
+# Version: (Implicit) Updated 28-May-2025 (Corrected ValidateScript for list files)
 
 @{
     # Top-level global settings
@@ -16,7 +18,7 @@
     RetentionConfirmDelete                    = @{ Type = 'boolean'; Required = $false }
     EnableFileLogging                         = @{ Type = 'boolean'; Required = $false }
     LogDirectory                              = @{ Type = 'string'; Required = $false }
-    DefaultLogRetentionCount                  = @{ Type = 'int'; Required = $false; Min = 0 } # NEW Global Log Retention
+    DefaultLogRetentionCount                  = @{ Type = 'int'; Required = $false; Min = 0 }
     ReportGeneratorType                       = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
 
     HtmlReportDirectory                       = @{ Type = 'string'; Required = $false }
@@ -66,6 +68,8 @@
 
     DefaultThreadCount                        = @{ Type = 'int'; Required = $false; Min = 0 }
     DefaultSevenZipCpuAffinity                = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' } 
+    DefaultSevenZipIncludeListFile            = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } # CORRECTED
+    DefaultSevenZipExcludeListFile            = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } # CORRECTED
     DefaultArchiveType                        = @{ Type = 'string'; Required = $false }
     DefaultArchiveExtension                   = @{ Type = 'string'; Required = $false }
     DefaultCompressionLevel                   = @{ Type = 'string'; Required = $false }
@@ -114,7 +118,7 @@
                 Name                                      = @{ Type = 'string'; Required = $true }
                 DestinationDir                            = @{ Type = 'string'; Required = $false }
                 LocalRetentionCount                       = @{ Type = 'int'; Required = $false; Min = 0 }
-                LogRetentionCount                         = @{ Type = 'int'; Required = $false; Min = 0 } # NEW Job-Level Log Retention
+                LogRetentionCount                         = @{ Type = 'int'; Required = $false; Min = 0 }
                 TargetNames                               = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } }
                 DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false }
                 DeleteToRecycleBin                        = @{ Type = 'boolean'; Required = $false }
@@ -130,6 +134,8 @@
                 VSSContextOption                          = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
                 SevenZipProcessPriority                   = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
                 SevenZipCpuAffinity                       = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' } 
+                SevenZipIncludeListFile                   = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } # CORRECTED
+                SevenZipExcludeListFile                   = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } # CORRECTED
                 ReportGeneratorType                       = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
                 TreatSevenZipWarningsAsSuccess            = @{ Type = 'boolean'; Required = $false }
                 HtmlReportDirectory                       = @{ Type = 'string'; Required = $false }
@@ -192,10 +198,12 @@
         DynamicKeySchema = @{
             Type = "hashtable"; Required = $true
             Schema = @{
-                JobNames      = @{ Type = 'array'; Required = $true; ItemSchema = @{ Type = 'string' } }
-                OnErrorInJob  = @{ Type = 'string'; Required = $false; AllowedValues = @("StopSet", "ContinueSet") }
-                LogRetentionCount = @{ Type = 'int'; Required = $false; Min = 0 } # NEW Set-Level Log Retention
-                PostRunAction = @{
+                JobNames                = @{ Type = 'array'; Required = $true; ItemSchema = @{ Type = 'string' } }
+                OnErrorInJob            = @{ Type = 'string'; Required = $false; AllowedValues = @("StopSet", "ContinueSet") }
+                LogRetentionCount       = @{ Type = 'int'; Required = $false; Min = 0 }
+                SevenZipIncludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } # CORRECTED
+                SevenZipExcludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } # CORRECTED
+                PostRunAction           = @{
                     Type = 'hashtable'; Required = $false
                     Schema = @{
                         Enabled         = @{ Type = 'boolean'; Required = $false }

@@ -1,9 +1,10 @@
+# Config\Default.psd1
 # PowerShell Data File for PoSh Backup Script Configuration (Default).
 # --> THIS WILL GET OVERWRITTEN ON UPGRADE if you do not use a User.psd1 file for your customisations! <--
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.4.3: Added LogRetentionCount settings (global, job, set).
+# Version 1.4.4: Added SevenZipIncludeListFile and SevenZipExcludeListFile settings (global, job, set).
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -86,7 +87,7 @@
                                                                       # If a relative path (e.g., "Logs" or ".\MyLogs"), it's relative to the PoSh-Backup script's root directory.
                                                                       # Can also be an absolute path (e.g., "C:\BackupLogs").
                                                                       # The script will attempt to create this directory if it doesn't exist.
-    DefaultLogRetentionCount        = 2                              # NEW: Global default for the number of log files to keep per job name pattern.
+    DefaultLogRetentionCount        = 30                              # Global default for the number of log files to keep per job name pattern.
                                                                       # Set to 0 to keep all log files (infinite retention).
                                                                       # Can be overridden at the job or set level.
     #endregion
@@ -176,7 +177,6 @@
 
     DefaultVerifyLocalArchiveBeforeTransfer = $false                  # Global default. $true to test local archive integrity (and checksum if enabled) *before* any remote transfers.
                                                                       # If this test fails, remote transfers for the job will be skipped.
-                                                                      # This is independent of DefaultTestArchiveAfterCreation but may perform similar tests.
     #endregion
 
     #region --- Archive Filename Settings (Global Default) ---
@@ -206,6 +206,9 @@
                                                                       # Examples: "0,1" (for cores 0 and 1), "0x3" (bitmask for cores 0 and 1).
                                                                       # Empty string or $null means no affinity is set (7-Zip uses all available cores).
                                                                       # This is passed to Start-Process -Affinity.
+    DefaultSevenZipIncludeListFile  = ""                              # NEW: Global default path to a 7-Zip include list file (e.g., "C:\BackupConfig\GlobalIncludes.txt"). Used with -i@.
+    DefaultSevenZipExcludeListFile  = ""                              # NEW: Global default path to a 7-Zip exclude list file (e.g., "C:\BackupConfig\GlobalExcludes.txt"). Used with -x@.
+
     DefaultArchiveType              = "-t7z"                          # 7-Zip -t (type) switch. Examples: -t7z, -tzip, -ttar, -tgzip.
                                                                       # This determines the internal format of the archive, even if an SFX (.exe) is created.
     DefaultArchiveExtension         = ".7z"                           # Default file extension for generated archives if NOT creating an SFX.
@@ -347,6 +350,7 @@
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override. Only effective if TargetNames are specified.
 
             LocalRetentionCount     = 3                               # Number of archive versions for this job to keep in 'DestinationDir'.
+            LogRetentionCount       = 10                              # Job-specific log retention.
             DeleteToRecycleBin      = $false                          # For local retention in 'DestinationDir'.
             RetentionConfirmDelete  = $false                          # Job-specific override for local retention: auto-delete old local archives without prompting.
 
@@ -361,7 +365,9 @@
 
             EnableVSS               = $false                          # $true to use VSS for this job (requires Admin). Overrides global EnableVSS.
             SevenZipProcessPriority = "Normal"                        # Override global 7-Zip priority for this specific job.
-            SevenZipCpuAffinity     = ""                              # NEW: Job-specific CPU affinity for 7-Zip. E.g., "0,1" or "0x3". Empty means use global default.
+            SevenZipCpuAffinity     = ""                              # Job-specific CPU affinity for 7-Zip. E.g., "0,1" or "0x3". Empty means use global default.
+            #SevenZipIncludeListFile = "D:\MyIncludes.txt"            # NEW: Job-specific include list file.
+            #SevenZipExcludeListFile = "D:\MyExcludes.txt"            # NEW: Job-specific exclude list file.
             ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
 
@@ -407,7 +413,9 @@
             MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for local staging. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
             TreatSevenZipWarningsAsSuccess = $true                    # Example: For this job, 7-Zip warnings are considered success.
-            SevenZipCpuAffinity        = "0"                          # NEW: Example: Restrict 7-Zip to core 0 for this job.
+            SevenZipCpuAffinity        = "0"                          # Example: Restrict 7-Zip to core 0 for this job.
+            # SevenZipIncludeListFile = ""                            # NEW
+            # SevenZipExcludeListFile = ""                            # NEW
 
             # Checksum settings (will use global defaults if not specified here, e.g., DefaultGenerateArchiveChecksum = $false)
             # GenerateArchiveChecksum     = $false
@@ -425,7 +433,7 @@
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
 
             LocalRetentionCount        = 2
-            LogRetentionCount          = 0                            # NEW_EXAMPLE: Keep all log files for this job (infinite retention).
+            LogRetentionCount          = 0                            # Example: Keep all log files for this job (infinite retention).
 
             ArchivePasswordMethod      = "None"
             EnableVSS                  = $true
@@ -438,7 +446,9 @@
             GenerateArchiveChecksum     = $true
             ChecksumAlgorithm           = "MD5"
             VerifyArchiveChecksumOnTest = $true
-            SevenZipCpuAffinity         = "0x1"                       # NEW: Example: Restrict 7-Zip to core 0 (bitmask) for this job.
+            SevenZipCpuAffinity         = "0x1"                       # Example: Restrict 7-Zip to core 0 (bitmask) for this job.
+            # SevenZipIncludeListFile = ""                            # NEW
+            # SevenZipExcludeListFile = ""                            # NEW
 
             # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
         }
@@ -466,6 +476,8 @@
             ChecksumAlgorithm           = "SHA512"
             VerifyArchiveChecksumOnTest = $true
             # SevenZipCpuAffinity will use global default if not specified
+            # SevenZipIncludeListFile = ""                            # NEW
+            # SevenZipExcludeListFile = ""                            # NEW
 
             PostRunAction = @{
                 Enabled         = $true
@@ -508,7 +520,8 @@
             ThreadsToUse            = 2
             SevenZipProcessPriority = "BelowNormal"
             SevenZipCpuAffinity     = "0,1,2,3"                       # Example: Use first 4 cores
-            CompressionLevel        = "-mx=5"
+            SevenZipIncludeListFile = "\\SHARE\Config\WebApp_Includes.txt" # NEW
+            SevenZipExcludeListFile = "\\SHARE\Config\WebApp_Excludes.txt" # NEW
             AdditionalExclusions    = @(
                                         "*\logs\*.log",
                                         "*\temp\*",
@@ -574,7 +587,9 @@
                 "CriticalData_To_SFTP_Example"
             )
             OnErrorInJob = "StopSet"
-            LogRetentionCount = 7 # NEW_EXAMPLE: Logs for jobs run as part of this set will keep only 7 files, overriding their individual or global settings.
+            LogRetentionCount = 7 # Logs for jobs run as part of this set will keep only 7 files, overriding their individual or global settings.
+            # SevenZipIncludeListFile = "C:\BackupConfig\Set_DailyCritical_Includes.txt" # NEW: Set-level include list file.
+            # SevenZipExcludeListFile = "C:\BackupConfig\Set_DailyCritical_Excludes.txt" # NEW: Set-level exclude list file.
 
             # PostRunAction = @{
             #     Enabled         = $true
@@ -591,11 +606,15 @@
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
             # LogRetentionCount will be inherited from each job's config or global default.
+            # SevenZipIncludeListFile = "" # NEW
+            # SevenZipExcludeListFile = "" # NEW
             # PostRunAction = @{ Enabled = $false }
         }
         "Nightly_Full_System_Simulate" = @{
             JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example", "CriticalData_To_SFTP_Example")
             OnErrorInJob = "ContinueSet"
+            # SevenZipIncludeListFile = "" # NEW
+            # SevenZipExcludeListFile = "" # NEW
             # Note: To run this set in simulation mode, you would use:
             # .\PoSh-Backup.ps1 -RunSet "Nightly_Full_System_Simulate" -Simulate
         }

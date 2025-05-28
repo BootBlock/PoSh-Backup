@@ -6,7 +6,7 @@
     This module contains the primary loop for iterating through backup jobs determined
     by the main PoSh-Backup script. For each job, it:
     - Sets up per-job logging context.
-    - Retrieves the effective job configuration.
+    - Retrieves the effective job configuration, now considering set-level include/exclude list files.
     - Invokes the core backup operation for the job (via Operations.psm1).
     - Manages the overall status of a set if multiple jobs are run.
     - Triggers report generation for each job.
@@ -14,9 +14,9 @@
     - Applies log file retention policy for the completed job.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2 # Added log retention logic.
+    Version:        1.0.3 # Added retrieval of set-level SevenZipIncludeListFile/SevenZipExcludeListFile.
     DateCreated:    25-May-2025
-    LastModified:   27-May-2025
+    LastModified:   28-May-2025
     Purpose:        To centralise the main job/set processing loop from PoSh-Backup.ps1.
     Prerequisites:  PowerShell 5.1+.
                     Depends on ConfigManager.psm1, Operations.psm1, Reporting.psm1, and Utils.psm1.
@@ -78,6 +78,25 @@ function Invoke-PoShBackupRun {
     $overallSetStatus = "SUCCESS" 
     $jobSpecificPostRunActionForSingleJob = $null 
 
+    # NEW: Retrieve set-level include/exclude list files if running a set
+    $setSevenZipIncludeListFile = $null
+    $setSevenZipExcludeListFile = $null
+    if (-not [string]::IsNullOrWhiteSpace($CurrentSetName) -and $Configuration.BackupSets.ContainsKey($CurrentSetName)) {
+        $setDefinition = $Configuration.BackupSets[$CurrentSetName]
+        if ($setDefinition.ContainsKey('SevenZipIncludeListFile')) {
+            $setSevenZipIncludeListFile = $setDefinition.SevenZipIncludeListFile
+            if (-not [string]::IsNullOrWhiteSpace($setSevenZipIncludeListFile)) {
+                & $LocalWriteLog -Message "  - JobOrchestrator: Set '$CurrentSetName' specifies Include List File: '$setSevenZipIncludeListFile'." -Level "DEBUG"
+            }
+        }
+        if ($setDefinition.ContainsKey('SevenZipExcludeListFile')) {
+            $setSevenZipExcludeListFile = $setDefinition.SevenZipExcludeListFile
+            if (-not [string]::IsNullOrWhiteSpace($setSevenZipExcludeListFile)) {
+                & $LocalWriteLog -Message "  - JobOrchestrator: Set '$CurrentSetName' specifies Exclude List File: '$setSevenZipExcludeListFile'." -Level "DEBUG"
+            }
+        }
+    }
+
     foreach ($currentJobName in $JobsToProcess) {
         & $LocalWriteLog -Message "`n================================================================================" -Level "NONE"
         & $LocalWriteLog -Message "Processing Job: $currentJobName" -Level "HEADING"
@@ -108,11 +127,14 @@ function Invoke-PoShBackupRun {
 
         try {
             $effectiveConfigParams = @{
-                JobConfig            = $jobConfigFromMainConfig 
-                GlobalConfig         = $Configuration 
-                CliOverrides         = $CliOverrideSettings 
-                JobReportDataRef     = ([ref]$currentJobReportData) 
-                Logger               = $Logger
+                JobConfig                   = $jobConfigFromMainConfig 
+                GlobalConfig                = $Configuration 
+                CliOverrides                = $CliOverrideSettings 
+                JobReportDataRef            = ([ref]$currentJobReportData) 
+                Logger                      = $Logger
+                # NEW: Pass set-level list files if they exist
+                SetSevenZipIncludeListFile  = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName)) { $setSevenZipIncludeListFile } else { $null }
+                SetSevenZipExcludeListFile  = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName)) { $setSevenZipExcludeListFile } else { $null }
             }
             $effectiveJobConfigForThisJob = Get-PoShBackupJobEffectiveConfiguration @effectiveConfigParams
             

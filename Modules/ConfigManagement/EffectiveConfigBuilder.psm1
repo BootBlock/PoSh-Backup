@@ -2,30 +2,34 @@
 <#
 .SYNOPSIS
     Calculates the final, effective configuration settings for a single PoSh-Backup job
-    by merging global settings, job-specific settings, and command-line overrides.
+    by merging global settings, job-specific settings, set-specific settings (if applicable),
+    and command-line overrides.
 .DESCRIPTION
     This module is a sub-component of the main ConfigManager module for PoSh-Backup.
     Its primary function, Get-PoShBackupJobEffectiveConfiguration, takes a specific job's
-    raw configuration, the global configuration, and any command-line overrides, then
+    raw configuration, the global configuration, any set-specific configurations (like
+    7-Zip include/exclude list files), and any command-line overrides, then
     resolves the final settings that will be used for that job.
 
     It prioritises settings in the order:
     1. Command-Line Interface (CLI) overrides.
-    2. Job-specific settings from the 'BackupLocations' section.
-    3. Global default settings.
+    2. Set-specific settings (currently for 7-Zip include/exclude list files).
+    3. Job-specific settings from the 'BackupLocations' section.
+    4. Global default settings.
 
     This function resolves settings for local archive creation, local retention,
     remote target assignments (by looking up 'TargetNames' in the global 'BackupTargets'
     section), PostRunAction settings, Checksum settings, SFX creation (including SFX module type),
-    7-Zip CPU affinity, VerifyLocalArchiveBeforeTransfer setting, and the new LogRetentionCount setting.
+    7-Zip CPU affinity, 7-Zip include/exclude list files, VerifyLocalArchiveBeforeTransfer setting,
+    and LogRetentionCount setting.
     The resolved configuration is then used by the Operations module to execute the backup job.
 
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.7 # Added LogRetentionCount resolution.
+    Version:        1.0.8 # Added resolution for set-level SevenZipIncludeListFile/SevenZipExcludeListFile.
     DateCreated:    24-May-2025
-    LastModified:   27-May-2025
+    LastModified:   28-May-2025
     Purpose:        To modularise the effective job configuration building logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the parent 'Modules' directory for Get-ConfigValue.
@@ -46,25 +50,25 @@ function Get-PoShBackupJobEffectiveConfiguration {
     <#
     .SYNOPSIS
         Gathers the effective configuration for a single backup job by merging global,
-        job-specific, and command-line override settings, including Backup Target, PostRunAction,
-        Checksum, SFX (with module type), 7-Zip CPU Affinity, VerifyLocalArchiveBeforeTransfer,
+        job-specific, set-specific (if applicable), and command-line override settings,
+        including Backup Target, PostRunAction, Checksum, SFX (with module type),
+        7-Zip CPU Affinity, 7-Zip Include/Exclude List Files, VerifyLocalArchiveBeforeTransfer,
         and LogRetentionCount resolution.
     .DESCRIPTION
         This function takes a specific job's raw configuration, the global configuration,
-        and any command-line overrides, then resolves the final settings that will be
-        used for that job. It prioritises settings in the order: CLI overrides, then
-        job-specific settings, then global settings.
+        any set-specific configurations, and any command-line overrides, then resolves the
+        final settings that will be used for that job. It prioritises settings in the order:
+        CLI overrides, then set-specific, then job-specific, then global settings.
         It now also resolves 'TargetNames' specified in the job configuration by looking up
         the full definitions of those targets in the global 'BackupTargets' section,
         resolves 'PostRunAction' settings, 'Checksum' settings, 'CreateSFX', 'SFXModule',
-        'SevenZipCpuAffinity', 'VerifyLocalArchiveBeforeTransfer', and 'LogRetentionCount' settings.
+        'SevenZipCpuAffinity', 'SevenZipIncludeListFile', 'SevenZipExcludeListFile',
+        'VerifyLocalArchiveBeforeTransfer', and 'LogRetentionCount' settings.
         If SFX is enabled, the effective archive extension becomes '.exe'.
     .PARAMETER JobConfig
         A hashtable containing the specific configuration settings for this backup job.
     .PARAMETER GlobalConfig
-        A hashtable containing the global configuration settings for PoSh-Backup, including 'BackupTargets',
-        'PostRunActionDefaults', 'Checksum' defaults, 'CreateSFX' defaults, 'SFXModule' defaults,
-        'SevenZipCpuAffinity' defaults, 'DefaultVerifyLocalArchiveBeforeTransfer', and 'DefaultLogRetentionCount'.
+        A hashtable containing the global configuration settings for PoSh-Backup.
     .PARAMETER CliOverrides
         A hashtable containing command-line parameter overrides.
     .PARAMETER JobReportDataRef
@@ -72,12 +76,13 @@ function Get-PoShBackupJobEffectiveConfiguration {
         report data based on the effective settings.
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
+    .PARAMETER SetSevenZipIncludeListFile
+        Optional. Path to an include list file specified at the backup set level.
+    .PARAMETER SetSevenZipExcludeListFile
+        Optional. Path to an exclude list file specified at the backup set level.
     .OUTPUTS
         System.Collections.Hashtable
-        A hashtable representing the effective configuration for the job, including an array
-        of 'ResolvedTargetInstances' if 'TargetNames' were specified, a 'PostRunAction' hashtable,
-        checksum-related settings, SFX-related settings (including SFXModule), CPU affinity,
-        VerifyLocalArchiveBeforeTransfer, and LogRetentionCount.
+        A hashtable representing the effective configuration for the job.
     #>
     param(
         [Parameter(Mandatory)] [hashtable]$JobConfig,
@@ -85,7 +90,11 @@ function Get-PoShBackupJobEffectiveConfiguration {
         [Parameter(Mandatory)] [hashtable]$CliOverrides,
         [Parameter(Mandatory)] [ref]$JobReportDataRef,
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $false)] # NEW
+        [string]$SetSevenZipIncludeListFile = $null,
+        [Parameter(Mandatory = $false)] # NEW
+        [string]$SetSevenZipExcludeListFile = $null
     )
 
     # PSSA Appeasement: Directly use the Logger parameter once.
@@ -210,6 +219,54 @@ function Get-PoShBackupJobEffectiveConfiguration {
     }
     # END 7-Zip CPU Affinity
 
+    # 7-Zip Include/Exclude List Files (CLI > Set > Job > Global > Default empty string)
+    $_cliIncludeListFile = if ($CliOverrides.ContainsKey('SevenZipIncludeListFile') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipIncludeListFile)) { $CliOverrides.SevenZipIncludeListFile } else { $null }
+    $_cliExcludeListFile = if ($CliOverrides.ContainsKey('SevenZipExcludeListFile') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipExcludeListFile)) { $CliOverrides.SevenZipExcludeListFile } else { $null }
+    
+    $_jobIncludeListFile = Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipIncludeListFile' -DefaultValue $null
+    $_jobExcludeListFile = Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipExcludeListFile' -DefaultValue $null
+    
+    $_globalIncludeListFile = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipIncludeListFile' -DefaultValue ""
+    $_globalExcludeListFile = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipExcludeListFile' -DefaultValue ""
+
+    # Resolve Include List File
+    if (-not [string]::IsNullOrWhiteSpace($_cliIncludeListFile)) {
+        $effectiveConfig.JobSevenZipIncludeListFile = $_cliIncludeListFile
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Include List File set by CLI override: '$($_cliIncludeListFile)'." -Level "DEBUG"
+    } elseif (-not [string]::IsNullOrWhiteSpace($SetSevenZipIncludeListFile)) { # NEW: Check Set level
+        $effectiveConfig.JobSevenZipIncludeListFile = $SetSevenZipIncludeListFile
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Include List File set by Set config: '$($SetSevenZipIncludeListFile)'." -Level "DEBUG"
+    } elseif (-not [string]::IsNullOrWhiteSpace($_jobIncludeListFile)) {
+        $effectiveConfig.JobSevenZipIncludeListFile = $_jobIncludeListFile
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Include List File set by Job config: '$($_jobIncludeListFile)'." -Level "DEBUG"
+    } else { # Global or default empty
+        $effectiveConfig.JobSevenZipIncludeListFile = $_globalIncludeListFile
+        if (-not [string]::IsNullOrWhiteSpace($_globalIncludeListFile)) {
+            & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Include List File set by Global config: '$($_globalIncludeListFile)'." -Level "DEBUG"
+        } else {
+            & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Include List File not configured (using default: empty string)." -Level "DEBUG"
+        }
+    }
+    # Resolve Exclude List File
+    if (-not [string]::IsNullOrWhiteSpace($_cliExcludeListFile)) {
+        $effectiveConfig.JobSevenZipExcludeListFile = $_cliExcludeListFile
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Exclude List File set by CLI override: '$($_cliExcludeListFile)'." -Level "DEBUG"
+    } elseif (-not [string]::IsNullOrWhiteSpace($SetSevenZipExcludeListFile)) { # NEW: Check Set level
+        $effectiveConfig.JobSevenZipExcludeListFile = $SetSevenZipExcludeListFile
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Exclude List File set by Set config: '$($SetSevenZipExcludeListFile)'." -Level "DEBUG"
+    } elseif (-not [string]::IsNullOrWhiteSpace($_jobExcludeListFile)) {
+        $effectiveConfig.JobSevenZipExcludeListFile = $_jobExcludeListFile
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Exclude List File set by Job config: '$($_jobExcludeListFile)'." -Level "DEBUG"
+    } else { # Global or default empty
+        $effectiveConfig.JobSevenZipExcludeListFile = $_globalExcludeListFile
+        if (-not [string]::IsNullOrWhiteSpace($_globalExcludeListFile)) {
+            & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Exclude List File set by Global config: '$($_globalExcludeListFile)'." -Level "DEBUG"
+        } else {
+            & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Exclude List File not configured (using default: empty string)." -Level "DEBUG"
+        }
+    }
+    # END 7-Zip Include/Exclude List Files
+
     # VSS Settings
     $effectiveConfig.JobEnableVSS = if ($CliOverrides.UseVSS) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableVSS' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableVSS' -DefaultValue $false) }
     $effectiveConfig.JobVSSContextOption = Get-ConfigValue -ConfigObject $JobConfig -Key 'VSSContextOption' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVSSContextOption' -DefaultValue "Persistent NoWriters")
@@ -296,6 +353,8 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation
     $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority
     $reportData.SevenZipCpuAffinity = $effectiveConfig.JobSevenZipCpuAffinity 
+    $reportData.SevenZipIncludeListFile = $effectiveConfig.JobSevenZipIncludeListFile # NEW
+    $reportData.SevenZipExcludeListFile = $effectiveConfig.JobSevenZipExcludeListFile # NEW
     $reportData.GenerateArchiveChecksum = $effectiveConfig.GenerateArchiveChecksum
     $reportData.ChecksumAlgorithm = $effectiveConfig.ChecksumAlgorithm
     $reportData.VerifyArchiveChecksumOnTest = $effectiveConfig.VerifyArchiveChecksumOnTest

@@ -28,9 +28,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.6.1 # Removed direct SFTP RemoteRetentionSettings validation; now handled by SFTP provider.
+    Version:        1.6.2 # Added explicit check for _PoShBackup_PSScriptRoot before target validation.
     DateCreated:    14-May-2025
-    LastModified:   27-May-2025
+    LastModified:   28-May-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Schema file 'ConfigSchema.psd1' must exist in 'Modules\ConfigManagement\Assets\'.
@@ -264,7 +264,18 @@ function Invoke-PoShBackupConfigValidation {
 
     # Perform target-specific validation by calling functions from target provider modules
     if ($ConfigurationToValidate.ContainsKey('BackupTargets') -and $ConfigurationToValidate.BackupTargets -is [hashtable]) {
-        $mainScriptPSScriptRoot = $ConfigurationToValidate['_PoShBackup_PSScriptRoot'] # Assume this is present
+        $mainScriptPSScriptRoot = $ConfigurationToValidate['_PoShBackup_PSScriptRoot'] 
+
+        # NEW: Explicit check for _PoShBackup_PSScriptRoot
+        if ([string]::IsNullOrWhiteSpace($mainScriptPSScriptRoot)) {
+            $ValidationMessagesListRef.Value.Add("CRITICAL (PoShBackupValidator): '_PoShBackup_PSScriptRoot' key is missing or empty in the configuration object. Cannot resolve paths for target provider modules. Target-specific validation skipped.")
+            return # Cannot proceed with target validation without this.
+        }
+        if (-not (Test-Path -LiteralPath $mainScriptPSScriptRoot -PathType Container)) {
+             $ValidationMessagesListRef.Value.Add("CRITICAL (PoShBackupValidator): '_PoShBackup_PSScriptRoot' path ('$mainScriptPSScriptRoot') does not exist or is not a directory. Cannot resolve paths for target provider modules. Target-specific validation skipped.")
+            return
+        }
+
 
         foreach ($targetName in $ConfigurationToValidate.BackupTargets.Keys) {
             $targetInstance = $ConfigurationToValidate.BackupTargets[$targetName]
@@ -279,7 +290,7 @@ function Invoke-PoShBackupConfigValidation {
 
             $targetType = $targetInstance.Type
             $targetSettings = $targetInstance.TargetSpecificSettings
-            $targetRemoteRetentionSettings = if ($targetInstance.ContainsKey('RemoteRetentionSettings')) { $targetInstance.RemoteRetentionSettings } else { $null } # Get RemoteRetentionSettings
+            $targetRemoteRetentionSettings = if ($targetInstance.ContainsKey('RemoteRetentionSettings')) { $targetInstance.RemoteRetentionSettings } else { $null } 
             $targetProviderModuleName = "$($targetType).Target.psm1"
             $targetProviderModulePath = Join-Path -Path $mainScriptPSScriptRoot -ChildPath "Modules\Targets\$targetProviderModuleName"
             $validationFunctionName = "Invoke-PoShBackup$($targetType)TargetSettingsValidation"
@@ -300,7 +311,7 @@ function Invoke-PoShBackupConfigValidation {
                         TargetInstanceName      = $targetName
                         ValidationMessagesListRef = $ValidationMessagesListRef
                     }
-                    # Pass RemoteRetentionSettings if the validator function accepts it
+                    
                     if ($null -ne $targetRemoteRetentionSettings -and $validatorCmd.Parameters.ContainsKey('RemoteRetentionSettings')) {
                         $validationParams.RemoteRetentionSettings = $targetRemoteRetentionSettings
                     }
@@ -315,8 +326,6 @@ function Invoke-PoShBackupConfigValidation {
             } catch {
                 $ValidationMessagesListRef.Value.Add("PoShBackupValidator: Error loading or executing validation for target '$targetName' (Type: '$targetType'). Module: '$targetProviderModuleName'. Error: $($_.Exception.Message)")
             }
-            # Removed the SFTP-specific RemoteRetentionSettings.KeepCount check from here.
-            # It's now expected to be handled by Invoke-PoShBackupSFTPTargetSettingsValidation.
         }
     }
 }

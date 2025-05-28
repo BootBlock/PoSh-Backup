@@ -1,10 +1,12 @@
+# Modules\Managers\7ZipManager.psm1
 <#
 .SYNOPSIS
     Manages all 7-Zip executable interactions for the PoSh-Backup solution.
     This includes finding the 7-Zip executable, constructing command arguments,
     executing 7-Zip operations (archiving, testing), and handling retries.
-    Now supports creating Self-Extracting Archives (SFX) with selectable module types
-    and setting CPU affinity for the 7-Zip process, including validation against system cores.
+    Now supports creating Self-Extracting Archives (SFX) with selectable module types,
+    setting CPU affinity for the 7-Zip process (including validation against system cores),
+    and using external list files for include/exclude patterns.
 
 .DESCRIPTION
     The 7ZipManager module centralises 7-Zip specific logic, making the main backup script
@@ -13,7 +15,8 @@
     - Auto-detect the 7z.exe path.
     - Build the complex argument list required for 7-Zip commands based on configuration,
       including the '-sfx' switch (with optional module specification like '7zS.sfx' or '7zSD.sfx')
-      if creating a self-extracting archive.
+      if creating a self-extracting archive, and now also '-i@listfile.txt' and '-x@listfile.txt'
+      if include/exclude list files are specified and exist.
     - Execute 7-Zip for creating archives, supporting features like process priority, CPU affinity (with validation and clamping), and retries.
     - Execute 7-Zip for testing archive integrity, also with retry and CPU affinity support.
 
@@ -23,9 +26,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.12 # CPU Affinity validation conditional; Renamed TempPasswordFile to TempPassFile.
+    Version:        1.0.13 # Added support for -i@ and -x@ list files.
     DateCreated:    17-May-2025
-    LastModified:   25-May-2025
+    LastModified:   28-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     7-Zip (7z.exe) must be installed.
@@ -34,9 +37,9 @@
 #>
 
 # Explicitly import Utils.psm1 to ensure its functions are available, especially Get-ConfigValue.
-# $PSScriptRoot here refers to the directory of 7ZipManager.psm1 (Modules\Managers). # UPDATED COMMENT
+# $PSScriptRoot here refers to the directory of 7ZipManager.psm1 (Modules\Managers).
 try {
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Utils.psm1") -Force -ErrorAction Stop # UPDATED PATH
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Utils.psm1") -Force -ErrorAction Stop
 } catch {
     # If this fails, the module cannot function. Write-Error is appropriate.
     Write-Error "7ZipManager.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
@@ -122,11 +125,13 @@ function Get-PoShBackup7ZipArgument {
         source paths, and an optional temporary password file path, then assembles the
         appropriate 7-Zip command-line switches and arguments for an archive creation operation.
         It now includes logic to add the '-sfx' switch with an optional SFX module name
-        (e.g., 7zS.sfx, 7zSD.sfx) if creating a self-extracting archive.
+        (e.g., 7zS.sfx, 7zSD.sfx) if creating a self-extracting archive, and also
+        '-i@listfile.txt' and '-x@listfile.txt' if include/exclude list files are specified and exist.
     .PARAMETER EffectiveConfig
         A hashtable containing the fully resolved configuration settings for the current backup job.
         This includes 7-Zip specific parameters, exclusions, password usage flags, 'CreateSFX',
-        and 'SFXModule'. It's also expected to contain a 'GlobalConfigRef' key pointing
+        'SFXModule', 'JobSevenZipIncludeListFile', and 'JobSevenZipExcludeListFile'.
+        It's also expected to contain a 'GlobalConfigRef' key pointing
         to the global configuration for default exclusion patterns.
     .PARAMETER FinalArchivePath
         The full path and filename for the target archive that 7-Zip will create (e.g., archive.7z or archive.exe).
@@ -150,7 +155,7 @@ function Get-PoShBackup7ZipArgument {
         [Parameter(Mandatory)] [string]$FinalArchivePath,
         [Parameter(Mandatory)] [object]$CurrentJobSourcePathFor7Zip, # Can be string or array of strings
         [Parameter(Mandatory=$false)]
-        [string]$TempPassFile = $null, # Renamed from TempPasswordFile
+        [string]$TempPassFile = $null, 
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger
     )
@@ -203,7 +208,7 @@ function Get-PoShBackup7ZipArgument {
     $sevenZipArgs.Add((Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultScriptExcludeRecycleBin' -DefaultValue '-x!$RECYCLE.BIN'))
     $sevenZipArgs.Add((Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultScriptExcludeSysVolInfo' -DefaultValue '-x!System Volume Information'))
 
-    # Add job-specific additional exclusions
+    # Add job-specific additional exclusions (from the AdditionalExclusions array)
     if ($EffectiveConfig.JobAdditionalExclusions -is [array] -and $EffectiveConfig.JobAdditionalExclusions.Count -gt 0) {
         $EffectiveConfig.JobAdditionalExclusions | ForEach-Object {
             if (-not [string]::IsNullOrWhiteSpace($_)) {
@@ -217,10 +222,30 @@ function Get-PoShBackup7ZipArgument {
         }
     }
 
+    # NEW: Add include list file if specified and exists
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipIncludeListFile)) {
+        if (Test-Path -LiteralPath $EffectiveConfig.JobSevenZipIncludeListFile -PathType Leaf) {
+            $sevenZipArgs.Add("-i@`"$($EffectiveConfig.JobSevenZipIncludeListFile)`"")
+            & $LocalWriteLog -Message "  - Get-PoShBackup7ZipArgument: Added include list file: '$($EffectiveConfig.JobSevenZipIncludeListFile)'." -Level "DEBUG"
+        } else {
+            & $LocalWriteLog -Message "[WARNING] Get-PoShBackup7ZipArgument: Specified 7-Zip Include List File '$($EffectiveConfig.JobSevenZipIncludeListFile)' not found. It will be ignored." -Level "WARNING"
+        }
+    }
+
+    # NEW: Add exclude list file if specified and exists
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipExcludeListFile)) {
+        if (Test-Path -LiteralPath $EffectiveConfig.JobSevenZipExcludeListFile -PathType Leaf) {
+            $sevenZipArgs.Add("-x@`"$($EffectiveConfig.JobSevenZipExcludeListFile)`"")
+            & $LocalWriteLog -Message "  - Get-PoShBackup7ZipArgument: Added exclude list file: '$($EffectiveConfig.JobSevenZipExcludeListFile)'." -Level "DEBUG"
+        } else {
+            & $LocalWriteLog -Message "[WARNING] Get-PoShBackup7ZipArgument: Specified 7-Zip Exclude List File '$($EffectiveConfig.JobSevenZipExcludeListFile)' not found. It will be ignored." -Level "WARNING"
+        }
+    }
+
     # Add password related switches if a password is in use
     if ($EffectiveConfig.PasswordInUseFor7Zip) {
         $sevenZipArgs.Add("-mhe=on") # Encrypt archive headers
-        if (-not [string]::IsNullOrWhiteSpace($TempPassFile)) { # Renamed variable
+        if (-not [string]::IsNullOrWhiteSpace($TempPassFile)) { 
             $sevenZipArgs.Add("-spf`"$TempPassFile`"") # Read password from temp file
         } else {
             & $LocalWriteLog -Message "[WARNING] PasswordInUseFor7Zip is true but no temporary password file was provided to 7-Zip; the archive might not be password-protected as intended." -Level WARNING
@@ -587,7 +612,7 @@ function Test-7ZipArchive {
         [string]$SevenZipPathExe,
         [string]$ArchivePath,
         [Parameter(Mandatory=$false)]
-        [string]$TempPassFile = $null, # Renamed from TempPasswordFile
+        [string]$TempPassFile = $null, 
         [string]$ProcessPriority = "Normal",
         [Parameter(Mandatory=$false)]
         [string]$SevenZipCpuAffinityString = $null,
@@ -618,7 +643,7 @@ function Test-7ZipArchive {
     $testArguments.Add("t")
     $testArguments.Add($ArchivePath)
 
-    if (-not [string]::IsNullOrWhiteSpace($TempPassFile) -and (Test-Path -LiteralPath $TempPassFile)) { # Renamed variable
+    if (-not [string]::IsNullOrWhiteSpace($TempPassFile) -and (Test-Path -LiteralPath $TempPassFile)) { 
         $testArguments.Add("-spf`"$TempPassFile`"")
     }
     & $LocalWriteLog -Message "   - Test Command (raw args before Invoke-7ZipOperation internal quoting): `"$SevenZipPathExe`" $($testArguments -join ' ')" -Level DEBUG

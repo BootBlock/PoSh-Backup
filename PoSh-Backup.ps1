@@ -7,7 +7,8 @@
     optional post-run system actions (e.g., shutdown, restart), optional
     archive checksum generation and verification, optional Self-Extracting Archive (SFX) creation,
     optional 7-Zip CPU core affinity (with CLI override), optional verification of local
-    archives before remote transfer, and configurable log file retention.
+    archives before remote transfer, configurable log file retention, and support for
+    7-Zip include/exclude list files.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -37,8 +38,10 @@
     - Verify Local Archive Before Transfer: Optionally test the local archive's integrity
       (and checksum if enabled for the job) *before* attempting any remote transfers. If verification fails,
       remote transfers for that job are skipped.
-    - Log File Retention (New): Configurable retention count for generated log files (global, per-job,
+    - Log File Retention: Configurable retention count for generated log files (global, per-job,
       per-set, or CLI override) to prevent indefinite growth of the Logs directory.
+    - 7-Zip Include/Exclude List Files (New): Specify external files containing lists of
+      include or exclude patterns for 7-Zip, configurable globally, per-job, per-set, or via CLI.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -84,6 +87,12 @@
 .PARAMETER SevenZipCpuAffinityCLI
     Optional. CLI Override: 7-Zip CPU core affinity (e.g., '0,1' or '0x3'). Overrides config.
 
+.PARAMETER SevenZipIncludeListFileCLI
+    Optional. CLI Override: Path to a text file containing 7-Zip include patterns. Overrides all configured include list files.
+
+.PARAMETER SevenZipExcludeListFileCLI
+    Optional. CLI Override: Path to a text file containing 7-Zip exclude patterns. Overrides all configured exclude list files.
+
 .PARAMETER LogRetentionCountCLI
     Optional. CLI Override: Number of log files to keep per job name pattern.
     A value of 0 means infinite retention (keep all logs). Overrides all configured log retention counts.
@@ -123,27 +132,14 @@
     Valid values: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
 
 .EXAMPLE
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -VerifyLocalArchiveBeforeTransferCLI -LogRetentionCountCLI 5
-    Runs the "MyDocs_To_UNC" job. The local archive will be created and then tested. If the test passes,
-    it will be transferred to the remote UNC target. If the local test fails, the transfer is skipped.
-    After the job, only the 5 most recent log files for "MyDocs_To_UNC" will be kept.
-
-.EXAMPLE
-    .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -PostRunActionCli "Hibernate" -PostRunActionDelaySecondsCli 60
-    Runs all jobs in the "DailyCriticalBackups" set. After the entire set completes, the system will
-    attempt to hibernate after a 60-second cancellable delay, regardless of the set's or jobs'
-    configured PostRunAction settings, and regardless of the set's final status (due to default CLI trigger "ANY").
-    Log retention for jobs in this set will follow their set, job, or global configuration unless -LogRetentionCountCLI is also used.
-
-.EXAMPLE
-    .\PoSh-Backup.ps1 -BackupLocationName "MyLargeArchiveJob" -SevenZipCpuAffinityCLI "0,1"
-    Runs the "MyLargeArchiveJob" and restricts 7-Zip to use only CPU cores 0 and 1, overriding any
-    CPU affinity settings in the configuration file for this job or globally.
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -SevenZipExcludeListFileCLI "C:\Config\MyGlobalExcludes.txt"
+    Runs the "MyDocs_To_UNC" job and uses the specified file for 7-Zip exclusion rules, overriding any
+    include/exclude list files defined in the configuration for this job or globally.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.13.2 # Post-run action logic moved to PostRunActionOrchestrator.psm1.
-    Date:           27-May-2025
+    Version:        1.13.3 # Added SevenZipIncludeListFileCLI and SevenZipExcludeListFileCLI parameters.
+    Date:           28-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -190,6 +186,14 @@ param (
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: 7-Zip CPU core affinity (e.g., '0,1' or '0x3'). Overrides config.")]
     [string]$SevenZipCpuAffinityCLI,
+
+    [Parameter(Mandatory=$false, HelpMessage="CLI Override: Path to a text file containing 7-Zip include patterns. Overrides all configured include list files.")]
+    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf -IsValid })]
+    [string]$SevenZipIncludeListFileCLI,
+
+    [Parameter(Mandatory=$false, HelpMessage="CLI Override: Path to a text file containing 7-Zip exclude patterns. Overrides all configured exclude list files.")]
+    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf -IsValid })]
+    [string]$SevenZipExcludeListFileCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Number of log files to keep per job name pattern. 0 for infinite. Overrides all config.")]
     [ValidateRange(0, [int]::MaxValue)]
@@ -240,6 +244,8 @@ $cliOverrideSettings = @{
     TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
     SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
     SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null }
+    SevenZipIncludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $SevenZipIncludeListFileCLI } else { $null } # NEW
+    SevenZipExcludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $SevenZipExcludeListFileCLI } else { $null } # NEW
     LogRetentionCountCLI               = if ($PSBoundParameters.ContainsKey('LogRetentionCountCLI')) { $LogRetentionCountCLI } else { $null }
     PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
     PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
@@ -317,7 +323,7 @@ try {
 
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 & $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.13.2 (Post-run action logic moved to PostRunActionOrchestrator.psm1)" -Level "HEADING"
+& $LoggerScriptBlock -Message " Script Version: v1.13.3 (Added 7-Zip include/exclude list file CLI parameters)" -Level "HEADING"
 if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
 if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
 if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
@@ -325,6 +331,8 @@ if ($ListBackupSets.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACK
 if ($SkipUserConfigCreation.IsPresent) { & $LoggerScriptBlock -Message " ***** SKIP USER CONFIG CREATION ACTIVE ***** " -Level "INFO" }
 if ($cliOverrideSettings.TreatSevenZipWarningsAsSuccess -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Treating 7-Zip warnings as success. ***** " -Level "INFO" }
 if ($cliOverrideSettings.SevenZipCpuAffinity) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip CPU Affinity specified: $($cliOverrideSettings.SevenZipCpuAffinity) ***** " -Level "INFO" }
+if ($cliOverrideSettings.SevenZipIncludeListFile) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip Include List File specified: $($cliOverrideSettings.SevenZipIncludeListFile) ***** " -Level "INFO" } # NEW
+if ($cliOverrideSettings.SevenZipExcludeListFile) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip Exclude List File specified: $($cliOverrideSettings.SevenZipExcludeListFile) ***** " -Level "INFO" } # NEW
 if ($cliOverrideSettings.VerifyLocalArchiveBeforeTransferCLI -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Verify Local Archive Before Transfer ENABLED. ***** " -Level "INFO" }
 if ($null -ne $cliOverrideSettings.LogRetentionCountCLI) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Log Retention Count specified: $($cliOverrideSettings.LogRetentionCountCLI) ***** " -Level "INFO" }
 if ($cliOverrideSettings.PostRunActionCli) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Post-Run Action specified: $($cliOverrideSettings.PostRunActionCli) ***** " -Level "INFO" }
@@ -339,7 +347,7 @@ $configLoadParams = @{
     MainScriptPSScriptRoot      = $PSScriptRoot
     Logger                      = $LoggerScriptBlock
     SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
-    IsSimulateModeSwitch        = [bool]$Simulate.IsPresent # $IsSimulateMode is already a bool, direct use is fine
+    IsSimulateModeSwitch        = [bool]$Simulate.IsPresent 
     ListBackupLocationsSwitch   = [bool]$ListBackupLocations.IsPresent
     ListBackupSetsSwitch        = [bool]$ListBackupSets.IsPresent
     CliOverrideSettings         = $cliOverrideSettings
@@ -444,7 +452,7 @@ if ($jobsToProcess.Count -gt 0) {
         Configuration            = $Configuration
         PSScriptRootForPaths     = $PSScriptRoot
         ActualConfigFile         = $ActualConfigFile
-        IsSimulateMode           = $IsSimulateMode # Pass the boolean $IsSimulateMode
+        IsSimulateMode           = $IsSimulateMode 
         Logger                   = $LoggerScriptBlock
         PSCmdlet                 = $PSCmdlet
         CliOverrideSettings      = $cliOverrideSettings
@@ -486,8 +494,8 @@ $postRunParams = @{
     SetSpecificPostRunAction          = $setSpecificPostRunAction
     JobSpecificPostRunActionForNonSet = $jobSpecificPostRunActionForNonSetRun
     GlobalConfig                      = $Configuration
-    IsSimulateMode                    = [bool]$Simulate.IsPresent # Explicit Cast
-    TestConfigIsPresent               = [bool]$TestConfig.IsPresent   # Explicit Cast
+    IsSimulateMode                    = [bool]$Simulate.IsPresent 
+    TestConfigIsPresent               = [bool]$TestConfig.IsPresent   
     Logger                            = $LoggerScriptBlock
     PSCmdletInstance                  = $PSCmdlet
     CurrentSetNameForLog              = $currentSetName

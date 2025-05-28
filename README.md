@@ -1,5 +1,5 @@
 # PoSh-Backup
-A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, optional 7-Zip CPU core affinity (with validation and CLI override), optional verification of local archives before remote transfer, and configurable log file retention.
+A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, optional 7-Zip CPU core affinity (with validation and CLI override), optional verification of local archives before remote transfer, configurable log file retention, and support for 7-Zip include/exclude list files.
 
 > **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
@@ -21,6 +21,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   **Remote Retention:** Each Backup Target provider can, if designed to do so, implement its own retention logic on the remote storage (e.g., keep last X versions, delete after Y days). This is configured within the target's definition in the `BackupTargets` section (e.g., via `RemoteRetentionSettings` or per-destination settings for providers like "Replicate").
 *   **Live File Backups with VSS:** Utilise the Windows Volume Shadow Copy Service (VSS) to seamlessly back up open or locked files (requires Administrator privileges). Features configurable VSS context, reliable shadow copy creation, and a configurable metadata cache path.
 *   **Advanced 7-Zip Integration:** Leverage 7-Zip for efficient, highly configurable compression. Customise archive type, compression level, method, dictionary/word/solid block sizes, and thread count for local archive creation.
+    *   **Include/Exclude List Files (New):** Define complex include or exclude rules for 7-Zip by specifying paths to external text files. These files contain patterns (one per line) that 7-Zip will use with its `-i@listfile` or `-x@listfile` switches. Configurable globally, per-job, per-set, or via CLI.
 *   **Secure Password Protection:** Encrypt local backup archives with passwords, handled securely via temporary files (using 7-Zip's `-spf` switch) to prevent command-line exposure. Multiple password sources supported (Interactive, PowerShell SecretManagement, Encrypted File, Plaintext).
 *   **Customisable Archive Naming:** Tailor local archive filenames with a base name and a configurable date stamp (e.g., "yyyy-MMM-dd", "yyyyMMdd_HHmmss"). Set archive extensions (e.g., .7z, .zip) per job.
 *   **Automatic Retry Mechanism:** Overcome transient failures during 7-Zip operations for local archive creation. (Note: Retries for remote transfers are the responsibility of the specific Backup Target provider module, if implemented.)
@@ -65,7 +66,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   Download the project files (e.g., as a ZIP archive from the project page) or clone the repository if you use Git.
     *   Extract/place the `PoSh-Backup` folder in your desired location (e.g., `C:\Scripts\PoSh-Backup`).
 2.  **Directory Structure Overview:**
-    *   `PoSh-Backup.ps1`: The main executable script you will run.
+    *   `PoSh-Backup.ps1`: The main executable script you will run (Current version: **1.13.3**).
     *   `Config/`: Contains all configuration files.
         *   `Default.psd1`: The master configuration file. It lists all available settings with detailed comments explaining each one. **It's recommended not to edit this file directly**, as your changes would be overwritten if you update the script.
         *   `User.psd1`: (Will be created on first run if it doesn't exist) This is where your custom settings go.
@@ -122,6 +123,10 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   Examples: `"0,1"` (for cores 0 and 1), `"0x3"` (bitmask for cores 0 and 1).
             *   An empty string or `$null` means no affinity is set (7-Zip uses all available cores).
             *   User input is validated against available system cores and clamped if necessary.
+    *   **`DefaultSevenZipIncludeListFile` (Global Setting - New):**
+        *   `DefaultSevenZipIncludeListFile` (string, default `""`): Optionally specify a path to a text file containing patterns for 7-Zip to include (one pattern per line). Used with 7-Zip's `-i@listfile` switch.
+    *   **`DefaultSevenZipExcludeListFile` (Global Setting - New):**
+        *   `DefaultSevenZipExcludeListFile` (string, default `""`): Optionally specify a path to a text file containing patterns for 7-Zip to exclude (one pattern per line). Used with 7-Zip's `-x@listfile` switch.
     *   **`BackupTargets` (New Global Section):**
         *   This is where you define your reusable, named remote target configurations.
         *   Each entry (a "target instance") specifies a `Type` (like "UNC", "Replicate") and `TargetSpecificSettings` for that type.
@@ -211,7 +216,10 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 *   Examples: `"0,1"` (for cores 0 and 1), `"0x3"` (bitmask for cores 0 and 1).
                 *   An empty string or `$null` means no affinity is set (7-Zip uses all available cores).
                 *   User input is validated against available system cores and clamped if necessary.
-        *   Example job definition that creates a local archive, sends it to a remote target, includes checksum settings, creates an SFX, sets CPU affinity, and specifies log retention:
+        *   **7-Zip Include/Exclude List Files (Job-Specific - New):**
+            *   `SevenZipIncludeListFile` (string, default from global `DefaultSevenZipIncludeListFile`): Path to a text file for 7-Zip include patterns for this job.
+            *   `SevenZipExcludeListFile` (string, default from global `DefaultSevenZipExcludeListFile`): Path to a text file for 7-Zip exclude patterns for this job.
+        *   Example job definition that creates a local archive, sends it to a remote target, includes checksum settings, creates an SFX, sets CPU affinity, specifies log retention, and uses an exclude list file:
             ```powershell
             # Inside BackupLocations in User.psd1 or Default.psd1
             "MyDocumentsBackupSFX_GUI_Affinity" = @{
@@ -236,17 +244,22 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 VerifyArchiveChecksumOnTest = $true
                 VerifyLocalArchiveBeforeTransfer = $true # NEW: Ensure this archive is good before sending to MyMainUNCShare
                 SevenZipCpuAffinity         = "0,1"  # Restrict 7-Zip to CPU cores 0 and 1
+                SevenZipExcludeListFile     = "C:\PoShBackup\Config\MyDocsExcludes.txt" # NEW
             }
             ```
     *   **`BackupSets` (Set Definitions):**
         *   Each set defined under `BackupSets` can also have its own `LogRetentionCount` (New).
         *   This setting, if present, overrides both the job-level `LogRetentionCount` for jobs within that set and the `DefaultLogRetentionCount`.
+        *   **7-Zip Include/Exclude List Files (Set-Specific - New):**
+            *   `SevenZipIncludeListFile` (string, default from global `DefaultSevenZipIncludeListFile`): Path to a text file for 7-Zip include patterns for all jobs in this set. Overrides job-level and global settings.
+            *   `SevenZipExcludeListFile` (string, default from global `DefaultSevenZipExcludeListFile`): Path to a text file for 7-Zip exclude patterns for all jobs in this set. Overrides job-level and global settings.
         *   Example for a set:
             ```powershell
             "NightlyServerMaintenance" = @{
                 JobNames     = @("WebAppBackup", "SQLBackup")
                 OnErrorInJob = "StopSet"
                 LogRetentionCount = 7 # Logs for WebAppBackup & SQLBackup will keep 7 files when run via this set.
+                SevenZipExcludeListFile = "C:\PoShBackup\Config\ServerMaintenanceExcludes.txt" # NEW: Exclude list for this set
                 PostRunAction = @{
                     Enabled         = $true
                     Action          = "Restart"
@@ -264,7 +277,9 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 Enabled         = $false # Default: $false (disabled)
                 Action          = "None" # Default: "None". Others: "Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock"
                 DelaySeconds    = 0      # Default: 0 (immediate action if enabled)
+                                 # During the delay, a message will show with a countdown, allowing cancellation by pressing 'C'.
                 TriggerOnStatus = @("SUCCESS") # Default: Only on "SUCCESS". Can be array: @("SUCCESS", "WARNINGS"), or @("ANY")
+                                       # "ANY" means the action triggers if Enabled=$true, regardless of status.
                 ForceAction     = $false # Default: $false. If $true, attempts to force Shutdown/Restart.
             }
             ```
@@ -297,6 +312,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 JobNames     = @("WebAppBackup", "SQLBackup")
                 OnErrorInJob = "StopSet"
                 LogRetentionCount = 7 # Also applies log retention for jobs in this set
+                SevenZipExcludeListFile = "C:\PoShBackup\Config\ServerMaintenanceExcludes.txt" # NEW: Exclude list for this set
                 PostRunAction = @{
                     Enabled         = $true
                     Action          = "Restart"
@@ -362,6 +378,10 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     ```powershell
     .\PoSh-Backup.ps1 -BackupLocationName "MyLargeArchiveJob" -SevenZipCpuAffinityCLI "0,1"
     ```
+*   **CLI Override for 7-Zip Exclude List File (New):** Run a job using a specific exclude list file:
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "MySensitiveDataJob" -SevenZipExcludeListFileCLI "C:\BackupConfig\GlobalExcludes.txt"
+    ```
 
 ### 5. Key Operational Command-Line Parameters
 These parameters allow you to override certain configuration settings for a specific run:
@@ -372,6 +392,8 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions (archive and log), checksum operations, SFX creation, CPU affinity application, and post-run system actions are logged but not actually executed.
 *   `-TreatSevenZipWarningsAsSuccessCLI`: Forces 7-Zip exit code 1 (Warning) from *local* archiving to be treated as a success for the job status, overriding any configuration settings.
 *   `-SevenZipCpuAffinityCLI <AffinityString>`: Overrides any configured 7-Zip CPU core affinity. Examples: `"0,1"` or `"0x3"`.
+*   `-SevenZipIncludeListFileCLI <FilePath>` (New): Overrides any configured 7-Zip include list file with the specified file path.
+*   `-SevenZipExcludeListFileCLI <FilePath>` (New): Overrides any configured 7-Zip exclude list file with the specified file path.
 *   `-LogRetentionCountCLI <Count>` (New): Overrides all configured log retention counts (global, job, set). Specifies the number of log files to keep per job name pattern. A value of `0` means infinite retention (keep all logs).
 *   `-PauseBehaviourCLI <Always|Never|OnFailure|OnWarning|OnFailureOrWarning>`: Controls if the script pauses with a "Press any key to continue" message before exiting. Overrides the `PauseBeforeExit` setting in the configuration file.
 *   `-PostRunActionCli <Action>`: Overrides all configured post-run actions.

@@ -18,9 +18,9 @@
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.3 # Addressed PSSA warning for unused LoggerInternal and empty ReadKey catch.
+    Version:        1.1.4 # Moved _PoShBackup_PSScriptRoot injection before validation.
     DateCreated:    24-May-2025
-    LastModified:   27-May-2025
+    LastModified:   28-May-2025
     Purpose:        To modularise configuration loading logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 and 7ZipManager.psm1 from the parent 'Modules' directory.
@@ -286,6 +286,15 @@ function Import-AppConfiguration {
         return @{ IsValid = $false; ErrorMessage = "Final configuration is not a valid hashtable." }
     }
 
+    # MOVED: Inject _PoShBackup_PSScriptRoot *before* validation
+    if ($null -ne $MainScriptPSScriptRoot) {
+        $finalConfiguration['_PoShBackup_PSScriptRoot'] = $MainScriptPSScriptRoot
+    } else {
+        # This case should ideally not happen if PoSh-Backup.ps1 always passes its $PSScriptRoot
+        & $LocalWriteLog -Message "[CRITICAL] ConfigLoader: MainScriptPSScriptRoot was not provided to Import-AppConfiguration. _PoShBackup_PSScriptRoot cannot be set. Target provider validation will likely fail." -Level "ERROR"
+        # Do not return yet, let validator try and report the specific missing key.
+    }
+
     $validationMessages = [System.Collections.Generic.List[string]]::new()
 
     # --- Basic Validation for BackupTargets ---
@@ -315,7 +324,7 @@ function Import-AppConfiguration {
             try {
                 Import-Module -Name (Join-Path -Path $MainScriptPSScriptRoot -ChildPath "Modules\PoShBackupValidator.psm1") -Force -ErrorAction Stop
                 & $LocalWriteLog -Message "  - ConfigLoader: PoShBackupValidator module loaded. Performing schema validation..." -Level "DEBUG"
-                # Pass logger to Invoke-PoShBackupConfigValidation if it accepts it
+                
                 $validatorParams = @{
                     ConfigurationToValidate = $finalConfiguration
                     ValidationMessagesListRef = ([ref]$validationMessages)
