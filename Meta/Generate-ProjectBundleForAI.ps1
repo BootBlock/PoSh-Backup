@@ -80,14 +80,14 @@ $shouldRunScriptAnalyzer = -not $NoRunScriptAnalyzer.IsPresent
 $ProjectRoot_DisplayName = (Get-Item -LiteralPath $ProjectRoot_FullPath).Name
 $outputFilePath = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PoSh-Backup-AI-Bundle.txt"
 
-$normalizedProjectRootForCalculations = (Resolve-Path $ProjectRoot_FullPath).Path
+$normalisedProjectRootForCalculations = (Resolve-Path $ProjectRoot_FullPath).Path
 
 Write-Host "Starting project file bundling process..."
 Write-Host "Actual Project Root (for script execution): $ProjectRoot_FullPath"
 Write-Host "Displayed Project Root (in bundle): $ProjectRoot_DisplayName"
 Write-Host "Run PSScriptAnalyzer: $($shouldRunScriptAnalyzer)"
 Write-Host "Output File: $outputFilePath (will be overwritten)"
-Write-Verbose "Normalized project root for path calculations: $normalizedProjectRootForCalculations"
+Write-Verbose "Normalised project root for path calculations: $normalisedProjectRootForCalculations"
 
 $headerContentBuilder = [System.Text.StringBuilder]::new()
 $null = $headerContentBuilder.AppendLine("Hello AI Assistant!")
@@ -96,12 +96,12 @@ $null = $headerContentBuilder.AppendLine("This bundle contains the current state
 $null = $headerContentBuilder.AppendLine("It is designed to allow us to seamlessly continue our previous conversation in a new chat session.")
 $null = $headerContentBuilder.AppendLine("")
 $null = $headerContentBuilder.AppendLine("Please review the AI State, Project Structure Overview, and then the bundled files.")
-$null = $headerContentBuilder.AppendLine("After you've processed this, the user will provide specific instructions, context for what we last worked on, and outline the next task for our current session.")
+$null = $headerContentBuilder.AppendLine("")
+$null = $headerContentBuilder.AppendLine("After you've processed this, remember: Always generate one full untruncated file at a time (unless the changes are very minor, then provide instructions for the user to manually make that change), perform mental diffs, and provide line count differences. Ground via Google Search.")
 $null = $headerContentBuilder.AppendLine("")
 
 $fileContentBuilder = [System.Text.StringBuilder]::new() 
 # --- End Main Script Setup ---
-
 
 # --- Main Processing Logic ---
 try {
@@ -117,7 +117,7 @@ try {
         param($FileObjectParam, $ProcessingResult)
         if ($null -ne $ProcessingResult) {
             if (-not [string]::IsNullOrWhiteSpace($ProcessingResult.Synopsis)) {
-                $currentRelPath = $FileObjectParam.FullName.Substring($normalizedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+                $currentRelPath = $FileObjectParam.FullName.Substring($normalisedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
                 $script:autoDetectedModuleDescriptions[$currentRelPath] = $ProcessingResult.Synopsis
             }
             if ($null -ne $ProcessingResult.Dependencies -and $ProcessingResult.Dependencies.Count -gt 0) {
@@ -132,7 +132,7 @@ try {
     $thisScriptFileObject = Get-Item -LiteralPath $PSCommandPath
     Write-Verbose "Explicitly adding bundler script itself to bundle: $($thisScriptFileObject.FullName)"
     $bundlerScriptProcessingResult = Add-FileToBundle -FileObject $thisScriptFileObject `
-                                                      -RootPathForRelativeCalculations $normalizedProjectRootForCalculations `
+                                                      -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
                                                       -BundleBuilder $fileContentBuilder
     & $UpdateMetadataFromProcessingResult -FileObjectParam $thisScriptFileObject -ProcessingResult $bundlerScriptProcessingResult
 
@@ -142,7 +142,7 @@ try {
         $aiStateTemplateFileObject = Get-Item -LiteralPath $aiStateTemplateFile
         Write-Verbose "Explicitly adding AI State template to bundle: $($aiStateTemplateFileObject.FullName)"
         $aiStateTemplateProcessingResult = Add-FileToBundle -FileObject $aiStateTemplateFileObject `
-                                                            -RootPathForRelativeCalculations $normalizedProjectRootForCalculations `
+                                                            -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
                                                             -BundleBuilder $fileContentBuilder
         & $UpdateMetadataFromProcessingResult -FileObjectParam $aiStateTemplateFileObject -ProcessingResult $aiStateTemplateProcessingResult
     } else {
@@ -158,7 +158,7 @@ try {
             $bundlerModuleFile = $_
             Write-Verbose "Adding bundler module to bundle: $($bundlerModuleFile.Name)"
             $moduleProcessingResult = Add-FileToBundle -FileObject $bundlerModuleFile `
-                                                       -RootPathForRelativeCalculations $normalizedProjectRootForCalculations `
+                                                       -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
                                                        -BundleBuilder $fileContentBuilder
             & $UpdateMetadataFromProcessingResult -FileObjectParam $bundlerModuleFile -ProcessingResult $moduleProcessingResult
         }
@@ -168,7 +168,7 @@ try {
 
     # Scan and add main project files
     $projectScanResult = Invoke-BundlerProjectScan -ProjectRoot_FullPath $ProjectRoot_FullPath `
-                                                   -NormalizedProjectRootForCalculations $normalizedProjectRootForCalculations `
+                                                   -NormalizedProjectRootForCalculations $normalisedProjectRootForCalculations `
                                                    -OutputFilePath $outputFilePath `
                                                    -ThisScriptFileObject $thisScriptFileObject `
                                                    -BundlerModulesDir $bundlerModulesDir `
