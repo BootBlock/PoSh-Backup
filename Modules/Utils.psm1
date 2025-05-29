@@ -18,9 +18,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.14.0 # Logging (Write-LogMessage) now sourced from Managers\LogManager.psm1
+    Version:        1.14.1 # Added ConsoleDisplayUtils.psm1 for banner functions.
     DateCreated:    10-May-2025
-    LastModified:   27-May-2025
+    LastModified:   29-May-2025
     Purpose:        Facade for core utility functions for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+.
                     Sub-modules (ConfigUtils.psm1, SystemUtils.psm1, FileUtils.psm1)
@@ -35,6 +35,7 @@ $managersSubModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Managers" # P
 
 try {
     # Import from Utilities
+    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "ConfigUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "SystemUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "FileUtils.psm1") -Force -ErrorAction Stop
@@ -52,5 +53,5 @@ catch {
 
 #region --- Exported Functions ---
 # Re-export all functions from the imported utility sub-modules and Write-LogMessage from LogManager.
-Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash
+Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Write-ConsoleBanner
 #endregion

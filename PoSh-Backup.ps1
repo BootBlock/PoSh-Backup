@@ -153,7 +153,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.14.3 # Added starting banner and refined completion banner.
+    Version:        1.14.5 # Refactored start/completion banners to use Write-ConsoleBanner.
     Date:           29-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -266,6 +266,7 @@ $Global:ColourSuccess                       = "Green"
 $Global:ColourWarning                       = "Yellow"
 $Global:ColourError                         = "Red"
 $Global:ColourDebug                         = "Gray"
+$Global:ColourBorder                        = "DarkGray"
 $Global:ColourValue                         = "DarkYellow"
 $Global:ColourHeading                       = "White"
 $Global:ColourSimulate                      = "Magenta"
@@ -295,9 +296,6 @@ $Global:GlobalJobLogEntries                 = $null
 $Global:GlobalJobHookScriptData             = $null
 
 # --- Starting Banner ---
-$startBannerWidth = 78
-$scriptNameText = "PoSh Backup"
-
 # Dynamically get script version for the banner
 $scriptVersionForBanner = "vN/A" # Default
 try {
@@ -323,64 +321,31 @@ try {
     }
 }
 catch {
-    # Silently continue, $scriptVersionForBanner remains "vN/A"
+    # Log to console if an error occurs, as logger is not yet available. This is for debugging purposes if version extraction fails and also shuts up a PSSA warning.
+    Write-Host "[DEBUG] PoSh-Backup.ps1: Error during dynamic version extraction for banner: $($_.Exception.Message). Version will show as 'vN/A'." -ForegroundColor $Global:ColourDebug
 }
 
-$fullTitleTextToCenter = "$scriptNameText $scriptVersionForBanner"
-
-# Calculate padding for the combined title/version string
-$titleAvailableWidth = $startBannerWidth - 4 # Account for ║  ║
-$titlePaddingLength = [math]::Max(0, ($titleAvailableWidth - $fullTitleTextToCenter.Length) / 2)
-$titleLeftPadding = " " * [math]::Floor($titlePaddingLength)
-$titleRightPadding = " " * [math]::Ceiling($titlePaddingLength)
-
-# Construct the inner content with padding for centering
-$centeredContent = "$titleLeftPadding$fullTitleTextToCenter$titleRightPadding"
-# Ensure it doesn't exceed available width and pad if necessary to fill the space
-if ($centeredContent.Length -gt $titleAvailableWidth) {
-    $centeredContent = $fullTitleTextToCenter.Substring(0, [math]::Min($fullTitleTextToCenter.Length, $titleAvailableWidth))
-    # Recalculate padding if truncated
-    $titlePaddingLength = [math]::Max(0, ($titleAvailableWidth - $centeredContent.Length) / 2)
-    $titleLeftPadding = " " * [math]::Floor($titlePaddingLength)
-    $titleRightPadding = " " * [math]::Ceiling($titlePaddingLength)
-    $centeredContent = "$titleLeftPadding$centeredContent$titleRightPadding"
-}
-$centeredContent = $centeredContent.PadRight($titleAvailableWidth)
-
-
-Write-Host # Blank line before
-Write-Host ("╔" + ("═" * ($startBannerWidth - 2)) + "╗") -ForegroundColor $Global:ColourHeading
-
-# Combined Title and Version Line - printed in segments for color
-Write-Host "║ " -ForegroundColor $Global:ColourHeading -NoNewline
-Write-Host $titleLeftPadding -NoNewline # Print exact left padding
-Write-Host $scriptNameText -ForegroundColor $Global:ColourInfo -NoNewline 
-Write-Host " " -NoNewline # Space
-Write-Host $scriptVersionForBanner -ForegroundColor $Global:ColourValue -NoNewline 
-
-# Calculate remaining space to fill with right padding
-$currentTextLength = $titleLeftPadding.Length + $scriptNameText.Length + 1 + $scriptVersionForBanner.Length
-$paddingForRightSide = $titleAvailableWidth - $currentTextLength
-if ($paddingForRightSide -gt 0) {
-    Write-Host (" " * $paddingForRightSide) -NoNewline
-}
-Write-Host " ║" -ForegroundColor $Global:ColourHeading
-
-Write-Host ("╚" + ("═" * ($startBannerWidth - 2)) + "╝") -ForegroundColor $Global:ColourHeading
+Write-ConsoleBanner -NameText "PoSh Backup" `
+                    -NameForegroundColor '$Global:ColourInfo' `
+                    -ValueText $scriptVersionForBanner `
+                    -ValueForegroundColor '$Global:ColourValue' `
+                    -BannerWidth 78 `
+                    -BorderForegroundColor '$Global:ColourHeading' `
+                    -CenterText `
+                    -PrependNewLine
 
 # Author Information
 $authorName = "Joe Cox"
 $githubLink = "https://github.com/BootBlock/PoSh-Backup"
 $websiteLink = "https://bootblock.co.uk"
 $authorInfoColor = $Global:ColourDebug 
-$authorIndent = "    " 
 
 Write-Host # Blank line for spacing
-Write-Host "    $authorIndent$authorName" -ForegroundColor $authorInfoColor -NoNewline
+Write-Host "        $authorName" -ForegroundColor $authorInfoColor -NoNewline
 Write-Host " : " -ForegroundColor $Global:ColourHeading -NoNewline
 Write-Host $githubLink -ForegroundColor $authorInfoColor
 
-Write-Host "$authorIndent" -ForegroundColor $authorInfoColor -NoNewline 
+Write-Host "$    " -ForegroundColor $authorInfoColor -NoNewline 
 Write-Host "            : " -ForegroundColor $Global:ColourHeading -NoNewline 
 Write-Host $websiteLink -ForegroundColor $authorInfoColor
 Write-Host # Blank line after author info
@@ -630,49 +595,36 @@ if ($jobsToProcess.Count -gt 0) {
 $finalScriptEndTime = Get-Date
 
 # --- New Completion Banner ---
-$bannerWidth = 78
-$titleText = "All PoSh Backup Operations Completed"
 
-# Calculate padding for the inner text
-$innerWidth = $bannerWidth - 4 # Account for ║ spaces and ║
-$paddingLength = [math]::Max(0, ($innerWidth - $titleText.Length) / 2)
-$leftPaddingText = " " * [math]::Floor($paddingLength)
-$rightPaddingText = " " * [math]::Ceiling($paddingLength)
+$finalScriptEndTime = Get-Date
 
-$innerText = "$leftPaddingText$titleText$rightPaddingText"
-# Ensure innerText doesn't exceed available space
-if ($innerText.Length -gt $innerWidth) {
-    $innerText = $titleText.Substring(0, [math]::Min($titleText.Length, $innerWidth - 2)) # Truncate if needed, leave space for padding
-    $paddingLength = [math]::Max(0, ($innerWidth - $innerText.Length) / 2)
-    $leftPaddingText = " " * [math]::Floor($paddingLength)
-    $rightPaddingText = " " * [math]::Ceiling($paddingLength)
-    $innerText = "$leftPaddingText$innerText$rightPaddingText"
-}
-# Pad the inner text to fill the innerWidth exactly
-$innerText = $innerText.PadRight($innerWidth)
+# --- Use Utility for Completion Banner ---
 
+# Determine colors based on overall status
+$completionBorderColor = '$Global:ColourHeading' # Default
+$completionNameFgColor = '$Global:ColourSuccess' # Default for the text
+# Background for the text line is not directly supported by Write-ConsoleBanner v1.1.2 in a simple way
+# We'll rely on the border color and text color to convey status.
 
-# Determine title color based on status (optional, default to success)
-$titleFgColor = $Global:ColourSuccess 
 if ($overallSetStatus -eq "FAILURE") {
-    $titleFgColor = $Global:ColourError 
+    $completionBorderColor = '$Global:ColourError'
+    $completionNameFgColor = '$Global:ColourError'
 } elseif ($overallSetStatus -eq "WARNINGS") {
-    $titleFgColor = $Global:ColourWarning
+    $completionBorderColor = '$Global:ColourWarning'
+    $completionNameFgColor = '$Global:ColourWarning'
 } elseif ($overallSetStatus -eq "SIMULATED_COMPLETE") {
-    $titleFgColor = $Global:ColourSimulate
+    $completionBorderColor = '$Global:ColourSimulate'
+    $completionNameFgColor = '$Global:ColourSimulate'
 }
+# For SUCCESS, it will use the defaults ($Global:ColourHeading for border, $Global:ColourSuccess for text)
 
-
-Write-Host # Blank line before
-Write-Host ("╔" + ("═" * ($bannerWidth - 2)) + "╗") -ForegroundColor $Global:ColourHeading
-
-# Write the title line piece by piece for correct coloring
-Write-Host "║ " -ForegroundColor $Global:ColourHeading -NoNewline
-Write-Host $innerText -ForegroundColor $titleFgColor -NoNewline
-Write-Host " ║" -ForegroundColor $Global:ColourHeading
-
-Write-Host ("╚" + ("═" * ($bannerWidth - 2)) + "╝") -ForegroundColor $Global:ColourHeading
-# --- End New Completion Banner ---
+Write-ConsoleBanner -NameText "All PoSh Backup Operations Completed" `
+                    -NameForegroundColor $completionNameFgColor `
+                    -BannerWidth 78 `
+                    -BorderForegroundColor $completionBorderColor `
+                    -CenterText `
+                    -PrependNewLine
+# --- End Completion Banner ---
 
 if ($IsSimulateMode.IsPresent -and $overallSetStatus -ne "FAILURE" -and $overallSetStatus -ne "WARNINGS") {
     $overallSetStatus = "SIMULATED_COMPLETE"
