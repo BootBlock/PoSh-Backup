@@ -21,7 +21,7 @@
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.13 # Delete existing split volumes before creating new set.
+    Version:        1.0.14 # Added banner before 7-Zip archive creation.
     DateCreated:    24-May-2025
     LastModified:   29-May-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
@@ -168,6 +168,10 @@ function Invoke-LocalArchiveOperation {
         if ((Get-Command Invoke-7ZipOperation).Parameters.ContainsKey('PSCmdlet')) {
             $zipOpParams.PSCmdlet = $PSCmdlet
         }
+
+        # --- BANNER ---
+        Write-ConsoleBanner -NameText "Creating Backup for" -ValueText $($EffectiveJobConfig.BaseFileName) -CenterText -PrependNewLine
+        # --- END BANNER ---
 
         $sevenZipResult = Invoke-7ZipOperation @zipOpParams
 

@@ -27,7 +27,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.2 # Added -v{size} switch logic for multi-volume archives.
+    Version:        1.1.3 # Added banner before 7-Zip archive testing.
     DateCreated:    17-May-2025
     LastModified:   29-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
@@ -709,6 +709,10 @@ function Test-7ZipArchive {
     }
 
     & $LocalWriteLog -Message "   - Test Command (raw args before Invoke-7ZipOperation internal quoting): `"$SevenZipPathExe`" $($testArguments -join ' ')" -Level DEBUG
+
+    # --- NEW BANNER ---
+    Write-ConsoleBanner -NameText "Testing Archive Integrity" -ValueText $ArchivePath -BannerWidth 78 -CenterText -PrependNewLine
+    # --- END NEW BANNER ---
 
     $invokeParams = @{
         SevenZipPathExe = $SevenZipPathExe; SevenZipArguments = $testArguments.ToArray()
