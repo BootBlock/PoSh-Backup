@@ -295,6 +295,12 @@ $Global:GlobalLogDirectory                  = $null
 $Global:GlobalJobLogEntries                 = $null
 $Global:GlobalJobHookScriptData             = $null
 
+try {
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
+} catch {
+    Write-Host "[DEBUG] PoSh-Backup.ps1: Couldn't import the ConsoleDisplayUtils.psm1 module: $($_.Exception.Message)." -ForegroundColor $Global:ColourError
+}
+
 # --- Starting Banner ---
 # Dynamically get script version for the banner
 $scriptVersionForBanner = "vN/A" # Default
