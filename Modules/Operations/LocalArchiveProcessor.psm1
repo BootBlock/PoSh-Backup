@@ -21,9 +21,9 @@
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.10    # Gemini sucks
+    Version:        1.0.13 # Delete existing split volumes before creating new set.
     DateCreated:    24-May-2025
-    LastModified:   28-May-2025
+    LastModified:   29-May-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 and 7ZipManager.psm1 from the parent 'Modules' directory.
@@ -40,6 +40,7 @@ try {
 }
 
 function Invoke-LocalArchiveOperation {
+    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')]
     param(
         [Parameter(Mandatory = $true)]
         [hashtable]$EffectiveJobConfig,
@@ -94,9 +95,51 @@ function Invoke-LocalArchiveOperation {
 
         $DateString = Get-Date -Format $EffectiveJobConfig.JobArchiveDateFormat
         $archiveFileNameOnly = "$($EffectiveJobConfig.BaseFileName) [$DateString]$($EffectiveJobConfig.JobArchiveExtension)"
+
+        # --- Pre-delete existing split volumes if SplitVolumeSize is active ---
+        if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize) -and $EffectiveJobConfig.SplitVolumeSize -match "^\d+[kmg]$") {
+            # Construct the pattern for existing volumes, e.g., "Basename [Date].7z.0*"
+            # $archiveFileNameOnly here is "Basename [Date].7z"
+            $existingVolumePattern = [regex]::Escape($archiveFileNameOnly) + ".[0-9][0-9]*"
+            & $LocalWriteLog -Message "  - LocalArchiveProcessor: Split archive detected. Checking for existing volumes with pattern '$existingVolumePattern' in '$($EffectiveJobConfig.DestinationDir)'." -Level "DEBUG"
+            
+            $existingVolumes = Get-ChildItem -Path $EffectiveJobConfig.DestinationDir -Filter ($archiveFileNameOnly + ".*") | Where-Object { $_.Name -match $existingVolumePattern }
+            
+            if ($existingVolumes.Count -gt 0) {
+                & $LocalWriteLog -Message "[WARNING] LocalArchiveProcessor: Found $($existingVolumes.Count) existing volume(s) for '$archiveFileNameOnly'. Attempting to delete them before creating new split set." -Level "WARNING"
+                foreach ($volumeFile in $existingVolumes) {
+                    $deleteActionMessage = "Delete existing archive volume part prior to new split archive creation"
+                    if ($IsSimulateMode.IsPresent) {
+                        & $LocalWriteLog -Message "SIMULATE: Would delete existing volume part '$($volumeFile.FullName)'." -Level "SIMULATE"
+                    } else {
+                        if ($PSCmdlet.ShouldProcess($volumeFile.FullName, $deleteActionMessage)) {
+                            try {
+                                Remove-Item -LiteralPath $volumeFile.FullName -Force -ErrorAction Stop
+                                & $LocalWriteLog -Message "  - Deleted existing volume part: '$($volumeFile.FullName)'." -Level "INFO"
+                            } catch {
+                                $errMsg = "Failed to delete existing volume part '$($volumeFile.FullName)'. Error: $($_.Exception.Message). This may cause the new split archive creation to fail."
+                                & $LocalWriteLog -Message "[ERROR] LocalArchiveProcessor: $errMsg" -Level "ERROR"
+                                # Potentially throw here if this is critical, or let 7-Zip fail and report that.
+                                # For now, we'll log the error and let 7-Zip attempt creation.
+                                # If 7-Zip then fails, its error will be caught.
+                                if ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" } # Mark as warning at least
+                                $reportData.ErrorMessage = if ([string]::IsNullOrWhiteSpace($reportData.ErrorMessage)) { $errMsg } else { "$($reportData.ErrorMessage); $errMsg" }
+                            }
+                        } else {
+                            & $LocalWriteLog -Message "[WARNING] LocalArchiveProcessor: Deletion of existing volume part '$($volumeFile.FullName)' skipped by user (ShouldProcess). New archive creation may fail." -Level "WARNING"
+                            # This is a scenario where 7zip will likely fail.
+                        }
+                    }
+                }
+            }
+        }
+        # --- End pre-delete existing split volumes ---
+
+        # Now define $finalArchivePathForReturn (this line already exists)
         $finalArchivePathForReturn = Join-Path -Path $EffectiveJobConfig.DestinationDir -ChildPath $archiveFileNameOnly
         $reportData.FinalArchivePath = $finalArchivePathForReturn
         & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Target Archive in ${destinationDirTerm}: $finalArchivePathForReturn" -Level "INFO"
+
         if ($EffectiveJobConfig.CreateSFX) {
             & $LocalWriteLog -Message "   - Note: This will be a Self-Extracting Archive (SFX) using module type: $($EffectiveJobConfig.SFXModule)." -Level "INFO"
         }
@@ -154,27 +197,50 @@ function Invoke-LocalArchiveOperation {
 
         if ($EffectiveJobConfig.GenerateArchiveChecksum -and ($currentLocalArchiveStatus -ne "FAILURE")) {
             & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Generating checksum for archive '$finalArchivePathForReturn'..." -Level "INFO"
+
             $reportData.ArchiveChecksumAlgorithm = $EffectiveJobConfig.ChecksumAlgorithm
             $checksumFileExtension = $EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
-            $archiveFileItem = Get-Item -LiteralPath $finalArchivePathForReturn -ErrorAction SilentlyContinue
-            $checksumFileNameWithExt = $archiveFileItem.Name + ".$checksumFileExtension"
-            $checksumFileDir = $archiveFileItem.DirectoryName
-            $checksumFilePath = Join-Path -Path $checksumFileDir -ChildPath $checksumFileNameWithExt
-            $reportData.ArchiveChecksumFile = $checksumFilePath
+            
+            # Determine the actual file to checksum and the name to use inside the checksum file
+            $fileToChecksumPath = $finalArchivePathForReturn 
+            $archiveNameForInChecksumFile = $archiveFileNameOnly # e.g., Projects [Date].7z or Projects [Date].exe
+
+            if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize)) {
+                # If splitting, the actual first file is .001, and that's what we checksum.
+                # The name inside the checksum file should also reflect this first volume.
+                $fileToChecksumPath = $finalArchivePathForReturn + ".001"
+                $archiveNameForInChecksumFile = $archiveFileNameOnly + ".001"
+                & $LocalWriteLog -Message "  - LocalArchiveProcessor: Adjusting checksum target to first volume: '$fileToChecksumPath'" -Level "DEBUG"
+            }
+
+            $archiveFileItem = Get-Item -LiteralPath $fileToChecksumPath -ErrorAction SilentlyContinue
+            
+            if ($null -ne $archiveFileItem -and $archiveFileItem.Exists) {
+                # The checksum file itself should be named based on the file it's checksumming.
+                # So, if we checksum "archive.7z.001", the checksum file is "archive.7z.001.sha256".
+                $checksumFileNameWithExt = $archiveFileItem.Name + ".$checksumFileExtension" 
+                $checksumFileDir = $archiveFileItem.DirectoryName 
+                $checksumFilePath = Join-Path -Path $checksumFileDir -ChildPath $checksumFileNameWithExt
+                $reportData.ArchiveChecksumFile = $checksumFilePath
+            } else {
+                & $LocalWriteLog -Message "[WARNING] LocalArchiveProcessor: Archive file (or first volume) '$fileToChecksumPath' not found. Cannot determine checksum file path details." -Level "WARNING"
+                $reportData.ArchiveChecksumFile = "N/A (Source archive part not found for checksum)"
+                # This will lead to checksum generation being skipped or failing below.
+            }
 
             if ($IsSimulateMode.IsPresent) {
                 & $LocalWriteLog -Message "SIMULATE: LocalArchiveProcessor: Would generate $($EffectiveJobConfig.ChecksumAlgorithm) checksum for '$finalArchivePathForReturn' and save to '$checksumFilePath'." -Level "SIMULATE"
                 $reportData.ArchiveChecksum = "SIMULATED_CHECKSUM_VALUE"
             } elseif ($null -ne $archiveFileItem -and $archiveFileItem.Exists) {
-                $generatedHash = Get-PoshBackupFileHash -FilePath $finalArchivePathForReturn -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $scriptBlockLogger
+                $generatedHash = Get-PoshBackupFileHash -FilePath $fileToChecksumPath -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $scriptBlockLogger
                 if ($null -ne $generatedHash) {
                     $reportData.ArchiveChecksum = $generatedHash
                     try {
-                        if ([string]::IsNullOrWhiteSpace($archiveFileNameOnly)) {
-                            throw "ArchiveFileNameOnly was not set before checksum file write."
+                        if ([string]::IsNullOrWhiteSpace($archiveNameForInChecksumFile)) {
+                            throw "ArchiveNameForInChecksumFile was not set before checksum file write."
                         }
-                        [System.IO.File]::WriteAllText($checksumFilePath, "$($generatedHash.ToUpperInvariant())  $($archiveFileNameOnly)", [System.Text.Encoding]::UTF8)
-                        & $LocalWriteLog -Message "  - Checksum file created: '$checksumFilePath' with content: '$($generatedHash.ToUpperInvariant())  $($archiveFileNameOnly)'" -Level "SUCCESS"
+                        [System.IO.File]::WriteAllText($checksumFilePath, "$($generatedHash.ToUpperInvariant())  $($archiveNameForInChecksumFile)", [System.Text.Encoding]::UTF8)
+                        & $LocalWriteLog -Message "  - Checksum file created: '$checksumFilePath' with content: '$($generatedHash.ToUpperInvariant())  $($archiveNameForInChecksumFile)'" -Level "SUCCESS"
                     } catch {
                         & $LocalWriteLog -Message "[ERROR] LocalArchiveProcessor: Failed to write checksum file '$checksumFilePath'. Error: $($_.Exception.Message)" -Level "ERROR"
                         $reportData.ArchiveChecksum = "Error (Failed to write file)"

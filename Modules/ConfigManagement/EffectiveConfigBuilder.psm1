@@ -21,15 +21,15 @@
     remote target assignments (by looking up 'TargetNames' in the global 'BackupTargets'
     section), PostRunAction settings, Checksum settings, SFX creation (including SFX module type),
     7-Zip CPU affinity, 7-Zip include/exclude list files, VerifyLocalArchiveBeforeTransfer setting,
-    and LogRetentionCount setting.
+    LogRetentionCount setting, and SplitVolumeSize setting (handling conflict with SFX).
     The resolved configuration is then used by the Operations module to execute the backup job.
 
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.8 # Added resolution for set-level SevenZipIncludeListFile/SevenZipExcludeListFile.
+    Version:        1.0.9 # Added SplitVolumeSize resolution and SFX conflict handling.
     DateCreated:    24-May-2025
-    LastModified:   28-May-2025
+    LastModified:   29-May-2025
     Purpose:        To modularise the effective job configuration building logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the parent 'Modules' directory for Get-ConfigValue.
@@ -53,7 +53,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
         job-specific, set-specific (if applicable), and command-line override settings,
         including Backup Target, PostRunAction, Checksum, SFX (with module type),
         7-Zip CPU Affinity, 7-Zip Include/Exclude List Files, VerifyLocalArchiveBeforeTransfer,
-        and LogRetentionCount resolution.
+        LogRetentionCount, and SplitVolumeSize resolution.
     .DESCRIPTION
         This function takes a specific job's raw configuration, the global configuration,
         any set-specific configurations, and any command-line overrides, then resolves the
@@ -63,8 +63,9 @@ function Get-PoShBackupJobEffectiveConfiguration {
         the full definitions of those targets in the global 'BackupTargets' section,
         resolves 'PostRunAction' settings, 'Checksum' settings, 'CreateSFX', 'SFXModule',
         'SevenZipCpuAffinity', 'SevenZipIncludeListFile', 'SevenZipExcludeListFile',
-        'VerifyLocalArchiveBeforeTransfer', and 'LogRetentionCount' settings.
+        'VerifyLocalArchiveBeforeTransfer', 'LogRetentionCount', and 'SplitVolumeSize' settings.
         If SFX is enabled, the effective archive extension becomes '.exe'.
+        If both SplitVolumeSize and CreateSFX are enabled, SplitVolumeSize takes precedence and SFX is disabled.
     .PARAMETER JobConfig
         A hashtable containing the specific configuration settings for this backup job.
     .PARAMETER GlobalConfig
@@ -91,9 +92,9 @@ function Get-PoShBackupJobEffectiveConfiguration {
         [Parameter(Mandatory)] [ref]$JobReportDataRef,
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
-        [Parameter(Mandatory = $false)] # NEW
+        [Parameter(Mandatory = $false)] 
         [string]$SetSevenZipIncludeListFile = $null,
-        [Parameter(Mandatory = $false)] # NEW
+        [Parameter(Mandatory = $false)] 
         [string]$SetSevenZipExcludeListFile = $null
     )
 
@@ -170,10 +171,44 @@ function Get-PoShBackupJobEffectiveConfiguration {
     # Archive Naming and Type
     $effectiveConfig.JobArchiveType = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveType' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveType' -DefaultValue "-t7z")
 
-    # SFX Handling
+    # SFX Handling & Split Volume Handling
     $effectiveConfig.CreateSFX = Get-ConfigValue -ConfigObject $JobConfig -Key 'CreateSFX' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCreateSFX' -DefaultValue $false)
     $effectiveConfig.SFXModule = Get-ConfigValue -ConfigObject $JobConfig -Key 'SFXModule' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSFXModule' -DefaultValue "Console")
     $effectiveConfig.InternalArchiveExtension = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveExtension' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveExtension' -DefaultValue ".7z")
+
+    # Resolve SplitVolumeSize (CLI > Job > Global > Default empty)
+    $_cliSplitVolumeSize = if ($CliOverrides.ContainsKey('SplitVolumeSizeCLI') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.SplitVolumeSizeCLI)) { $CliOverrides.SplitVolumeSizeCLI } else { $null } # Assuming a CLI param might be added
+    $_jobSplitVolumeSize = Get-ConfigValue -ConfigObject $JobConfig -Key 'SplitVolumeSize' -DefaultValue $null
+    $_globalSplitVolumeSize = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSplitVolumeSize' -DefaultValue ""
+
+    if (-not [string]::IsNullOrWhiteSpace($_cliSplitVolumeSize)) {
+        $effectiveConfig.SplitVolumeSize = $_cliSplitVolumeSize
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: SplitVolumeSize set by CLI override: '$($_cliSplitVolumeSize)'." -Level "DEBUG"
+    } elseif (-not [string]::IsNullOrWhiteSpace($_jobSplitVolumeSize)) {
+        $effectiveConfig.SplitVolumeSize = $_jobSplitVolumeSize
+        & $LocalWriteLog -Message "  - EffectiveConfigBuilder: SplitVolumeSize set by Job config: '$($_jobSplitVolumeSize)'." -Level "DEBUG"
+    } else {
+        $effectiveConfig.SplitVolumeSize = $_globalSplitVolumeSize
+        if (-not [string]::IsNullOrWhiteSpace($_globalSplitVolumeSize)) {
+            & $LocalWriteLog -Message "  - EffectiveConfigBuilder: SplitVolumeSize set by Global config: '$($_globalSplitVolumeSize)'." -Level "DEBUG"
+        } else {
+            & $LocalWriteLog -Message "  - EffectiveConfigBuilder: SplitVolumeSize not configured (using default: empty string)." -Level "DEBUG"
+        }
+    }
+    # Validate the resolved SplitVolumeSize format (basic check, schema does more)
+    if (-not [string]::IsNullOrWhiteSpace($effectiveConfig.SplitVolumeSize) -and $effectiveConfig.SplitVolumeSize -notmatch "^\d+[kmg]$") {
+        & $LocalWriteLog -Message "[WARNING] EffectiveConfigBuilder: Invalid SplitVolumeSize format '$($effectiveConfig.SplitVolumeSize)'. Expected number followed by 'k', 'm', or 'g'. Splitting will be disabled." -Level "WARNING"
+        $effectiveConfig.SplitVolumeSize = "" # Disable if invalid
+    }
+
+    # Conflict: SplitVolumeSize takes precedence over CreateSFX
+    if (-not [string]::IsNullOrWhiteSpace($effectiveConfig.SplitVolumeSize) -and $effectiveConfig.CreateSFX) {
+        & $LocalWriteLog -Message "[WARNING] EffectiveConfigBuilder: Both SplitVolumeSize ('$($effectiveConfig.SplitVolumeSize)') and CreateSFX (`$true`) are configured for job '$($effectiveConfig.BaseFileName)'. SplitVolumeSize takes precedence; SFX creation will be disabled for this job." -Level "WARNING"
+        $effectiveConfig.CreateSFX = $false # Disable SFX
+        $reportData.SFXCreationOverriddenBySplit = $true
+    } else {
+        $reportData.SFXCreationOverriddenBySplit = $false
+    }
 
     if ($effectiveConfig.CreateSFX) {
         $effectiveConfig.JobArchiveExtension = ".exe"
@@ -181,7 +216,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     } else {
         $effectiveConfig.JobArchiveExtension = $effectiveConfig.InternalArchiveExtension
     }
-    # END SFX Handling
+    # END SFX & Split Volume Handling
 
     $effectiveConfig.JobArchiveDateFormat = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveDateFormat' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd")
 
@@ -233,13 +268,13 @@ function Get-PoShBackupJobEffectiveConfiguration {
     if (-not [string]::IsNullOrWhiteSpace($_cliIncludeListFile)) {
         $effectiveConfig.JobSevenZipIncludeListFile = $_cliIncludeListFile
         & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Include List File set by CLI override: '$($_cliIncludeListFile)'." -Level "DEBUG"
-    } elseif (-not [string]::IsNullOrWhiteSpace($SetSevenZipIncludeListFile)) { # NEW: Check Set level
+    } elseif (-not [string]::IsNullOrWhiteSpace($SetSevenZipIncludeListFile)) { 
         $effectiveConfig.JobSevenZipIncludeListFile = $SetSevenZipIncludeListFile
         & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Include List File set by Set config: '$($SetSevenZipIncludeListFile)'." -Level "DEBUG"
     } elseif (-not [string]::IsNullOrWhiteSpace($_jobIncludeListFile)) {
         $effectiveConfig.JobSevenZipIncludeListFile = $_jobIncludeListFile
         & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Include List File set by Job config: '$($_jobIncludeListFile)'." -Level "DEBUG"
-    } else { # Global or default empty
+    } else { 
         $effectiveConfig.JobSevenZipIncludeListFile = $_globalIncludeListFile
         if (-not [string]::IsNullOrWhiteSpace($_globalIncludeListFile)) {
             & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Include List File set by Global config: '$($_globalIncludeListFile)'." -Level "DEBUG"
@@ -251,13 +286,13 @@ function Get-PoShBackupJobEffectiveConfiguration {
     if (-not [string]::IsNullOrWhiteSpace($_cliExcludeListFile)) {
         $effectiveConfig.JobSevenZipExcludeListFile = $_cliExcludeListFile
         & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Exclude List File set by CLI override: '$($_cliExcludeListFile)'." -Level "DEBUG"
-    } elseif (-not [string]::IsNullOrWhiteSpace($SetSevenZipExcludeListFile)) { # NEW: Check Set level
+    } elseif (-not [string]::IsNullOrWhiteSpace($SetSevenZipExcludeListFile)) { 
         $effectiveConfig.JobSevenZipExcludeListFile = $SetSevenZipExcludeListFile
         & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Exclude List File set by Set config: '$($SetSevenZipExcludeListFile)'." -Level "DEBUG"
     } elseif (-not [string]::IsNullOrWhiteSpace($_jobExcludeListFile)) {
         $effectiveConfig.JobSevenZipExcludeListFile = $_jobExcludeListFile
         & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Exclude List File set by Job config: '$($_jobExcludeListFile)'." -Level "DEBUG"
-    } else { # Global or default empty
+    } else { 
         $effectiveConfig.JobSevenZipExcludeListFile = $_globalExcludeListFile
         if (-not [string]::IsNullOrWhiteSpace($_globalExcludeListFile)) {
             & $LocalWriteLog -Message "  - EffectiveConfigBuilder: 7-Zip Exclude List File set by Global config: '$($_globalExcludeListFile)'." -Level "DEBUG"
@@ -320,7 +355,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
             & $LocalWriteLog -Message "  - EffectiveConfigBuilder: Log Retention Count set by Global config: $($effectiveConfig.LogRetentionCount)." -Level "DEBUG"
         }
     }
-    $reportData.EffectiveJobLogRetentionCount = $effectiveConfig.LogRetentionCount # Add to report data
+    $reportData.EffectiveJobLogRetentionCount = $effectiveConfig.LogRetentionCount 
     # END LogRetentionCount
 
     $effectiveConfig.JobMinimumRequiredFreeSpaceGB = Get-ConfigValue -ConfigObject $JobConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue 0)
@@ -353,13 +388,14 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $reportData.ArchiveTested = $effectiveConfig.JobTestArchiveAfterCreation
     $reportData.SevenZipPriority = $effectiveConfig.JobSevenZipProcessPriority
     $reportData.SevenZipCpuAffinity = $effectiveConfig.JobSevenZipCpuAffinity 
-    $reportData.SevenZipIncludeListFile = $effectiveConfig.JobSevenZipIncludeListFile # NEW
-    $reportData.SevenZipExcludeListFile = $effectiveConfig.JobSevenZipExcludeListFile # NEW
+    $reportData.SevenZipIncludeListFile = $effectiveConfig.JobSevenZipIncludeListFile 
+    $reportData.SevenZipExcludeListFile = $effectiveConfig.JobSevenZipExcludeListFile 
     $reportData.GenerateArchiveChecksum = $effectiveConfig.GenerateArchiveChecksum
     $reportData.ChecksumAlgorithm = $effectiveConfig.ChecksumAlgorithm
     $reportData.VerifyArchiveChecksumOnTest = $effectiveConfig.VerifyArchiveChecksumOnTest
-    $reportData.CreateSFX = $effectiveConfig.CreateSFX
+    $reportData.CreateSFX = $effectiveConfig.CreateSFX # This reflects the potentially overridden value
     $reportData.SFXModule = $effectiveConfig.SFXModule
+    $reportData.SplitVolumeSize = $effectiveConfig.SplitVolumeSize # NEW: Add to report data
 
     $effectiveConfig.GlobalConfigRef = $GlobalConfig
 

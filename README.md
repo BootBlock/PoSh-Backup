@@ -1,5 +1,5 @@
 # PoSh-Backup
-A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, optional 7-Zip CPU core affinity (with validation and CLI override), optional verification of local archives before remote transfer, configurable log file retention, and support for 7-Zip include/exclude list files.
+A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, optional 7-Zip CPU core affinity (with validation and CLI override), optional verification of local archives before remote transfer, configurable log file retention, support for 7-Zip include/exclude list files, backup job chaining/dependencies, and multi-volume (split) archive creation (with CLI override).
 
 > **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
@@ -23,6 +23,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Live File Backups with VSS:** Utilise the Windows Volume Shadow Copy Service (VSS) to seamlessly back up open or locked files (requires Administrator privileges). Features configurable VSS context, reliable shadow copy creation, and a configurable metadata cache path.
 *   **Advanced 7-Zip Integration:** Leverage 7-Zip for efficient, highly configurable compression. Customise archive type, compression level, method, dictionary/word/solid block sizes, and thread count for local archive creation.
     *   **Include/Exclude List Files (New):** Define complex include or exclude rules for 7-Zip by specifying paths to external text files. These files contain patterns (one per line) that 7-Zip will use with its `-i@listfile` or `-x@listfile` switches. Configurable globally, per-job, per-set, or via CLI.
+    *   **Multi-Volume (Split) Archives (New):** Optionally split large archives into smaller volumes (e.g., "100m", "4g"). Configurable per job or via CLI. This will override SFX creation if both are set for a job.
 *   **Secure Password Protection:** Encrypt local backup archives with passwords. The password, whether obtained interactively, from PowerShell SecretManagement, an encrypted file, or plain text (discouraged), is now passed directly to 7-Zip using its standard `-p{password}` switch. While this avoids intermediate temporary password files, the command line itself (which can sometimes be logged or inspected) will contain the password switch.
 *   **Customisable Archive Naming:** Tailor local archive filenames with a base name and a configurable date stamp (e.g., "yyyy-MMM-dd", "yyyyMMdd_HHmmss"). Set archive extensions (e.g., .7z, .zip) per job.
 *   **Automatic Retry Mechanism:** Overcome transient failures during 7-Zip operations for local archive creation. (Note: Retries for remote transfers are the responsibility of the specific Backup Target provider module, if implemented.)
@@ -48,7 +49,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the `DestinationDir` before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives using `7z t`.
 *   **Archive Checksum Generation & Verification:** Optionally generate a checksum file (e.g., SHA256, MD5) for the local archive. If archive testing is enabled, this checksum can also be verified against the archive content for an additional layer of integrity validation.
-*   **Self-Extracting Archives (SFX):** Optionally create Windows self-extracting archives (.exe) for easy restoration on systems without 7-Zip installed. The internal archive format (e.g., 7z, zip) is still configurable. Users can choose the SFX module type (`Console`, `GUI`, `Installer`) to control extraction behavior (e.g., prompt for path).
+*   **Self-Extracting Archives (SFX):** Optionally create Windows self-extracting archives (.exe) with selectable SFX module types (Console, GUI, Installer). Overridden if `SplitVolumeSize` is active.
 *   **Flexible 7-Zip Warning Handling:** Option to treat 7-Zip warnings (exit code 1, e.g., from skipped open files) as a success for job status reporting, configurable globally, per-job, or via CLI.
 *   **Exit Pause Control:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
 *   **Post-Run System Actions:** Optionally configure the script to perform system actions like Shutdown, Restart, Hibernate, LogOff, Sleep, or Lock Workstation after a job or set completes. This is configurable based on the final status (Success, Warnings, Failure, Any), can include a delay with a cancellation prompt, and can be forced via CLI parameters.
@@ -120,6 +121,9 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   `"Console"` or `"Default"`: Default 7-Zip console SFX (e.g., `7zCon.sfx`). Extracts to current directory without prompting.
             *   `"GUI"`: Standard GUI SFX (e.g., `7zS.sfx`). Prompts user for extraction path.
             *   `"Installer"`: Installer-like GUI SFX (e.g., `7zSD.sfx`). Prompts user for extraction path.
+    *   **Split Volume Settings (Global Default - New):**
+        *   `DefaultSplitVolumeSize`: String (e.g., "100m", "4g", "700k"). An empty string (`""`) means no splitting by default. Use lowercase 'k', 'm', or 'g'.
+            *   **Note on SFX and Splitting:** If a job is configured for both SFX creation (`CreateSFX = $true`) and volume splitting (a valid `SplitVolumeSize` is set), **volume splitting will take precedence**, and SFX creation will be automatically disabled for that job. A warning will be logged.
     *   **`DefaultSevenZipCpuAffinity` (Global Setting):**
         *   `DefaultSevenZipCpuAffinity` (string, default `""`): Optionally restrict 7-Zip to specific CPU cores.
             *   Examples: `"0,1"` (for cores 0 and 1), `"0x3"` (bitmask for cores 0 and 1).
@@ -223,6 +227,10 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 *   Examples: `"0,1"` (for cores 0 and 1), `"0x3"` (bitmask for cores 0 and 1).
                 *   An empty string or `$null` means no affinity is set (7-Zip uses all available cores).
                 *   User input is validated against available system cores and clamped if necessary.
+        *   **Job-specific Split Volume Settings (New):**
+            *   `SplitVolumeSize`: String (e.g., "100m", "4g"). Overrides `DefaultSplitVolumeSize`. An empty string or omitting the key uses the default (which might also be empty, meaning no split).
+                *   Example: `SplitVolumeSize = "2g"` # Splits into 2 Gigabyte volumes.
+                *   Remember the conflict with SFX: if this is set to a valid value, `CreateSFX` will be treated as `$false` for this job.
         *   **7-Zip Include/Exclude List Files (Job-Specific - New):**
             *   `SevenZipIncludeListFile` (string, default from global `DefaultSevenZipIncludeListFile`): Path to a text file for 7-Zip include patterns for this job.
             *   `SevenZipExcludeListFile` (string, default from global `DefaultSevenZipExcludeListFile`): Path to a text file for 7-Zip exclude patterns for this job.
@@ -244,6 +252,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 
                 CreateSFX                   = $true  # Create a self-extracting .exe
                 SFXModule                   = "GUI"  # Use the GUI SFX module (prompts for path)
+                SplitVolumeSize             = "100m" # Split into 100 MB volumes
                 ArchiveExtension            = ".7z"  # Internal archive type will be 7z, final file will be .exe
 
                 GenerateArchiveChecksum     = $true
@@ -388,6 +397,12 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
 *   **CLI Override for 7-Zip Exclude List File (New):** Run a job using a specific exclude list file:
     ```powershell
     .\PoSh-Backup.ps1 -BackupLocationName "MySensitiveDataJob" -SevenZipExcludeListFileCLI "C:\BackupConfig\GlobalExcludes.txt"
+
+*   **CLI Override for Splitting Archives (New):**
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "MyVeryLargeBackup" -SplitVolumeSizeCLI "10g"
+    ```
+    (This runs "MyVeryLargeBackup" and splits the archive into 10GB volumes, overriding any `SplitVolumeSize` or `CreateSFX` settings in the configuration for this job.)
     ```
 
 ### 5. Key Operational Command-Line Parameters
@@ -401,6 +416,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-SevenZipCpuAffinityCLI <AffinityString>`: Overrides any configured 7-Zip CPU core affinity. Examples: `"0,1"` or `"0x3"`.
 *   `-SevenZipIncludeListFileCLI <FilePath>` (New): Overrides any configured 7-Zip include list file with the specified file path.
 *   `-SevenZipExcludeListFileCLI <FilePath>` (New): Overrides any configured 7-Zip exclude list file with the specified file path.
+*   `-SplitVolumeSizeCLI <SizeString>` (New): Overrides archive splitting configuration (e.g., "100m", "4g"). An empty string (`""`) passed to this CLI parameter will disable splitting if it was enabled in the config. This will also override SFX creation if a valid split size is provided.
 *   `-LogRetentionCountCLI <Count>` (New): Overrides all configured log retention counts (global, job, set). Specifies the number of log files to keep per job name pattern. A value of `0` means infinite retention (keep all logs).
 *   `-PauseBehaviourCLI <Always|Never|OnFailure|OnWarning|OnFailureOrWarning>`: Controls if the script pauses with a "Press any key to continue" message before exiting. Overrides the `PauseBeforeExit` setting in the configuration file.
 *   `-PostRunActionCli <Action>`: Overrides all configured post-run actions.

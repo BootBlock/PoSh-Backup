@@ -4,7 +4,7 @@
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
-# Version: (Implicit) Updated 28-May-2025 (Added DependsOnJobs)
+# Version: (Implicit) Updated 29-May-2025 (Added SplitVolumeSize)
 
 @{
     # Top-level global settings
@@ -61,6 +61,7 @@
     DefaultArchiveDateFormat                  = @{ Type = 'string'; Required = $false }
     DefaultCreateSFX                          = @{ Type = 'boolean'; Required = $false } 
     DefaultSFXModule                          = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") }
+    DefaultSplitVolumeSize                    = @{ Type = 'string'; Required = $false; Pattern = '(^$)|(^\d+[kmg]$)' } # NEW
 
     DefaultGenerateArchiveChecksum            = @{ Type = 'boolean'; Required = $false }
     DefaultChecksumAlgorithm                  = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
@@ -123,7 +124,7 @@
                 DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false }
                 DeleteToRecycleBin                        = @{ Type = 'boolean'; Required = $false }
                 RetentionConfirmDelete                    = @{ Type = 'boolean'; Required = $false }
-                DependsOnJobs                             = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } } # NEW
+                DependsOnJobs                             = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } } 
                 ArchivePasswordMethod                     = @{ Type = 'string'; Required = $false; AllowedValues = @("NONE", "INTERACTIVE", "SECRETMANAGEMENT", "SECURESTRINGFILE", "PLAINTEXT") }
                 CredentialUserNameHint                    = @{ Type = 'string'; Required = $false }
                 ArchivePasswordSecretName                 = @{ Type = 'string'; Required = $false }
@@ -149,6 +150,7 @@
                 ArchiveExtension                          = @{ Type = 'string'; Required = $false }
                 CreateSFX                                 = @{ Type = 'boolean'; Required = $false } 
                 SFXModule                                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") }
+                SplitVolumeSize                           = @{ Type = 'string'; Required = $false; Pattern = '(^$)|(^\d+[kmg]$)' } # NEW
                 ArchiveDateFormat                         = @{ Type = 'string'; Required = $false }
                 ThreadsToUse                              = @{ Type = 'int'; Required = $false; Min = 0 }
                 CompressionLevel                          = @{ Type = 'string'; Required = $false }

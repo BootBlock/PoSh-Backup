@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.4.5: Added job-level DependsOnJobs setting.
+# Version 1.4.6: Added DefaultSplitVolumeSize and job-level SplitVolumeSize settings.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -188,6 +188,9 @@
                                                                       # "Console": (Default) Uses 7-Zip's default console SFX module (e.g., 7zCon.sfx). Extracts to current dir without prompt.
                                                                       # "GUI": Uses 7-Zip's standard GUI SFX module (e.g., 7zS.sfx). Prompts user for extraction path.
                                                                       # "Installer": Uses 7-Zip's installer-like GUI SFX module (e.g., 7zSD.sfx). Prompts user for extraction path.
+    DefaultSplitVolumeSize          = "2m"                              # NEW: Global default for splitting archives. Empty means no split.
+                                                                      # Examples: "100m" (100 Megabytes), "4g" (4 Gigabytes), "700k" (700 Kilobytes).
+                                                                      # Use 'k', 'm', 'g'. Case might matter for 7-Zip; schema will enforce lowercase.
     #endregion
 
     #region --- Checksum Settings (Global Defaults) ---
@@ -354,7 +357,7 @@
             DeleteToRecycleBin      = $false                          # For local retention in 'DestinationDir'.
             RetentionConfirmDelete  = $false                          # Job-specific override for local retention: auto-delete old local archives without prompting.
 
-            DependsOnJobs           = @()                             # NEW: Array of job names this job depends on. E.g., @("DatabaseBackupJob")
+            DependsOnJobs           = @()                             # Array of job names this job depends on. E.g., @("DatabaseBackupJob")
 
             ArchivePasswordMethod   = "None"                          # Password method: "None", "Interactive", "SecretManagement", "SecureStringFile", "PlainText". See instructions at top.
             # CredentialUserNameHint  = "ProjectBackupUser"           # For "Interactive" method.
@@ -376,6 +379,7 @@
             CreateSFX               = $false                          # Job-specific. $true to create a Self-Extracting Archive (.exe).
             SFXModule               = "Console"                       # Job-specific SFX module type. "Console", "GUI", "Installer".
                                                                       # If CreateSFX is $true, ArchiveExtension effectively becomes ".exe".
+            SplitVolumeSize         = ""                              # NEW: Job-specific volume size (e.g., "100m", "4g"). Empty for no split.
 
             GenerateArchiveChecksum     = $true                       # Example: Enable checksum generation for this job
             ChecksumAlgorithm           = "SHA256"                    # Use SHA256
@@ -403,7 +407,7 @@
             DeleteToRecycleBin         = $true                        # Note: Ensure this is appropriate if 'DestinationDir' is a network share (less common for staging).
             RetentionConfirmDelete     = $false                       # Example: This job will auto-delete old local archives without prompting.
 
-            DependsOnJobs              = @()                          # NEW
+            DependsOnJobs              = @()
 
             ArchivePasswordMethod      = "Interactive"                # Example: Prompts for password for this job.
             CredentialUserNameHint     = "DocsUser"
@@ -413,6 +417,7 @@
                                                                       # If CreateSFX is true, this will be overridden to ".exe" for the final file.
             CreateSFX                  = $false                       # Example, not creating SFX here.
             SFXModule                  = "Console"                    # Default if CreateSFX is false, but good to show.
+            SplitVolumeSize            = "700m"                       # NEW EXAMPLE: Split into 700MB volumes.
             ArchiveDateFormat          = "dd-MM-yyyy"                 # Custom date format for this job's archives. Overrides DefaultArchiveDateFormat.
             MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for local staging. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
@@ -439,7 +444,7 @@
             LocalRetentionCount        = 2
             LogRetentionCount          = 0                            # Example: Keep all log files for this job (infinite retention).
 
-            DependsOnJobs              = @()                          # NEW
+            DependsOnJobs              = @()
 
             ArchivePasswordMethod      = "None"
             EnableVSS                  = $true
@@ -448,6 +453,7 @@
             SFXModule                  = "GUI"                        # Use GUI SFX module to prompt for extraction path.
                                                                       # ArchiveExtension will effectively be ".exe" for the output file.
                                                                       # DefaultArchiveType (e.g., -t7z) will determine the internal SFX content.
+            SplitVolumeSize            = ""                           # NEW: No split for this SFX job.
 
             GenerateArchiveChecksum     = $true
             ChecksumAlgorithm           = "MD5"
@@ -469,7 +475,7 @@
             LocalRetentionCount     = 1
             # LogRetentionCount will use DefaultLogRetentionCount
 
-            DependsOnJobs           = @()                             # NEW
+            DependsOnJobs           = @()
 
             ArchivePasswordMethod   = "SecretManagement"
             ArchivePasswordSecretName = "MyArchiveEncryptionPassword"
@@ -479,6 +485,7 @@
 
             CreateSFX               = $false
             SFXModule               = "Console"
+            SplitVolumeSize         = "1g"                            # NEW EXAMPLE: Split into 1GB volumes.
 
             GenerateArchiveChecksum     = $true
             ChecksumAlgorithm           = "SHA512"
@@ -525,6 +532,7 @@
             ArchiveExtension        = ".7z"
             CreateSFX               = $true                           # Example: Create SFX
             SFXModule               = "Installer"                     # Example: Use Installer SFX
+            SplitVolumeSize         = ""                              # NEW: No split if SFX is primary goal.
             ArchiveDateFormat       = "yyyy-MM-dd_HHmm"
 
             ThreadsToUse            = 2
@@ -586,6 +594,7 @@
             DestinationDir          = "\\BACKUPSERVER\Share\DBs\LocalStage_DB"
             LocalRetentionCount     = 3
             DependsOnJobs           = @() # No dependencies for this one
+            SplitVolumeSize         = ""  # NEW
             # ... other settings ...
         }
         #>

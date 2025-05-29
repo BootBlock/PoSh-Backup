@@ -31,7 +31,7 @@
   )
 
   conversation_summary            = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.14.0).", # Updated version
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.14.1).", # Updated version
     "Modular design: Core (Modules\\Core\\), Managers (Modules\\Managers\\), Utilities (Modules\\Utilities\\), Operations (Modules\\Operations\\), ConfigManagement (Modules\\ConfigManagement\\), Reporting (Modules\\Reporting\\), Targets (Modules\\Targets\\).",
     "AI State structure loaded from 'Meta\\AIState.template.psd1', dynamically populated by Bundler (v__BUNDLER_VERSION_PLACEHOLDER__).",
     "--- CURRENT FOCUS & RECENTLY COMPLETED (Current Session Segment) ---",
@@ -66,6 +66,18 @@
     "    - `Modules\\Managers\\7ZipManager.psm1` (v1.1.0 -> v1.1.1): Removed unused `TempPassFile` parameter from `Get-PoShBackup7ZipArgument`.",
     "    - `Modules\\Managers\\JobDependencyManager.psm1` (v0.3.3 -> v0.3.5): Renamed `Test-JobDependencies` to `Test-PoShBackupJobDependencyGraph`; added logging to satisfy PSSA for Logger parameters.",
     "    - `Modules\\PoShBackupValidator.psm1` (v1.6.4 -> v1.6.5): Updated to call renamed `Test-PoShBackupJobDependencyGraph`.",
+    "  - Feature: Multi-Volume (Split) Archives (7-Zip):",
+    "    - Goal: Allow creation of backup archives split into multiple volumes.",
+    "    - `Config\\Default.psd1` (v1.4.5 -> v1.4.6): Added global `DefaultSplitVolumeSize` and job-level `SplitVolumeSize` (string, e.g., '100m', '4g').",
+    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for `SplitVolumeSize` with pattern validation `(^$)|(^\\d+[kmg]$)`.",
+    "    - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.8 -> v1.0.9): Resolves `SplitVolumeSize`. If active, it overrides `CreateSFX` (sets to `$false`) and logs a warning. Adds `SplitVolumeSize` to report data.",
+    "    - `Modules\\Managers\\7ZipManager.psm1` (v1.1.1 -> v1.1.2): `Get-PoShBackup7ZipArgument` now adds the `-v{size}` switch if a valid `SplitVolumeSize` is in effective config.",
+    "    - `Modules\\Core\\Operations.psm1` (v1.21.2 -> v1.21.3): Passes the correct archive extension (internal base extension if splitting, otherwise job archive extension) to `Invoke-BackupRetentionPolicy`.",
+    "    - `Modules\\Managers\\RetentionManager.psm1` (v1.0.9 -> v1.1.0): Refactored `Invoke-BackupRetentionPolicy` to correctly identify and manage multi-volume archive sets as single entities for retention counting and deletion.",
+    "    - Reporting modules (`ReportingCsv.psm1`, `ReportingJson.psm1`, `ReportingXml.psm1`, `ReportingTxt.psm1`, `ReportingMd.psm1`, `ReportingHtml.psm1`) updated to reflect `SplitVolumeSize` in summaries/outputs.",
+    "    - `PoSh-Backup.ps1` (v1.14.0 -> v1.14.1): Added `-SplitVolumeSizeCLI` parameter and integrated it into CLI override logic and logging.",
+    "    - `Modules\\PoShBackupValidator.psm1` (v1.6.5 -> v1.6.6): Corrected typo in `Test-PoShBackupJobDependencyGraph` call. Schema-driven validation implicitly handles `SplitVolumeSize` via updated `ConfigSchema.psd1`.",
+    "    - `README.md`: Updated with feature details, configuration, SFX interaction, and CLI override.",
     "--- PREVIOUS SESSION SEGMENTS (Highlights, from user baseline) ---",
     "  - Feature: Granular Include/Exclude Lists from Files (7-Zip):",
     "    - `Config\\Default.psd1` (v1.4.3 -> v1.4.4): Added global, job, and set-level list file settings.",
@@ -85,10 +97,10 @@
     "--- STABLE COMPLETED FEATURES (Brief Overview, from user baseline) ---",
     "  - SFX Archives, Core Refactoring (JobOrchestrator, Utils facade, etc.), Archive Checksums, Post-Run System Actions, Backup Target Providers (UNC, Replicate, SFTP).",
     "--- PROJECT STATUS ---", 
-    "Overall: Core local/remote backup stable. Extensive refactoring complete. Log retention, CPU affinity, SFX, checksums, post-run actions, 7-Zip include/exclude list files, and job dependency/chaining features are implemented. Pester testing for utilities in progress. Logging function (`Write-LogMessage`) now managed by `LogManager.psm1`."
+    "Overall: Core local/remote backup stable. Extensive refactoring complete. Log retention, CPU affinity, SFX, checksums, post-run actions, 7-Zip include/exclude list files, job dependency/chaining, and multi-volume (split) archives features are implemented. Pester testing for utilities in progress. Logging function (`Write-LogMessage`) now managed by `LogManager.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.14.0" # Reflects Job Chaining/Dependency feature
+  main_script_poSh_backup_version = "1.14.1" # Reflects -SplitVolumeSizeCLI parameter
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

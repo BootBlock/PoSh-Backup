@@ -31,9 +31,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.6.5 # Fixing dumb Gemini screw-ups
+    Version:        1.6.6 # Corrected typo in JobDependencyManager function call.
     DateCreated:    14-May-2025
-    LastModified:   28-May-2025
+    LastModified:   29-May-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Schema file 'ConfigSchema.psd1' must exist in 'Modules\ConfigManagement\Assets\'.
@@ -283,7 +283,7 @@ function Invoke-PoShBackupConfigValidation {
         if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
             $dependencyParams.Logger = $Logger
         }
-        Test-JoTest-PoShBackupJobDependencyGraphbDependencies @dependencyParams
+        Test-PoShBackupJobDependencyGraph @dependencyParams
     } elseif (-not (Get-Command Test-PoShBackupJobDependencyGraph -ErrorAction SilentlyContinue)) {
         & $LocalWriteLog -Message "PoShBackupValidator: JobDependencyManager module or Test-PoShBackupJobDependencyGraph function not available. Skipping job dependency validation." -Level "WARNING"
     }
@@ -301,7 +301,6 @@ function Invoke-PoShBackupConfigValidation {
              $ValidationMessagesListRef.Value.Add("CRITICAL (PoShBackupValidator): '_PoShBackup_PSScriptRoot' path ('$mainScriptPSScriptRoot') does not exist or is not a directory. Cannot resolve paths for target provider modules. Target-specific validation skipped.")
             return
         }
-
 
         foreach ($targetName in $ConfigurationToValidate.BackupTargets.Keys) {
             $targetInstance = $ConfigurationToValidate.BackupTargets[$targetName]

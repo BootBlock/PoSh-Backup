@@ -7,6 +7,7 @@
     local retention and final hook script execution. This module now resides in 'Modules\Core\'.
     It also incorporates logic to skip remote transfers if local archive verification fails
     and the 'VerifyLocalArchiveBeforeTransfer' option is enabled.
+    Archive naming for retention of multi-volume archives is now handled correctly.
 
 .DESCRIPTION
     The Operations module encapsulates the entire lifecycle of processing a single, defined backup job.
@@ -30,7 +31,8 @@
         e.  Optionally test local archive integrity and verify checksum.
     4.  Checks if local archive verification (if 'VerifyLocalArchiveBeforeTransfer' is enabled) passed.
         If not, remote transfers are skipped.
-    5.  Applies local retention policy (via RetentionManager.psm1).
+    5.  Applies local retention policy (via RetentionManager.psm1), now correctly identifying
+        single archives or multi-volume archive sets.
     6.  If local operations were successful and remote targets are defined (and not skipped),
         calls 'Invoke-RemoteTargetTransferOrchestration' (from Modules\Operations\RemoteTransferOrchestrator.psm1).
     7.  Cleans up VSS shadow copies (via VssManager.psm1, called from finally block or by JobPreProcessor on its own error).
@@ -39,9 +41,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.21.2 # God I hate Gemini sometimes (gets rid of temp password file - which isn't even a thing!)
+    Version:        1.21.3 # Adjusted retention call for multi-volume archive extensions.
     DateCreated:    10-May-2025
-    LastModified:   28-May-2025
+    LastModified:   29-May-2025
     Purpose:        Handles the execution logic for individual backup jobs.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules and target provider modules.
@@ -165,6 +167,7 @@ function Invoke-PoShBackupJob {
             & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod) (Source: $($reportData.PasswordSource))"
             & $LocalWriteLog -Message "   - Treat 7-Zip Warnings as Success: $($effectiveJobConfig.TreatSevenZipWarningsAsSuccess)"
             & $LocalWriteLog -Message "   - 7-Zip CPU Affinity     : $(if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.JobSevenZipCpuAffinity)) {'Not Set (Uses 7-Zip Default)'} else {$effectiveJobConfig.JobSevenZipCpuAffinity})"
+            & $LocalWriteLog -Message "   - Split Volume Size      : $(if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.SplitVolumeSize)) {'Not Set (Single Volume)'} else {$effectiveJobConfig.SplitVolumeSize})"
             & $LocalWriteLog -Message "   - Verify Local Archive Before Transfer: $($effectiveJobConfig.VerifyLocalArchiveBeforeTransfer)"
             & $LocalWriteLog -Message "   - Local Retention Deletion Confirmation: $($effectiveJobConfig.RetentionConfirmDelete)"
             & $LocalWriteLog -Message "   - Generate Archive Checksum: $($effectiveJobConfig.GenerateArchiveChecksum)"
@@ -210,11 +213,19 @@ function Invoke-PoShBackupJob {
                 try { Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop; $vbLoaded = $true }
                 catch { & $LocalWriteLog -Message "[WARNING] Failed to load Microsoft.VisualBasic assembly for Recycle Bin functionality. Will use permanent deletion for local retention. Error: $($_.Exception.Message)" -Level WARNING }
             }
+            # Determine the correct extension to pass for retention, especially for split archives
+            $extensionForRetention = $effectiveJobConfig.JobArchiveExtension # Default to the final output extension
+            if (-not [string]::IsNullOrWhiteSpace($effectiveJobConfig.SplitVolumeSize)) {
+                # If splitting, retention manager needs the internal extension (e.g., .7z) to find all parts (e.g., archive.7z.001)
+                $extensionForRetention = $effectiveJobConfig.InternalArchiveExtension
+                & $LocalWriteLog -Message "  - Operations: Using internal extension '$extensionForRetention' for retention policy due to active volume splitting." -Level DEBUG
+            }
             $retentionPolicyParams = @{
                 DestinationDirectory = $effectiveJobConfig.DestinationDir; ArchiveBaseFileName = $effectiveJobConfig.BaseFileName
-                ArchiveExtension = $effectiveJobConfig.JobArchiveExtension; RetentionCountToKeep = $effectiveJobConfig.LocalRetentionCount
+                ArchiveExtension = $extensionForRetention; RetentionCountToKeep = $effectiveJobConfig.LocalRetentionCount 
                 RetentionConfirmDeleteFromConfig = $effectiveJobConfig.RetentionConfirmDelete; SendToRecycleBin = $effectiveJobConfig.DeleteToRecycleBin
                 VBAssemblyLoaded = $vbLoaded; IsSimulateMode = $IsSimulateMode.IsPresent; Logger = $Logger
+                PSCmdlet = $PSCmdlet
             }
             if (-not $effectiveJobConfig.RetentionConfirmDelete) { $retentionPolicyParams.Confirm = $false }
             if ($PSCmdlet.ShouldProcess("Local Retention Policy for job '$JobName'", "Apply")) {

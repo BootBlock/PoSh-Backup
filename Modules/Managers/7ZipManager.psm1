@@ -6,7 +6,7 @@
     executing 7-Zip operations (archiving, testing), and handling retries.
     Now supports creating Self-Extracting Archives (SFX) with selectable module types,
     setting CPU affinity for the 7-Zip process (including validation against system cores),
-    and using external list files for include/exclude patterns.
+    using external list files for include/exclude patterns, and creating multi-volume (split) archives.
 
 .DESCRIPTION
     The 7ZipManager module centralises 7-Zip specific logic, making the main backup script
@@ -14,9 +14,10 @@
     It provides functions to:
     - Auto-detect the 7z.exe path.
     - Build the complex argument list required for 7-Zip commands based on configuration,
-      including the '-sfx' switch (with optional module specification like '7zS.sfx' or '7zSD.sfx')
-      if creating a self-extracting archive, and now also '-i@listfile.txt' and '-x@listfile.txt'
-      if include/exclude list files are specified and exist.
+    including the '-sfx' switch (with optional module specification like '7zS.sfx' or '7zSD.sfx')
+    if creating a self-extracting archive, '-i@listfile.txt' and '-x@listfile.txt'
+    if include/exclude list files are specified and exist, and the '-v{size}' switch for creating
+    multi-volume archives.
     - Execute 7-Zip for creating archives, supporting features like process priority, CPU affinity (with validation and clamping), and retries.
     - Execute 7-Zip for testing archive integrity, also with retry and CPU affinity support.
 
@@ -26,9 +27,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.1    # Gemini sucks, obv
+    Version:        1.1.2 # Added -v{size} switch logic for multi-volume archives.
     DateCreated:    17-May-2025
-    LastModified:   28-May-2025
+    LastModified:   29-May-2025
     Purpose:        Centralised 7-Zip interaction logic for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     7-Zip (7z.exe) must be installed.
@@ -149,7 +150,7 @@ function Get-PoShBackup7ZipArgument {
         System.Array
         An array of strings, where each string is an argument or switch for 7z.exe.
     .EXAMPLE
-        # $args = Get-PoShBackup7ZipArgument -EffectiveConfig $jobSettings -FinalArchivePath "D:\Backup.exe" -CurrentJobSourcePathFor7Zip "C:\Data" -Logger ${function:Write-LogMessage}
+        # $args = Get-PoShBackup7ZipArgument -EffectiveConfig $jobSettings -FinalArchivePath "D:\Backup.7z.001" -CurrentJobSourcePathFor7Zip "C:\Data" -Logger ${function:Write-LogMessage}
         # & "7z.exe" $args
     #>
     param(
@@ -203,6 +204,22 @@ function Get-PoShBackup7ZipArgument {
         $sevenZipArgs.Add($sfxModuleSwitch)
         & $LocalWriteLog -Message "  - Get-PoShBackup7ZipArgument: Added SFX switch '$sfxModuleSwitch' (SFXModule type: '$($EffectiveConfig.SFXModule)')." -Level "DEBUG"
     }
+
+    # --- Split Volume Handling ---
+    if ($EffectiveConfig.ContainsKey('SplitVolumeSize') -and -not [string]::IsNullOrWhiteSpace($EffectiveConfig.SplitVolumeSize)) {
+        $volumeSize = $EffectiveConfig.SplitVolumeSize
+        # Schema validation ensures format is ^\d+[kmg]$ or empty.
+        # EffectiveConfigBuilder also logs a warning if it's invalid and clears it.
+        # So, if we have a non-empty value here, it should be valid.
+        if ($volumeSize -match "^\d+[kmg]$") {
+            $sevenZipArgs.Add(("-v" + $volumeSize))
+            & $LocalWriteLog -Message "  - Get-PoShBackup7ZipArgument: Added multi-volume switch '-v$volumeSize'." -Level "DEBUG"
+        }
+        # No need for an else here as EffectiveConfigBuilder would have cleared an invalid value 
+        # if it was initially present but malformed and schema validation didn't catch a pattern mismatch.
+        # EffectiveConfigBuilder also logs if it overrides an invalid format.
+    }
+    # --- End Split Volume Handling ---
 
     # Add default global exclusions (Recycle Bin, System Volume Information)
     # Get-ConfigValue is now available due to Import-Module Utils.psm1 at the top of this module.

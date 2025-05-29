@@ -83,10 +83,10 @@ function Get-BundlerAIState {
     if (-not $aiState.ContainsKey('external_dependencies')) { $aiState.external_dependencies = @{} }
     $aiState.external_dependencies.powershell_modules = $psModulesForState
 
-    $thisModuleVersion = "1.1.15" # Updated Pester findings.
+    $thisModuleVersion = "1.1.16" # Updated for Multi-Volume (Split) Archives feature summary.
     
     $currentConversationSummary = @(
-        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).", # PoSh-Backup version will be 1.13.0
+        "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).",
         "Modular design: Core modules (now including Modules\\Core\\), Reporting sub-modules (including Modules\\Reporting\\Assets), ConfigManagement sub-modules (including Modules\\ConfigManagement\\Assets), Utilities sub-modules (Modules\\Utilities\\), Config files, and Meta/ (bundler).",
         "AI State structure is loaded from 'Meta\\AIState.template.psd1' and dynamically populated by Bundle.StateAndAssembly.psm1 (v$($thisModuleVersion)).",
         "--- Feature: CPU Affinity/Core Limiting for 7-Zip (Completed in Previous Session Segment) ---",
@@ -122,6 +122,18 @@ function Get-BundlerAIState {
         "    - **Current Status:** All 12 tests for `FileUtils.Tests.ps1` are now passing with these strategies.",
         "  - Key Pester 5.7.1 findings for this environment (added to AI Watch List): Emphasized the 'local function copy' workaround (Pattern B) and the direct import pattern (Pattern A). Detailed successful mocking and data scoping strategies.",
         "  - Next Steps: Re-create `SystemUtils.Tests.ps1` using these established patterns.",
+        "--- Feature: Multi-Volume (Split) Archives (7-Zip) (Current Session Segment) ---",
+        "  - Goal: Allow creation of backup archives split into multiple volumes.",
+        "  - `Config\\Default.psd1` (v1.4.5 -> v1.4.6): Added global `DefaultSplitVolumeSize` and job-level `SplitVolumeSize` (string, e.g., '100m', '4g').",
+        "  - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated for `SplitVolumeSize` with pattern validation `(^$)|(^\\d+[kmg]$)`.",
+        "  - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` (v1.0.8 -> v1.0.9): Resolves `SplitVolumeSize`. If active, it overrides `CreateSFX` (sets to `$false`) and logs a warning. Adds `SplitVolumeSize` to report data.",
+        "  - `Modules\\Managers\\7ZipManager.psm1` (v1.1.1 -> v1.1.2): `Get-PoShBackup7ZipArgument` now adds the `-v{size}` switch if a valid `SplitVolumeSize` is in effective config.",
+        "  - `Modules\\Core\\Operations.psm1` (v1.21.2 -> v1.21.3): Passes the correct archive extension (internal base extension if splitting, otherwise job archive extension) to `Invoke-BackupRetentionPolicy`.",
+        "  - `Modules\\Managers\\RetentionManager.psm1` (v1.0.9 -> v1.1.0): Refactored `Invoke-BackupRetentionPolicy` to correctly identify and manage multi-volume archive sets as single entities for retention counting and deletion.",
+        "  - Reporting modules (`ReportingCsv.psm1` v1.2.2->v1.2.3, `ReportingJson.psm1` v1.1.4->v1.1.5, `ReportingXml.psm1` v1.2.2->v1.2.3, `ReportingTxt.psm1` v1.2.2->v1.2.3, `ReportingMd.psm1` v1.3.2->v1.3.3, `ReportingHtml.psm1` v1.9.10->v1.9.11) updated to reflect `SplitVolumeSize` in summaries/outputs.",
+        "  - `PoSh-Backup.ps1` (v1.14.0 -> v1.14.1): Added `-SplitVolumeSizeCLI` parameter and integrated it into CLI override logic and logging.",
+        "  - `Modules\\PoShBackupValidator.psm1` (v1.6.5 -> v1.6.6): Corrected typo in `Test-PoShBackupJobDependencyGraph` call. Schema-driven validation implicitly handles `SplitVolumeSize` via updated `ConfigSchema.psd1`.",
+        "  - `README.md`: Updated with feature details, configuration, SFX interaction, and CLI override.",
         "--- Feature: Self-Extracting Archives (SFX) (Completed in a Previous Session Segment) ---",
         "  - Goal: Option to create self-extracting archives (.exe) for easier restoration, with user-selectable SFX module type.",
         "  - Stage 1 (Basic SFX):",
@@ -220,7 +232,7 @@ function Get-BundlerAIState {
         "--- Previous Work (Selected Highlights) ---",
         "Network Share Handling Improvements, Retention Policy Confirmation, HTML Report Enhancements, PSSA compliance.",
         "Bundler Script (Generate-ProjectBundleForAI.ps1 v$($BundlerScriptVersion)) is stable.",
-        "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums, SFX (with module choice) features added. Extensive refactorings completed (ConfigManager, Operations, PoSh-Backup.ps1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP ConvertTo-SecureString items. Pester tests non-functional."
+        "Overall project status: Core local backup stable. Remote targets, Post-Run Actions, Checksums, SFX (with module choice), and multi-volume (split) archives features added. Extensive refactorings completed (ConfigManager, Operations, PoSh-Backup.ps1, ReportingHtml.psm1, PoShBackupValidator.psm1, Utils.psm1). PSSA summary expected to be clean except for known SFTP ConvertTo-SecureString items. Pester tests non-functional."
     )
 
     $aiState.conversation_summary = $currentConversationSummary

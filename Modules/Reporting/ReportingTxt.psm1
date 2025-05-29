@@ -2,9 +2,9 @@
 .SYNOPSIS
     Generates plain text (.txt) summary reports for PoSh-Backup jobs.
     These reports provide a simple, human-readable overview of the backup operation,
-    including summary details (now with checksum information), configuration settings used,
-    hook script actions, details of remote target transfers (if any), and a chronological
-    list of log entries.
+    including summary details (now with checksum information and split volume size if applicable),
+    configuration settings used, hook script actions, details of remote target transfers (if any),
+    and a chronological list of log entries.
 
 .DESCRIPTION
     This module produces a straightforward plain text report, formatted for easy reading
@@ -25,10 +25,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.2 # Added Checksum information to Summary section.
+    Version:        1.2.3 # Added SplitVolumeSize to Summary section.
     DateCreated:    14-May-2025
-    LastModified:   24-May-2025
-    Purpose:        Plain text summary report generation sub-module for PoSh-Backup.
+    LastModified:   29-May-2025
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
 #>
@@ -41,9 +40,9 @@ function Invoke-TxtReport {
     .DESCRIPTION
         This function takes the consolidated report data for a backup job and formats it
         into a human-readable plain text file. The report includes a summary of the job
-        (including checksum details if available), the configuration that was used, details
-        of any hook scripts executed, details of any remote target transfers, and the full
-        sequence of log messages. The output file is named using the job name and a timestamp.
+        (including checksum details and split volume size if applicable), the configuration
+        that was used, details of any hook scripts executed, details of any remote target
+        transfers, and the full sequence of log messages.
     .PARAMETER ReportDirectory
         The target directory where the generated .txt report file for this job will be saved.
         This path is typically resolved by the main Reporting.psm1 orchestrator.

@@ -8,7 +8,8 @@
     archive checksum generation and verification, optional Self-Extracting Archive (SFX) creation,
     optional 7-Zip CPU core affinity (with CLI override), optional verification of local
     archives before remote transfer, configurable log file retention, support for
-    7-Zip include/exclude list files, and backup job chaining/dependencies.
+    7-Zip include/exclude list files, backup job chaining/dependencies, and multi-volume
+    (split) archive creation (with CLI override).
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -46,6 +47,8 @@
     - Backup Job Chaining / Dependencies (New): Define job dependencies so that a job only runs
       after its prerequisite jobs have completed successfully (considering 'TreatSevenZipWarningsAsSuccess').
       Circular dependencies are detected.
+    - Multi-Volume (Split) Archives (New): Optionally split large archives into smaller volumes
+      (e.g., "100m", "4g"), configurable per job or via CLI. This will override SFX creation if both are set.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -143,10 +146,15 @@
     include/exclude list files defined in the configuration for this job or globally. If "MyDocs_To_UNC"
     has dependencies, they will run first.
 
+.EXAMPLE
+    .\PoSh-Backup.ps1 -BackupLocationName "MyLargeBackup" -SplitVolumeSizeCLI "4g"
+    Runs the "MyLargeBackup" job and splits the archive into 4GB volumes, overriding any
+    SplitVolumeSize or SFX settings in the configuration for this job.
+
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.14.0 # Added Job Chaining/Dependency feature. Debug lines removed.
-    Date:           28-May-2025
+    Version:        1.14.1 # Added -SplitVolumeSizeCLI parameter.
+    Date:           29-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -212,6 +220,10 @@ param (
     })]
     [string]$SevenZipExcludeListFileCLI,
 
+    [Parameter(Mandatory=$false, HelpMessage="CLI Override: Size for splitting archives (e.g., '100m', '4g'). Overrides config. Empty string disables splitting via CLI.")]
+    [ValidatePattern('(^$)|(^\d+[kmg]$)')] # Allow empty string or digits followed by k, m, or g
+    [string]$SplitVolumeSizeCLI,
+
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Number of log files to keep per job name pattern. 0 for infinite. Overrides all config.")]
     [ValidateRange(0, [int]::MaxValue)]
     [int]$LogRetentionCountCLI,
@@ -263,6 +275,7 @@ $cliOverrideSettings = @{
     SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null }
     SevenZipIncludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $SevenZipIncludeListFileCLI } else { $null } 
     SevenZipExcludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $SevenZipExcludeListFileCLI } else { $null } 
+    SplitVolumeSizeCLI                 = if ($PSBoundParameters.ContainsKey('SplitVolumeSizeCLI')) { $SplitVolumeSizeCLI } else { $null }
     LogRetentionCountCLI               = if ($PSBoundParameters.ContainsKey('LogRetentionCountCLI')) { $LogRetentionCountCLI } else { $null }
     PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
     PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
@@ -362,6 +375,7 @@ if ($cliOverrideSettings.SevenZipCpuAffinity) { & $LoggerScriptBlock -Message " 
 if ($cliOverrideSettings.SevenZipIncludeListFile) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip Include List File specified: $($cliOverrideSettings.SevenZipIncludeListFile) ***** " -Level "INFO" } 
 if ($cliOverrideSettings.SevenZipExcludeListFile) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip Exclude List File specified: $($cliOverrideSettings.SevenZipExcludeListFile) ***** " -Level "INFO" } 
 if ($cliOverrideSettings.VerifyLocalArchiveBeforeTransferCLI -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Verify Local Archive Before Transfer ENABLED. ***** " -Level "INFO" }
+if ($null -ne $cliOverrideSettings.SplitVolumeSizeCLI) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Split Volume Size specified: '$($cliOverrideSettings.SplitVolumeSizeCLI)' ***** " -Level "INFO" }
 if ($null -ne $cliOverrideSettings.LogRetentionCountCLI) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Log Retention Count specified: $($cliOverrideSettings.LogRetentionCountCLI) ***** " -Level "INFO" }
 if ($cliOverrideSettings.PostRunActionCli) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Post-Run Action specified: $($cliOverrideSettings.PostRunActionCli) ***** " -Level "INFO" }
 & $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"

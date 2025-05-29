@@ -1,20 +1,25 @@
+# Modules\Managers\RetentionManager.psm1
 <#
 .SYNOPSIS
     Manages backup archive retention policies for PoSh-Backup.
     This includes finding old archives based on naming patterns and a retention count,
     and deleting them, with an option to send to the Recycle Bin.
+    Now correctly handles multi-volume (split) archives as single entities for retention.
 
 .DESCRIPTION
     The RetentionManager module centralizes the logic for applying retention policies
     to backup archives created by PoSh-Backup. It identifies and removes older backup
-    files to ensure that only a specified number of recent archives are kept, helping
+    files/sets to ensure that only a specified number of recent archives are kept, helping
     to manage storage space.
 
     The primary function, Invoke-BackupRetentionPolicy, handles:
-    - Finding existing backup archives in a destination directory that match a base filename
-      and extension.
-    - Sorting these archives by creation time.
-    - Deleting the oldest archives that exceed the configured retention count.
+    - Finding existing backup archives in a destination directory. It now intelligently
+      groups multi-volume split archives (e.g., archive.7z.001, .002, etc.) and treats
+      them as a single backup instance.
+    - Sorting these backup instances by creation time (using the timestamp of the first
+      volume for split archives).
+    - Deleting the oldest backup instances that exceed the configured retention count.
+      If a multi-volume instance is deleted, all its constituent volume files are removed.
     - Optionally sending deleted archives to the Recycle Bin (requires Microsoft.VisualBasic assembly).
     - Allowing configuration-driven confirmation for deletions by controlling item-level cmdlets.
 
@@ -24,9 +29,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.9
+    Version:        1.1.0 # Modified to correctly handle multi-volume (split) archives for retention.
     DateCreated:    17-May-2025
-    LastModified:   19-May-2025
+    LastModified:   29-May-2025
     Purpose:        Centralised backup retention policy management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Core PoSh-Backup module Utils.psm1 (for Write-LogMessage)
@@ -87,51 +92,48 @@ function Invoke-VisualBasicFileOperation {
 
 #region --- Exported Backup Retention Policy Function ---
 function Invoke-BackupRetentionPolicy {
-    [CmdletBinding(SupportsShouldProcess=$true)] # ConfirmImpact='High' REMOVED
+    [CmdletBinding(SupportsShouldProcess=$true)] 
     <#
     .SYNOPSIS
-        Applies the backup retention policy by finding and deleting older backup archives.
+        Applies the backup retention policy by finding and deleting older backup archives/sets.
     .DESCRIPTION
-        This function identifies existing backup archives in a specified directory that match
-        a given base filename and extension. It then sorts these archives by creation time
-        and deletes the oldest ones, ensuring that no more than the configured retention
-        count remains (plus the one currently being created).
+        This function identifies existing backup archives in a specified directory. It now correctly
+        handles single-file archives and multi-volume (split) archives, treating each logical backup
+        (whether single or multi-volume) as one "instance" for retention counting.
+        It sorts these instances by creation time (using the first volume's time for split sets)
+        and deletes the oldest instances that exceed the configured retention count.
+        When a multi-volume instance is deleted, all its associated volume files are removed.
         It can optionally send files to the Recycle Bin and allows deletion confirmation
-        to be controlled via configuration by setting the -Confirm parameter on item-level cmdlets.
+        to be controlled via configuration.
     .PARAMETER DestinationDirectory
         The directory where the backup archives are stored.
     .PARAMETER ArchiveBaseFileName
-        The base name of the archive files (without date stamp or extension).
+        The base name of the archive files (e.g., "JobName [DateStamp]").
     .PARAMETER ArchiveExtension
-        The file extension of the archives (e.g., ".7z", ".zip").
+        The primary file extension of the archives (e.g., ".7z", ".zip", or ".exe" if SFX and not split).
+        For split archives, this is the extension *before* the volume number (e.g., ".7z" for "archive.7z.001").
     .PARAMETER RetentionCountToKeep
-        The total number of archive versions to keep. For example, if set to 5, after the
-        current backup, there should be 5 archives; older ones are deleted.
-        A value of 0 or less means unlimited retention by count for this pattern.
+        The total number of archive instances (single files or multi-volume sets) to keep.
+        A value of 0 or less means unlimited retention.
     .PARAMETER RetentionConfirmDeleteFromConfig
-        A boolean value from the effective job configuration. If $true, item-level cmdlets (Remove-Item)
-        will respect PowerShell's $ConfirmPreference for their own prompting. If $false, item-level 
-        cmdlets will be invoked with their confirmation suppressed (e.g., Remove-Item -Confirm:$false).
+        A boolean value from the effective job configuration. Controls item-level cmdlet confirmation.
     .PARAMETER SendToRecycleBin
-        If $true, attempts to send deleted archives to the Recycle Bin. Otherwise, performs
-        a permanent deletion.
+        If $true, attempts to send deleted archives to the Recycle Bin.
     .PARAMETER VBAssemblyLoaded
-        A boolean indicating if the Microsoft.VisualBasic assembly (required for Recycle Bin)
-        has been successfully loaded by the calling script. If $false and $SendToRecycleBin is $true,
-        this function will fall back to permanent deletion.
+        A boolean indicating if the Microsoft.VisualBasic assembly is loaded.
     .PARAMETER IsSimulateMode
-        If $true, deletion operations are simulated and logged, but no files are actually deleted.
+        If $true, deletion operations are simulated.
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .EXAMPLE
-        # Invoke-BackupRetentionPolicy -DestinationDirectory "D:\Backups" -ArchiveBaseFileName "MyData" `
+        # Invoke-BackupRetentionPolicy -DestinationDirectory "D:\Backups" -ArchiveBaseFileName "MyData [2023-01-01]" `
         #   -ArchiveExtension ".7z" -RetentionCountToKeep 7 -RetentionConfirmDeleteFromConfig $true `
         #   -SendToRecycleBin $true -VBAssemblyLoaded $true -Logger ${function:Write-LogMessage}
     #>
     param(
         [string]$DestinationDirectory,
-        [string]$ArchiveBaseFileName,
-        [string]$ArchiveExtension, 
+        [string]$ArchiveBaseFileName, # e.g., "JobName [DateStamp]"
+        [string]$ArchiveExtension,    # e.g., ".7z" or ".exe"
         [int]$RetentionCountToKeep,
         [Parameter(Mandatory)] 
         [bool]$RetentionConfirmDeleteFromConfig,
@@ -139,26 +141,26 @@ function Invoke-BackupRetentionPolicy {
         [bool]$VBAssemblyLoaded, 
         [switch]$IsSimulateMode,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet # Added for ShouldProcess in main loop
     )
-    # Defensive PSSA appeasement line by directly calling the logger for this initial message
-    & $Logger -Message "Invoke-BackupRetentionPolicy: Logger parameter active for base name '$ArchiveBaseFileName'. ConfirmDeleteFromConfig: $RetentionConfirmDeleteFromConfig" -Level "DEBUG" -ErrorAction SilentlyContinue
+    # Defensive PSSA appeasement line
+    & $Logger -Message "Invoke-BackupRetentionPolicy: Logger active for base '$ArchiveBaseFileName', ext '$ArchiveExtension'. ConfirmDelete: $RetentionConfirmDeleteFromConfig" -Level "DEBUG" -ErrorAction SilentlyContinue
 
-    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if ($null -ne $ForegroundColour) {
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
         } else {
             & $Logger -Message $Message -Level $Level
         }
     }
     
-    & $LocalWriteLog -Message "`n[INFO] RetentionManager: Applying Backup Retention Policy for archives matching base name '$ArchiveBaseFileName' and extension '$ArchiveExtension'..."
+    & $LocalWriteLog -Message "`n[INFO] RetentionManager: Applying Backup Retention Policy for archives matching base name '$ArchiveBaseFileName' and primary extension '$ArchiveExtension'..."
     & $LocalWriteLog -Message "   - Destination Directory: $DestinationDirectory"
-    & $LocalWriteLog -Message "   - Configured Total Retention Count (target after current backup completes): $RetentionCountToKeep"
+    & $LocalWriteLog -Message "   - Configured Total Retention Count (target instances after current backup completes): $RetentionCountToKeep"
     & $LocalWriteLog -Message "   - Configured Retention Deletion Confirmation: $(if($RetentionConfirmDeleteFromConfig){'Enabled (Item-Level Cmdlet will respect $ConfirmPreference)'}else{'Disabled (Item-Level Cmdlet will use -Confirm:$false)'})"
-
 
     $effectiveSendToRecycleBin = $SendToRecycleBin
     if ($SendToRecycleBin -and -not $VBAssemblyLoaded) {
@@ -166,22 +168,12 @@ function Invoke-BackupRetentionPolicy {
         $effectiveSendToRecycleBin = $false
     }
 
-    $isNetworkPath = $false
-    try {
-        if (-not [string]::IsNullOrWhiteSpace($DestinationDirectory)) {
-            $uriCheck = [uri]$DestinationDirectory
-            if ($uriCheck.IsUnc) { $isNetworkPath = $true }
-        }
-    } catch { /* Path is not a valid URI, likely a local path */ }
+    $isNetworkPath = $false; try { if (-not [string]::IsNullOrWhiteSpace($DestinationDirectory)) { $uriCheck = [uri]$DestinationDirectory; if ($uriCheck.IsUnc) { $isNetworkPath = $true } } } catch { & $LocalWriteLog -Message "  - RetentionManager: Debug: Could not parse '$DestinationDirectory' as URI to check IsUnc. Assuming not a UNC path for Recycle Bin warning. Error: $($_.Exception.Message)" -Level "DEBUG" }
 
     if ($effectiveSendToRecycleBin -and $isNetworkPath) {
-        & $LocalWriteLog -Message "[WARNING] RetentionManager: 'DeleteToRecycleBin' is enabled for a network destination ('$DestinationDirectory'). Sending files to the Recycle Bin from network shares can be unreliable or may not be supported by the remote server. Files might be permanently deleted or the operation could fail. Consider setting 'DeleteToRecycleBin = `$false' for network destinations if Recycle Bin functionality is critical." -Level WARNING
+        & $LocalWriteLog -Message "[WARNING] RetentionManager: 'DeleteToRecycleBin' is enabled for a network destination ('$DestinationDirectory'). This can be unreliable. Consider setting to `$false." -Level WARNING
     }
-    
     & $LocalWriteLog -Message "   - Effective Deletion Method for old archives: $(if ($effectiveSendToRecycleBin) {'Send to Recycle Bin'} else {'Permanent Delete'})"
-
-    $literalBaseName = $ArchiveBaseFileName -replace '\*', '`*' -replace '\?', '`?' 
-    $filePattern = "$($literalBaseName)*$($ArchiveExtension)" 
 
     try {
         if (-not (Test-Path -LiteralPath $DestinationDirectory -PathType Container)) {
@@ -189,85 +181,146 @@ function Invoke-BackupRetentionPolicy {
             return
         }
 
-        $existingBackups = Get-ChildItem -Path $DestinationDirectory -Filter $filePattern -File -ErrorAction SilentlyContinue | Sort-Object CreationTime -Descending
+        $literalBaseName = $ArchiveBaseFileName -replace '([\.\^\$\*\+\?\(\)\[\]\{\}\|\\])', '\$1' # Escape regex special chars in base name
+        $fileFilterPattern = "$($literalBaseName)$([regex]::Escape($ArchiveExtension))*" # e.g., "JobName \[DateStamp\]\.7z*"
+        
+        & $LocalWriteLog -Message "   - RetentionManager: Scanning for files with filter pattern: '$fileFilterPattern'" -Level DEBUG
+        $allMatchingFiles = Get-ChildItem -Path $DestinationDirectory -Filter $fileFilterPattern -File -ErrorAction SilentlyContinue
+        
+        $backupInstances = @{} # Key: InstanceIdentifier (e.g., "JobName [DateStamp].7z"), Value: @{SortTime=datetime; Files=List[FileInfo]}
 
-        if ($RetentionCountToKeep -le 0) { 
-            & $LocalWriteLog -Message "   - RetentionManager: Retention count is $RetentionCountToKeep; all existing backups matching pattern '$filePattern' will be kept." -Level INFO
+        foreach ($fileInfo in $allMatchingFiles) {
+            $instanceIdentifier = ""
+            $isFirstVolumePart = $false
+            $fileIsPartOfSplitSet = $false
+
+            # Regex to match base.ext.001, base.ext.002 etc.
+            # $ArchiveExtension is the primary extension like ".7z"
+            $splitVolumePattern = "^($([regex]::Escape($ArchiveBaseFileName + $ArchiveExtension)))\.(\d{3,})$"
+
+            if ($fileInfo.Name -match $splitVolumePattern) {
+                $instanceIdentifier = $Matches[1] # This is "ArchiveBaseFileName + ArchiveExtension", e.g., "JobName [DateStamp].7z"
+                $fileIsPartOfSplitSet = $true
+                if ($Matches[2] -eq "001") { # Check if it's the first volume
+                    $isFirstVolumePart = $true
+                }
+            } else {
+                # Not a numbered split part. Could be a single file (e.g., "JobName [DateStamp].7z" or "JobName [DateStamp].exe")
+                # For single files, the instance identifier is the full file name.
+                if ($fileInfo.Name -eq ($ArchiveBaseFileName + $ArchiveExtension)) {
+                     $instanceIdentifier = $fileInfo.Name
+                } elseif ($ArchiveExtension -ne $fileInfo.Extension -and $fileInfo.Name -like ($ArchiveBaseFileName + "*")) {
+                    # Handle cases like SFX where ArchiveExtension in config was .7z but output is .exe
+                    # Or if ArchiveExtension was .exe and it's just that.
+                    # This assumes the ArchiveBaseFileName is the core unique part before any extension.
+                    $instanceIdentifier = $fileInfo.Name
+                } else {
+                    # File doesn't strictly match expected patterns, skip it for retention grouping.
+                    & $LocalWriteLog -Message "   - RetentionManager: File '$($fileInfo.Name)' does not match expected single or split volume pattern for base '$ArchiveBaseFileName' and ext '$ArchiveExtension'. Skipping for retention." -Level DEBUG
+                    continue
+                }
+            }
+
+            if (-not $backupInstances.ContainsKey($instanceIdentifier)) {
+                $backupInstances[$instanceIdentifier] = @{
+                    SortTime = if ($isFirstVolumePart) { $fileInfo.CreationTime } else { [datetime]::MaxValue } # Default to max if not first part yet
+                    Files    = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+                }
+            }
+            $backupInstances[$instanceIdentifier].Files.Add($fileInfo)
+            
+            # Update SortTime if this is the first volume or if it's a single file instance
+            if ($isFirstVolumePart) {
+                if ($fileInfo.CreationTime -lt $backupInstances[$instanceIdentifier].SortTime) {
+                    $backupInstances[$instanceIdentifier].SortTime = $fileInfo.CreationTime
+                }
+            } elseif (-not $fileIsPartOfSplitSet) { # Single file instance
+                 $backupInstances[$instanceIdentifier].SortTime = $fileInfo.CreationTime
+            }
+        }
+
+        # Refine SortTime for split instances that might have missed their .001 part initially in the loop
+        # or if only non-001 parts were found (orphaned set)
+        foreach ($instanceKeyToRefine in $backupInstances.Keys) {
+            if ($backupInstances[$instanceKeyToRefine].SortTime -eq [datetime]::MaxValue) {
+                if ($backupInstances[$instanceKeyToRefine].Files.Count -gt 0) {
+                    $earliestPartFoundTime = ($backupInstances[$instanceKeyToRefine].Files | Sort-Object CreationTime | Select-Object -First 1).CreationTime
+                    $backupInstances[$instanceKeyToRefine].SortTime = $earliestPartFoundTime
+                    & $LocalWriteLog -Message "[WARNING] RetentionManager: Backup instance '$instanceKeyToRefine' appears to be missing its first volume part (e.g., .001) or was processed out of order. Using earliest found part's time for sorting. This might indicate an incomplete backup set." -Level WARNING
+                } else {
+                    # Should not happen if files were added, but as a safeguard remove empty instance
+                    $backupInstances.Remove($instanceKeyToRefine) 
+                }
+            }
+        }
+        
+        if ($backupInstances.Count -eq 0) {
+            & $LocalWriteLog -Message "   - RetentionManager: No backup instances found matching base '$ArchiveBaseFileName' and ext '$ArchiveExtension'. No retention actions needed." -Level INFO
             return
         }
 
-        $numberOfOldBackupsToPreserve = $RetentionCountToKeep - 1
-        if ($numberOfOldBackupsToPreserve -lt 0) { $numberOfOldBackupsToPreserve = 0 } 
+        $sortedInstances = $backupInstances.GetEnumerator() | Sort-Object {$_.Value.SortTime} -Descending
+        
+        if ($RetentionCountToKeep -le 0) {
+            & $LocalWriteLog -Message "   - RetentionManager: Retention count is $RetentionCountToKeep; all existing backup instances will be kept." -Level INFO
+            return
+        }
+        
+        # The number of *old* backup instances to preserve. The current backup isn't in this list yet.
+        $numberOfOldInstancesToPreserve = $RetentionCountToKeep - 1 
+        if ($numberOfOldInstancesToPreserve -lt 0) { $numberOfOldInstancesToPreserve = 0 }
 
-        if (($null -ne $existingBackups) -and ($existingBackups.Count -gt $numberOfOldBackupsToPreserve)) {
-            $backupsToDelete = $existingBackups | Select-Object -Skip $numberOfOldBackupsToPreserve
-            & $LocalWriteLog -Message "[INFO] RetentionManager: Found $($existingBackups.Count) existing backups. Will attempt to delete $($backupsToDelete.Count) older backup(s) to meet retention ($RetentionCountToKeep total)." -Level INFO
+        if ($sortedInstances.Count -gt $numberOfOldInstancesToPreserve) {
+            $instancesToDelete = $sortedInstances | Select-Object -Skip $numberOfOldInstancesToPreserve
+            & $LocalWriteLog -Message "[INFO] RetentionManager: Found $($sortedInstances.Count) existing backup instance(s). Will attempt to delete $($instancesToDelete.Count) older instance(s) to meet retention ($RetentionCountToKeep total target)." -Level INFO
 
-            foreach ($backupFile in $backupsToDelete) {
-                $deleteActionMessage = if ($effectiveSendToRecycleBin) {"Send to Recycle Bin"} else {"Permanently Delete"}
-                $shouldProcessTarget = $backupFile.FullName
-                
-                if ($IsSimulateMode.IsPresent) {
-                    & $LocalWriteLog -Message "       - SIMULATE: Would $deleteActionMessage '$($backupFile.FullName)' (Created: $($backupFile.CreationTime))" -Level SIMULATE
-                    continue 
-                }
+            foreach ($instanceEntry in $instancesToDelete) {
+                $instanceIdentifierToDelete = $instanceEntry.Name
+                $instanceFilesToDelete = $instanceEntry.Value.Files
+                $instanceSortTime = $instanceEntry.Value.SortTime
 
-                # Call $PSCmdlet.ShouldProcess. Since this function's CmdletBinding no longer has ConfirmImpact='High',
-                # this call will:
-                # 1. Respect -WhatIf (log and return $false if -WhatIf is active for PoSh-Backup.ps1).
-                # 2. Respect -Confirm or -Confirm:$false passed to PoSh-Backup.ps1 if Operations.psm1 also passed it down.
-                #    (Operations.psm1 passes -Confirm:$false if RetentionConfirmDelete is false).
-                # 3. If no explicit -Confirm was passed down, it will check $ConfirmPreference against its default Medium impact.
-                #    If $ConfirmPreference is High, it WILL prompt here. If $ConfirmPreference is Medium or Low, it will NOT.
-                # This is the behavior we want for the *overall* operation of this function.
-                # The item-level deletion cmdlets below will then have their own confirmation controlled by RetentionConfirmDeleteFromConfig.
-                if (-not $PSCmdlet.ShouldProcess($shouldProcessTarget, $deleteActionMessage)) {
-                    # If ShouldProcess returns false:
-                    # - It could be due to -WhatIf on the main script.
-                    # - It could be due to the user responding "No" if a prompt occurred (e.g., if PoSh-Backup.ps1 was run with -Confirm and this function was called without -Confirm:$false by Operations.psm1).
-                    # In either case, we skip this file.
-                    continue
-                }
+                & $LocalWriteLog -Message "   - RetentionManager: Preparing to delete backup instance '$instanceIdentifierToDelete' (Sorted by Time: $instanceSortTime)." -Level WARNING
                 
-                # If we reach here, $PSCmdlet.ShouldProcess returned $true.
-                # This means -WhatIf was not active on the main script OR if a prompt occurred from ShouldProcess itself, the user said "Yes".
-                # Now we proceed to the actual deletion, where RetentionConfirmDeleteFromConfig dictates the item-level cmdlet's confirmation.
-                
-                & $LocalWriteLog -Message "       - Deleting: $($backupFile.FullName) (Created: $($backupFile.CreationTime))" -Level WARNING 
-                try {
-                    if ($effectiveSendToRecycleBin) {
-                        Invoke-VisualBasicFileOperation -Path $backupFile.FullName -Operation "DeleteFile" `
-                            -RecycleOption ([Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin) `
-                            -Logger $Logger `
-                            -ForceNoUIConfirmation (-not $RetentionConfirmDeleteFromConfig) # If config says auto-delete, force no UI for VB
-                        & $LocalWriteLog -Message "         - Status: MOVED TO RECYCLE BIN" -Level SUCCESS
-                    } else {
-                        $removeItemParams = @{
-                            LiteralPath = $backupFile.FullName
-                            Force = $true
-                            ErrorAction = 'Stop'
-                        }
-                        # If RetentionConfirmDeleteFromConfig is $false (auto-delete), explicitly pass -Confirm:$false to Remove-Item.
-                        # If $RetentionConfirmDeleteFromConfig is $true, do NOT add -Confirm:$false, so Remove-Item (HighImpact)
-                        # will prompt if $ConfirmPreference is High.
-                        if (-not $RetentionConfirmDeleteFromConfig) {
-                            $removeItemParams.Confirm = $false
-                        }
-                        Remove-Item @removeItemParams
-                        & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level SUCCESS
+                foreach ($fileToDeleteInfo in $instanceFilesToDelete) {
+                    $deleteActionMessage = if ($effectiveSendToRecycleBin) {"Send to Recycle Bin"} else {"Permanently Delete"}
+                    $shouldProcessTarget = $fileToDeleteInfo.FullName
+                    
+                    if ($IsSimulateMode.IsPresent) {
+                        & $LocalWriteLog -Message "       - SIMULATE: Would $deleteActionMessage '$($fileToDeleteInfo.FullName)' (Part of instance '$instanceIdentifierToDelete', Created: $($fileToDeleteInfo.CreationTime))" -Level SIMULATE
+                        continue 
                     }
-                } catch {
-                    & $LocalWriteLog -Message "         - Status: FAILED! Error: $($_.Exception.Message)" -Level ERROR
+
+                    if (-not $PSCmdlet.ShouldProcess($shouldProcessTarget, $deleteActionMessage)) {
+                        & $LocalWriteLog -Message "       - RetentionManager: Deletion of file '$($fileToDeleteInfo.FullName)' skipped by user (ShouldProcess)." -Level WARNING
+                        continue
+                    }
+                    
+                    & $LocalWriteLog -Message "       - Deleting: $($fileToDeleteInfo.FullName) (Created: $($fileToDeleteInfo.CreationTime))" -Level WARNING 
+                    try {
+                        if ($effectiveSendToRecycleBin) {
+                            Invoke-VisualBasicFileOperation -Path $fileToDeleteInfo.FullName -Operation "DeleteFile" `
+                                -RecycleOption ([Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin) `
+                                -Logger $Logger `
+                                -ForceNoUIConfirmation (-not $RetentionConfirmDeleteFromConfig) 
+                            & $LocalWriteLog -Message "         - Status: MOVED TO RECYCLE BIN" -Level SUCCESS
+                        } else {
+                            $removeItemParams = @{ LiteralPath = $fileToDeleteInfo.FullName; Force = $true; ErrorAction = 'Stop' }
+                            if (-not $RetentionConfirmDeleteFromConfig) { $removeItemParams.Confirm = $false }
+                            Remove-Item @removeItemParams
+                            & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level SUCCESS
+                        }
+                    } catch {
+                        & $LocalWriteLog -Message "         - Status: FAILED! Error: $($_.Exception.Message)" -Level ERROR
+                    }
                 }
             }
-        } elseif ($null -ne $existingBackups) {
-            & $LocalWriteLog -Message "   - RetentionManager: Number of existing backups ($($existingBackups.Count)) is at or below target old backups to preserve ($numberOfOldBackupsToPreserve). No older backups to delete." -Level INFO
         } else {
-            & $LocalWriteLog -Message "   - RetentionManager: No existing backups found matching pattern '$filePattern'. No retention actions needed." -Level INFO
+            & $LocalWriteLog -Message "   - RetentionManager: Number of existing backup instances ($($sortedInstances.Count)) is at or below target old instances to preserve ($numberOfOldInstancesToPreserve). No older instances to delete." -Level INFO
         }
     } catch {
         & $LocalWriteLog -Message "[WARNING] RetentionManager: Error during retention policy for '$ArchiveBaseFileName'. Some old backups might not have been deleted. Error: $($_.Exception.Message)" -Level WARNING
     }
+    & $LocalWriteLog -Message "[INFO] RetentionManager: Log retention policy application finished for job pattern '$ArchiveBaseFileName'." -Level "INFO" # Corrected log message
 }
 #endregion
 
