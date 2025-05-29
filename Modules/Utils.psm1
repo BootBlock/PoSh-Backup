@@ -13,17 +13,19 @@
     - ConfigUtils.psm1: Handles safe retrieval of configuration values.
     - SystemUtils.psm1: Handles system-level interactions (admin checks, free space).
     - FileUtils.psm1: Handles file-specific operations (size formatting, hashing).
+    - StringUtils.psm1: Handles string manipulation and extraction (e.g., version parsing).
+    - ConsoleDisplayUtils.psm1: Handles enhanced console output like banners.
     And the core logging function:
     - LogManager.psm1 (in Modules\Managers\): Handles message logging.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.14.1 # Added ConsoleDisplayUtils.psm1 for banner functions.
+    Version:        1.15.0 # Added StringUtils.psm1 for Get-ScriptVersionFromContent.
     DateCreated:    10-May-2025
     LastModified:   29-May-2025
     Purpose:        Facade for core utility functions for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+.
-                    Sub-modules (ConfigUtils.psm1, SystemUtils.psm1, FileUtils.psm1)
+                    Sub-modules (ConfigUtils.psm1, SystemUtils.psm1, FileUtils.psm1, StringUtils.psm1, ConsoleDisplayUtils.psm1)
                     must exist in '.\Modules\Utilities\'.
                     LogManager.psm1 must exist in '.\Modules\Managers\'.
 #>
@@ -39,6 +41,7 @@ try {
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "ConfigUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "SystemUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "FileUtils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "StringUtils.psm1") -Force -ErrorAction Stop # NEW
     
     # Import Write-LogMessage from LogManager.psm1 in Managers directory
     Import-Module -Name (Join-Path -Path $managersSubModulePath -ChildPath "LogManager.psm1") -Force -Function Write-LogMessage -ErrorAction Stop
@@ -53,5 +56,5 @@ catch {
 
 #region --- Exported Functions ---
 # Re-export all functions from the imported utility sub-modules and Write-LogMessage from LogManager.
-Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Write-ConsoleBanner
+Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Write-ConsoleBanner, Get-ScriptVersionFromContent # ADDED Get-ScriptVersionFromContent
 #endregion

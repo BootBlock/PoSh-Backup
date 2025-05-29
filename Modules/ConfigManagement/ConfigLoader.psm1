@@ -3,12 +3,14 @@
 .SYNOPSIS
     Handles the loading and merging of PoSh-Backup configuration files (Default.psd1, User.psd1),
     7-Zip path auto-detection, and basic structural validation including BackupTargets.
-    Now also handles the optional interactive creation of 'User.psd1'.
+    Now also handles the optional interactive creation of 'User.psd1' with content modification.
 .DESCRIPTION
     This module is a sub-component of the main ConfigManager module for PoSh-Backup.
     It is responsible for:
     - Loading the base configuration (Default.psd1).
-    - Optionally prompting the user to create 'User.psd1' if it doesn't exist and conditions are met.
+    - Optionally prompting the user to create 'User.psd1' if it doesn't exist. If created,
+      the content from Default.psd1 is modified: comments are updated to reflect its 'User'
+      status, and a notice is prepended explaining its overlay behavior.
     - Loading and merging the user-specific configuration (User.psd1) if it exists.
     - Handling a user-specified configuration file path.
     - Auto-detecting the 7-Zip executable path if not explicitly configured (delegates to 7ZipManager.psm1).
@@ -18,9 +20,9 @@
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.5 # Added Out-Null to Copy-Item to prevent output pollution.
+    Version:        1.1.6 # Modified User.psd1 creation to alter content.
     DateCreated:    24-May-2025
-    LastModified:   28-May-2025
+    LastModified:   29-May-2025
     Purpose:        To modularise configuration loading logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 and 7ZipManager.psm1 from the parent 'Modules' directory.
@@ -129,8 +131,83 @@ function Invoke-UserConfigCreationPromptInternal {
                 $decision = $Host.UI.PromptForChoice($choiceTitle, $choiceMessage, $options, 0)
                 if ($decision -eq 0) {
                     try {
-                        Copy-Item -LiteralPath $DefaultBaseConfigPathInternal -Destination $DefaultUserConfigPathInternal -Force -ErrorAction Stop | Out-Null # MODIFIED
-                        & $LocalWriteLogInternal -Message "[SUCCESS] ConfigLoader: '$DefaultUserConfigFileNameInternal' has been created from '$DefaultBaseConfigFileNameInternal' in '$DefaultConfigDirInternal'." -Level "SUCCESS"
+                        # Read Default.psd1 content
+                        $defaultContent = Get-Content -LiteralPath $DefaultBaseConfigPathInternal -Raw -ErrorAction Stop
+                        
+                        # Extract version from Default.psd1
+                        $defaultVersion = Get-ScriptVersionFromContent -ScriptContent $defaultContent -ScriptNameForWarning $DefaultBaseConfigFileNameInternal
+                        if ($defaultVersion -eq "N/A" -or $defaultVersion -like "N/A (*") { $defaultVersion = "Unknown Version" }
+
+                        # Prepare the new notice for User.psd1
+                        $userNotice = @"
+# --- USER CONFIGURATION FILE ---
+# This is your personal PoSh-Backup configuration file ('$DefaultUserConfigFileNameInternal').
+#
+# How it works:
+#     1. PoSh-Backup first loads '$DefaultBaseConfigFileNameInternal' (in '$DefaultConfigDirInternal') to get all base settings.
+#     2. It then loads this file ('$DefaultUserConfigFileNameInternal').
+#     3. Any settings you define in THIS file will OVERLAY and REPLACE the
+#        corresponding settings from '$DefaultBaseConfigFileNameInternal'.
+#     4. If a setting is NOT defined in this file, the value from '$DefaultBaseConfigFileNameInternal'
+#        will be used automatically.
+#
+# Recommendation:
+#     - Only include settings in this file that you want to *change* from their
+#       default values in '$DefaultBaseConfigFileNameInternal'.
+#     - You can safely remove any settings from this file that you want to revert
+#       to their default behaviour.
+#     - Refer to '$DefaultBaseConfigFileNameInternal' for a full list of available settings and
+#       their detailed explanations.
+#
+# Copied from '$DefaultBaseConfigFileNameInternal' (Version: $defaultVersion)
+# -----------------------------
+
+"@
+
+                        # Prepare the modified header for User.psd1
+                        $userHeader = @"
+# Config\\$DefaultUserConfigFileNameInternal
+# PowerShell Data File for PoSh Backup Script Configuration (User).
+# This is your user-specific configuration file. Settings defined here will OVERLAY
+# (i.e., take precedence over) any corresponding settings in '$DefaultBaseConfigFileNameInternal'.
+# If a setting is not present in this file, the value from '$DefaultBaseConfigFileNameInternal' will be used.
+# It is recommended to only include settings here that you wish to change from their defaults.
+#
+# Copied from $DefaultBaseConfigFileNameInternal Version $defaultVersion
+"@
+                        # Identify and replace the original header block
+                        $lines = $defaultContent -split '(\r?\n)'
+                        $headerEndLineIndex = -1
+                        for ($i = 0; $i -lt $lines.Count; $i++) {
+                            if ($lines[$i] -match "^\s*#\s*Version\s*:?\s*([0-9]+\.[0-9]+)") {
+                                $headerEndLineIndex = $i
+                                break
+                            }
+                        }
+                        
+                        $contentWithoutOriginalHeader = ""
+                        if ($headerEndLineIndex -ne -1 -and ($headerEndLineIndex + 1) -lt $lines.Count) {
+                            # Include the newline after the version line if it exists
+                            $contentWithoutOriginalHeader = ($lines[($headerEndLineIndex + 1)..$($lines.Count -1)]) -join ""
+                        } else {
+                            # Fallback if version line not found or is the last line, try to remove known first lines
+                            if ($lines[0].TrimStart().StartsWith("# Config\Default.psd1")) {
+                                $estimatedHeaderLines = 5 # Approximate number of header lines
+                                if ($lines.Count -gt $estimatedHeaderLines) {
+                                     $contentWithoutOriginalHeader = ($lines[$estimatedHeaderLines..($lines.Count -1)]) -join ""
+                                } else {
+                                    $contentWithoutOriginalHeader = $defaultContent # Keep original if header detection is problematic
+                                }
+                            } else {
+                                 $contentWithoutOriginalHeader = $defaultContent # Keep original if header detection is problematic
+                            }
+                        }
+                        
+                        $finalUserContent = $userNotice + $userHeader + "`r`n" + $contentWithoutOriginalHeader.TrimStart()
+                        
+                        Set-Content -Path $DefaultUserConfigPathInternal -Value $finalUserContent -Encoding UTF8 -Force -ErrorAction Stop
+                        
+                        & $LocalWriteLogInternal -Message "[SUCCESS] ConfigLoader: '$DefaultUserConfigFileNameInternal' has been created with tailored content in '$DefaultConfigDirInternal'." -Level "SUCCESS"
                         & $LocalWriteLogInternal -Message "          Please edit '$DefaultUserConfigFileNameInternal' with your desired settings and then re-run PoSh-Backup." -Level "INFO"
                         & $LocalWriteLogInternal -Message "          Script will now exit." -Level "INFO"
 
@@ -145,7 +222,7 @@ function Invoke-UserConfigCreationPromptInternal {
                         }
                         exit 0 # Exit the entire script
                     } catch {
-                        & $LocalWriteLogInternal -Message "[ERROR] ConfigLoader: Failed to copy '$DefaultBaseConfigPathInternal' to '$DefaultUserConfigPathInternal'. Error: $($_.Exception.Message)" -Level "ERROR"
+                        & $LocalWriteLogInternal -Message "[ERROR] ConfigLoader: Failed to create '$DefaultUserConfigFileNameInternal' from '$DefaultBaseConfigFileNameInternal'. Error: $($_.Exception.Message)" -Level "ERROR"
                         & $LocalWriteLogInternal -Message "          Please create '$DefaultUserConfigFileNameInternal' manually if desired. Script will continue with base configuration." -Level "WARNING"
                     }
                 } else {

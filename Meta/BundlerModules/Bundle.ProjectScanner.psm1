@@ -1,3 +1,4 @@
+# Meta\BundlerModules\Bundle.ProjectScanner.psm1
 <#
 .SYNOPSIS
     Scans the project directory for files to be included in the AI bundle,
@@ -7,16 +8,16 @@
     This module is responsible for the main iteration over project files.
     It uses Get-ChildItem to find files, applies various exclusion criteria
     (e.g., configured excluded folders/extensions, avoiding the bundler's own
-    files if already processed), and then calls functions from
+    files if already processed, excluding Config\User*.psd1 files), and then calls functions from
     Bundle.FileProcessor.psm1 to process each eligible file and extract metadata.
     It aggregates the extracted metadata (module descriptions and PowerShell dependencies)
     and returns it.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Added MetaFilesToExcludeExplicitly parameter.
+    Version:        1.0.2 # Added exclusion for Config\User*.psd1 files.
     DateCreated:    17-May-2025
-    LastModified:   18-May-2025
+    LastModified:   29-May-2025
     Purpose:        Project file scanning and processing orchestration for the AI project bundler.
     DependsOn:      Bundle.FileProcessor.psm1 (for Add-FileToBundle)
 #>
@@ -43,7 +44,7 @@ function Invoke-BundlerProjectScan {
         [Parameter(Mandatory)]
         [System.Text.StringBuilder]$FileContentBuilder, # Used by Add-FileToBundle
         [Parameter(Mandatory=$false)]
-        [string[]]$MetaFilesToExcludeExplicitly = @() # New parameter
+        [string[]]$MetaFilesToExcludeExplicitly = @() 
     )
 
     $collectedModuleDescriptions = @{}
@@ -72,6 +73,14 @@ function Invoke-BundlerProjectScan {
                 }
             }
         }
+        
+        # --- NEW EXCLUSION: Skip Config\User*.psd1 files ---
+        $normalizedRelativePathForConfigCheck = $file.FullName.Substring($NormalizedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        if ($normalizedRelativePathForConfigCheck.StartsWith("Config" + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase) -and $file.Name -like "User*.psd1") {
+            Write-Verbose "Bundler ProjectScanner: Skipping user configuration file in Config folder: $normalizedRelativePathForConfigCheck"
+            return # Skips the current file and moves to the next in the ForEach-Object loop
+        }
+        # --- END NEW EXCLUSION ---
 
         $currentRelativePath = $file.FullName.Substring($NormalizedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
 
