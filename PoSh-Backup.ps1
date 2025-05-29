@@ -153,7 +153,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.14.1 # Added -SplitVolumeSizeCLI parameter.
+    Version:        1.14.3 # Added starting banner and refined completion banner.
     Date:           29-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -261,29 +261,6 @@ param (
 #endregion
 
 #region --- Initial Script Setup & Module Import ---
-$ScriptStartTime                            = Get-Date
-$IsSimulateMode                             = $Simulate.IsPresent 
-
-$cliOverrideSettings = @{
-    UseVSS                             = if ($PSBoundParameters.ContainsKey('UseVSS')) { $UseVSS.IsPresent } else { $null }
-    EnableRetries                      = if ($PSBoundParameters.ContainsKey('EnableRetriesCLI')) { $EnableRetriesCLI.IsPresent } else { $null }
-    TestArchive                        = if ($PSBoundParameters.ContainsKey('TestArchive')) { $TestArchive.IsPresent } else { $null }
-    VerifyLocalArchiveBeforeTransferCLI = if ($PSBoundParameters.ContainsKey('VerifyLocalArchiveBeforeTransferCLI')) { $VerifyLocalArchiveBeforeTransferCLI.IsPresent } else { $null }
-    GenerateHtmlReport                 = if ($PSBoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $GenerateHtmlReportCLI.IsPresent } else { $null }
-    TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
-    SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
-    SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null }
-    SevenZipIncludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $SevenZipIncludeListFileCLI } else { $null } 
-    SevenZipExcludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $SevenZipExcludeListFileCLI } else { $null } 
-    SplitVolumeSizeCLI                 = if ($PSBoundParameters.ContainsKey('SplitVolumeSizeCLI')) { $SplitVolumeSizeCLI } else { $null }
-    LogRetentionCountCLI               = if ($PSBoundParameters.ContainsKey('LogRetentionCountCLI')) { $LogRetentionCountCLI } else { $null }
-    PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
-    PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
-    PostRunActionDelaySecondsCli       = if ($PSBoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $PostRunActionDelaySecondsCli } else { $null }
-    PostRunActionForceCli              = if ($PSBoundParameters.ContainsKey('PostRunActionForceCli')) { $PostRunActionForceCli.IsPresent } else { $null }
-    PostRunActionTriggerOnStatusCli    = if ($PSBoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $PostRunActionTriggerOnStatusCli } else { $null }
-}
-
 $Global:ColourInfo                          = "Cyan"
 $Global:ColourSuccess                       = "Green"
 $Global:ColourWarning                       = "Yellow"
@@ -316,6 +293,121 @@ $Global:GlobalEnableFileLogging             = $false
 $Global:GlobalLogDirectory                  = $null
 $Global:GlobalJobLogEntries                 = $null
 $Global:GlobalJobHookScriptData             = $null
+
+# --- Starting Banner ---
+$startBannerWidth = 78
+$scriptNameText = "PoSh Backup"
+
+# Dynamically get script version for the banner
+$scriptVersionForBanner = "vN/A" # Default
+try {
+    $mainScriptContentForVersion = Get-Content -LiteralPath $PSCommandPath -Raw -ErrorAction SilentlyContinue
+    if (-not [string]::IsNullOrWhiteSpace($mainScriptContentForVersion)) {
+        # Regex to find version like "Version: X.Y.Z" or "Version: X.Y.Z # comment"
+        # It will capture only the "X.Y.Z" part.
+        $regexMatch = [regex]::Match($mainScriptContentForVersion, '(?im)^\s*Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
+        if ($regexMatch.Success) {
+            $extractedVersion = $regexMatch.Groups[1].Value.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($extractedVersion) -and $extractedVersion -ne "N/A") {
+                $scriptVersionForBanner = "v$extractedVersion"
+            }
+        } else { # Fallback to .NOTES section if primary version line not found
+            $regexMatch = [regex]::Match($mainScriptContentForVersion, '(?s)\.NOTES(?:.|\s)*?Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
+            if ($regexMatch.Success) {
+                $extractedVersion = $regexMatch.Groups[1].Value.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($extractedVersion) -and $extractedVersion -ne "N/A") {
+                    $scriptVersionForBanner = "v$extractedVersion"
+                }
+            }
+        }
+    }
+}
+catch {
+    # Silently continue, $scriptVersionForBanner remains "vN/A"
+}
+
+$fullTitleTextToCenter = "$scriptNameText $scriptVersionForBanner"
+
+# Calculate padding for the combined title/version string
+$titleAvailableWidth = $startBannerWidth - 4 # Account for ║  ║
+$titlePaddingLength = [math]::Max(0, ($titleAvailableWidth - $fullTitleTextToCenter.Length) / 2)
+$titleLeftPadding = " " * [math]::Floor($titlePaddingLength)
+$titleRightPadding = " " * [math]::Ceiling($titlePaddingLength)
+
+# Construct the inner content with padding for centering
+$centeredContent = "$titleLeftPadding$fullTitleTextToCenter$titleRightPadding"
+# Ensure it doesn't exceed available width and pad if necessary to fill the space
+if ($centeredContent.Length -gt $titleAvailableWidth) {
+    $centeredContent = $fullTitleTextToCenter.Substring(0, [math]::Min($fullTitleTextToCenter.Length, $titleAvailableWidth))
+    # Recalculate padding if truncated
+    $titlePaddingLength = [math]::Max(0, ($titleAvailableWidth - $centeredContent.Length) / 2)
+    $titleLeftPadding = " " * [math]::Floor($titlePaddingLength)
+    $titleRightPadding = " " * [math]::Ceiling($titlePaddingLength)
+    $centeredContent = "$titleLeftPadding$centeredContent$titleRightPadding"
+}
+$centeredContent = $centeredContent.PadRight($titleAvailableWidth)
+
+
+Write-Host # Blank line before
+Write-Host ("╔" + ("═" * ($startBannerWidth - 2)) + "╗") -ForegroundColor $Global:ColourHeading
+
+# Combined Title and Version Line - printed in segments for color
+Write-Host "║ " -ForegroundColor $Global:ColourHeading -NoNewline
+Write-Host $titleLeftPadding -NoNewline # Print exact left padding
+Write-Host $scriptNameText -ForegroundColor $Global:ColourInfo -NoNewline 
+Write-Host " " -NoNewline # Space
+Write-Host $scriptVersionForBanner -ForegroundColor $Global:ColourValue -NoNewline 
+
+# Calculate remaining space to fill with right padding
+$currentTextLength = $titleLeftPadding.Length + $scriptNameText.Length + 1 + $scriptVersionForBanner.Length
+$paddingForRightSide = $titleAvailableWidth - $currentTextLength
+if ($paddingForRightSide -gt 0) {
+    Write-Host (" " * $paddingForRightSide) -NoNewline
+}
+Write-Host " ║" -ForegroundColor $Global:ColourHeading
+
+Write-Host ("╚" + ("═" * ($startBannerWidth - 2)) + "╝") -ForegroundColor $Global:ColourHeading
+
+# Author Information
+$authorName = "Joe Cox"
+$githubLink = "https://github.com/BootBlock/PoSh-Backup"
+$websiteLink = "https://bootblock.co.uk"
+$authorInfoColor = $Global:ColourDebug 
+$authorIndent = "    " 
+
+Write-Host # Blank line for spacing
+Write-Host "    $authorIndent$authorName" -ForegroundColor $authorInfoColor -NoNewline
+Write-Host " : " -ForegroundColor $Global:ColourHeading -NoNewline
+Write-Host $githubLink -ForegroundColor $authorInfoColor
+
+Write-Host "$authorIndent" -ForegroundColor $authorInfoColor -NoNewline 
+Write-Host "            : " -ForegroundColor $Global:ColourHeading -NoNewline 
+Write-Host $websiteLink -ForegroundColor $authorInfoColor
+Write-Host # Blank line after author info
+# --- End Starting Banner ---
+
+$ScriptStartTime                            = Get-Date
+$IsSimulateMode                             = $Simulate.IsPresent 
+
+$cliOverrideSettings = @{
+    UseVSS                             = if ($PSBoundParameters.ContainsKey('UseVSS')) { $UseVSS.IsPresent } else { $null }
+    EnableRetries                      = if ($PSBoundParameters.ContainsKey('EnableRetriesCLI')) { $EnableRetriesCLI.IsPresent } else { $null }
+    TestArchive                        = if ($PSBoundParameters.ContainsKey('TestArchive')) { $TestArchive.IsPresent } else { $null }
+    VerifyLocalArchiveBeforeTransferCLI = if ($PSBoundParameters.ContainsKey('VerifyLocalArchiveBeforeTransferCLI')) { $VerifyLocalArchiveBeforeTransferCLI.IsPresent } else { $null }
+    GenerateHtmlReport                 = if ($PSBoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $GenerateHtmlReportCLI.IsPresent } else { $null }
+    TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
+    SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
+    SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null }
+    SevenZipIncludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $SevenZipIncludeListFileCLI } else { $null } 
+    SevenZipExcludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $SevenZipExcludeListFileCLI } else { $null } 
+    SplitVolumeSizeCLI                 = if ($PSBoundParameters.ContainsKey('SplitVolumeSizeCLI')) { $SplitVolumeSizeCLI } else { $null }
+    LogRetentionCountCLI               = if ($PSBoundParameters.ContainsKey('LogRetentionCountCLI')) { $LogRetentionCountCLI } else { $null }
+    PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
+    PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
+    PostRunActionDelaySecondsCli       = if ($PSBoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $PostRunActionDelaySecondsCli } else { $null }
+    PostRunActionForceCli              = if ($PSBoundParameters.ContainsKey('PostRunActionForceCli')) { $PostRunActionForceCli.IsPresent } else { $null }
+    PostRunActionTriggerOnStatusCli    = if ($PSBoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $PostRunActionTriggerOnStatusCli } else { $null }
+}
 
 $script:BuildJobExecutionOrderFuncRef = $null # Initialize
 
@@ -361,24 +453,6 @@ try {
     & $LoggerScriptBlock -Message "Error details: $($_.Exception.Message)" -Level "ERROR"
     exit 10
 }
-
-& $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
-& $LoggerScriptBlock -Message " Starting PoSh Backup Script     " -Level "HEADING"
-& $LoggerScriptBlock -Message " Script Version: v1.14.0 (Added Job Chaining/Dependency feature)" -Level "HEADING" 
-if ($IsSimulateMode) { & $LoggerScriptBlock -Message " ***** SIMULATION MODE ACTIVE ***** " -Level "SIMULATE" }
-if ($TestConfig.IsPresent) { & $LoggerScriptBlock -Message " ***** CONFIGURATION TEST MODE ACTIVE ***** " -Level "CONFIG_TEST" }
-if ($ListBackupLocations.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP LOCATIONS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
-if ($ListBackupSets.IsPresent) { & $LoggerScriptBlock -Message " ***** LIST BACKUP SETS MODE ACTIVE ***** " -Level "CONFIG_TEST" }
-if ($SkipUserConfigCreation.IsPresent) { & $LoggerScriptBlock -Message " ***** SKIP USER CONFIG CREATION ACTIVE ***** " -Level "INFO" }
-if ($cliOverrideSettings.TreatSevenZipWarningsAsSuccess -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Treating 7-Zip warnings as success. ***** " -Level "INFO" }
-if ($cliOverrideSettings.SevenZipCpuAffinity) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip CPU Affinity specified: $($cliOverrideSettings.SevenZipCpuAffinity) ***** " -Level "INFO" }
-if ($cliOverrideSettings.SevenZipIncludeListFile) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip Include List File specified: $($cliOverrideSettings.SevenZipIncludeListFile) ***** " -Level "INFO" } 
-if ($cliOverrideSettings.SevenZipExcludeListFile) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: 7-Zip Exclude List File specified: $($cliOverrideSettings.SevenZipExcludeListFile) ***** " -Level "INFO" } 
-if ($cliOverrideSettings.VerifyLocalArchiveBeforeTransferCLI -eq $true) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Verify Local Archive Before Transfer ENABLED. ***** " -Level "INFO" }
-if ($null -ne $cliOverrideSettings.SplitVolumeSizeCLI) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Split Volume Size specified: '$($cliOverrideSettings.SplitVolumeSizeCLI)' ***** " -Level "INFO" }
-if ($null -ne $cliOverrideSettings.LogRetentionCountCLI) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Log Retention Count specified: $($cliOverrideSettings.LogRetentionCountCLI) ***** " -Level "INFO" }
-if ($cliOverrideSettings.PostRunActionCli) { & $LoggerScriptBlock -Message " ***** CLI OVERRIDE: Post-Run Action specified: $($cliOverrideSettings.PostRunActionCli) ***** " -Level "INFO" }
-& $LoggerScriptBlock -Message "---------------------------------" -Level "NONE"
 #endregion
 
 #region --- Configuration Loading, Validation & Job Determination ---
@@ -554,9 +628,51 @@ if ($jobsToProcess.Count -gt 0) {
 
 #region --- Final Script Summary & Exit ---
 $finalScriptEndTime = Get-Date
-& $LoggerScriptBlock -Message "`n================================================================================" -Level "NONE"
-& $LoggerScriptBlock -Message "All PoSh Backup Operations Completed" -Level "HEADING"
-& $LoggerScriptBlock -Message "================================================================================" -Level "NONE"
+
+# --- New Completion Banner ---
+$bannerWidth = 78
+$titleText = "All PoSh Backup Operations Completed"
+
+# Calculate padding for the inner text
+$innerWidth = $bannerWidth - 4 # Account for ║ spaces and ║
+$paddingLength = [math]::Max(0, ($innerWidth - $titleText.Length) / 2)
+$leftPaddingText = " " * [math]::Floor($paddingLength)
+$rightPaddingText = " " * [math]::Ceiling($paddingLength)
+
+$innerText = "$leftPaddingText$titleText$rightPaddingText"
+# Ensure innerText doesn't exceed available space
+if ($innerText.Length -gt $innerWidth) {
+    $innerText = $titleText.Substring(0, [math]::Min($titleText.Length, $innerWidth - 2)) # Truncate if needed, leave space for padding
+    $paddingLength = [math]::Max(0, ($innerWidth - $innerText.Length) / 2)
+    $leftPaddingText = " " * [math]::Floor($paddingLength)
+    $rightPaddingText = " " * [math]::Ceiling($paddingLength)
+    $innerText = "$leftPaddingText$innerText$rightPaddingText"
+}
+# Pad the inner text to fill the innerWidth exactly
+$innerText = $innerText.PadRight($innerWidth)
+
+
+# Determine title color based on status (optional, default to success)
+$titleFgColor = $Global:ColourSuccess 
+if ($overallSetStatus -eq "FAILURE") {
+    $titleFgColor = $Global:ColourError 
+} elseif ($overallSetStatus -eq "WARNINGS") {
+    $titleFgColor = $Global:ColourWarning
+} elseif ($overallSetStatus -eq "SIMULATED_COMPLETE") {
+    $titleFgColor = $Global:ColourSimulate
+}
+
+
+Write-Host # Blank line before
+Write-Host ("╔" + ("═" * ($bannerWidth - 2)) + "╗") -ForegroundColor $Global:ColourHeading
+
+# Write the title line piece by piece for correct coloring
+Write-Host "║ " -ForegroundColor $Global:ColourHeading -NoNewline
+Write-Host $innerText -ForegroundColor $titleFgColor -NoNewline
+Write-Host " ║" -ForegroundColor $Global:ColourHeading
+
+Write-Host ("╚" + ("═" * ($bannerWidth - 2)) + "╝") -ForegroundColor $Global:ColourHeading
+# --- End New Completion Banner ---
 
 if ($IsSimulateMode.IsPresent -and $overallSetStatus -ne "FAILURE" -and $overallSetStatus -ne "WARNINGS") {
     $overallSetStatus = "SIMULATED_COMPLETE"
