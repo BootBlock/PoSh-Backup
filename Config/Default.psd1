@@ -188,7 +188,7 @@
                                                                       # "Console": (Default) Uses 7-Zip's default console SFX module (e.g., 7zCon.sfx). Extracts to current dir without prompt.
                                                                       # "GUI": Uses 7-Zip's standard GUI SFX module (e.g., 7zS.sfx). Prompts user for extraction path.
                                                                       # "Installer": Uses 7-Zip's installer-like GUI SFX module (e.g., 7zSD.sfx). Prompts user for extraction path.
-    DefaultSplitVolumeSize          = "2m"                              # NEW: Global default for splitting archives. Empty means no split.
+    DefaultSplitVolumeSize          = ""                              # NEW: Global default for splitting archives. Empty means no split.
                                                                       # Examples: "100m" (100 Megabytes), "4g" (4 Gigabytes), "700k" (700 Kilobytes).
                                                                       # Use 'k', 'm', 'g'. Case might matter for 7-Zip; schema will enforce lowercase.
     #endregion

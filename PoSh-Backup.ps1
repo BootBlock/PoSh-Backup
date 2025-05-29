@@ -351,7 +351,7 @@ Write-Host "        $authorName" -ForegroundColor $authorInfoColor -NoNewline
 Write-Host " : " -ForegroundColor $Global:ColourHeading -NoNewline
 Write-Host $githubLink -ForegroundColor $authorInfoColor
 
-Write-Host "$    " -ForegroundColor $authorInfoColor -NoNewline 
+Write-Host "    " -ForegroundColor $authorInfoColor -NoNewline 
 Write-Host "            : " -ForegroundColor $Global:ColourHeading -NoNewline 
 Write-Host $websiteLink -ForegroundColor $authorInfoColor
 Write-Host # Blank line after author info
