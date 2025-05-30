@@ -1,0 +1,268 @@
+# Modules\Core\Operations\JobExecutor.psm1
+<#
+.SYNOPSIS
+    Executes the core backup operations for a single PoSh-Backup job.
+    This module is a sub-component of the Core Operations facade.
+    It now delegates post-job hook execution to JobExecutor.PostJobHookHandler.psm1,
+    local retention policy execution to JobExecutor.LocalRetentionHandler.psm1,
+    and remote transfer orchestration to JobExecutor.RemoteTransferHandler.psm1.
+
+.DESCRIPTION
+    The JobExecutor module encapsulates the entire lifecycle of processing a single, defined backup job.
+    It is called by the Operations.psm1 facade (in Modules\Core).
+
+    The primary exported function, Invoke-PoShBackupJob, performs the following sequence:
+    1.  Receives the effective configuration.
+    2.  Calls 'Invoke-PoShBackupJobPreProcessing' (from Modules\Operations\JobPreProcessor.psm1).
+    3.  If pre-processing is successful, calls 'Invoke-LocalArchiveOperation' (from Modules\Operations\LocalArchiveProcessor.psm1).
+    4.  Checks if local archive verification passed.
+    5.  Calls 'Invoke-PoShBackupLocalRetentionExecution' (from Modules\Core\Operations\JobExecutor.LocalRetentionHandler.psm1).
+    6.  If local operations were successful and remote targets are defined (and not skipped),
+        calls 'Invoke-PoShBackupRemoteTransferExecution' (from Modules\Core\Operations\JobExecutor.RemoteTransferHandler.psm1).
+    7.  Cleans up VSS shadow copies (via VssManager.psm1).
+    8.  Calls 'Invoke-PoShBackupPostJobHooks' (from Modules\Core\Operations\JobExecutor.PostJobHookHandler.psm1).
+    9.  Returns overall job status.
+
+.NOTES
+    Author:         Joe Cox/AI Assistant
+    Version:        1.3.0 # Delegated remote transfer orchestration to sub-module.
+    DateCreated:    30-May-2025
+    LastModified:   30-May-2025
+    Purpose:        Handles the execution logic for individual backup jobs.
+    Prerequisites:  PowerShell 5.1+, 7-Zip installed.
+                    All core PoSh-Backup modules and target provider modules.
+                    Sub-modules JobExecutor.PostJobHookHandler.psm1, JobExecutor.LocalRetentionHandler.psm1,
+                    and JobExecutor.RemoteTransferHandler.psm1.
+                    Administrator privileges for VSS.
+#>
+
+# Explicitly import Utils.psm1 and other direct dependencies.
+# $PSScriptRoot here refers to the directory of JobExecutor.psm1 (Modules\Core\Operations).
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Operations\JobPreProcessor.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Operations\LocalArchiveProcessor.psm1") -Force -ErrorAction Stop
+    # RemoteTransferOrchestrator is now primarily used by JobExecutor.RemoteTransferHandler.psm1
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\..\Managers\VssManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.PostJobHookHandler.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalRetentionHandler.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.RemoteTransferHandler.psm1") -Force -ErrorAction Stop # NEW SUB-MODULE
+}
+catch {
+    Write-Error "JobExecutor.psm1 (in Modules\Core\Operations) FATAL: Could not import one or more dependent modules. Error: $($_.Exception.Message)"
+    throw
+}
+
+#region --- Main Job Processing Function ---
+function Invoke-PoShBackupJob {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$JobName,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$JobConfig, # This is the *effective* job configuration
+        [Parameter(Mandatory = $true)]
+        [hashtable]$GlobalConfig,
+        [Parameter(Mandatory = $true)]
+        [string]$PSScriptRootForPaths, # PSScriptRoot of the main PoSh-Backup.ps1
+        [Parameter(Mandatory = $true)]
+        [string]$ActualConfigFile,
+        [Parameter(Mandatory = $true)]
+        [ref]$JobReportDataRef,
+        [Parameter(Mandatory = $false)]
+        [switch]$IsSimulateMode,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
+    )
+
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        }
+        else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    & $LocalWriteLog -Message "Core/Operations/JobExecutor/Invoke-PoShBackupJob: Logger parameter active for job '$JobName'." -Level "DEBUG"
+
+    $currentJobStatus = "SUCCESS"
+    $finalLocalArchivePath = $null
+    $archiveFileNameOnly = $null
+    $VSSPathsToCleanUp = $null 
+    $reportData = $JobReportDataRef.Value
+    $reportData.IsSimulationReport = $IsSimulateMode.IsPresent
+    $reportData.TargetTransfers = [System.Collections.Generic.List[object]]::new()
+    $reportData.ArchiveChecksum = "N/A"
+    $reportData.ArchiveChecksumAlgorithm = "N/A"
+    $reportData.ArchiveChecksumFile = "N/A"
+    $reportData.ArchiveChecksumVerificationStatus = "Not Performed"
+    $plainTextPasswordToClearAfterJob = $null 
+    $effectiveJobConfig = $null 
+
+    if (-not ($reportData.PSObject.Properties.Name -contains 'ScriptStartTime')) {
+        $reportData['ScriptStartTime'] = Get-Date
+    }
+
+    try {
+        $effectiveJobConfig = $JobConfig 
+
+        # --- Call Job Pre-Processor ---
+        $preProcessingParams = @{
+            JobName            = $JobName
+            EffectiveJobConfig = $effectiveJobConfig
+            IsSimulateMode     = $IsSimulateMode.IsPresent
+            Logger             = $Logger
+            PSCmdlet           = $PSCmdlet
+            ActualConfigFile   = $ActualConfigFile
+            JobReportDataRef   = $JobReportDataRef
+        }
+        $preProcessingResult = Invoke-PoShBackupJobPreProcessing @preProcessingParams
+
+        if (-not $preProcessingResult.Success) {
+            $currentJobStatus = "FAILURE"
+            if ([string]::IsNullOrWhiteSpace($reportData.ErrorMessage) -and (-not [string]::IsNullOrWhiteSpace($preProcessingResult.ErrorMessage))) {
+                $reportData.ErrorMessage = $preProcessingResult.ErrorMessage
+            }
+            & $LocalWriteLog -Message "[ERROR] JobExecutor: Job pre-processing failed for job '$JobName'. Status set to FAILURE. Reason: $($preProcessingResult.ErrorMessage)" -Level "ERROR"
+        }
+        else {
+            $currentJobSourcePathFor7Zip = $preProcessingResult.CurrentJobSourcePathFor7Zip
+            $actualPlainTextPasswordFromPreProcessing = $preProcessingResult.ActualPlainTextPassword
+            $VSSPathsToCleanUp = $preProcessingResult.VSSPathsInUse 
+            $plainTextPasswordToClearAfterJob = $preProcessingResult.PlainTextPasswordToClear
+            
+            & $LocalWriteLog -Message " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
+            & $LocalWriteLog -Message "   - Effective Source Path(s) (after VSS if any): $(if ($currentJobSourcePathFor7Zip -is [array]) {$currentJobSourcePathFor7Zip -join '; '} else {$currentJobSourcePathFor7Zip})"
+            & $LocalWriteLog -Message "   - Destination/Staging Dir: $($effectiveJobConfig.DestinationDir)"
+            & $LocalWriteLog -Message "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)"
+            & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod) (Source: $($reportData.PasswordSource))"
+            & $LocalWriteLog -Message "   - Treat 7-Zip Warnings as Success: $($effectiveJobConfig.TreatSevenZipWarningsAsSuccess)"
+            & $LocalWriteLog -Message "   - 7-Zip CPU Affinity     : $(if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.JobSevenZipCpuAffinity)) {'Not Set (Uses 7-Zip Default)'} else {$effectiveJobConfig.JobSevenZipCpuAffinity})"
+            & $LocalWriteLog -Message "   - Split Volume Size      : $(if ([string]::IsNullOrWhiteSpace($effectiveJobConfig.SplitVolumeSize)) {'Not Set (Single Volume)'} else {$effectiveJobConfig.SplitVolumeSize})"
+            & $LocalWriteLog -Message "   - Verify Local Archive Before Transfer: $($effectiveJobConfig.VerifyLocalArchiveBeforeTransfer)"
+            & $LocalWriteLog -Message "   - Local Retention Deletion Confirmation: $($effectiveJobConfig.RetentionConfirmDelete)"
+            & $LocalWriteLog -Message "   - Generate Archive Checksum: $($effectiveJobConfig.GenerateArchiveChecksum)"
+            & $LocalWriteLog -Message "   - Checksum Algorithm       : $($effectiveJobConfig.ChecksumAlgorithm)"
+            & $LocalWriteLog -Message "   - Verify Checksum on Test  : $($effectiveJobConfig.VerifyArchiveChecksumOnTest)"
+            if ($effectiveJobConfig.TargetNames.Count -gt 0) {
+                & $LocalWriteLog -Message "   - Remote Target Name(s)  : $($effectiveJobConfig.TargetNames -join ', ')"
+                & $LocalWriteLog -Message "   - Delete Local Staged Archive After Successful Transfer(s): $($effectiveJobConfig.DeleteLocalArchiveAfterSuccessfulTransfer)"
+            }
+            else {
+                & $LocalWriteLog -Message "   - Remote Target Name(s)  : (None specified - local backup only)"
+            }
+
+            # --- Call Local Archive Processor ---
+            $localArchiveOpParams = @{
+                EffectiveJobConfig          = $effectiveJobConfig
+                CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip
+                ArchivePasswordPlainText    = $actualPlainTextPasswordFromPreProcessing 
+                JobReportDataRef            = $JobReportDataRef 
+                IsSimulateMode              = $IsSimulateMode.IsPresent
+                Logger                      = $Logger
+                PSCmdlet                    = $PSCmdlet
+                GlobalConfig                = $GlobalConfig 
+                SevenZipCpuAffinityString   = $effectiveJobConfig.JobSevenZipCpuAffinity
+            }
+            $localArchiveResult = Invoke-LocalArchiveOperation @localArchiveOpParams
+
+            $currentJobStatus = $localArchiveResult.Status
+            $finalLocalArchivePath = $localArchiveResult.FinalArchivePath
+            $archiveFileNameOnly = $localArchiveResult.ArchiveFileNameOnly
+
+            $skipRemoteTransfersDueToLocalVerificationFailure = $false
+            if ($effectiveJobConfig.VerifyLocalArchiveBeforeTransfer -and $currentJobStatus -ne "SUCCESS" -and $currentJobStatus -ne "SIMULATED_COMPLETE") {
+                $skipRemoteTransfersDueToLocalVerificationFailure = $true
+                & $LocalWriteLog -Message "[WARNING] JobExecutor: Remote target transfers for job '$JobName' will be SKIPPED because 'VerifyLocalArchiveBeforeTransfer' is enabled and local archive processing/verification status is '$currentJobStatus'." -Level "WARNING"
+                $reportData.TargetTransfersSkippedReason = "Local archive verification failed (Status: $currentJobStatus)"
+            }
+
+            # --- Local Retention (Delegated) ---
+            Invoke-PoShBackupLocalRetentionExecution -JobName $JobName `
+                -EffectiveJobConfig $effectiveJobConfig `
+                -IsSimulateMode:$IsSimulateMode `
+                -Logger $Logger `
+                -PSCmdlet $PSCmdlet
+
+            # --- Remote Target Transfers (Delegated) ---
+            $allRemoteTransfersSucceeded = Invoke-PoShBackupRemoteTransferExecution -JobName $JobName `
+                -EffectiveJobConfig $effectiveJobConfig `
+                -FinalLocalArchivePath $finalLocalArchivePath `
+                -ArchiveFileNameOnly $archiveFileNameOnly `
+                -JobReportDataRef $JobReportDataRef `
+                -IsSimulateMode:$IsSimulateMode `
+                -Logger $Logger `
+                -PSCmdlet $PSCmdlet `
+                -PSScriptRootForPaths $PSScriptRootForPaths `
+                -CurrentJobStatusForTransferCheck $currentJobStatus `
+                -SkipRemoteTransfersDueToLocalVerificationFailure $skipRemoteTransfersDueToLocalVerificationFailure
+            
+            if (-not $allRemoteTransfersSucceeded) {
+                if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
+            }
+        }
+    }
+    catch {
+        $errorMessageText = "FATAL UNHANDLED EXCEPTION in Invoke-PoShBackupJob for job '$JobName': $($_.Exception.ToString())"
+        & $LocalWriteLog -Message $errorMessageText -Level "ERROR"
+        $currentJobStatus = "FAILURE"
+        $reportData.ErrorMessage = if ([string]::IsNullOrWhiteSpace($reportData.ErrorMessage)) { $_.Exception.ToString() } else { "$($reportData.ErrorMessage); $($_.Exception.ToString())" }
+        Write-Error -Message $errorMessageText -Exception $_.Exception -ErrorAction Continue
+    }
+    finally {
+        if ($null -ne $VSSPathsToCleanUp) {
+            & $LocalWriteLog -Message "JobExecutor: Initiating VSS Cleanup via VssManager for job '$JobName'." -Level "DEBUG"
+            Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger 
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($plainTextPasswordToClearAfterJob)) {
+            try {
+                $plainTextPasswordToClearAfterJob = $null; Remove-Variable plainTextPasswordToClearAfterJob -Scope Script -ErrorAction SilentlyContinue; [System.GC]::Collect(); [System.GC]::WaitForPendingFinalizers()
+                & $LocalWriteLog -Message "   - Plain text password for job '$JobName' cleared from JobExecutor module memory." -Level DEBUG
+            }
+            catch { & $LocalWriteLog -Message "[WARNING] Exception while clearing plain text password from JobExecutor module memory for job '$JobName'. Error: $($_.Exception.Message)" -Level WARNING }
+        }
+
+        if ($IsSimulateMode.IsPresent -and $currentJobStatus -ne "FAILURE" -and $currentJobStatus -ne "WARNINGS") {
+            $reportData.OverallStatus = "SIMULATED_COMPLETE"
+        }
+        else {
+            $reportData.OverallStatus = $currentJobStatus
+        }
+
+        $reportData.ScriptEndTime = Get-Date
+        if (($reportData.PSObject.Properties.Name -contains 'ScriptStartTime') -and ($null -ne $reportData.ScriptStartTime)) {
+            $reportData.TotalDuration = $reportData.ScriptEndTime - $reportData.ScriptStartTime
+            if ($reportData.PSObject.Properties.Name -contains 'TotalDurationSeconds' -and $reportData.TotalDuration -is [System.TimeSpan]) {
+                $reportData.TotalDurationSeconds = $reportData.TotalDuration.TotalSeconds
+            }
+            elseif ($reportData.TotalDuration -is [System.TimeSpan]) {
+                $reportData.TotalDurationSeconds = $reportData.TotalDuration.TotalSeconds
+            }
+        }
+        else {
+            $reportData.TotalDuration = "N/A (Timing data incomplete)"; $reportData.TotalDurationSeconds = 0
+        }
+
+        if ($null -ne $effectiveJobConfig) { 
+            Invoke-PoShBackupPostJobHooks -JobName $JobName `
+                -ReportDataOverallStatus $reportData.OverallStatus `
+                -FinalLocalArchivePath $finalLocalArchivePath `
+                -ActualConfigFile $ActualConfigFile `
+                -IsSimulateMode:$IsSimulateMode `
+                -EffectiveJobConfig $effectiveJobConfig `
+                -ReportData $reportData `
+                -Logger $Logger
+        } else {
+            & $LocalWriteLog -Message "[WARNING] JobExecutor: EffectiveJobConfig was not resolved. Post-job hooks cannot be executed for job '$JobName'." -Level "WARNING"
+        }
+    }
+
+    return @{ Status = $currentJobStatus }
+}
+#endregion
+
+Export-ModuleMember -Function Invoke-PoShBackupJob
