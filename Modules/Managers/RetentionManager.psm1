@@ -95,17 +95,17 @@ function Invoke-BackupRetentionPolicy {
         $ErrorActionPreference = 'Stop' # Force errors within this try block to be terminating
         & $LocalWriteLog -Message "RetentionManager (Facade): Temporarily set ErrorActionPreference to 'Stop'." -Level "DEBUG"
 
-        & $LocalWriteLog -Message "RetentionManager (Facade): Calling Find-BackupArchiveInstances..." -Level "DEBUG"
-        $backupInstances = Find-BackupArchiveInstances -DestinationDirectory $DestinationDirectory `
-                                                        -ArchiveBaseFileName $ArchiveBaseFileName `
-                                                        -ArchiveExtension $ArchiveExtension `
-                                                        -Logger $Logger 
-                                                        # ErrorAction Stop is now inherited
+        & $LocalWriteLog -Message "RetentionManager (Facade): Calling Find-BackupArchiveInstance..." -Level "DEBUG"
+        $backupInstances = Find-BackupArchiveInstance -DestinationDirectory $DestinationDirectory `
+                                                      -ArchiveBaseFileName $ArchiveBaseFileName `
+                                                      -ArchiveExtension $ArchiveExtension `
+                                                      -Logger $Logger 
+                                                      # ErrorAction Stop is now inherited
         
-        & $LocalWriteLog -Message "RetentionManager (Facade): Find-BackupArchiveInstances returned $($backupInstances.Count) instance(s)." -Level "DEBUG"
+        & $LocalWriteLog -Message "RetentionManager (Facade): Find-BackupArchiveInstance returned $($backupInstances.Count) instance(s)." -Level "DEBUG"
 
         if ($null -eq $backupInstances) {
-            & $LocalWriteLog -Message "   - RetentionManager (Facade): Find-BackupArchiveInstances returned null. No retention actions needed." -Level "WARNING"
+            & $LocalWriteLog -Message "   - RetentionManager (Facade): Find-BackupArchiveInstance returned null. No retention actions needed." -Level "WARNING"
             return
         }
         if ($backupInstances.Count -eq 0) {
@@ -136,11 +136,10 @@ function Invoke-BackupRetentionPolicy {
         if ($sortedInstances.Count -gt $numberOfOldInstancesToPreserve) {
             $instancesToDelete = $sortedInstances | Select-Object -Skip $numberOfOldInstancesToPreserve
             & $LocalWriteLog -Message "[INFO] RetentionManager (Facade): Found $($sortedInstances.Count) existing backup instance(s). Will attempt to delete $($instancesToDelete.Count) older instance(s) to meet retention ($RetentionCountToKeep total target)." -Level "INFO"
-            & $LocalWriteLog -Message "RetentionManager (Facade): Calling Remove-OldBackupArchiveInstances..." -Level "DEBUG"
+            & $LocalWriteLog -Message "RetentionManager (Facade): Calling Remove-OldBackupArchiveInstance..." -Level "DEBUG"
 
-            Remove-OldBackupArchiveInstances -InstancesToDelete $instancesToDelete `
+            Remove-OldBackupArchiveInstance -InstancesToDelete $instancesToDelete `
                 -EffectiveSendToRecycleBin $effectiveSendToRecycleBin `
-                -VBAssemblyLoaded $VBAssemblyLoaded `
                 -RetentionConfirmDeleteFromConfig $RetentionConfirmDeleteFromConfig `
                 -IsSimulateMode:$IsSimulateMode `
                 -Logger $Logger `

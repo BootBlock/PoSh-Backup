@@ -3,7 +3,7 @@
 .SYNOPSIS
     Sub-module for RetentionManager. Handles scanning for and grouping backup archive instances.
 .DESCRIPTION
-    This module contains the 'Find-BackupArchiveInstances' function, responsible for
+    This module contains the 'Find-BackupArchiveInstance' function, responsible for
     identifying all relevant backup files (single or multi-volume parts) in a given
     directory that match a base name and extension. It groups these files into logical
     "backup instances" and determines a sortable timestamp for each instance.
@@ -27,7 +27,7 @@ catch {
 }
 
 #region --- Archive Instance Scanner ---
-function Find-BackupArchiveInstances {
+function Find-BackupArchiveInstance {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -40,7 +40,7 @@ function Find-BackupArchiveInstances {
         [scriptblock]$Logger
     )
 
-    & $Logger -Message "RetentionManager/Scanner/Find-BackupArchiveInstances: Logger active for base '$ArchiveBaseFileName', ext '$ArchiveExtension'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "RetentionManager/Scanner/Find-BackupArchiveInstance: Logger active for base '$ArchiveBaseFileName', ext '$ArchiveExtension'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
@@ -127,4 +127,4 @@ function Find-BackupArchiveInstances {
 }
 #endregion
 
-Export-ModuleMember -Function Find-BackupArchiveInstances
+Export-ModuleMember -Function Find-BackupArchiveInstance

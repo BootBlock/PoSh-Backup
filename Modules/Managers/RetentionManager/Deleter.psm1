@@ -3,7 +3,7 @@
 .SYNOPSIS
     Sub-module for RetentionManager. Handles the deletion of backup archive instances.
 .DESCRIPTION
-    This module contains the 'Remove-OldBackupArchiveInstances' function, which takes a list
+    This module contains the 'Remove-OldBackupArchiveInstance' function, which takes a list
     of backup instances (each potentially comprising multiple files for split archives)
     and deletes them according to the specified parameters (Recycle Bin, simulation mode, etc.).
     It also includes the internal helper for Recycle Bin operations.
@@ -68,15 +68,13 @@ function Invoke-VisualBasicFileOperationInternal {
 #endregion
 
 #region --- Archive Instance Deleter ---
-function Remove-OldBackupArchiveInstances {
+function Remove-OldBackupArchiveInstance {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [array]$InstancesToDelete, 
         [Parameter(Mandatory = $true)]
         [bool]$EffectiveSendToRecycleBin,
-        [Parameter(Mandatory = $true)]
-        [bool]$VBAssemblyLoaded, 
         [Parameter(Mandatory = $true)]
         [bool]$RetentionConfirmDeleteFromConfig, # True = Prompt (respect $ConfirmPreference), False = No Prompt (-Confirm:$false)
         [Parameter(Mandatory = $true)]
@@ -87,7 +85,7 @@ function Remove-OldBackupArchiveInstances {
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
 
-    & $Logger -Message "RetentionManager/Deleter/Remove-OldBackupArchiveInstances: Logger active. Instances to delete count: $($InstancesToDelete.Count). RetentionConfirmDeleteFromConfig: $RetentionConfirmDeleteFromConfig" -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "RetentionManager/Deleter/Remove-OldBackupArchiveInstance: Logger active. Instances to delete count: $($InstancesToDelete.Count). RetentionConfirmDeleteFromConfig: $RetentionConfirmDeleteFromConfig" -Level "DEBUG" -ErrorAction SilentlyContinue
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
@@ -160,4 +158,4 @@ function Remove-OldBackupArchiveInstances {
 }
 #endregion
 
-Export-ModuleMember -Function Remove-OldBackupArchiveInstances
+Export-ModuleMember -Function Remove-OldBackupArchiveInstance
