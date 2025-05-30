@@ -52,7 +52,7 @@ function Get-BundlerAIState {
     # $PSScriptRoot for this module (Bundle.StateAndAssembly.psm1) is Meta\BundlerModules
     # The AIState.template.psd1 is intended to be in Meta\
     $aiStateTemplatePath = Join-Path -Path $PSScriptRoot -ChildPath "..\AIState.template.psd1"
-    
+
     $aiState = $null
     try {
         $aiState = Import-PowerShellDataFile -LiteralPath $aiStateTemplatePath -ErrorAction Stop
@@ -71,7 +71,7 @@ function Get-BundlerAIState {
     $aiState.bundler_script_version = $BundlerScriptVersion
     $aiState.project_root_folder_name = $ProjectRoot_DisplayName
     $aiState.module_descriptions = $AutoDetectedModuleDescriptions
-    
+
     $psModulesForState = @()
     if ($null -ne $AutoDetectedPsDependencies) {
         try {
@@ -85,7 +85,7 @@ function Get-BundlerAIState {
     $aiState.external_dependencies.powershell_modules = $psModulesForState
 
     $thisModuleVersion = "1.1.16" # Updated version for this module's change
-    
+
     $currentConversationSummary = @(
         "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v$($PoShBackupVersion)).", # Using dynamic version
         "Modular design: Core modules (now including Modules\\Core\\), Reporting sub-modules (including Modules\\Reporting\\Assets), ConfigManagement sub-modules (including Modules\\ConfigManagement\\Assets), Utilities sub-modules (Modules\\Utilities\\), Config files, and Meta/ (bundler).",
@@ -118,7 +118,7 @@ function Get-BundlerAIState {
         "      4. Local test functions call `Write-LogMessage` directly (which hits the mock).",
         "      5. Assertions use `Should -Invoke Write-LogMessage -Times X -ParameterFilter {...}`.",
         "    - **`Get-FileHash` Mocking Strategy (for error handling test):**",
-        "      1. Modified local copy of `Get-PoshBackupFileHash` to accept an optional `[scriptblock]`$InjectedFileHashCommand`` parameter (defaulting to `(Get-Command Get-FileHash)`).", 
+        "      1. Modified local copy of `Get-PoshBackupFileHash` to accept an optional `[scriptblock]`$InjectedFileHashCommand`` parameter (defaulting to `(Get-Command Get-FileHash)`).",
         "      2. Test injects a throwing scriptblock for this parameter.",
         "    - **Current Status:** All 12 tests for `FileUtils.Tests.ps1` are now passing with these strategies.",
         "  - Key Pester 5.7.1 findings for this environment (added to AI Watch List): Emphasized the 'local function copy' workaround (Pattern B) and the direct import pattern (Pattern A). Detailed successful mocking and data scoping strategies.",

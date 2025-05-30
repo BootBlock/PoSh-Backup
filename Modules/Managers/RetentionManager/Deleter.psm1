@@ -52,7 +52,7 @@ function Invoke-VisualBasicFileOperationInternal {
             & $Logger -Message $Message -Level $Level
         }
     }
-    
+
     try {
         Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop
     } catch {
@@ -72,7 +72,7 @@ function Remove-OldBackupArchiveInstance {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
-        [array]$InstancesToDelete, 
+        [array]$InstancesToDelete,
         [Parameter(Mandatory = $true)]
         [bool]$EffectiveSendToRecycleBin,
         [Parameter(Mandatory = $true)]
@@ -106,30 +106,30 @@ function Remove-OldBackupArchiveInstance {
         $instanceSortTime = $instanceEntry.Value.SortTime
 
         & $LocalWriteLog -Message "   - RetentionManager/Deleter: Preparing to delete backup instance '$instanceIdentifierToDelete' (Sorted by Time: $instanceSortTime)." -Level "WARNING"
-        
+
         foreach ($fileToDeleteInfo in $instanceFilesToDelete) {
             $deleteActionMessage = if ($EffectiveSendToRecycleBin) {"Send to Recycle Bin"} else {"Permanently Delete"}
             $shouldProcessTarget = $fileToDeleteInfo.FullName
-            
+
             if ($IsSimulateMode.IsPresent) {
                 & $LocalWriteLog -Message "       - SIMULATE: Would $deleteActionMessage '$($fileToDeleteInfo.FullName)' (Part of instance '$instanceIdentifierToDelete', Created: $($fileToDeleteInfo.CreationTime))" -Level "SIMULATE"
-                continue 
+                continue
             }
 
             if (-not $PSCmdlet.ShouldProcess($shouldProcessTarget, $deleteActionMessage)) {
                 & $LocalWriteLog -Message "       - RetentionManager/Deleter: Deletion of file '$($fileToDeleteInfo.FullName)' skipped by user (ShouldProcess)." -Level "WARNING"
                 continue
             }
-            
-            & $LocalWriteLog -Message "       - Deleting: $($fileToDeleteInfo.FullName) (Created: $($fileToDeleteInfo.CreationTime))" -Level "WARNING" 
+
+            & $LocalWriteLog -Message "       - Deleting: $($fileToDeleteInfo.FullName) (Created: $($fileToDeleteInfo.CreationTime))" -Level "WARNING"
             try {
                 if ($EffectiveSendToRecycleBin) {
-                    $vbUIOption = if ($RetentionConfirmDeleteFromConfig) { 
-                                      [Microsoft.VisualBasic.FileIO.UIOption]::AllDialogs 
-                                  } else { 
-                                      [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs 
+                    $vbUIOption = if ($RetentionConfirmDeleteFromConfig) {
+                                      [Microsoft.VisualBasic.FileIO.UIOption]::AllDialogs
+                                  } else {
+                                      [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs
                                   }
-                    
+
                     Invoke-VisualBasicFileOperationInternal -Path $fileToDeleteInfo.FullName -Operation "DeleteFile" `
                         -RecycleOption ([Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin) `
                         -UIOption $vbUIOption `
@@ -137,7 +137,7 @@ function Remove-OldBackupArchiveInstance {
                     & $LocalWriteLog -Message "         - Status: MOVED TO RECYCLE BIN" -Level "SUCCESS"
                 } else {
                     $removeItemParams = @{ LiteralPath = $fileToDeleteInfo.FullName; Force = $true; ErrorAction = 'Stop' }
-                    
+
                     # If RetentionConfirmDeleteFromConfig is $false (meaning "don't prompt from config"),
                     # then add -Confirm:$false to the splatting parameters.
                     # Otherwise, do NOT add -Confirm to splatting, allowing Remove-Item to use $ConfirmPreference.
@@ -146,7 +146,7 @@ function Remove-OldBackupArchiveInstance {
                     }
                     # If $RetentionConfirmDeleteFromConfig is $true, 'Confirm' is NOT added to $removeItemParams.
                     # Remove-Item will then respect $ConfirmPreference.
-                    
+
                     Remove-Item @removeItemParams
                     & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level "SUCCESS"
                 }

@@ -132,7 +132,7 @@ function Invoke-PoShBackupPostRunActionHandler {
     }
 
     # If we reach here, an action was configured. Now log initialization and proceed.
-    # This next line will not appear if $isAnyActionConfigured is false due to the return above.    
+    # This next line will not appear if $isAnyActionConfigured is false due to the return above.
     & $LocalWriteLog -Message "PostRunActionOrchestrator: Initializing post-run action handling. Overall Status: $OverallStatus" -Level "DEBUG"
 
     if ($null -ne $finalPostRunActionToConsider) { # This check is now implicitly true if $isAnyActionConfigured is true

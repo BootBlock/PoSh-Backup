@@ -95,7 +95,7 @@ function Invoke-ReportGenerator {
     #>
     param(
         [Parameter(Mandatory=$true)]
-        [string]$ReportDirectory, 
+        [string]$ReportDirectory,
         [Parameter(Mandatory=$true)]
         [string]$JobName,
         [Parameter(Mandatory=$true)]
@@ -117,7 +117,7 @@ function Invoke-ReportGenerator {
             & $Logger -Message $Message -Level $Level
         }
     }
-    
+
     # Defensive PSSA appeasement line
     & $LocalWriteLog -Message "Invoke-ReportGenerator: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
@@ -201,7 +201,7 @@ function Invoke-ReportGenerator {
                 if ($reportFunctionCmd.Parameters.ContainsKey('JobConfig')) {
                     $reportParams.JobConfig = $JobConfig
                 }
-                
+
                 # Call the specific report generation function
                 & $invokeFunctionName @reportParams
 

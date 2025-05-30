@@ -133,26 +133,26 @@ function Invoke-UserConfigCreationPromptInternal {
                                 break
                             }
                         }
-                        
+
                         $contentWithoutOriginalHeader = ""
                         if ($headerEndLineIndex -ne -1 -and ($headerEndLineIndex + 1) -lt $lines.Count) {
                             $contentWithoutOriginalHeader = ($lines[($headerEndLineIndex + 1)..$($lines.Count -1)]) -join ""
                         } else {
                             if ($lines[0].TrimStart().StartsWith("# Config\Default.psd1")) {
-                                $estimatedHeaderLines = 5 
+                                $estimatedHeaderLines = 5
                                 if ($lines.Count -gt $estimatedHeaderLines) {
                                      $contentWithoutOriginalHeader = ($lines[$estimatedHeaderLines..($lines.Count -1)]) -join ""
                                 } else {
-                                    $contentWithoutOriginalHeader = $defaultContent 
+                                    $contentWithoutOriginalHeader = $defaultContent
                                 }
                             } else {
-                                 $contentWithoutOriginalHeader = $defaultContent 
+                                 $contentWithoutOriginalHeader = $defaultContent
                             }
                         }
-                        
+
                         $finalUserContent = $userNotice + $userHeader + "`r`n" + $contentWithoutOriginalHeader.TrimStart()
                         Set-Content -Path $DefaultUserConfigPathInternal -Value $finalUserContent -Encoding UTF8 -Force -ErrorAction Stop
-                        
+
                         & $LocalWriteLogInternal -Message "[SUCCESS] ConfigLoader/UserConfigHandler: '$DefaultUserConfigFileNameInternal' has been created with tailored content in '$DefaultConfigDirInternal'." -Level "SUCCESS"
                         & $LocalWriteLogInternal -Message "          Please edit '$DefaultUserConfigFileNameInternal' with your desired settings and then re-run PoSh-Backup." -Level "INFO"
                         & $LocalWriteLogInternal -Message "          Script will now exit." -Level "INFO"
@@ -166,7 +166,7 @@ function Invoke-UserConfigCreationPromptInternal {
                                }
                            }
                         }
-                        exit 0 
+                        exit 0
                     } catch {
                         & $LocalWriteLogInternal -Message "[ERROR] ConfigLoader/UserConfigHandler: Failed to create '$DefaultUserConfigFileNameInternal' from '$DefaultBaseConfigFileNameInternal'. Error: $($_.Exception.Message)" -Level "ERROR"
                         & $LocalWriteLogInternal -Message "          Please create '$DefaultUserConfigFileNameInternal' manually if desired. Script will continue with base configuration." -Level "WARNING"

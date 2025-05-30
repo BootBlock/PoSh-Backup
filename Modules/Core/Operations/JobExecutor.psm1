@@ -22,7 +22,7 @@
         a.  Calls 'Invoke-PoShBackupVssCleanup'.
         b.  Clears any in-memory plain text password.
         c.  Calls 'Invoke-PoShBackupJobFinalisation'.
-        d.  Calls 'Invoke-PoShBackupPostJobHooks'.
+        d.  Calls 'Invoke-PoShBackupPostJobHook'.
     6.  Returns overall job status.
 
 .NOTES
@@ -41,12 +41,12 @@
 # $PSScriptRoot here refers to the directory of JobExecutor.psm1 (Modules\Core\Operations).
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalBackupOrchestrator.psm1") -Force -ErrorAction Stop 
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalBackupOrchestrator.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.PostJobHookHandler.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalRetentionHandler.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.RemoteTransferHandler.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.VssCleanupHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.FinalisationHandler.psm1") -Force -ErrorAction Stop 
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.FinalisationHandler.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "JobExecutor.psm1 (in Modules\Core\Operations) FATAL: Could not import one or more dependent modules. Error: $($_.Exception.Message)"
@@ -88,10 +88,10 @@ function Invoke-PoShBackupJob {
     }
     & $LocalWriteLog -Message "Core/Operations/JobExecutor/Invoke-PoShBackupJob: Logger parameter active for job '$JobName'." -Level "DEBUG"
 
-    $currentJobStatus = "SUCCESS" 
+    $currentJobStatus = "SUCCESS"
     $finalLocalArchivePath = $null
     $archiveFileNameOnly = $null
-    $VSSPathsToCleanUp = $null 
+    $VSSPathsToCleanUp = $null
     $reportData = $JobReportDataRef.Value
     $reportData.IsSimulationReport = $IsSimulateMode.IsPresent
     $reportData.TargetTransfers = [System.Collections.Generic.List[object]]::new()
@@ -99,8 +99,8 @@ function Invoke-PoShBackupJob {
     $reportData.ArchiveChecksumAlgorithm = "N/A"
     $reportData.ArchiveChecksumFile = "N/A"
     $reportData.ArchiveChecksumVerificationStatus = "Not Performed"
-    $plainTextPasswordToClearAfterJob = $null 
-    $effectiveJobConfig = $null 
+    $plainTextPasswordToClearAfterJob = $null
+    $effectiveJobConfig = $null
     $skipRemoteTransfersDueToLocalVerificationFailure = $false
 
 
@@ -109,7 +109,7 @@ function Invoke-PoShBackupJob {
     }
 
     try {
-        $effectiveJobConfig = $JobConfig 
+        $effectiveJobConfig = $JobConfig
 
         # --- Call Local Backup Orchestrator (Handles PreProcessing and LocalArchiveOperation) ---
         $localBackupExecutionParams = @{
@@ -130,8 +130,8 @@ function Invoke-PoShBackupJob {
         $VSSPathsToCleanUp = $localBackupResult.VSSPathsToCleanUp
         $plainTextPasswordToClearAfterJob = $localBackupResult.PlainTextPasswordToClear
         $skipRemoteTransfersDueToLocalVerificationFailure = $localBackupResult.SkipRemoteTransfersDueToLocalVerification
-        
-        if ($localBackupResult.LocalBackupStatus -ne "FAILURE" -or $IsSimulateMode.IsPresent) { 
+
+        if ($localBackupResult.LocalBackupStatus -ne "FAILURE" -or $IsSimulateMode.IsPresent) {
             # Use $reportData.PSObject.Properties.Name for ordered dictionaries
             $resolvedSourcePathForLog = if ($reportData.PSObject.Properties.Name -contains 'EffectiveSourcePath') { $reportData.EffectiveSourcePath } else { $effectiveJobConfig.OriginalSourcePath }
             & $LocalWriteLog -Message " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
@@ -177,7 +177,7 @@ function Invoke-PoShBackupJob {
             -PSScriptRootForPaths $PSScriptRootForPaths `
             -CurrentJobStatusForTransferCheck $currentJobStatus `
             -SkipRemoteTransfersDueToLocalVerificationFailure $skipRemoteTransfersDueToLocalVerificationFailure
-        
+
         if (-not $allRemoteTransfersSucceeded) {
             if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
         }
@@ -197,8 +197,8 @@ function Invoke-PoShBackupJob {
 
         if (-not [string]::IsNullOrWhiteSpace($plainTextPasswordToClearAfterJob)) {
             try {
-                $plainTextPasswordToClearAfterJob = $null 
-                Remove-Variable plainTextPasswordToClearAfterJob -Scope Script -ErrorAction SilentlyContinue 
+                $plainTextPasswordToClearAfterJob = $null
+                Remove-Variable plainTextPasswordToClearAfterJob -Scope Script -ErrorAction SilentlyContinue
                 [System.GC]::Collect()
                 [System.GC]::WaitForPendingFinalizers()
                 & $LocalWriteLog -Message "   - Plain text password for job '$JobName' cleared from JobExecutor module memory." -Level DEBUG
@@ -213,8 +213,8 @@ function Invoke-PoShBackupJob {
             -PlainTextPasswordToClear $null `
             -Logger $Logger
 
-        if ($null -ne $effectiveJobConfig) { 
-            Invoke-PoShBackupPostJobHooks -JobName $JobName `
+        if ($null -ne $effectiveJobConfig) {
+            Invoke-PoShBackupPostJobHook -JobName $JobName `
                 -ReportDataOverallStatus $reportData.OverallStatus `
                 -FinalLocalArchivePath $finalLocalArchivePath `
                 -ActualConfigFile $ActualConfigFile `

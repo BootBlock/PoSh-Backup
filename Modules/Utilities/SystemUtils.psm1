@@ -87,7 +87,7 @@ function Test-DestinationFreeSpace {
     param(
         [string]$DestDir,
         [int]$MinRequiredGB,
-        [bool]$ExitOnLow, 
+        [bool]$ExitOnLow,
         [switch]$IsSimulateMode,
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
@@ -105,9 +105,9 @@ function Test-DestinationFreeSpace {
         }
     }
 
-    if ($MinRequiredGB -le 0) { return $true } 
+    if ($MinRequiredGB -le 0) { return $true }
 
-    & $LocalWriteLog -Message "`n[INFO] SystemUtils: Checking destination free space for '$DestDir'..." -Level "INFO" 
+    & $LocalWriteLog -Message "`n[INFO] SystemUtils: Checking destination free space for '$DestDir'..." -Level "INFO"
     & $LocalWriteLog -Message "   - Minimum free space required: $MinRequiredGB GB" -Level "INFO"
 
     if ($IsSimulateMode.IsPresent) {
@@ -118,7 +118,7 @@ function Test-DestinationFreeSpace {
     try {
         if (-not (Test-Path -LiteralPath $DestDir -PathType Container)) {
             & $LocalWriteLog -Message "[WARNING] SystemUtils: Destination directory '$DestDir' for free space check not found. Skipping." -Level WARNING
-            return $true 
+            return $true
         }
         $driveLetter = (Get-Item -LiteralPath $DestDir).PSDrive.Name
         $destDrive = Get-PSDrive -Name $driveLetter -ErrorAction Stop
@@ -129,7 +129,7 @@ function Test-DestinationFreeSpace {
             & $LocalWriteLog -Message "[WARNING] SystemUtils: Low disk space on destination. Available: $freeSpaceGB GB, Required: $MinRequiredGB GB." -Level WARNING
             if ($ExitOnLow) {
                 & $LocalWriteLog -Message "FATAL: SystemUtils: Exiting job due to insufficient free disk space (ExitOnLowSpaceIfBelowMinimum is true)." -Level ERROR
-                return $false 
+                return $false
             }
         }
         else {
@@ -139,7 +139,7 @@ function Test-DestinationFreeSpace {
     catch {
         & $LocalWriteLog -Message "[WARNING] SystemUtils: Could not determine free space for destination '$DestDir'. Check skipped. Error: $($_.Exception.Message)" -Level WARNING
     }
-    return $true 
+    return $true
 }
 #endregion
 

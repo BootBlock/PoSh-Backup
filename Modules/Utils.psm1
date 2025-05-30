@@ -42,7 +42,7 @@ try {
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "SystemUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "FileUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "StringUtils.psm1") -Force -ErrorAction Stop # NEW
-    
+
     # Import Write-LogMessage from LogManager.psm1 in Managers directory
     Import-Module -Name (Join-Path -Path $managersSubModulePath -ChildPath "LogManager.psm1") -Force -Function Write-LogMessage -ErrorAction Stop
 

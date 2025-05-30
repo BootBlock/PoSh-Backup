@@ -190,7 +190,7 @@ function Import-AppConfiguration {
                                  -IsTestConfigMode $IsTestConfigMode.IsPresent `
                                  -ListBackupLocationsSwitch $ListBackupLocationsSwitch `
                                  -ListBackupSetsSwitch $ListBackupSetsSwitch
-    
+
     # Delegate Advanced Schema Validation Invocation (only if no prior critical errors like missing 7zip path)
     if ($validationMessages.Count -eq 0 -or ($validationMessages | Where-Object {$_ -notlike "CRITICAL*"})) {
         Invoke-AdvancedSchemaValidationIfEnabled -Configuration $finalConfiguration `

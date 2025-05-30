@@ -94,7 +94,7 @@ function Invoke-PoShBackupJobFinalisation {
         $reportData.TotalDuration = "N/A (Timing data incomplete)"
         $reportData.TotalDurationSeconds = 0
     }
-    
+
     & $LocalWriteLog -Message "JobExecutor.FinalisationHandler/Invoke-PoShBackupJobFinalisation: Job finalisation tasks complete for job '$JobName'." -Level "DEBUG"
 }
 

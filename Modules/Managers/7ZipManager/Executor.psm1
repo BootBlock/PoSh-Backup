@@ -280,7 +280,7 @@ function Test-7ZipArchive {
     }
 
     & $LocalWriteLog -Message "   - 7ZipManager/Executor/Test Command (raw args before Invoke-7ZipOperation internal quoting): `"$SevenZipPathExe`" $($testArguments -join ' ')" -Level DEBUG
-    
+
     Write-ConsoleBanner -NameText "Testing Archive Integrity" -ValueText $ArchivePath -BannerWidth 78 -CenterText -PrependNewLine
 
     $invokeParams = @{

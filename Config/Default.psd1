@@ -423,8 +423,8 @@
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
             TreatSevenZipWarningsAsSuccess = $true                    # Example: For this job, 7-Zip warnings are considered success.
             SevenZipCpuAffinity        = "0"                          # Example: Restrict 7-Zip to core 0 for this job.
-            SevenZipIncludeListFile    = ""                           
-            SevenZipExcludeListFile    = ""                           
+            SevenZipIncludeListFile    = ""
+            SevenZipExcludeListFile    = ""
 
             # Checksum settings (will use global defaults if not specified here, e.g., DefaultGenerateArchiveChecksum = $false)
             # GenerateArchiveChecksum     = $false
@@ -459,8 +459,8 @@
             ChecksumAlgorithm           = "MD5"
             VerifyArchiveChecksumOnTest = $true
             SevenZipCpuAffinity         = "0x1"                       # Example: Restrict 7-Zip to core 0 (bitmask) for this job.
-            SevenZipIncludeListFile    = ""                           
-            SevenZipExcludeListFile    = ""                           
+            SevenZipIncludeListFile    = ""
+            SevenZipExcludeListFile    = ""
 
             # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
         }
@@ -491,8 +491,8 @@
             ChecksumAlgorithm           = "SHA512"
             VerifyArchiveChecksumOnTest = $true
             # SevenZipCpuAffinity will use global default if not specified
-            SevenZipIncludeListFile    = ""                           
-            SevenZipExcludeListFile    = ""                           
+            SevenZipIncludeListFile    = ""
+            SevenZipExcludeListFile    = ""
 
             PostRunAction = @{
                 Enabled         = $true
@@ -538,8 +538,8 @@
             ThreadsToUse            = 2
             SevenZipProcessPriority = "BelowNormal"
             SevenZipCpuAffinity     = "0,1,2,3"                       # Example: Use first 4 cores
-            SevenZipIncludeListFile = "\\SHARE\Config\WebApp_Includes.txt" 
-            SevenZipExcludeListFile = "\\SHARE\Config\WebApp_Excludes.txt" 
+            SevenZipIncludeListFile = "\\SHARE\Config\WebApp_Includes.txt"
+            SevenZipExcludeListFile = "\\SHARE\Config\WebApp_Excludes.txt"
             AdditionalExclusions    = @(
                                         "*\logs\*.log",
                                         "*\temp\*",
@@ -615,8 +615,8 @@
             )
             OnErrorInJob = "StopSet"
             LogRetentionCount = 7 # Logs for jobs run as part of this set will keep only 7 files, overriding their individual or global settings.
-            SevenZipIncludeListFile = "C:\BackupConfig\Set_DailyCritical_Includes.txt" 
-            SevenZipExcludeListFile = "C:\BackupConfig\Set_DailyCritical_Excludes.txt" 
+            SevenZipIncludeListFile = "C:\BackupConfig\Set_DailyCritical_Includes.txt"
+            SevenZipExcludeListFile = "C:\BackupConfig\Set_DailyCritical_Excludes.txt"
 
             # PostRunAction = @{
             #     Enabled         = $true
@@ -633,15 +633,15 @@
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
             # LogRetentionCount will be inherited from each job's config or global default.
-            SevenZipIncludeListFile = "" 
-            SevenZipExcludeListFile = "" 
+            SevenZipIncludeListFile = ""
+            SevenZipExcludeListFile = ""
             # PostRunAction = @{ Enabled = $false }
         }
         "Nightly_Full_System_Simulate" = @{
             JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example", "CriticalData_To_SFTP_Example")
             OnErrorInJob = "ContinueSet"
-            SevenZipIncludeListFile = "" 
-            SevenZipExcludeListFile = "" 
+            SevenZipIncludeListFile = ""
+            SevenZipExcludeListFile = ""
             # Note: To run this set in simulation mode, you would use:
             # .\PoSh-Backup.ps1 -RunSet "Nightly_Full_System_Simulate" -Simulate
         }

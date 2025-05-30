@@ -63,7 +63,7 @@ function Invoke-AdvancedSchemaValidationIfEnabled {
     if ($enableAdvancedValidation -eq $true) {
         & $LocalWriteLog -Message "[INFO] ConfigLoader/AdvancedSchemaValidatorInvoker: Advanced Schema Validation enabled. Attempting PoShBackupValidator module..." -Level "INFO"
         $validatorModulePath = Join-Path -Path $MainScriptPSScriptRoot -ChildPath "Modules\PoShBackupValidator.psm1"
-        
+
         if (-not (Test-Path -LiteralPath $validatorModulePath -PathType Leaf)) {
             & $LocalWriteLog -Message "[WARNING] ConfigLoader/AdvancedSchemaValidatorInvoker: PoShBackupValidator.psm1 not found at '$validatorModulePath'. Advanced schema validation skipped." -Level "WARNING"
             $ValidationMessagesListRef.Value.Add("ConfigLoader/AdvancedSchemaValidatorInvoker: Advanced validation enabled, but PoShBackupValidator.psm1 not found at '$validatorModulePath'.")
@@ -73,7 +73,7 @@ function Invoke-AdvancedSchemaValidationIfEnabled {
         try {
             Import-Module -Name $validatorModulePath -Force -ErrorAction Stop
             & $LocalWriteLog -Message "  - ConfigLoader/AdvancedSchemaValidatorInvoker: PoShBackupValidator module loaded. Performing schema validation..." -Level "DEBUG"
-            
+
             $validatorParams = @{
                 ConfigurationToValidate = $Configuration
                 ValidationMessagesListRef = $ValidationMessagesListRef # Pass the ref object directly
@@ -83,7 +83,7 @@ function Invoke-AdvancedSchemaValidationIfEnabled {
             if ($null -ne $validatorCmd -and $validatorCmd.Parameters.ContainsKey('Logger')) {
                 $validatorParams.Logger = $Logger
             }
-            
+
             Invoke-PoShBackupConfigValidation @validatorParams
 
             if ($IsTestConfigMode -and $ValidationMessagesListRef.Value.Count -eq 0) {

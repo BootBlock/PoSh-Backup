@@ -40,7 +40,7 @@ function Get-ConfigValue {
             $ConfigObject.PSObject.Properties.Name -contains $Key) {
         return $ConfigObject.$Key
     }
-    
+
     # If key not found or ConfigObject is unsuitable, return the default value
     return $DefaultValue
 }

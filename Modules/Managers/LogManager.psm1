@@ -43,7 +43,7 @@ function Write-LogMessage {
     # Attempt to map Level to a specific colour
     if ($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
         $effectiveConsoleColour = $Global:StatusToColourMap[$Level.ToUpperInvariant()]
-    } 
+    }
     elseif ($Level.ToUpperInvariant() -eq 'NONE') {
         # For 'NONE' level, use the host's current foreground colour (no change)
         $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
@@ -52,7 +52,7 @@ function Write-LogMessage {
     # Safety check: If $effectiveConsoleColour somehow became an empty string or null (and is not 'NONE' level), default it.
     if (($effectiveConsoleColour -is [string] -and [string]::IsNullOrWhiteSpace($effectiveConsoleColour)) -or `
         ($null -eq $effectiveConsoleColour -and $Level.ToUpperInvariant() -ne 'NONE')) {
-        
+
         # This block is for diagnostics if colour resolution fails unexpectedly.
         Write-Warning "Write-LogMessage (SAFETY CHECK TRIGGERED): Colour resolution issue."
         Write-Warning "  -> Original Level: '$Level', ForegroundColour Param: '$ForegroundColour'"
@@ -72,7 +72,7 @@ function Write-LogMessage {
     # Add to in-memory log entries for reporting
     if ($Global:GlobalJobLogEntries -is [System.Collections.Generic.List[object]]) {
         $Global:GlobalJobLogEntries.Add([PSCustomObject]@{
-                Timestamp = if ($NoTimestampToLogFile -and $Global:GlobalJobLogEntries.Count -gt 0) { "" } else { $timestamp } 
+                Timestamp = if ($NoTimestampToLogFile -and $Global:GlobalJobLogEntries.Count -gt 0) { "" } else { $timestamp }
                 Level     = $Level
                 Message   = $Message
             })
@@ -188,18 +188,18 @@ function Invoke-LogFileRetention {
 
         foreach ($logFile in $logFilesToDelete) {
             $deleteActionMessage = "Permanently Delete Log File"
-            
+
             if ($IsSimulateMode.IsPresent) {
                 & $LocalWriteLog -Message "       - SIMULATE: Would $deleteActionMessage '$($logFile.FullName)' (Created: $($logFile.CreationTime))" -Level "SIMULATE"
-                continue 
+                continue
             }
 
             if (-not $PSCmdletInstance.ShouldProcess($logFile.FullName, $deleteActionMessage)) {
                 & $LocalWriteLog -Message "       - LogManager: Deletion of log file '$($logFile.FullName)' skipped by user (ShouldProcess)." -Level "WARNING"
                 continue
             }
-            
-            & $LocalWriteLog -Message "       - LogManager: Deleting log file: '$($logFile.FullName)' (Created: $($logFile.CreationTime))" -Level "WARNING" 
+
+            & $LocalWriteLog -Message "       - LogManager: Deleting log file: '$($logFile.FullName)' (Created: $($logFile.CreationTime))" -Level "WARNING"
             try {
                 Remove-Item -LiteralPath $logFile.FullName -Force -ErrorAction Stop
                 & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level "SUCCESS"

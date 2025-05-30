@@ -99,7 +99,7 @@ function Invoke-PoShBackupConfigValidation {
         $ValidationMessagesListRef.Value.Add("CRITICAL: PoShBackupValidator cannot perform validation because the configuration schema (ConfigSchema.psd1) failed to load or was not found. Check previous errors from PoShBackupValidator.psm1 loading.")
         return
     }
-    
+
     # Check if Test-SchemaRecursiveInternal (from sub-module) is available
     if (-not (Get-Command Test-SchemaRecursiveInternal -ErrorAction SilentlyContinue)) {
         $ValidationMessagesListRef.Value.Add("CRITICAL: PoShBackupValidator: Core schema validation function 'Test-SchemaRecursiveInternal' not found. Sub-module 'SchemaExecutionEngine.psm1' might have failed to load. Generic schema validation skipped.")
@@ -124,11 +124,11 @@ function Invoke-PoShBackupConfigValidation {
     }
 
     if ($ConfigurationToValidate.ContainsKey('BackupTargets') -and $ConfigurationToValidate.BackupTargets -is [hashtable]) {
-        $mainScriptPSScriptRoot = $ConfigurationToValidate['_PoShBackup_PSScriptRoot'] 
+        $mainScriptPSScriptRoot = $ConfigurationToValidate['_PoShBackup_PSScriptRoot']
 
         if ([string]::IsNullOrWhiteSpace($mainScriptPSScriptRoot)) {
             $ValidationMessagesListRef.Value.Add("CRITICAL (PoShBackupValidator): '_PoShBackup_PSScriptRoot' key is missing or empty in the configuration object. Cannot resolve paths for target provider modules. Target-specific validation skipped.")
-            return 
+            return
         }
         if (-not (Test-Path -LiteralPath $mainScriptPSScriptRoot -PathType Container)) {
              $ValidationMessagesListRef.Value.Add("CRITICAL (PoShBackupValidator): '_PoShBackup_PSScriptRoot' path ('$mainScriptPSScriptRoot') does not exist or is not a directory. Cannot resolve paths for target provider modules. Target-specific validation skipped.")
@@ -148,7 +148,7 @@ function Invoke-PoShBackupConfigValidation {
 
             $targetType = $targetInstance.Type
             $targetSettings = $targetInstance.TargetSpecificSettings
-            $targetRemoteRetentionSettings = if ($targetInstance.ContainsKey('RemoteRetentionSettings')) { $targetInstance.RemoteRetentionSettings } else { $null } 
+            $targetRemoteRetentionSettings = if ($targetInstance.ContainsKey('RemoteRetentionSettings')) { $targetInstance.RemoteRetentionSettings } else { $null }
             $targetProviderModuleName = "$($targetType).Target.psm1"
             $targetProviderModulePath = Join-Path -Path $mainScriptPSScriptRoot -ChildPath "Modules\Targets\$targetProviderModuleName"
             $validationFunctionName = "Invoke-PoShBackup$($targetType)TargetSettingsValidation"
@@ -169,14 +169,14 @@ function Invoke-PoShBackupConfigValidation {
                         TargetInstanceName      = $targetName
                         ValidationMessagesListRef = $ValidationMessagesListRef
                     }
-                    
+
                     if ($null -ne $targetRemoteRetentionSettings -and $validatorCmd.Parameters.ContainsKey('RemoteRetentionSettings')) {
                         $validationParams.RemoteRetentionSettings = $targetRemoteRetentionSettings
                     }
                     if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger -and $validatorCmd.Parameters.ContainsKey('Logger')) {
                         $validationParams.Logger = $Logger
                     }
-                    
+
                     & $validatorCmd @validationParams
                 } else {
                     $ValidationMessagesListRef.Value.Add("PoShBackupValidator: Validation function '$validationFunctionName' not found in provider module '$targetProviderModuleName' for target instance '$targetName'. Specific settings for this target type cannot be validated by PoShBackupValidator.")

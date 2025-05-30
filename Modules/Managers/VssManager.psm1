@@ -33,7 +33,7 @@
 
 # Module-scoped variable to track VSS shadow IDs created during the current script run (keyed by PID)
 # This helps ensure that only shadows created by this specific invocation of PoSh-Backup are targeted for cleanup.
-$Script:VssManager_ScriptRunVSSShadowIDs = @{} 
+$Script:VssManager_ScriptRunVSSShadowIDs = @{}
 
 #region --- Internal VSS Helper Functions ---
 
@@ -143,7 +143,7 @@ function New-VSSShadowCopy {
             & $Logger -Message $Message -Level $Level
         }
     }
-    
+
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey)) {
         $Script:VssManager_ScriptRunVSSShadowIDs[$runKey] = @{}
@@ -313,7 +313,7 @@ function Remove-VSSShadowCopy {
             & $Logger -Message $Message -Level $Level
         }
     }
-    
+
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey) -or $Script:VssManager_ScriptRunVSSShadowIDs[$runKey].Count -eq 0) {
         & $LocalWriteLog -Message "`n[INFO] VssManager: No VSS Shadow IDs recorded for current run (PID $runKey) to remove, or already cleared." -Level VSS

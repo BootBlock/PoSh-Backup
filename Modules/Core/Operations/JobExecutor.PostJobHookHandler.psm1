@@ -4,13 +4,13 @@
     Handles the execution of post-job hook scripts for a PoSh-Backup job.
     This is a sub-module of JobExecutor.psm1.
 .DESCRIPTION
-    This module provides the 'Invoke-PoShBackupPostJobHooks' function, which is responsible
+    This module provides the 'Invoke-PoShBackupPostJobHook' function, which is responsible
     for executing the user-defined post-backup hook scripts (OnSuccess, OnFailure, Always)
     after the main backup operations for a job have concluded. It constructs the necessary
     parameters for the hook scripts and calls the main HookManager's Invoke-PoShBackupHook function.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1  # Renamed Invoke-PoShBackupPostJobHooks to Invoke-PoShBackupPostJobHook to shut up PS SA.
     DateCreated:    30-May-2025
     LastModified:   30-May-2025
     Purpose:        To modularise post-job hook script execution logic from JobExecutor.
@@ -28,7 +28,7 @@ catch {
     throw
 }
 
-function Invoke-PoShBackupPostJobHooks {
+function Invoke-PoShBackupPostJobHook {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -58,7 +58,7 @@ function Invoke-PoShBackupPostJobHooks {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLog -Message "JobExecutor.PostJobHookHandler/Invoke-PoShBackupPostJobHooks: Initializing for job '$JobName'." -Level "DEBUG"
+    & $LocalWriteLog -Message "JobExecutor.PostJobHookHandler/Invoke-PoShBackupPostJobHook: Initializing for job '$JobName'." -Level "DEBUG"
 
     $hookArgsForExternalScript = @{
         JobName      = $JobName
@@ -76,7 +76,7 @@ function Invoke-PoShBackupPostJobHooks {
         $ReportData.ContainsKey('ArchiveChecksum') -and $ReportData.ArchiveChecksum -ne "N/A" -and `
         $ReportData.ArchiveChecksum -ne "Skipped (Prior failure)" -and `
         $ReportData.ArchiveChecksum -notlike "Error*") {
-        
+
         $hookArgsForExternalScript.ArchiveChecksum = $ReportData.ArchiveChecksum
         if ($ReportData.ContainsKey('ArchiveChecksumAlgorithm')) {
             $hookArgsForExternalScript.ArchiveChecksumAlgorithm = $ReportData.ArchiveChecksumAlgorithm
@@ -106,8 +106,8 @@ function Invoke-PoShBackupPostJobHooks {
         -HookParameters $hookArgsForExternalScript `
         -IsSimulateMode:$IsSimulateMode `
         -Logger $Logger
-        
-    & $LocalWriteLog -Message "JobExecutor.PostJobHookHandler/Invoke-PoShBackupPostJobHooks: Post-job hook execution phase complete for job '$JobName'." -Level "DEBUG"
+
+    & $LocalWriteLog -Message "JobExecutor.PostJobHookHandler/Invoke-PoShBackupPostJobHook: Post-job hook execution phase complete for job '$JobName'." -Level "DEBUG"
 }
 
-Export-ModuleMember -Function Invoke-PoShBackupPostJobHooks
+Export-ModuleMember -Function Invoke-PoShBackupPostJobHook

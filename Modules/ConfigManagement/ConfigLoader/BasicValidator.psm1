@@ -154,7 +154,7 @@ function Invoke-BasicConfigValidation {
                         foreach ($targetNameRef in $jobConfig.TargetNames) {
                             if (-not ($targetNameRef -is [string]) -or [string]::IsNullOrWhiteSpace($targetNameRef)) {
                                 $ValidationMessagesListRef.Value.Add("ConfigLoader/BasicValidator: BackupLocation '$jobKey': 'TargetNames' array contains an invalid (non-string or empty) target name reference.")
-                                break 
+                                break
                             }
                             if (-not $Configuration.ContainsKey('BackupTargets') -or `
                                     $Configuration.BackupTargets -isnot [hashtable] -or `

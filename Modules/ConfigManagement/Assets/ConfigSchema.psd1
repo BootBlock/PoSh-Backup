@@ -56,10 +56,10 @@
     ExitOnLowSpaceIfBelowMinimum              = @{ Type = 'boolean'; Required = $false }
 
     DefaultTestArchiveAfterCreation           = @{ Type = 'boolean'; Required = $false }
-    DefaultVerifyLocalArchiveBeforeTransfer   = @{ Type = 'boolean'; Required = $false } 
+    DefaultVerifyLocalArchiveBeforeTransfer   = @{ Type = 'boolean'; Required = $false }
 
     DefaultArchiveDateFormat                  = @{ Type = 'string'; Required = $false }
-    DefaultCreateSFX                          = @{ Type = 'boolean'; Required = $false } 
+    DefaultCreateSFX                          = @{ Type = 'boolean'; Required = $false }
     DefaultSFXModule                          = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") }
     DefaultSplitVolumeSize                    = @{ Type = 'string'; Required = $false; Pattern = '(^$)|(^\d+[kmg]$)' } # NEW
 
@@ -68,9 +68,9 @@
     DefaultVerifyArchiveChecksumOnTest        = @{ Type = 'boolean'; Required = $false }
 
     DefaultThreadCount                        = @{ Type = 'int'; Required = $false; Min = 0 }
-    DefaultSevenZipCpuAffinity                = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' } 
-    DefaultSevenZipIncludeListFile            = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } 
-    DefaultSevenZipExcludeListFile            = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } 
+    DefaultSevenZipCpuAffinity                = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' }
+    DefaultSevenZipIncludeListFile            = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
+    DefaultSevenZipExcludeListFile            = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
     DefaultArchiveType                        = @{ Type = 'string'; Required = $false }
     DefaultArchiveExtension                   = @{ Type = 'string'; Required = $false }
     DefaultCompressionLevel                   = @{ Type = 'string'; Required = $false }
@@ -91,10 +91,10 @@
             Type     = "hashtable"
             Required = $true
             Schema   = @{
-                Type                    = @{ Type = 'string'; Required = $true } 
-                TargetSpecificSettings  = @{ Type = 'object'; Required = $true } 
+                Type                    = @{ Type = 'string'; Required = $true }
+                TargetSpecificSettings  = @{ Type = 'object'; Required = $true }
                 CredentialsSecretName   = @{ Type = 'string'; Required = $false }
-                RemoteRetentionSettings = @{ Type = 'hashtable'; Required = $false } 
+                RemoteRetentionSettings = @{ Type = 'hashtable'; Required = $false }
             }
         }
     }
@@ -124,7 +124,7 @@
                 DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false }
                 DeleteToRecycleBin                        = @{ Type = 'boolean'; Required = $false }
                 RetentionConfirmDelete                    = @{ Type = 'boolean'; Required = $false }
-                DependsOnJobs                             = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } } 
+                DependsOnJobs                             = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } }
                 ArchivePasswordMethod                     = @{ Type = 'string'; Required = $false; AllowedValues = @("NONE", "INTERACTIVE", "SECRETMANAGEMENT", "SECURESTRINGFILE", "PLAINTEXT") }
                 CredentialUserNameHint                    = @{ Type = 'string'; Required = $false }
                 ArchivePasswordSecretName                 = @{ Type = 'string'; Required = $false }
@@ -135,9 +135,9 @@
                 EnableVSS                                 = @{ Type = 'boolean'; Required = $false }
                 VSSContextOption                          = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
                 SevenZipProcessPriority                   = @{ Type = 'string'; Required = $false; AllowedValues = @("Idle", "BelowNormal", "Normal", "AboveNormal", "High") }
-                SevenZipCpuAffinity                       = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' } 
-                SevenZipIncludeListFile                   = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } 
-                SevenZipExcludeListFile                   = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } 
+                SevenZipCpuAffinity                       = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' }
+                SevenZipIncludeListFile                   = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
+                SevenZipExcludeListFile                   = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
                 ReportGeneratorType                       = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
                 TreatSevenZipWarningsAsSuccess            = @{ Type = 'boolean'; Required = $false }
                 HtmlReportDirectory                       = @{ Type = 'string'; Required = $false }
@@ -148,7 +148,7 @@
                 MdReportDirectory                         = @{ Type = 'string'; Required = $false }
                 ArchiveType                               = @{ Type = 'string'; Required = $false }
                 ArchiveExtension                          = @{ Type = 'string'; Required = $false }
-                CreateSFX                                 = @{ Type = 'boolean'; Required = $false } 
+                CreateSFX                                 = @{ Type = 'boolean'; Required = $false }
                 SFXModule                                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") }
                 SplitVolumeSize                           = @{ Type = 'string'; Required = $false; Pattern = '(^$)|(^\d+[kmg]$)' } # NEW
                 ArchiveDateFormat                         = @{ Type = 'string'; Required = $false }
@@ -163,7 +163,7 @@
                 MinimumRequiredFreeSpaceGB                = @{ Type = 'int'; Required = $false; Min = 0 }
                 ExitOnLowSpaceIfBelowMinimum              = @{ Type = 'boolean'; Required = $false }
                 TestArchiveAfterCreation                  = @{ Type = 'boolean'; Required = $false }
-                VerifyLocalArchiveBeforeTransfer          = @{ Type = 'boolean'; Required = $false } 
+                VerifyLocalArchiveBeforeTransfer          = @{ Type = 'boolean'; Required = $false }
                 GenerateArchiveChecksum                   = @{ Type = 'boolean'; Required = $false }
                 ChecksumAlgorithm                         = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
                 VerifyArchiveChecksumOnTest               = @{ Type = 'boolean'; Required = $false }
@@ -204,8 +204,8 @@
                 JobNames                = @{ Type = 'array'; Required = $true; ItemSchema = @{ Type = 'string' } }
                 OnErrorInJob            = @{ Type = 'string'; Required = $false; AllowedValues = @("StopSet", "ContinueSet") }
                 LogRetentionCount       = @{ Type = 'int'; Required = $false; Min = 0 }
-                SevenZipIncludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } 
-                SevenZipExcludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } } 
+                SevenZipIncludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
+                SevenZipExcludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
                 PostRunAction           = @{
                     Type = 'hashtable'; Required = $false
                     Schema = @{

@@ -217,13 +217,13 @@ function Get-PoShBackupArchivePassword {
                              & $LocalWriteLog -Message "FATAL: Secret '$secretName'$vaultInfoString retrieved, but its content was not a SecureString or a plain String. Type found: $($secretObject.Secret.GetType().FullName)" -Level ERROR
                              throw "Invalid secret type for '$secretName' from SecretManagement."
                         }
-                    } else { 
+                    } else {
                         & $LocalWriteLog -Message "FATAL: Secret '$secretName'$vaultInfoString not found or could not be retrieved using Get-Secret (returned null)." -Level ERROR
                         throw "Secret '$secretName' not found or Get-Secret returned null from SecretManagement."
                     }
                 } catch {
                     & $LocalWriteLog -Message "FATAL: Failed to retrieve secret '$secretName'$vaultInfoString using SecretManagement. Error: $($_.Exception.Message)" -Level ERROR
-                    throw "Failed to retrieve secret for job '$JobName' via SecretManagement: $($_.Exception.Message)" 
+                    throw "Failed to retrieve secret for job '$JobName' via SecretManagement: $($_.Exception.Message)"
                 }
             }
         }
@@ -257,7 +257,7 @@ function Get-PoShBackupArchivePassword {
                     }
                 } catch {
                     & $LocalWriteLog -Message "FATAL: Failed to read or decrypt SecureStringFile '$secureStringPath' for job '$JobName'. Ensure the file was created correctly and is accessible by the current user. Error: $($_.Exception.Message)" -Level ERROR
-                    throw "Failed to process SecureStringFile for job '$JobName': $($_.Exception.Message)" 
+                    throw "Failed to process SecureStringFile for job '$JobName': $($_.Exception.Message)"
                 }
             }
         }
@@ -276,12 +276,12 @@ function Get-PoShBackupArchivePassword {
             }
         }
 
-        "NONE" { 
+        "NONE" {
             $passwordSource = "None (Explicitly Configured or Defaulted)"
             & $LocalWriteLog -Message "  - No archive password will be used for job '$JobName' as per configuration (Method: None)." -Level DEBUG
         }
 
-        Default { 
+        Default {
             & $LocalWriteLog -Message "FATAL: Invalid or unrecognised 'ArchivePasswordMethod' ('$($passwordMethodFromConfig)') specified for job '$JobName'. Supported methods: None, Interactive, SecretManagement, SecureStringFile, PlainText." -Level ERROR
             throw "Invalid ArchivePasswordMethod ('$passwordMethodFromConfig') specified for job '$JobName'."
         }

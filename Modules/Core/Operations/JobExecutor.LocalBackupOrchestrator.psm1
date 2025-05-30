@@ -99,19 +99,19 @@ function Invoke-PoShBackupLocalBackupExecution {
     else {
         $currentJobSourcePathFor7Zip = $preProcessingResult.CurrentJobSourcePathFor7Zip
         $actualPlainTextPasswordFromPreProcessing = $preProcessingResult.ActualPlainTextPassword
-        $vssPathsToCleanUpFromOps = $preProcessingResult.VSSPathsInUse 
+        $vssPathsToCleanUpFromOps = $preProcessingResult.VSSPathsInUse
         $plainTextPasswordToClearFromOps = $preProcessingResult.PlainTextPasswordToClear
-            
+
         # --- Call Local Archive Processor ---
         $localArchiveOpParams = @{
             EffectiveJobConfig          = $EffectiveJobConfig
             CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip
-            ArchivePasswordPlainText    = $actualPlainTextPasswordFromPreProcessing 
+            ArchivePasswordPlainText    = $actualPlainTextPasswordFromPreProcessing
             JobReportDataRef            = $JobReportDataRef # Pass the ref
             IsSimulateMode              = $IsSimulateMode.IsPresent
             Logger                      = $Logger
             PSCmdlet                    = $PSCmdlet
-            GlobalConfig                = $GlobalConfig 
+            GlobalConfig                = $GlobalConfig
             SevenZipCpuAffinityString   = $EffectiveJobConfig.JobSevenZipCpuAffinity
         }
         $localArchiveResult = Invoke-LocalArchiveOperation @localArchiveOpParams
@@ -125,7 +125,7 @@ function Invoke-PoShBackupLocalBackupExecution {
             # Message already logged by LocalArchiveProcessor if VerifyLocalArchiveBeforeTransfer is true and test fails
         }
     }
-    
+
     & $LocalWriteLog -Message "JobExecutor.LocalBackupOrchestrator/Invoke-PoShBackupLocalBackupExecution: Local backup execution phase complete for job '$JobName'. Status: $currentLocalJobStatus" -Level "DEBUG"
 
     return @{

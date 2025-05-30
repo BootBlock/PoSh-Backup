@@ -77,7 +77,7 @@ function Test-SchemaRecursiveInternal {
             "hashtable"        { if ($configValue -is [hashtable]) { $typeMatch = $true } }
             "array"            { if ($configValue -is [array]) { $typeMatch = $true } }
             "string_or_array"  { if (($configValue -is [string]) -or ($configValue -is [array])) { $typeMatch = $true } }
-            "object"           { $typeMatch = $true } 
+            "object"           { $typeMatch = $true }
             default            { $ValidationMessages.Value.Add("Schema Error: Unknown expected type '$($keyDefinition.Type)' defined in schema for '$fullKeyPath'. Contact script developer."); continue }
         }
 

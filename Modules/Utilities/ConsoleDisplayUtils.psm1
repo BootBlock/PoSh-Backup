@@ -9,70 +9,51 @@
     drawing text banners with borders and custom colors.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.2 # Removed unused rightPaddingText variable.
+    Version:        1.1.3 # Added Write-NameValue
     DateCreated:    29-May-2025
-    LastModified:   29-May-2025
+    LastModified:   30-May-2025
     Purpose:        Console display enhancement utilities for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Relies on global color variables (e.g., $Global:ColourHeading)
                     being available if default colors are used.
 #>
 
-#region --- Exported Functions ---
-
 function Write-ConsoleBanner {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $false)]
         [string]$NameText,
-
-        [Parameter(Mandatory = $false)]
         [string]$NameForegroundColor = '$Global:ColourInfo', # Default to global Info (Cyan)
-
-        [Parameter(Mandatory = $false)]
         [string]$ValueText,
-
-        [Parameter(Mandatory = $false)]
         [string]$ValueForegroundColor = '$Global:ColourValue', # Default to global Value (DarkYellow)
-
-        [Parameter(Mandatory = $false)]
         [int]$BannerWidth = 50,
-
-        [Parameter(Mandatory = $false)]
         [string]$BorderForegroundColor = '$Global:ColourBorder', # Default to global Border (DarkGray)
-
-        [Parameter(Mandatory = $false)]
         [switch]$CenterText,
-
-        [Parameter(Mandatory = $false)]
         [switch]$PrependNewLine,
-
-        [Parameter(Mandatory = $false)]
         [switch]$AppendNewLine
     )
 
     if ($PrependNewLine) { Write-Host }
 
-    $resolvedBorderFg = $BorderForegroundColor 
+    $resolvedBorderFg = $BorderForegroundColor
     if ($resolvedBorderFg -is [string] -and $resolvedBorderFg.StartsWith('$Global:')) {
-        try { $resolvedBorderFg = Invoke-Expression $resolvedBorderFg } catch { $resolvedBorderFg = "White" } 
+        try { $resolvedBorderFg = Invoke-Expression $resolvedBorderFg } catch { $resolvedBorderFg = "White" }
     }
 
-    $resolvedNameFg = $NameForegroundColor 
+    $resolvedNameFg = $NameForegroundColor
     if ($resolvedNameFg -is [string] -and $resolvedNameFg.StartsWith('$Global:')) {
-        try { $resolvedNameFg = Invoke-Expression $resolvedNameFg } catch { $resolvedNameFg = "Cyan" } 
+        try { $resolvedNameFg = Invoke-Expression $resolvedNameFg } catch { $resolvedNameFg = "Cyan" }
     }
 
-    $resolvedValueFg = $ValueForegroundColor 
+    $resolvedValueFg = $ValueForegroundColor
     if ($resolvedValueFg -is [string] -and $resolvedValueFg.StartsWith('$Global:')) {
-        try { $resolvedValueFg = Invoke-Expression $resolvedValueFg } catch { $resolvedValueFg = "DarkYellow" } 
+        try { $resolvedValueFg = Invoke-Expression $resolvedValueFg } catch { $resolvedValueFg = "DarkYellow" }
     }
 
     # Top border
     Write-Host ("╔" + ("═" * ($BannerWidth - 2)) + "╗") -ForegroundColor $resolvedBorderFg
 
     $innerWidth = $BannerWidth - 4 # Space for "║ text ║"
-    
+
     $combinedTextForLength = ""
     if (-not [string]::IsNullOrWhiteSpace($NameText)) {
         $combinedTextForLength += $NameText
@@ -91,12 +72,12 @@ function Write-ConsoleBanner {
         $paddingLength = [math]::Max(0, ($innerWidth - $actualDisplayTextLength) / 2)
         $leftPaddingText = " " * [math]::Floor($paddingLength)
     }
-    
+
     # Start building the line
     Write-Host "║ " -ForegroundColor $resolvedBorderFg -NoNewline
-    Write-Host $leftPaddingText -NoNewline 
+    Write-Host $leftPaddingText -NoNewline
 
-    $currentPrintedLength = $leftPaddingText.Length 
+    $currentPrintedLength = $leftPaddingText.Length
     $namePartToDisplay = ""
     $valuePartToDisplay = ""
 
@@ -113,7 +94,7 @@ function Write-ConsoleBanner {
     if (-not [string]::IsNullOrWhiteSpace($NameText) -and -not [string]::IsNullOrWhiteSpace($ValueText)) {
         # Add space only if there's room and NameText was actually printed
         if ($currentPrintedLength -lt $innerWidth -and $namePartToDisplay.Length -gt 0) {
-            Write-Host " " -NoNewline 
+            Write-Host " " -NoNewline
             $currentPrintedLength += 1
         }
     }
@@ -133,7 +114,7 @@ function Write-ConsoleBanner {
     if ($actualRightPaddingLength -gt 0) {
         Write-Host (" " * $actualRightPaddingLength) -NoNewline
     }
-    
+
     Write-Host " ║" -ForegroundColor $resolvedBorderFg
 
     # Bottom border
@@ -142,6 +123,15 @@ function Write-ConsoleBanner {
     if ($AppendNewLine) { Write-Host }
 }
 
-Export-ModuleMember -Function Write-ConsoleBanner
+function Write-NameValue {
+    param(
+        [Parameter(Mandatory)][string]$name,
+        [Parameter(Mandatory)][string]$value
+    )
 
-#endregion
+    Write-Host "  $($name): " -NoNewline -ForegroundColor "DarkGray"
+    Write-Host $value -ForegroundColor "Gray"
+}
+
+
+Export-ModuleMember -Function Write-ConsoleBanner, Write-NameValue

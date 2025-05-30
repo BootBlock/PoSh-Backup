@@ -60,10 +60,10 @@ function Find-BackupArchiveInstance {
 
     $literalBaseName = $ArchiveBaseFileName -replace '([\.\^\$\*\+\?\(\)\[\]\{\}\|\\])', '\$1'
     $fileFilterPattern = "$($literalBaseName)$([regex]::Escape($ArchiveExtension))*"
-    
+
     & $LocalWriteLog -Message "   - RetentionManager/Scanner: Scanning for files with filter pattern: '$fileFilterPattern' in '$DestinationDirectory'" -Level "DEBUG"
     $allMatchingFiles = Get-ChildItem -Path $DestinationDirectory -Filter $fileFilterPattern -File -ErrorAction SilentlyContinue
-    
+
     if ($null -eq $allMatchingFiles -or $allMatchingFiles.Count -eq 0) {
         & $LocalWriteLog -Message "   - RetentionManager/Scanner: No files found matching pattern '$fileFilterPattern'." -Level "DEBUG"
         return $backupInstances
@@ -77,7 +77,7 @@ function Find-BackupArchiveInstance {
         $splitVolumePattern = "^($([regex]::Escape($ArchiveBaseFileName + $ArchiveExtension)))\.(\d{3,})$"
 
         if ($fileInfo.Name -match $splitVolumePattern) {
-            $instanceIdentifier = $Matches[1] 
+            $instanceIdentifier = $Matches[1]
             $fileIsPartOfSplitSet = $true
             if ($Matches[2] -eq "001") {
                 $isFirstVolumePart = $true
@@ -100,7 +100,7 @@ function Find-BackupArchiveInstance {
             }
         }
         $backupInstances[$instanceIdentifier].Files.Add($fileInfo)
-        
+
         if ($isFirstVolumePart) {
             if ($fileInfo.CreationTime -lt $backupInstances[$instanceIdentifier].SortTime) {
                 $backupInstances[$instanceIdentifier].SortTime = $fileInfo.CreationTime
@@ -117,11 +117,11 @@ function Find-BackupArchiveInstance {
                 $backupInstances[$instanceKeyToRefine].SortTime = $earliestPartFoundTime
                 & $LocalWriteLog -Message "[WARNING] RetentionManager/Scanner: Backup instance '$instanceKeyToRefine' appears to be missing its first volume part (e.g., .001) or was processed out of order. Using earliest found part's time for sorting. This might indicate an incomplete backup set." -Level "WARNING"
             } else {
-                $backupInstances.Remove($instanceKeyToRefine) 
+                $backupInstances.Remove($instanceKeyToRefine)
             }
         }
     }
-    
+
     & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found $($backupInstances.Count) logical backup instance(s)." -Level "DEBUG"
     return $backupInstances
 }

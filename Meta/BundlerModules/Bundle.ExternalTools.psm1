@@ -42,7 +42,7 @@ function Invoke-BundlerScriptAnalyzer {
 
     try {
         Write-Host "Running PSScriptAnalyzer (this may take a moment)..." -ForegroundColor Yellow
-        
+
         $scriptFilesToAnalyze = Get-ChildItem -Path $ProjectRoot_FullPath -Recurse -Include *.ps1, *.psm1 |
             Where-Object {
                 if (($null -ne $BundlerOutputFilePath) -and ($_.FullName -eq $BundlerOutputFilePath)) { return $false } # Skip the bundle output file

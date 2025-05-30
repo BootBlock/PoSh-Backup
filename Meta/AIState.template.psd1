@@ -96,7 +96,7 @@
     "  - Pester Testing - Phase 1: Utilities: Established Pattern A (direct import) and Pattern B (local copy) for utility function testing.",
     "--- STABLE COMPLETED FEATURES (Brief Overview, from user baseline) ---",
     "  - SFX Archives, Core Refactoring (JobOrchestrator, Utils facade, etc.), Archive Checksums, Post-Run System Actions, Backup Target Providers (UNC, Replicate, SFTP).",
-    "--- PROJECT STATUS ---", 
+    "--- PROJECT STATUS ---",
     "Overall: Core local/remote backup stable. Extensive refactoring complete. Log retention, CPU affinity, SFX, checksums, post-run actions, 7-Zip include/exclude list files, job dependency/chaining, and multi-volume (split) archives features are implemented. Pester testing for utilities in progress. Logging function (`Write-LogMessage`) now managed by `LogManager.psm1`."
   )
 
@@ -135,7 +135,7 @@
       "shutdown.exe (Windows utility - for Shutdown, Restart, LogOff actions)"
     )
     powershell_modules = @(
-      "Posh-SSH (for SFTP target provider)" 
+      "Posh-SSH (for SFTP target provider)"
     )
   }
 }

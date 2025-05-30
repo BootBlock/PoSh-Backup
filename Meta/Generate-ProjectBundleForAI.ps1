@@ -41,17 +41,34 @@
 
 param (
     [ValidateScript({
-        if (-not (Test-Path -LiteralPath $_ -PathType Container)) {
-            throw "ProjectRoot '$_' not found or is not a directory."
-        }
-        return $true
-    })]
+            if (-not (Test-Path -LiteralPath $_ -PathType Container)) {
+                throw "ProjectRoot '$_' not found or is not a directory."
+            }
+            return $true
+        })]
     [string]$ProjectRoot_FullPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
 
     [string[]]$ExcludedFolders = @(".git", "Reports", "Logs", "Meta", "Tests"),
     [string[]]$ExcludedFileExtensions = @(".zip", ".7z", ".exe", ".dll", ".pdb", ".iso", ".bak", ".tmp", ".log", ".rar", ".tar", ".gz", ".cab", ".msi"),
     [switch]$NoRunScriptAnalyzer
 )
+
+try {
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Modules\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
+
+    # We don't have access to the colour map so just use hardcoded colour values for now.
+    Write-ConsoleBanner -NameText "PoSh Backup" `
+        -NameForegroundColor 'Cyan' `
+        -ValueText "AI Script Bundler" `
+        -ValueForegroundColor 'DarkCyan' `
+        -BannerWidth 78 `
+        -BorderForegroundColor 'White' `
+        -CenterText `
+        -PrependNewLine
+}
+catch {
+    Write-Host "[DEBUG] Couldn't import the 'ConsoleDisplayUtils.psm1' module: $($_.Exception.Message). No biggy." -ForegroundColor "Red"
+}
 
 # --- Script-Scoped Variables ---
 $script:autoDetectedModuleDescriptions = @{}
@@ -64,15 +81,19 @@ try {
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.Utils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.FileProcessor.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.ExternalTools.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.StateAndAssembly.psm1") -Force -ErrorAction Stop 
+    Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.StateAndAssembly.psm1") -Force -ErrorAction Stop
+
+    # Having to import this again here as the above Bundle.StateAndAssembly.psm1 import seems to zap ConsoleDisplayUtils.psm1 from existence?
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Modules\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $bundlerModulesPath -ChildPath "Bundle.ProjectScanner.psm1") -Force -ErrorAction Stop
+
     Write-Verbose "Bundler utility modules loaded."
-} catch {
+}
+catch {
     Write-Error "FATAL: Failed to import required bundler script modules from '$bundlerModulesPath'. Error: $($_.Exception.Message)"
     exit 11
 }
 # --- End Bundler Module Imports ---
-
 
 # --- Main Script Setup ---
 $shouldRunScriptAnalyzer = -not $NoRunScriptAnalyzer.IsPresent
@@ -82,12 +103,23 @@ $outputFilePath = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PoSh-Backup-
 
 $normalisedProjectRootForCalculations = (Resolve-Path $ProjectRoot_FullPath).Path
 
-Write-Host "Starting project file bundling process..."
-Write-Host "Actual Project Root (for script execution): $ProjectRoot_FullPath"
-Write-Host "Displayed Project Root (in bundle): $ProjectRoot_DisplayName"
-Write-Host "Run PSScriptAnalyzer: $($shouldRunScriptAnalyzer)"
-Write-Host "Output File: $outputFilePath (will be overwritten)"
-Write-Verbose "Normalised project root for path calculations: $normalisedProjectRootForCalculations"
+Write-Host " The purpose of this script is to bundle all aspects of  PoSh Backup together" -ForegroundColor DarkYellow
+Write-Host " into a single file that can be presented to an AI for ingestion. This allows" -ForegroundColor DarkYellow
+Write-Host " a new chat session to be started with the  AI;  simply paste the contents of" -ForegroundColor DarkYellow
+Write-Host " the bundle into the chat window, wait for its analysis,  and  you  should be" -ForegroundColor DarkYellow
+Write-Host " able to continue development as though it was the same, prior session." -ForegroundColor DarkYellow
+
+Write-Host
+Write-Host "  Starting project file bundling process..."
+Write-Host
+Write-NameValue "Script sxecution Project Root" $ProjectRoot_FullPath
+Write-NameValue "Bundle displayed Project Root" $ProjectRoot_DisplayName
+Write-NameValue "Run PSScriptAnalyzer" $shouldRunScriptAnalyzer
+
+# Below makes things a bit visually messy, and it seems a bit redundant as this is shown at the end anyway.
+#Write-NameValue "Output File" $outputFilePath
+
+Write-Verbose "  Normalised project root for path calculations: $normalisedProjectRootForCalculations"
 
 $headerContentBuilder = [System.Text.StringBuilder]::new()
 $null = $headerContentBuilder.AppendLine("Hello AI Assistant!")
@@ -97,10 +129,10 @@ $null = $headerContentBuilder.AppendLine("It is designed to allow us to seamless
 $null = $headerContentBuilder.AppendLine("")
 $null = $headerContentBuilder.AppendLine("Please review the AI State, Project Structure Overview, and then the bundled files.")
 $null = $headerContentBuilder.AppendLine("")
-$null = $headerContentBuilder.AppendLine("After you've processed this, remember: Always generate one full untruncated file at a time (unless the changes are very minor, then provide instructions for the user to manually make that change), perform mental diffs, and provide line count differences. Ground via Google Search.")
+$null = $headerContentBuilder.AppendLine("After you've processed this, remember: Always generate one full untruncated file at a time (unless the changes are very minor, then provide instructions for the user to manually make that change), trim trailing whitespace, perform mental diffs, and provide line count differences. Ground via Google Search.")
 $null = $headerContentBuilder.AppendLine("")
 
-$fileContentBuilder = [System.Text.StringBuilder]::new() 
+$fileContentBuilder = [System.Text.StringBuilder]::new()
 # --- End Main Script Setup ---
 
 # --- Main Processing Logic ---
@@ -108,7 +140,7 @@ try {
     if (-not (Test-Path -LiteralPath $ProjectRoot_FullPath -PathType Container)) {
         $errorMessage = "Project root '$ProjectRoot_FullPath' not found or is not a directory (post-parameter validation check)."
         Write-Error $errorMessage
-        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue 
+        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue
         ($headerContentBuilder.ToString() + $fileContentBuilder.ToString()) | Set-Content -Path $outputFilePath -Encoding UTF8 -Force -ErrorAction SilentlyContinue
         exit 1
     }
@@ -132,8 +164,8 @@ try {
     $thisScriptFileObject = Get-Item -LiteralPath $PSCommandPath
     Write-Verbose "Explicitly adding bundler script itself to bundle: $($thisScriptFileObject.FullName)"
     $bundlerScriptProcessingResult = Add-FileToBundle -FileObject $thisScriptFileObject `
-                                                      -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
-                                                      -BundleBuilder $fileContentBuilder
+        -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
+        -BundleBuilder $fileContentBuilder
     & $UpdateMetadataFromProcessingResult -FileObjectParam $thisScriptFileObject -ProcessingResult $bundlerScriptProcessingResult
 
     # Add AIState.template.psd1 from Meta folder
@@ -142,10 +174,11 @@ try {
         $aiStateTemplateFileObject = Get-Item -LiteralPath $aiStateTemplateFile
         Write-Verbose "Explicitly adding AI State template to bundle: $($aiStateTemplateFileObject.FullName)"
         $aiStateTemplateProcessingResult = Add-FileToBundle -FileObject $aiStateTemplateFileObject `
-                                                            -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
-                                                            -BundleBuilder $fileContentBuilder
+            -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
+            -BundleBuilder $fileContentBuilder
         & $UpdateMetadataFromProcessingResult -FileObjectParam $aiStateTemplateFileObject -ProcessingResult $aiStateTemplateProcessingResult
-    } else {
+    }
+    else {
         Write-Warning "AI State template file 'Meta\AIState.template.psd1' not found. It will not be included in the bundle."
     }
 
@@ -158,25 +191,26 @@ try {
             $bundlerModuleFile = $_
             Write-Verbose "Adding bundler module to bundle: $($bundlerModuleFile.Name)"
             $moduleProcessingResult = Add-FileToBundle -FileObject $bundlerModuleFile `
-                                                       -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
-                                                       -BundleBuilder $fileContentBuilder
+                -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
+                -BundleBuilder $fileContentBuilder
             & $UpdateMetadataFromProcessingResult -FileObjectParam $bundlerModuleFile -ProcessingResult $moduleProcessingResult
         }
-    } else {
+    }
+    else {
         Write-Warning "Bundler modules directory '$bundlerModulesDir' not found. Bundler's own modules will not be included in the bundle."
     }
 
     # Scan and add main project files
     $projectScanResult = Invoke-BundlerProjectScan -ProjectRoot_FullPath $ProjectRoot_FullPath `
-                                                   -NormalizedProjectRootForCalculations $normalisedProjectRootForCalculations `
-                                                   -OutputFilePath $outputFilePath `
-                                                   -ThisScriptFileObject $thisScriptFileObject `
-                                                   -BundlerModulesDir $bundlerModulesDir `
-                                                   -ExcludedFolders $ExcludedFolders `
-                                                   -ExcludedFileExtensions $ExcludedFileExtensions `
-                                                   -FileContentBuilder $fileContentBuilder `
-                                                   -MetaFilesToExcludeExplicitly @($aiStateTemplateFile) 
-    
+        -NormalizedProjectRootForCalculations $normalisedProjectRootForCalculations `
+        -OutputFilePath $outputFilePath `
+        -ThisScriptFileObject $thisScriptFileObject `
+        -BundlerModulesDir $bundlerModulesDir `
+        -ExcludedFolders $ExcludedFolders `
+        -ExcludedFileExtensions $ExcludedFileExtensions `
+        -FileContentBuilder $fileContentBuilder `
+        -MetaFilesToExcludeExplicitly @($aiStateTemplateFile)
+
     if ($null -ne $projectScanResult) {
         if ($null -ne $projectScanResult.ModuleDescriptions) {
             $projectScanResult.ModuleDescriptions.GetEnumerator() | ForEach-Object {
@@ -184,7 +218,7 @@ try {
             }
         }
         if ($null -ne $projectScanResult.PsDependencies) {
-            $projectScanResult.PsDependencies | ForEach-Object { 
+            $projectScanResult.PsDependencies | ForEach-Object {
                 $null = $script:autoDetectedPsDependencies.Add($_)
             }
         }
@@ -194,7 +228,7 @@ try {
 catch {
     $errorMessage = "An unexpected error occurred during file processing: $($_.Exception.ToString())"
     Write-Error $errorMessage
-    $null = $fileContentBuilder.AppendLine("ERROR: $errorMessage") 
+    $null = $fileContentBuilder.AppendLine("ERROR: $errorMessage")
 }
 finally {
     Write-Verbose "Reading PoSh-Backup.ps1 for version information..."
@@ -203,64 +237,81 @@ finally {
     $poShBackupVersion = "N/A"
     if ($mainPoShBackupScriptFileObject) {
         $poShBackupVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content -LiteralPath $mainPoShBackupScriptFileObject.FullName -Raw -ErrorAction SilentlyContinue) -ScriptNameForWarning "PoSh-Backup.ps1"
-    } else {
+    }
+    else {
         Write-Warning "Bundler: Main script PoSh-Backup.ps1 not found at '$mainPoShBackupScriptPath' for version extraction."
     }
 
     Write-Verbose "Reading bundler script for its own version information..."
-    $thisBundlerScriptFileObjectForVersion = Get-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue 
+    $thisBundlerScriptFileObjectForVersion = Get-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue
     $bundlerScriptVersionForState = "1.25.2" # Updated version for this change
     if ($thisBundlerScriptFileObjectForVersion) {
         $readBundlerVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content -LiteralPath $thisBundlerScriptFileObjectForVersion.FullName -Raw -ErrorAction SilentlyContinue) -ScriptNameForWarning $thisBundlerScriptFileObjectForVersion.Name
         if ($readBundlerVersion -ne $bundlerScriptVersionForState -and $readBundlerVersion -ne "N/A" -and $readBundlerVersion -notlike "N/A (*" ) {
-             Write-Verbose "Bundler: Read version '$readBundlerVersion' from current disk file's CBH ($($thisBundlerScriptFileObjectForVersion.Name)), but AI State will use hardcoded version '$bundlerScriptVersionForState' for this generation. Ensure CBH is updated to '$bundlerScriptVersionForState'."
+            Write-Verbose "Bundler: Read version '$readBundlerVersion' from current disk file's CBH ($($thisBundlerScriptFileObjectForVersion.Name)), but AI State will use hardcoded version '$bundlerScriptVersionForState' for this generation. Ensure CBH is updated to '$bundlerScriptVersionForState'."
         }
-    } else {
-         Write-Warning "Bundler: Could not get bundler script file object ('$($PSCommandPath)') for version extraction. Using manually set version '$bundlerScriptVersionForState' for AI State."
     }
-                                           
+    else {
+        Write-Warning "Bundler: Could not get bundler script file object ('$($PSCommandPath)') for version extraction. Using manually set version '$bundlerScriptVersionForState' for AI State."
+    }
+
     $aiStateHashtable = Get-BundlerAIState -ProjectRoot_DisplayName $ProjectRoot_DisplayName `
-                                           -PoShBackupVersion $poShBackupVersion `
-                                           -BundlerScriptVersion $bundlerScriptVersionForState `
-                                           -AutoDetectedModuleDescriptions $script:autoDetectedModuleDescriptions `
-                                           -AutoDetectedPsDependencies $script:autoDetectedPsDependencies 
-                                           
+        -PoShBackupVersion $poShBackupVersion `
+        -BundlerScriptVersion $bundlerScriptVersionForState `
+        -AutoDetectedModuleDescriptions $script:autoDetectedModuleDescriptions `
+        -AutoDetectedPsDependencies $script:autoDetectedPsDependencies
+
     $projectStructureContentString = Get-ProjectStructureOverviewContent -ProjectRoot_FullPath $ProjectRoot_FullPath `
-                                                                         -ProjectRoot_DisplayName $ProjectRoot_DisplayName `
-                                                                         -BundlerOutputFilePath $outputFilePath
-    
+        -ProjectRoot_DisplayName $ProjectRoot_DisplayName `
+        -BundlerOutputFilePath $outputFilePath
+
     $analyzerSettingsPath = Join-Path -Path $ProjectRoot_FullPath -ChildPath "PSScriptAnalyzerSettings.psd1"
     $analyzerSettingsFileContentString = ""
     if ($shouldRunScriptAnalyzer -and (Test-Path -LiteralPath $analyzerSettingsPath -PathType Leaf)) {
         try {
             $analyzerSettingsFileContentString = Get-Content -LiteralPath $analyzerSettingsPath -Raw -ErrorAction Stop
-        } catch {
+        }
+        catch {
             $analyzerSettingsFileContentString = "(Bundler Main: Error reading PSScriptAnalyzerSettings.psd1: $($_.Exception.Message))"
         }
     }
 
+    # Indent the output by two spaces so the "Running PSScriptAnalyzer ..." itself is indented, if the analyser is enabled.
+    if ($shouldRunScriptAnalyzer) {
+        Write-Host
+        Write-Host "  " -NoNewline
+    }
+
+    # This var contains the PSSA warnings for the project.
     $pssaResultOutputString = ""
     if ($shouldRunScriptAnalyzer) {
         $pssaResultOutputString = Invoke-BundlerScriptAnalyzer -ProjectRoot_FullPath $ProjectRoot_FullPath `
-                                                               -ExcludedFoldersForPSSA $ExcludedFolders `
-                                                               -AnalyzerSettingsPath $analyzerSettingsPath `
-                                                               -BundlerOutputFilePath $outputFilePath `
-                                                               -BundlerPSScriptRoot $PSScriptRoot
+            -ExcludedFoldersForPSSA $ExcludedFolders `
+            -AnalyzerSettingsPath $analyzerSettingsPath `
+            -BundlerOutputFilePath $outputFilePath `
+            -BundlerPSScriptRoot $PSScriptRoot
     }
-    
+
     Write-Verbose "Assembling final output bundle (via Bundle.StateAndAssembly.psm1)..."
     $finalBundleString = Format-AIBundleContent -HeaderContent $headerContentBuilder.ToString() `
-                                                  -AIStateHashtable $aiStateHashtable `
-                                                  -ProjectStructureContent $projectStructureContentString `
-                                                  -AnalyzerSettingsFileContent $analyzerSettingsFileContentString `
-                                                  -PSSASummaryOutputContent $pssaResultOutputString `
-                                                  -BundledFilesContent $fileContentBuilder.ToString()
+        -AIStateHashtable $aiStateHashtable `
+        -ProjectStructureContent $projectStructureContentString `
+        -AnalyzerSettingsFileContent $analyzerSettingsFileContentString `
+        -PSSASummaryOutputContent $pssaResultOutputString `
+        -BundledFilesContent $fileContentBuilder.ToString()
     try {
         Write-Verbose "Writing final bundle to: $outputFilePath"
-        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue 
+        Remove-Item -LiteralPath $outputFilePath -Force -ErrorAction SilentlyContinue
         $finalBundleString | Set-Content -Path $outputFilePath -Encoding UTF8 -Force
-        Write-Output "Project bundle successfully written to: $outputFilePath"
-    } catch {
-        Write-Error "Failed to write project bundle to file '$outputFilePath'. Error: $($_.Exception.Message)"
+        Write-Host
+        Write-Host "  Project bundle successfully written to:" -ForegroundColor "DarkGreen"
+        Write-Host "      $($outputFilePath)" -ForegroundColor "Green"
     }
+    catch {
+        Write-Host
+        Write-Error "  Failed to write project bundle to file '$outputFilePath'. Error: $($_.Exception.Message)"
+    }
+
+    # Write out a blank line to cap everything off.
+    Write-Host
 }

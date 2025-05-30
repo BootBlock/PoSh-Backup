@@ -52,7 +52,7 @@ function Get-ScriptVersionFromContent {
                 } else {
                     $match = [regex]::Match($ScriptContent, $regexV3) # Try Script Version:
                     if ($match.Success) {
-                        $versionString = "v" + $match.Groups[1].Value.Trim() 
+                        $versionString = "v" + $match.Groups[1].Value.Trim()
                     } else {
                         Write-Warning "StringUtils/Get-ScriptVersionFromContent: Could not automatically determine version for '$ScriptNameForWarning' using any regex."
                     }
