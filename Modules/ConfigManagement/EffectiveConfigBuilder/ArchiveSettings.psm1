@@ -37,6 +37,9 @@ function Resolve-ArchiveConfiguration {
         [Parameter(Mandatory)] [ref]$JobReportDataRef # To update SFXCreationOverriddenBySplit
     )
 
+    # PSSA: Directly use Logger and CliOverrides for initial debug message
+    & $Logger -Message "EffectiveConfigBuilder/DestinationSettings/Resolve-DestinationConfiguration: Logger active. CLI Overrides count: $($CliOverrides.Count)." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {

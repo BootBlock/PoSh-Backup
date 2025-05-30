@@ -36,6 +36,9 @@ function Resolve-OperationalConfiguration {
         [Parameter(Mandatory)] [scriptblock]$Logger
     )
 
+    # PSSA: Directly use Logger for initial debug message
+    & $Logger -Message "EffectiveConfigBuilder/OperationalSettings/Resolve-OperationalConfiguration: Logger active. CLI Overrides count: $($CliOverrides.Count)." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {

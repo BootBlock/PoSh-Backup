@@ -40,6 +40,9 @@ function Resolve-SevenZipConfiguration {
         [string]$SetSevenZipExcludeListFile = $null
     )
 
+    # PSSA: Directly use Logger for initial debug message
+    & $Logger -Message "EffectiveConfigBuilder/SevenZipSettings/Resolve-SevenZipConfiguration: Logger active. CLI Overrides count: $($CliOverrides.Count)." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
