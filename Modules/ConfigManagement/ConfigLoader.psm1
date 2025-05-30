@@ -3,29 +3,28 @@
 .SYNOPSIS
     Handles the loading and merging of PoSh-Backup configuration files (Default.psd1, User.psd1),
     7-Zip path auto-detection, and basic structural validation including BackupTargets.
-    Now also handles the optional interactive creation of 'User.psd1' with content modification.
+    It now delegates User.psd1 creation and hashtable merging to sub-modules.
 .DESCRIPTION
     This module is a sub-component of the main ConfigManager module for PoSh-Backup.
     It is responsible for:
     - Loading the base configuration (Default.psd1).
-    - Optionally prompting the user to create 'User.psd1' if it doesn't exist. If created,
-      the content from Default.psd1 is modified: comments are updated to reflect its 'User'
-      status, and a notice is prepended explaining its overlay behavior.
-    - Loading and merging the user-specific configuration (User.psd1) if it exists.
+    - Invoking 'UserConfigHandler.psm1' to optionally prompt the user to create 'User.psd1'.
+    - Loading and merging the user-specific configuration (User.psd1) if it exists, using 'MergeUtil.psm1'.
     - Handling a user-specified configuration file path.
-    - Auto-detecting the 7-Zip executable path if not explicitly configured (delegates to 7ZipManager.psm1).
+    - Auto-detecting the 7-Zip executable path (delegates to 7ZipManager.psm1).
     - Performing basic validation of the loaded configuration structure, including 'BackupTargets'.
     - Optionally invoking advanced schema validation (delegates to PoShBackupValidator.psm1).
 
     It is designed to be called by the main PoSh-Backup script indirectly via the ConfigManager facade.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.6 # Modified User.psd1 creation to alter content.
+    Version:        1.2.0 # Delegated User.psd1 creation and hashtable merging to sub-modules.
     DateCreated:    24-May-2025
     LastModified:   29-May-2025
     Purpose:        To modularise configuration loading logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 and 7ZipManager.psm1 from the parent 'Modules' directory.
+                    Depends on sub-modules MergeUtil.psm1 and UserConfigHandler.psm1 in '.\ConfigLoader\'.
                     Optionally uses PoShBackupValidator.psm1.
 #>
 
@@ -40,209 +39,18 @@ try {
     throw
 }
 
-#region --- Private Helper Function: Merge-DeepHashtable ---
-# Merges two hashtables deeply. If a key exists in both and its values are hashtables,
-# they are recursively merged. Otherwise, the override value takes precedence.
-function Merge-DeepHashtable {
-    param(
-        [Parameter(Mandatory)]
-        [hashtable]$Base,
-        [Parameter(Mandatory)]
-        [hashtable]$Override
-    )
-
-    $merged = $Base.Clone() # Start with a clone of the base hashtable
-
-    foreach ($key in $Override.Keys) {
-        if ($merged.ContainsKey($key) -and $merged[$key] -is [hashtable] -and $Override[$key] -is [hashtable]) {
-            # If key exists in both and both values are hashtables, recurse
-            $merged[$key] = Merge-DeepHashtable -Base $merged[$key] -Override $Override[$key]
-        }
-        else {
-            # Otherwise, the override value replaces or adds the key
-            $merged[$key] = $Override[$key]
-        }
-    }
-    return $merged
+# Import new sub-modules
+# $PSScriptRoot here is Modules\ConfigManagement.
+$configLoaderSubModulesPath = Join-Path -Path $PSScriptRoot -ChildPath "ConfigLoader"
+try {
+    Import-Module -Name (Join-Path -Path $configLoaderSubModulesPath -ChildPath "MergeUtil.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $configLoaderSubModulesPath -ChildPath "UserConfigHandler.psm1") -Force -ErrorAction Stop
 }
-#endregion
-
-#region --- Private Helper Function: Invoke User.psd1 Creation ---
-# PSScriptAnalyzer Suppress PSUseApprovedVerbs[Invoke-UserConfigCreationPromptInternal] - Justification: Internal helper function, 'Invoke' reflects its orchestration of prompt & potential action.
-function Invoke-UserConfigCreationPromptInternal {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$DefaultUserConfigPathInternal,
-        [Parameter(Mandatory = $true)]
-        [string]$DefaultBaseConfigPathInternal,
-        [Parameter(Mandatory = $true)]
-        [string]$DefaultConfigDirInternal,
-        [Parameter(Mandatory = $true)]
-        [string]$DefaultUserConfigFileNameInternal,
-        [Parameter(Mandatory = $true)]
-        [string]$DefaultBaseConfigFileNameInternal,
-        [Parameter(Mandatory = $true)]
-        [bool]$SkipUserConfigCreationSwitchInternal,
-        [Parameter(Mandatory = $true)]
-        [bool]$IsTestConfigModeSwitchInternal,
-        [Parameter(Mandatory = $true)]
-        [bool]$IsSimulateModeSwitchInternal,
-        [Parameter(Mandatory = $true)]
-        [bool]$ListBackupLocationsSwitchInternal,
-        [Parameter(Mandatory = $true)]
-        [bool]$ListBackupSetsSwitchInternal,
-        [Parameter(Mandatory = $true)]
-        [scriptblock]$LoggerInternal,
-        [Parameter(Mandatory = $true)]
-        [hashtable]$CliOverrideSettingsInternal # For PauseBehaviourCLI
-    )
-
-    # PSSA Appeasement: Directly reference LoggerInternal once.
-    # This call does nothing substantial but helps PSSA see the parameter is used.
-    & $LoggerInternal -Message "ConfigLoader/Invoke-UserConfigCreationPromptInternal: Logger parameter received." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    $LocalWriteLogInternal = {
-        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
-            & $LoggerInternal -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
-            & $LoggerInternal -Message $Message -Level $Level
-        }
-    }
-    # Ensure LoggerInternal is used at least once for PSSA, this is the first executable line.
-    & $LocalWriteLogInternal -Message "ConfigLoader/Invoke-UserConfigCreationPromptInternal: Initializing." -Level "DEBUG"
-
-
-    if (-not (Test-Path -LiteralPath $DefaultUserConfigPathInternal -PathType Leaf)) {
-        if (Test-Path -LiteralPath $DefaultBaseConfigPathInternal -PathType Leaf) {
-            & $LocalWriteLogInternal -Message "[INFO] ConfigLoader: User configuration file ('$DefaultUserConfigPathInternal') not found." -Level "INFO"
-            if ($Host.Name -eq "ConsoleHost" -and `
-                -not $IsTestConfigModeSwitchInternal -and `
-                -not $IsSimulateModeSwitchInternal -and `
-                -not $ListBackupLocationsSwitchInternal -and `
-                -not $ListBackupSetsSwitchInternal -and `
-                -not $SkipUserConfigCreationSwitchInternal) {
-                $choiceTitle = "Create User Configuration?"
-                $choiceMessage = "The user-specific configuration file '$($DefaultUserConfigFileNameInternal)' was not found in '$($DefaultConfigDirInternal)'.`nIt is recommended to create this file as it allows you to customise settings without modifying`nthe default file, ensuring your settings are not overwritten by script upgrades.`n`nWould you like to create '$($DefaultUserConfigFileNameInternal)' now by copying the contents of '$($DefaultBaseConfigFileNameInternal)'?"
-                $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Create '$($DefaultUserConfigFileNameInternal)' from '$($DefaultBaseConfigFileNameInternal)'."
-                $no = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Do not create the file. The script will use '$($DefaultBaseConfigFileNameInternal)' only for this run."
-                $options = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
-                $decision = $Host.UI.PromptForChoice($choiceTitle, $choiceMessage, $options, 0)
-                if ($decision -eq 0) {
-                    try {
-                        # Read Default.psd1 content
-                        $defaultContent = Get-Content -LiteralPath $DefaultBaseConfigPathInternal -Raw -ErrorAction Stop
-                        
-                        # Extract version from Default.psd1
-                        $defaultVersion = Get-ScriptVersionFromContent -ScriptContent $defaultContent -ScriptNameForWarning $DefaultBaseConfigFileNameInternal
-                        if ($defaultVersion -eq "N/A" -or $defaultVersion -like "N/A (*") { $defaultVersion = "Unknown Version" }
-
-                        # Prepare the new notice for User.psd1
-                        $userNotice = @"
-# --- USER CONFIGURATION FILE ---
-# This is your personal PoSh-Backup configuration file ('$DefaultUserConfigFileNameInternal').
-#
-# How it works:
-#     1. PoSh-Backup first loads '$DefaultBaseConfigFileNameInternal' (in '$DefaultConfigDirInternal') to get all base settings.
-#     2. It then loads this file ('$DefaultUserConfigFileNameInternal').
-#     3. Any settings you define in THIS file will OVERLAY and REPLACE the
-#        corresponding settings from '$DefaultBaseConfigFileNameInternal'.
-#     4. If a setting is NOT defined in this file, the value from '$DefaultBaseConfigFileNameInternal'
-#        will be used automatically.
-#
-# Recommendation:
-#     - Only include settings in this file that you want to *change* from their
-#       default values in '$DefaultBaseConfigFileNameInternal'.
-#     - You can safely remove any settings from this file that you want to revert
-#       to their default behaviour.
-#     - Refer to '$DefaultBaseConfigFileNameInternal' for a full list of available settings and
-#       their detailed explanations.
-#
-# Copied from '$DefaultBaseConfigFileNameInternal' (Version: $defaultVersion)
-# -----------------------------
-
-"@
-
-                        # Prepare the modified header for User.psd1
-                        $userHeader = @"
-# Config\\$DefaultUserConfigFileNameInternal
-# PowerShell Data File for PoSh Backup Script Configuration (User).
-# This is your user-specific configuration file. Settings defined here will OVERLAY
-# (i.e., take precedence over) any corresponding settings in '$DefaultBaseConfigFileNameInternal'.
-# If a setting is not present in this file, the value from '$DefaultBaseConfigFileNameInternal' will be used.
-# It is recommended to only include settings here that you wish to change from their defaults.
-#
-# Copied from $DefaultBaseConfigFileNameInternal Version $defaultVersion
-"@
-                        # Identify and replace the original header block
-                        $lines = $defaultContent -split '(\r?\n)'
-                        $headerEndLineIndex = -1
-                        for ($i = 0; $i -lt $lines.Count; $i++) {
-                            if ($lines[$i] -match "^\s*#\s*Version\s*:?\s*([0-9]+\.[0-9]+)") {
-                                $headerEndLineIndex = $i
-                                break
-                            }
-                        }
-                        
-                        $contentWithoutOriginalHeader = ""
-                        if ($headerEndLineIndex -ne -1 -and ($headerEndLineIndex + 1) -lt $lines.Count) {
-                            # Include the newline after the version line if it exists
-                            $contentWithoutOriginalHeader = ($lines[($headerEndLineIndex + 1)..$($lines.Count -1)]) -join ""
-                        } else {
-                            # Fallback if version line not found or is the last line, try to remove known first lines
-                            if ($lines[0].TrimStart().StartsWith("# Config\Default.psd1")) {
-                                $estimatedHeaderLines = 5 # Approximate number of header lines
-                                if ($lines.Count -gt $estimatedHeaderLines) {
-                                     $contentWithoutOriginalHeader = ($lines[$estimatedHeaderLines..($lines.Count -1)]) -join ""
-                                } else {
-                                    $contentWithoutOriginalHeader = $defaultContent # Keep original if header detection is problematic
-                                }
-                            } else {
-                                 $contentWithoutOriginalHeader = $defaultContent # Keep original if header detection is problematic
-                            }
-                        }
-                        
-                        $finalUserContent = $userNotice + $userHeader + "`r`n" + $contentWithoutOriginalHeader.TrimStart()
-                        
-                        Set-Content -Path $DefaultUserConfigPathInternal -Value $finalUserContent -Encoding UTF8 -Force -ErrorAction Stop
-                        
-                        & $LocalWriteLogInternal -Message "[SUCCESS] ConfigLoader: '$DefaultUserConfigFileNameInternal' has been created with tailored content in '$DefaultConfigDirInternal'." -Level "SUCCESS"
-                        & $LocalWriteLogInternal -Message "          Please edit '$DefaultUserConfigFileNameInternal' with your desired settings and then re-run PoSh-Backup." -Level "INFO"
-                        & $LocalWriteLogInternal -Message "          Script will now exit." -Level "INFO"
-
-                        $_pauseBehaviorFromCliForExit = if ($CliOverrideSettingsInternal.PauseBehaviour) { $CliOverrideSettingsInternal.PauseBehaviour } else { "Always" }
-                        if ($_pauseBehaviorFromCliForExit -is [string] -and $_pauseBehaviorFromCliForExit.ToLowerInvariant() -ne "never" -and ($_pauseBehaviorFromCliForExit -isnot [bool] -or $_pauseBehaviorFromCliForExit -ne $false)) {
-                           if ($Host.Name -eq "ConsoleHost") {
-                               try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
-                               catch {
-                                   & $LocalWriteLogInternal -Message "ConfigLoader/Invoke-UserConfigCreationPromptInternal: Non-critical error during ReadKey for exit pause. Error: $($_.Exception.Message)" -Level "DEBUG"
-                               }
-                           }
-                        }
-                        exit 0 # Exit the entire script
-                    } catch {
-                        & $LocalWriteLogInternal -Message "[ERROR] ConfigLoader: Failed to create '$DefaultUserConfigFileNameInternal' from '$DefaultBaseConfigFileNameInternal'. Error: $($_.Exception.Message)" -Level "ERROR"
-                        & $LocalWriteLogInternal -Message "          Please create '$DefaultUserConfigFileNameInternal' manually if desired. Script will continue with base configuration." -Level "WARNING"
-                    }
-                } else {
-                    & $LocalWriteLogInternal -Message "[INFO] ConfigLoader: User chose not to create '$DefaultUserConfigFileNameInternal'. '$DefaultBaseConfigFileNameInternal' will be used for this run." -Level "INFO"
-                }
-            } else {
-                 if ($SkipUserConfigCreationSwitchInternal) {
-                     & $LocalWriteLogInternal -Message "[INFO] ConfigLoader: Skipping User.psd1 creation prompt as -SkipUserConfigCreation was specified. '$DefaultBaseConfigFileNameInternal' will be used if '$DefaultUserConfigFileNameInternal' is not found." -Level "INFO"
-                 } elseif ($Host.Name -ne "ConsoleHost" -or $IsTestConfigModeSwitchInternal -or $IsSimulateModeSwitchInternal -or $ListBackupLocationsSwitchInternal -or $ListBackupSetsSwitchInternal) {
-                     & $LocalWriteLogInternal -Message "[INFO] ConfigLoader: Not prompting to create '$DefaultUserConfigFileNameInternal' (Non-interactive, TestConfig, Simulate, or List mode)." -Level "INFO"
-                 }
-                 & $LocalWriteLogInternal -Message "       If you wish to have user-specific overrides, please manually copy '$DefaultBaseConfigPathInternal' to '$DefaultUserConfigPathInternal' and edit it." -Level "INFO"
-            }
-        } else {
-            & $LocalWriteLogInternal -Message "[WARNING] ConfigLoader: Base configuration file ('$DefaultBaseConfigPathInternal') also not found. Cannot offer to create '$DefaultUserConfigPathInternal'." -Level "WARNING"
-        }
-    }
-    # If User.psd1 already exists, this function does nothing further.
+catch {
+    Write-Error "ConfigLoader.psm1 FATAL: Could not import one or more required sub-modules from '$configLoaderSubModulesPath'. Error: $($_.Exception.Message)"
+    throw
 }
-#endregion
+
 
 #region --- Exported Configuration Loading and Validation Function ---
 function Import-AppConfiguration {
@@ -253,7 +61,6 @@ function Import-AppConfiguration {
         [string]$MainScriptPSScriptRoot,
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
-        # New parameters to pass CLI switch states
         [Parameter(Mandatory = $false)]
         [bool]$SkipUserConfigCreationSwitch = $false,
         [Parameter(Mandatory = $false)]
@@ -263,7 +70,7 @@ function Import-AppConfiguration {
         [Parameter(Mandatory = $false)]
         [bool]$ListBackupSetsSwitch = $false,
         [Parameter(Mandatory = $true)]
-        [hashtable]$CliOverrideSettings # For PauseBehaviourCLI needed by Invoke-UserConfigCreationPromptInternal
+        [hashtable]$CliOverrideSettings
     )
 
     $LocalWriteLog = {
@@ -304,7 +111,7 @@ function Import-AppConfiguration {
         }
     }
     else {
-        # Handle User.psd1 creation prompt before loading Default.psd1
+        # Delegate User.psd1 creation prompt
         Invoke-UserConfigCreationPromptInternal -DefaultUserConfigPathInternal $defaultUserConfigPath `
                                                 -DefaultBaseConfigPathInternal $defaultBaseConfigPath `
                                                 -DefaultConfigDirInternal $defaultConfigDir `
@@ -341,6 +148,7 @@ function Import-AppConfiguration {
                 if ($null -ne $loadedUserConfiguration -and $loadedUserConfiguration -is [hashtable]) {
                     & $LocalWriteLog -Message "  - ConfigLoader: User override configuration '$defaultUserConfigPath' found and loaded successfully." -Level "SUCCESS"
                     & $LocalWriteLog -Message "  - ConfigLoader: Merging user configuration over base configuration..." -Level "DEBUG"
+                    # Delegate merging
                     $finalConfiguration = Merge-DeepHashtable -Base $finalConfiguration -Override $loadedUserConfiguration
                     $userConfigLoadedSuccessfully = $true
                     & $LocalWriteLog -Message "  - ConfigLoader: User configuration merged successfully." -Level "SUCCESS"
@@ -597,4 +405,6 @@ function Import-AppConfiguration {
 }
 #endregion
 
-Export-ModuleMember -Function Import-AppConfiguration, Merge-DeepHashtable
+Export-ModuleMember -Function Import-AppConfiguration 
+# Merge-DeepHashtable is no longer exported from here as it's in MergeUtil.psm1
+# Invoke-UserConfigCreationPromptInternal is no longer exported from here as it's in UserConfigHandler.psm1
