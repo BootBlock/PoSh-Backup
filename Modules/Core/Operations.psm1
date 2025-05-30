@@ -227,7 +227,6 @@ function Invoke-PoShBackupJob {
                 VBAssemblyLoaded = $vbLoaded; IsSimulateMode = $IsSimulateMode.IsPresent; Logger = $Logger
                 PSCmdlet = $PSCmdlet
             }
-            if (-not $effectiveJobConfig.RetentionConfirmDelete) { $retentionPolicyParams.Confirm = $false }
             if ($PSCmdlet.ShouldProcess("Local Retention Policy for job '$JobName'", "Apply")) {
                 # Added ShouldProcess here
                 Invoke-BackupRetentionPolicy @retentionPolicyParams
