@@ -32,7 +32,7 @@
 #endregion
 
 #region --- Private Module-Scoped Variables ---
-$script:RemoteVersionManifestUrl = "https://raw.githubusercontent.com/BootBlock/PoSh-Backup/main/Meta/version_manifest.psd1" # EXAMPLE URL - REPLACE WITH ACTUAL
+$script:RemoteVersionManifestUrl = "https://raw.githubusercontent.com/BootBlock/PoSh-Backup/main/Releases/version_remote.psd1"
 #endregion
 
 #region --- Exported Functions ---
