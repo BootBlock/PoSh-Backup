@@ -2,21 +2,25 @@
 <#
 .SYNOPSIS
     Handles informational script modes for PoSh-Backup, such as listing backup locations,
-    listing backup sets, or testing the configuration.
+    listing backup sets, testing the configuration, or checking for updates.
 .DESCRIPTION
     This module provides a function, Invoke-PoShBackupScriptMode, which checks if PoSh-Backup
-    was invoked with parameters like -ListBackupLocations, -ListBackupSets, or -TestConfig.
+    was invoked with parameters like -ListBackupLocations, -ListBackupSets, -TestConfig,
+    or -CheckForUpdate.
     If one of these modes is active, this module takes over, performs the requested action
-    (e.g., printing the list or configuration summary to the console), and then exits the script.
+    (e.g., printing the list, configuration summary, or update status to the console),
+    and then exits the script.
+    For -CheckForUpdate, it lazy-loads 'Modules\Utilities\Update.psm1'.
     This keeps the main PoSh-Backup.ps1 script cleaner by offloading this mode-specific logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Added -CheckForUpdate mode handling.
     DateCreated:    24-May-2025
-    LastModified:   24-May-2025
+    LastModified:   31-May-2025
     Purpose:        To handle informational script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
+                    For update checking, Modules\Utilities\Update.psm1 must exist.
 #>
 
 #region --- Exported Function: Invoke-PoShBackupScriptMode ---
@@ -24,17 +28,20 @@ function Invoke-PoShBackupScriptMode {
     [CmdletBinding()]
     <#
     .SYNOPSIS
-        Checks for and handles informational script modes (-ListBackupLocations, -ListBackupSets, -TestConfig).
+        Checks for and handles informational script modes (-ListBackupLocations, -ListBackupSets, -TestConfig, -CheckForUpdate).
     .DESCRIPTION
         If one of the specified informational CLI switches is present, this function executes
-        the corresponding logic (listing items or testing configuration) and then exits the script.
-        If no such mode is active, it returns a value indicating that the main script should continue.
+        the corresponding logic (listing items, testing configuration, or checking for updates)
+        and then exits the script. If no such mode is active, it returns a value indicating
+        that the main script should continue.
     .PARAMETER ListBackupLocationsSwitch
         The $ListBackupLocations.IsPresent switch value from the main script.
     .PARAMETER ListBackupSetsSwitch
         The $ListBackupSets.IsPresent switch value from the main script.
     .PARAMETER TestConfigSwitch
         The $TestConfig.IsPresent switch value from the main script.
+    .PARAMETER CheckForUpdateSwitch
+        The $CheckForUpdate.IsPresent switch value from the main script.
     .PARAMETER Configuration
         The loaded PoSh-Backup configuration hashtable.
     .PARAMETER ActualConfigFile
@@ -43,6 +50,10 @@ function Invoke-PoShBackupScriptMode {
         The result object from Import-AppConfiguration, containing UserConfigLoaded and UserConfigPath.
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
+    .PARAMETER PSScriptRootForUpdateCheck
+        The $PSScriptRoot of the main PoSh-Backup.ps1 script, needed for resolving paths if -CheckForUpdate is used.
+    .PARAMETER PSCmdletForUpdateCheck
+        The $PSCmdlet automatic variable from the main PoSh-Backup.ps1 script, for ShouldProcess in update check.
     .OUTPUTS
         System.Boolean
         Returns $true if an informational mode was handled (and the script will exit within this function).
@@ -61,16 +72,25 @@ function Invoke-PoShBackupScriptMode {
         [bool]$TestConfigSwitch,
 
         [Parameter(Mandatory = $true)]
+        [bool]$CheckForUpdateSwitch, # NEW
+
+        [Parameter(Mandatory = $true)]
         [hashtable]$Configuration,
 
         [Parameter(Mandatory = $true)]
         [string]$ActualConfigFile,
 
         [Parameter(Mandatory = $true)]
-        [hashtable]$ConfigLoadResult, # Contains UserConfigLoaded, UserConfigPath
+        [hashtable]$ConfigLoadResult,
 
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+
+        [Parameter(Mandatory = $false)] # Only needed if CheckForUpdateSwitch is true
+        [string]$PSScriptRootForUpdateCheck,
+
+        [Parameter(Mandatory = $false)] # Only needed if CheckForUpdateSwitch is true
+        [System.Management.Automation.PSCmdlet]$PSCmdletForUpdateCheck
     )
 
     # PSSA Appeasement: Directly use the Logger parameter once.
@@ -83,6 +103,32 @@ function Invoke-PoShBackupScriptMode {
         } else {
             & $Logger -Message $Message -Level $Level
         }
+    }
+
+    if ($CheckForUpdateSwitch) {
+        & $LocalWriteLog -Message "`n--- Checking for PoSh-Backup Updates ---" -Level "HEADING"
+        $updateModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Utilities\Update.psm1" # Relative to ScriptModeHandler.psm1
+
+        if (-not (Test-Path -LiteralPath $updateModulePath -PathType Leaf)) {
+            & $LocalWriteLog -Message "[ERROR] ScriptModeHandler: Update module (Update.psm1) not found at '$updateModulePath'. Cannot check for updates." -Level "ERROR"
+            exit 50 # Specific exit code for missing update module
+        }
+        try {
+            Import-Module -Name $updateModulePath -Force -ErrorAction Stop
+            # Invoke-PoShBackupUpdateCheckAndApply is now available
+            $updateCheckParams = @{
+                Logger                 = $Logger
+                PSScriptRootForPaths   = $PSScriptRootForUpdateCheck
+                PSCmdletInstance       = $PSCmdletForUpdateCheck
+            }
+            Invoke-PoShBackupUpdateCheckAndApply @updateCheckParams
+        }
+        catch {
+            & $LocalWriteLog -Message "[ERROR] ScriptModeHandler: Failed to load or execute the Update module. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message "  Please ensure 'Modules\Utilities\Update.psm1' exists and is valid." -Level "ERROR"
+        }
+        & $LocalWriteLog -Message "`n--- Update Check Finished ---" -Level "HEADING"
+        exit 0 # Exit after checking for updates
     }
 
     if ($ListBackupLocationsSwitch) {

@@ -35,6 +35,9 @@ function Resolve-DestinationConfiguration {
         [Parameter(Mandatory)] [scriptblock]$Logger
     )
 
+    # PSSA: Directly use Logger and CliOverrides for initial debug message
+    & $Logger -Message "EffectiveConfigBuilder/DestinationSettings/Resolve-DestinationConfiguration: Logger active. CLI Overrides count: $($CliOverrides.Count)." -Level "DEBUG" -ErrorAction SilentlyContinue
+    
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
@@ -44,7 +47,6 @@ function Resolve-DestinationConfiguration {
         }
     }
     & $LocalWriteLog -Message "EffectiveConfigBuilder/DestinationSettings/Resolve-DestinationConfiguration: Resolving destination and target settings." -Level "DEBUG"
-
 
     $resolvedSettings = @{}
 

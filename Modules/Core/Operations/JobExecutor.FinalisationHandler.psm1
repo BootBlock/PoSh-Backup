@@ -40,6 +40,11 @@ function Invoke-PoShBackupJobFinalisation {
         [scriptblock]$Logger
     )
 
+    # Simplest possible direct use of Logger for PSSA verification
+    if ($null -ne $Logger) {
+        & $Logger -Message "JobExecutor.FinalisationHandler/Invoke-PoShBackupJobFinalisation: Logger parameter confirmed active for job '$JobName'." -Level "DEBUG"
+    }
+
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
@@ -49,6 +54,7 @@ function Invoke-PoShBackupJobFinalisation {
             & $Logger -Message $Message -Level $Level
         }
     }
+    
     & $LocalWriteLog -Message "JobExecutor.FinalisationHandler/Invoke-PoShBackupJobFinalisation: Initializing for job '$JobName'." -Level "DEBUG"
 
     $reportData = $JobReportDataRef.Value

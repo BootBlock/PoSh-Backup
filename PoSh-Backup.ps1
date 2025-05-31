@@ -8,8 +8,8 @@
     archive checksum generation and verification, optional Self-Extracting Archive (SFX) creation,
     optional 7-Zip CPU core affinity (with CLI override), optional verification of local
     archives before remote transfer, configurable log file retention, support for
-    7-Zip include/exclude list files, backup job chaining/dependencies, and multi-volume
-    (split) archive creation (with CLI override).
+    7-Zip include/exclude list files, backup job chaining/dependencies, multi-volume
+    (split) archive creation (with CLI override), and an update checking mechanism.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -44,11 +44,12 @@
       per-set, or CLI override) to prevent indefinite growth of the Logs directory.
     - 7-Zip Include/Exclude List Files: Specify external files containing lists of
       include or exclude patterns for 7-Zip, configurable globally, per-job, per-set, or via CLI.
-    - Backup Job Chaining / Dependencies (New): Define job dependencies so that a job only runs
+    - Backup Job Chaining / Dependencies: Define job dependencies so that a job only runs
       after its prerequisite jobs have completed successfully (considering 'TreatSevenZipWarningsAsSuccess').
       Circular dependencies are detected.
-    - Multi-Volume (Split) Archives (New): Optionally split large archives into smaller volumes
+    - Multi-Volume (Split) Archives: Optionally split large archives into smaller volumes
       (e.g., "100m", "4g"), configurable per job or via CLI. This will override SFX creation if both are set.
+    - Update Checking (New): Manually check for new versions of PoSh-Backup.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -140,6 +141,9 @@
     Defaults to @("ANY") if PostRunActionCli is used but this is not.
     Valid values: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
 
+.PARAMETER CheckForUpdate
+    Optional. A switch parameter. If present, checks for available updates to PoSh-Backup and exits.
+
 .EXAMPLE
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -SevenZipExcludeListFileCLI "C:\Config\MyGlobalExcludes.txt"
     Runs the "MyDocs_To_UNC" job and uses the specified file for 7-Zip exclusion rules, overriding any
@@ -151,10 +155,14 @@
     Runs the "MyLargeBackup" job and splits the archive into 4GB volumes, overriding any
     SplitVolumeSize or SFX settings in the configuration for this job.
 
+.EXAMPLE
+    .\PoSh-Backup.ps1 -CheckForUpdate
+    Checks if a new version of PoSh-Backup is available online and displays the information.
+
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.14.5 # Refactored start/completion banners to use Write-ConsoleBanner.
-    Date:           29-May-2025
+    Version:        1.14.6 # Added -CheckForUpdate parameter.
+    Date:           31-May-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -203,7 +211,7 @@ param (
     [string]$SevenZipCpuAffinityCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Path to a text file containing 7-Zip include patterns. Overrides all configured include list files.")]
-    [ValidateScript({ 
+    [ValidateScript({
         # If the path is provided, it must exist as a file.
         # If no path is provided (empty string or $null from CLI not setting it), validation passes.
         if ([string]::IsNullOrWhiteSpace($_)) { return $true }
@@ -256,7 +264,10 @@ param (
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Status(es) to trigger PostRunActionCli. Default 'ANY'. Valid: SUCCESS, WARNINGS, FAILURE, SIMULATED_COMPLETE, ANY.")]
     [ValidateSet("SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY", IgnoreCase=$true)]
-    [string[]]$PostRunActionTriggerOnStatusCli = @("ANY")
+    [string[]]$PostRunActionTriggerOnStatusCli = @("ANY"),
+
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Checks for available updates to PoSh-Backup and exits.")]
+    [switch]$CheckForUpdate
 )
 #endregion
 
@@ -344,21 +355,21 @@ Write-ConsoleBanner -NameText "PoSh Backup" `
 $authorName = "Joe Cox"
 $githubLink = "https://github.com/BootBlock/PoSh-Backup"
 $websiteLink = "https://bootblock.co.uk"
-$authorInfoColor = $Global:ColourDebug 
+$authorInfoColor = $Global:ColourDebug
 
 Write-Host # Blank line for spacing
 Write-Host "        $authorName" -ForegroundColor $authorInfoColor -NoNewline
 Write-Host " : " -ForegroundColor $Global:ColourHeading -NoNewline
 Write-Host $githubLink -ForegroundColor $authorInfoColor
 
-Write-Host "    " -ForegroundColor $authorInfoColor -NoNewline 
-Write-Host "            : " -ForegroundColor $Global:ColourHeading -NoNewline 
+Write-Host "    " -ForegroundColor $authorInfoColor -NoNewline
+Write-Host "            : " -ForegroundColor $Global:ColourHeading -NoNewline
 Write-Host $websiteLink -ForegroundColor $authorInfoColor
 Write-Host # Blank line after author info
 # --- End Starting Banner ---
 
 $ScriptStartTime                            = Get-Date
-$IsSimulateMode                             = $Simulate.IsPresent 
+$IsSimulateMode                             = $Simulate.IsPresent
 
 $cliOverrideSettings = @{
     UseVSS                             = if ($PSBoundParameters.ContainsKey('UseVSS')) { $UseVSS.IsPresent } else { $null }
@@ -369,8 +380,8 @@ $cliOverrideSettings = @{
     TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
     SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
     SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null }
-    SevenZipIncludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $SevenZipIncludeListFileCLI } else { $null } 
-    SevenZipExcludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $SevenZipExcludeListFileCLI } else { $null } 
+    SevenZipIncludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $SevenZipIncludeListFileCLI } else { $null }
+    SevenZipExcludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $SevenZipExcludeListFileCLI } else { $null }
     SplitVolumeSizeCLI                 = if ($PSBoundParameters.ContainsKey('SplitVolumeSizeCLI')) { $SplitVolumeSizeCLI } else { $null }
     LogRetentionCountCLI               = if ($PSBoundParameters.ContainsKey('LogRetentionCountCLI')) { $LogRetentionCountCLI } else { $null }
     PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
@@ -404,23 +415,23 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\HookManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\SystemStateManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
-    
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop 
+
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
 
     $cmdInfo = Get-Command Build-JobExecutionOrder -ErrorAction SilentlyContinue
     if (-not $cmdInfo) {
         & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Build-JobExecutionOrder from JobDependencyManager is NOT available after import!" -Level "ERROR"
-        exit 99 
+        exit 99
     } else {
         & $LoggerScriptBlock -Message "[INFO] PoSh-Backup.ps1: Build-JobExecutionOrder IS available. Type: $($cmdInfo.CommandType)" -Level "INFO"
-        $script:BuildJobExecutionOrderFuncRef = $cmdInfo 
+        $script:BuildJobExecutionOrderFuncRef = $cmdInfo
     }
 
     & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including JobOrchestrator, PostRunActionOrchestrator, and JobDependencyManager." -Level "INFO"
 
 } catch {
     & $LoggerScriptBlock -Message "[FATAL] Failed to import one or more required script modules." -Level "ERROR"
-    & $LoggerScriptBlock -Message "Ensure core modules are in '.\Modules\' (or subdirectories) relative to PoSh-Backup.ps1." -Level "ERROR" 
+    & $LoggerScriptBlock -Message "Ensure core modules are in '.\Modules\' (or subdirectories) relative to PoSh-Backup.ps1." -Level "ERROR"
     & $LoggerScriptBlock -Message "Error details: $($_.Exception.Message)" -Level "ERROR"
     exit 10
 }
@@ -430,11 +441,11 @@ try {
 
 $configLoadParams = @{
     UserSpecifiedPath           = $ConfigFile
-    IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent))
+    IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($CheckForUpdate.IsPresent)) # Include CheckForUpdate here
     MainScriptPSScriptRoot      = $PSScriptRoot
     Logger                      = $LoggerScriptBlock
     SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
-    IsSimulateModeSwitch        = [bool]$Simulate.IsPresent 
+    IsSimulateModeSwitch        = [bool]$Simulate.IsPresent
     ListBackupLocationsSwitch   = [bool]$ListBackupLocations.IsPresent
     ListBackupSetsSwitch        = [bool]$ListBackupSets.IsPresent
     CliOverrideSettings         = $cliOverrideSettings
@@ -467,10 +478,13 @@ if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
 Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
                             -ListBackupSetsSwitch $ListBackupSets.IsPresent `
                             -TestConfigSwitch $TestConfig.IsPresent `
+                            -CheckForUpdateSwitch $CheckForUpdate.IsPresent `
                             -Configuration $Configuration `
                             -ActualConfigFile $ActualConfigFile `
                             -ConfigLoadResult $configResult `
-                            -Logger $LoggerScriptBlock
+                            -Logger $LoggerScriptBlock `
+                            -PSScriptRootForUpdateCheck $PSScriptRoot `
+                            -PSCmdletForUpdateCheck $PSCmdlet
 
 
 $sevenZipPathFromFinalConfig = if ($Configuration.ContainsKey('SevenZipPath')) { $Configuration.SevenZipPath } else { $null }
@@ -523,21 +537,21 @@ if (-not $jobResolutionResult.Success) {
     & $LoggerScriptBlock -Message "FATAL: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
     exit 1
 }
-$initialJobsToConsider = $jobResolutionResult.JobsToRun 
+$initialJobsToConsider = $jobResolutionResult.JobsToRun
 $currentSetName = $jobResolutionResult.SetName
 $stopSetOnError = $jobResolutionResult.StopSetOnErrorPolicy
 $setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
 
-# --- NEW: Build Job Execution Order based on Dependencies ---
-$jobsToProcess = [System.Collections.Generic.List[string]]::new() 
+# --- Build Job Execution Order based on Dependencies ---
+$jobsToProcess = [System.Collections.Generic.List[string]]::new()
 if ($initialJobsToConsider.Count -gt 0) {
     & $LoggerScriptBlock -Message "[INFO] Building job execution order considering dependencies..." -Level "INFO"
-    
+
     if ($null -eq $script:BuildJobExecutionOrderFuncRef) {
         & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Function reference for Build-JobExecutionOrder is null before calling!" -Level "ERROR"
         exit 98
     }
-    
+
     $executionOrderResult = & $script:BuildJobExecutionOrderFuncRef -InitialJobsToConsider $initialJobsToConsider `
                                                                     -AllBackupLocations $Configuration.BackupLocations `
                                                                     -Logger $LoggerScriptBlock
@@ -545,7 +559,7 @@ if ($initialJobsToConsider.Count -gt 0) {
         & $LoggerScriptBlock -Message "FATAL: Could not build job execution order. Error: $($executionOrderResult.ErrorMessage)" -Level "ERROR"
         exit 1
     }
-    
+
     if ($executionOrderResult.OrderedJobs -is [array]) {
         $jobsToProcess = New-Object System.Collections.Generic.List[string]
         $executionOrderResult.OrderedJobs | ForEach-Object { $jobsToProcess.Add($_) }
@@ -570,14 +584,14 @@ $jobSpecificPostRunActionForNonSetRun = $null
 
 if ($jobsToProcess.Count -gt 0) {
     $runParams = @{
-        JobsToProcess            = $jobsToProcess 
+        JobsToProcess            = $jobsToProcess
         CurrentSetName           = $currentSetName
         StopSetOnErrorPolicy     = $stopSetOnError
         SetSpecificPostRunAction = $setSpecificPostRunAction
         Configuration            = $Configuration
         PSScriptRootForPaths     = $PSScriptRoot
         ActualConfigFile         = $ActualConfigFile
-        IsSimulateMode           = $IsSimulateMode 
+        IsSimulateMode           = $IsSimulateMode
         Logger                   = $LoggerScriptBlock
         PSCmdlet                 = $PSCmdlet
         CliOverrideSettings      = $cliOverrideSettings
@@ -593,15 +607,14 @@ if ($jobsToProcess.Count -gt 0) {
     $overallSetStatus = $orchestratorResult.OverallSetStatus
     $jobSpecificPostRunActionForNonSetRun = $orchestratorResult.JobSpecificPostRunActionForNonSet
 } else {
-    & $LoggerScriptBlock -Message "[INFO] No jobs were processed (either none specified or dependency analysis resulted in an empty list)." -Level "INFO" 
+    & $LoggerScriptBlock -Message "[INFO] No jobs were processed (either none specified or dependency analysis resulted in an empty list)." -Level "INFO"
 }
 #endregion
 
 #region --- Final Script Summary & Exit ---
 $finalScriptEndTime = Get-Date
 
-# --- New Completion Banner ---
-
+# --- Completion Banner ---
 $finalScriptEndTime = Get-Date
 
 # --- Use Utility for Completion Banner ---
@@ -648,8 +661,8 @@ $postRunParams = @{
     SetSpecificPostRunAction          = $setSpecificPostRunAction
     JobSpecificPostRunActionForNonSet = $jobSpecificPostRunActionForNonSetRun
     GlobalConfig                      = $Configuration
-    IsSimulateMode                    = [bool]$Simulate.IsPresent 
-    TestConfigIsPresent               = [bool]$TestConfig.IsPresent   
+    IsSimulateMode                    = [bool]$Simulate.IsPresent
+    TestConfigIsPresent               = [bool]$TestConfig.IsPresent
     Logger                            = $LoggerScriptBlock
     PSCmdletInstance                  = $PSCmdlet
     CurrentSetNameForLog              = $currentSetName
@@ -691,7 +704,6 @@ switch ($effectivePauseBehaviour) {
 if (($IsSimulateMode.IsPresent -or $TestConfig.IsPresent) -and $effectivePauseBehaviour -ne "always") {
     $shouldPhysicallyPause = $false
 }
-
 
 if ($shouldPhysicallyPause) {
     & $LoggerScriptBlock -Message "`nPress any key to exit..." -Level "WARNING"

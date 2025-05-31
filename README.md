@@ -54,6 +54,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Exit Pause Control:** Control script pausing behaviour on completion (Always, Never, OnFailure, etc.) for easier review of console output, with CLI override.
 *   **Post-Run System Actions:** Optionally configure the script to perform system actions like Shutdown, Restart, Hibernate, LogOff, Sleep, or Lock Workstation after a job or set completes. This is configurable based on the final status (Success, Warnings, Failure, Any), can include a delay with a cancellation prompt, and can be forced via CLI parameters.
 *   **Verify Local Archive Before Transfer (New):** Optionally test the local archive's integrity (including checksum if enabled) *before* attempting any remote transfers. If this verification fails, remote transfers for that job are skipped, preventing propagation of potentially corrupt archives.
+*   **Update Checking (New):** Manually check for new versions of PoSh-Backup. If an update is found, the user will be informed and can choose to initiate the download and application of the update. (Self-application of the update is currently under development).
 
 ## Getting Started
 
@@ -61,7 +62,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **PowerShell:** Version 5.1 or higher.
 *   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
 *   **Posh-SSH Module (New):** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).*   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files, and potentially for some Post-Run System Actions (e.g., Shutdown, Restart, Hibernate).
-*   **Network/Remote Access:** For using Backup Targets, appropriate permissions and connectivity to the remote locations (e.g., UNC shares) are necessary for the user account running PoSh-Backup.
+*   **Network/Remote Access:** For using Backup Targets, appropriate permissions and connectivity to the remote locations (e.g., UNC shares) are necessary for the user account running PoSh-Backup. For the Update Checking feature, internet access is required to fetch the remote version manifest.
 
 ### 2. Installation & Initial Setup
 1.  **Obtain the Script:**
@@ -79,7 +80,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   `Operations/`: Sub-modules for specific phases of a backup job (e.g., `JobPreProcessor.psm1`, `LocalArchiveProcessor.psm1`).
         *   `Reporting/`: Modules related to report generation.
         *   `Targets/`: Sub-directory for Backup Target provider modules.
-        *   `Utilities/`: Sub-directory for specialized utility modules.
+        *   `Utilities/`: Sub-directory for specialised utility modules (including `Update.psm1` for update checks).
         *   (Other direct .psm1 files like `Utils.psm1`, `ScriptModeHandler.psm1`, `PoShBackupValidator.psm1`)
 3.  **First Run & User Configuration:**
     *   Open a PowerShell console.
@@ -405,6 +406,12 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     (This runs "MyVeryLargeBackup" and splits the archive into 10GB volumes, overriding any `SplitVolumeSize` or `CreateSFX` settings in the configuration for this job.)
     ```
 
+*   **Check for PoSh-Backup Updates (New):**
+    ```powershell
+    .\PoSh-Backup.ps1 -CheckForUpdate
+    ```
+    (This will connect to the internet to check for a newer version of the script and inform you of the result. It will not perform any backup operations.)
+
 ### 5. Key Operational Command-Line Parameters
 These parameters allow you to override certain configuration settings for a specific run:
 
@@ -424,6 +431,20 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-PostRunActionDelaySecondsCli <Seconds>`: Delay for the CLI-specified action. Defaults to 0 if `-PostRunActionCli` is used but this parameter is not.
 *   `-PostRunActionForceCli`: Switch to force Shutdown/Restart for the CLI-specified action.
 *   `-PostRunActionTriggerOnStatusCli <StatusArray>`: Status(es) to trigger CLI action. Defaults to `@("ANY")` if `-PostRunActionCli` is used but this parameter is not. Valid: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
+*   `-CheckForUpdate` (New): Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
+
+### Update Checking
+PoSh-Backup can check if a newer version is available online. This is a manual check initiated by the user.
+
+*   **How it Works:**
+    1.  When `.\PoSh-Backup.ps1 -CheckForUpdate` is run, the script contacts a predefined URL (hardcoded in `Modules\Utilities\Update.psm1`) to fetch a "version manifest" file. This manifest contains details about the latest official release.
+    2.  The script compares the `InstalledVersion` from your local `Meta\Version.psd1` file with the `LatestVersion` from the remote manifest.
+    3.  If an update is available, details such as the new version number, release date, release notes URL, and download URL will be displayed.
+    4.  The script will then prompt if you wish to attempt an automatic update. (Note: The self-application of the update is currently under development. For now, you will be directed to download and apply it manually.)
+    5.  If your version is current or newer (e.g., a development build), an appropriate message will be shown.
+*   **Local Version File (`Meta\Version.psd1`):** This file in your PoSh-Backup installation directory stores the version number and release date of your current installation. It's updated by the developers with each release.
+*   **No Automatic Updates:** This feature *informs* you about updates. It does not download or install them without your explicit action at this stage.
+*   **Internet Access:** Requires an internet connection to fetch the remote version manifest.
 
 For a full list of all command-line parameters and their descriptions, use PowerShell's built-in help:
 ```powershell

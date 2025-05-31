@@ -3,8 +3,9 @@
 .SYNOPSIS
     Provides a collection of essential utility functions for the PoSh-Backup script.
     This module now acts as a facade, importing and re-exporting functions from
-    more specialised utility modules located in '.\Modules\Utilities\' and the core
-    logging function from '.\Modules\Managers\LogManager.psm1'.
+    more specialised utility modules located in '.\Modules\Utilities\' (including the new
+    Update.psm1 for update checking) and the core logging function from
+    '.\Modules\Managers\LogManager.psm1'.
 .DESCRIPTION
     This module centralises common helper functions used throughout the PoSh-Backup solution,
     promoting code reusability, consistency, and maintainability. By acting as a facade,
@@ -15,18 +16,19 @@
     - FileUtils.psm1: Handles file-specific operations (size formatting, hashing).
     - StringUtils.psm1: Handles string manipulation and extraction (e.g., version parsing).
     - ConsoleDisplayUtils.psm1: Handles enhanced console output like banners.
+    - Update.psm1 (New): Handles checking for and applying updates to PoSh-Backup.
     And the core logging function:
     - LogManager.psm1 (in Modules\Managers\): Handles message logging.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.15.0 # Added StringUtils.psm1 for Get-ScriptVersionFromContent.
+    Version:        1.16.0 # Added Update.psm1 for update checking.
     DateCreated:    10-May-2025
-    LastModified:   29-May-2025
+    LastModified:   31-May-2025
     Purpose:        Facade for core utility functions for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+.
-                    Sub-modules (ConfigUtils.psm1, SystemUtils.psm1, FileUtils.psm1, StringUtils.psm1, ConsoleDisplayUtils.psm1)
-                    must exist in '.\Modules\Utilities\'.
+                    Sub-modules (ConfigUtils.psm1, SystemUtils.psm1, FileUtils.psm1, StringUtils.psm1,
+                    ConsoleDisplayUtils.psm1, Update.psm1) must exist in '.\Modules\Utilities\'.
                     LogManager.psm1 must exist in '.\Modules\Managers\'.
 #>
 
@@ -41,7 +43,20 @@ try {
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "ConfigUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "SystemUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "FileUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "StringUtils.psm1") -Force -ErrorAction Stop # NEW
+    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "StringUtils.psm1") -Force -ErrorAction Stop
+    # Update.psm1 is lazy-loaded by ScriptModeHandler.psm1, so it's not imported here directly.
+    # However, to make its function available via the Utils facade if ScriptModeHandler *does* load it,
+    # we can attempt to get its exported members if the module is already loaded in the session.
+    # This is a bit of a workaround for facade pattern with lazy loading.
+    # A cleaner way might be for ScriptModeHandler to call Update.psm1 functions directly after its own import.
+    # For now, we'll assume ScriptModeHandler handles the direct call after lazy loading Update.psm1.
+    # If Invoke-PoShBackupUpdateCheckAndApply needs to be callable from other places *through* Utils.psm1
+    # *without* ScriptModeHandler having loaded it first, then Update.psm1 would need to be eagerly loaded here.
+    # Given the current design (lazy load in ScriptModeHandler), we will NOT import Update.psm1 here.
+    # ScriptModeHandler will be responsible for calling it.
+    # We will, however, add its function to the Export-ModuleMember list,
+    # so if it *is* loaded into the session by ScriptModeHandler, it *could* be discoverable via Utils.
+    # This is a compromise. The primary invocation path is ScriptModeHandler -> Update.psm1 directly.
 
     # Import Write-LogMessage from LogManager.psm1 in Managers directory
     Import-Module -Name (Join-Path -Path $managersSubModulePath -ChildPath "LogManager.psm1") -Force -Function Write-LogMessage -ErrorAction Stop
@@ -56,5 +71,8 @@ catch {
 
 #region --- Exported Functions ---
 # Re-export all functions from the imported utility sub-modules and Write-LogMessage from LogManager.
-Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Write-ConsoleBanner, Get-ScriptVersionFromContent # ADDED Get-ScriptVersionFromContent
+# Adding Invoke-PoShBackupUpdateCheckAndApply here. If Update.psm1 is loaded by ScriptModeHandler,
+# this makes the function discoverable via `Get-Command Utils\Invoke-PoShBackupUpdateCheckAndApply`.
+# However, direct calls should still be ScriptModeHandler -> Update.psm1.
+Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Write-ConsoleBanner, Get-ScriptVersionFromContent, Invoke-PoShBackupUpdateCheckAndApply
 #endregion

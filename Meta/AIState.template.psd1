@@ -31,9 +31,43 @@
   )
 
   conversation_summary            = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.14.1).", # Updated version
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.14.6).",
     "Modular design: Core (Modules\\Core\\), Managers (Modules\\Managers\\), Utilities (Modules\\Utilities\\), Operations (Modules\\Operations\\), ConfigManagement (Modules\\ConfigManagement\\), Reporting (Modules\\Reporting\\), Targets (Modules\\Targets\\).",
     "AI State structure loaded from 'Meta\\AIState.template.psd1', dynamically populated by Bundler (v__BUNDLER_VERSION_PLACEHOLDER__).",
+    "--- Feature: Update Checking Mechanism (Current Session Segment) ---",
+    "    - Goal: Allow users to manually check for new versions of PoSh-Backup and be informed of update availability. Future: allow self-update.",
+    "    - New File `Meta\\Version.psd1` (vNotApplicable): Stores local installation version metadata (InstalledVersion, ReleaseDate, ProjectUrl, DistributionType, UpdateStrategy).",
+    "    - New Module `Modules\\Utilities\\Update.psm1` (v0.1.0 -> v0.2.0):",
+    "      - `Invoke-PoShBackupUpdateCheckAndApply` now handles the full pre-update process:",
+    "        - Prompts user to update if a new version is found.",
+    "        - Downloads the update package (ZIP).",
+    "        - Verifies SHA256 checksum of the downloaded package against the remote manifest.",
+    "        - Backs up the current PoSh-Backup installation directory.",
+    "        - Launches `Meta\\apply_update.ps1` with necessary parameters to perform the actual file replacement.",
+    "      - Still reads local version, fetches/parses remote manifest, compares versions, and notifies user.",
+    "    - New Script `Meta\\apply_update.ps1` (vNotApplicable - standalone):",
+    "      - Launched by `Update.psm1` to perform the self-update after PoSh-Backup exits.",
+    "      - Takes parameters: downloaded ZIP path, install path, backup path, update log path, main PID.",
+    "      - Waits for main PoSh-Backup process to exit (optional).",
+    "      - Extracts new version to a temporary directory.",
+    "      - Preserves user configuration by:",
+    "        1. Temporarily backing up the user's existing `Config` directory (from the full backup made by `Update.psm1`).",
+    "        2. Deleting old application files/folders (including the main `Config` folder) from the installation path.",
+    "        3. Copying all new version files (including the new `Config` folder with new `Default.psd1`) to the installation path.",
+    "        4. Restoring all items from the user's backed-up `Config` directory *except* `Default.psd1` into the new `Config` directory.",
+    "      - Performs cleanup of temporary files.",
+    "      - Includes its own logging to a dedicated update log file and console.",
+    "      - Handles errors and informs user of success or failure, and backup location on failure.",
+    "    - `PoSh-Backup.ps1` (v1.14.5 -> v1.14.6):",
+    "      - Added `-CheckForUpdate` switch parameter.",
+    "      - Passes new switch and necessary context (PSScriptRoot, PSCmdlet) to `ScriptModeHandler.psm1`.",
+    "    - `Modules\\Utils.psm1` (v1.15.0 -> v1.16.0):",
+    "      - Updated to re-export `Invoke-PoShBackupUpdateCheckAndApply` (though primary invocation is via `ScriptModeHandler` lazy load).",
+    "    - `Modules\\ScriptModeHandler.psm1` (v1.0.0 -> v1.1.0):",
+    "      - Added `-CheckForUpdateSwitch`, `$PSScriptRootForUpdateCheck`, `$PSCmdletForUpdateCheck` parameters.",
+    "      - If `-CheckForUpdateSwitch` is true, lazy-loads `Modules\\Utilities\\Update.psm1`.",
+    "      - Calls `Invoke-PoShBackupUpdateCheckAndApply` and then exits.",
+    "    - `README.md`: Updated to document the new feature, CLI switch, and related files.",
     "--- CURRENT FOCUS & RECENTLY COMPLETED (Current Session Segment) ---",
     "  - Feature: Backup Job Chaining / Dependencies:",
     "    - Goal: Define dependencies, so a job runs only after another's success.",
@@ -97,10 +131,10 @@
     "--- STABLE COMPLETED FEATURES (Brief Overview, from user baseline) ---",
     "  - SFX Archives, Core Refactoring (JobOrchestrator, Utils facade, etc.), Archive Checksums, Post-Run System Actions, Backup Target Providers (UNC, Replicate, SFTP).",
     "--- PROJECT STATUS ---",
-    "Overall: Core local/remote backup stable. Extensive refactoring complete. Log retention, CPU affinity, SFX, checksums, post-run actions, 7-Zip include/exclude list files, job dependency/chaining, and multi-volume (split) archives features are implemented. Pester testing for utilities in progress. Logging function (`Write-LogMessage`) now managed by `LogManager.psm1`."
+    "Overall: Core local/remote backup stable. Extensive refactoring complete. Update checking feature added (self-apply pending). Pester testing for utilities in progress (SystemUtils.Tests.ps1 was next). Logging function (`Write-LogMessage`) now managed by `LogManager.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.14.1" # Reflects -SplitVolumeSizeCLI parameter
+  main_script_poSh_backup_version = "1.14.6" # Reflects -CheckForUpdate parameter
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
