@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
     Packages the PoSh-Backup project for distribution. It auto-generates 'Meta\Version.psd1'
-    by parsing 'PoSh-Backup.ps1', creates a ZIP archive, and then generates a
-    'version_manifest.psd1' file.
+    by parsing 'PoSh-Backup.ps1', creates a ZIP archive, and then generates a 'version_manifest.psd1'
+    file. Scans all script/module versions and includes them in the manifest.
 .DESCRIPTION
     This script performs the following actions:
     1. Parses 'PoSh-Backup.ps1' to extract the current version number.
@@ -68,7 +68,7 @@ param(
     [string]$UpdateSeverity = "Recommended",
 
     [Parameter(Mandatory=$false)]
-    [string]$UpdateMessage = "Please review the release notes for details on changes in this version."
+    [string]$UpdateMessage = ""
 )
 
 Write-Host "--- PoSh-Backup Release Packager ---" -ForegroundColor Yellow
@@ -209,6 +209,64 @@ try {
     exit 1
 }
 
+# --- NEW: Scan for all script/module versions ---
+Write-Host "Scanning project for individual script/module versions..."
+$allScriptVersions = @{} # Initialize an empty hashtable to store script paths and their versions
+
+# Define arguments for Get-ChildItem to find all .ps1 and .psm1 files
+$scriptFilesToScanArgs = @{
+    Path        = $ProjectRoot
+    Recurse     = $true
+    Include     = @("*.ps1", "*.psm1")
+    File        = $true
+    ErrorAction = 'SilentlyContinue' # Continue if some paths are inaccessible
+}
+$scriptFilesToScan = Get-ChildItem @scriptFilesToScanArgs
+
+# Define folders and specific files to exclude from version scanning
+$excludedScanFoldersOrFiles = @(
+    (Join-Path -Path $ProjectRoot -ChildPath ".git"),
+    (Join-Path -Path $ProjectRoot -ChildPath "Logs"),
+    (Join-Path -Path $ProjectRoot -ChildPath "Reports"),
+    (Join-Path -Path $ProjectRoot -ChildPath "_Backups"), # Convention for backups made by PoSh-Backup itself
+    (Join-Path -Path $ProjectRoot -ChildPath "_UpdateTemp"), # For wildcard match on folders starting with _UpdateTemp
+    $OutputDirectory, # Exclude the entire 'Releases' or custom output directory
+    (Join-Path -Path $ProjectRoot -ChildPath "Meta\Package-PoShBackupRelease.ps1") # Exclude this packager script
+)
+
+foreach ($file in $scriptFilesToScan) {
+    $skipFile = $false
+    # Check against excluded folders and specific files
+    foreach ($excludedItemPath in $excludedScanFoldersOrFiles) {
+        if ($excludedItemPath.EndsWith("\") -and $file.FullName.StartsWith($excludedItemPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            # File is within an excluded folder (ends with \)
+            $skipFile = $true; break
+        } elseif ($excludedItemPath.EndsWith("*") -and $file.DirectoryName.StartsWith(($excludedItemPath.TrimEnd("*")), [System.StringComparison]::OrdinalIgnoreCase)) {
+            # File is within a wildcard excluded folder (e.g., _UpdateTemp*)
+            $skipFile = $true; break
+        } elseif ($file.FullName -eq $excludedItemPath) {
+            # File is an exact match to an excluded file path
+            $skipFile = $true; break
+        }
+    }
+    if ($skipFile) { continue } # Skip to the next file
+
+    # Calculate relative path from ProjectRoot
+    $relativePath = $file.FullName.Substring($ProjectRoot.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    
+    $fileContent = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
+    $fileVersion = Get-ScriptVersionFromContentInternal -ScriptContent $fileContent -ScriptNameForWarning $relativePath
+    
+    if ([string]::IsNullOrWhiteSpace($fileVersion)) {
+        $fileVersion = "N/A" # Assign "N/A" if no version is found
+    }
+    
+    $allScriptVersions[$relativePath] = $fileVersion
+    Write-Host "  - Found: $relativePath (Version: $fileVersion)" -ForegroundColor DarkGray
+}
+Write-Host "Script version scanning complete. Found $($allScriptVersions.Keys.Count) script versions."
+# --- END NEW ---
+
 # --- Prepare for Packaging ---
 $zipFileName = "PoSh-Backup-v$($extractedVersion).zip" # Use extracted version
 $zipFileFullPath = Join-Path -Path $OutputDirectory -ChildPath $zipFileName
@@ -303,7 +361,7 @@ $downloadUrl = $DownloadUrlTemplate -f $extractedVersion
 
 $manifestData = @{
     LatestVersion   = $extractedVersion
-    ReleaseDate     = $currentReleaseDateForFile # Use the date we set in Meta\Version.psd1
+    ReleaseDate     = $currentReleaseDateForFile
     ReleaseNotesUrl = $releaseNotesUrl
     DownloadUrl     = $downloadUrl
     SHA256Checksum  = $zipFileHash
@@ -318,6 +376,25 @@ $escapedMessageForPsd1 = if (-not [string]::IsNullOrWhiteSpace($manifestData.Mes
     "'" + ($manifestData.Message -replace "'", "''") + "'"
 } else {
     "''" # Represent as an empty string literal in PSD1
+}
+
+# Convert $allScriptVersions hashtable to a PowerShell string representation for the manifest
+$scriptVersionsPsd1String = ""
+if ($allScriptVersions.Keys.Count -gt 0) {
+    $sbScriptVersions = [System.Text.StringBuilder]::new()
+    $null = $sbScriptVersions.AppendLine("@{")
+    # Sort by path (key) for consistent output in the manifest
+    $allScriptVersions.GetEnumerator() | Sort-Object Name | ForEach-Object {
+        # Escape single quotes in path (key) and version (value)
+        # Also escape backslashes in the path (key) for PowerShell string literal
+        $pathKeyPsd1 = $_.Name -replace "'", "''" -replace "\\", "\\" 
+        $versionValPsd1 = $_.Value -replace "'", "''"
+        $null = $sbScriptVersions.AppendLine("        '$pathKeyPsd1' = '$versionValPsd1'")
+    }
+    $null = $sbScriptVersions.Append("    }") # Indentation for the closing brace of ScriptVersions
+    $scriptVersionsPsd1String = $sbScriptVersions.ToString()
+} else {
+    $scriptVersionsPsd1String = "@ {}" # Empty hashtable literal if no script versions found
 }
 
 $manifestContent = @"
@@ -335,6 +412,7 @@ $manifestContent = @"
     SHA256Checksum  = '$($manifestData.SHA256Checksum)'
     Severity        = '$($manifestData.Severity)'
     Message         = $escapedMessageForPsd1
+    ScriptVersions  = $scriptVersionsPsd1String
 }
 "@
 
