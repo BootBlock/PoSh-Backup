@@ -182,6 +182,59 @@ try {
         Write-Warning "AI State template file 'Meta\AIState.template.psd1' not found. It will not be included in the bundle."
     }
 
+    $packagerScriptFile = Join-Path -Path $PSScriptRoot -ChildPath "Package-PoShBackupRelease.ps1"
+    if (Test-Path -LiteralPath $packagerScriptFile -PathType Leaf) {
+        $packagerScriptFileObject = Get-Item -LiteralPath $packagerScriptFile
+        Write-Verbose "Explicitly adding Release Packager script to bundle: $($packagerScriptFileObject.FullName)"
+        $packagerProcessingResult = Add-FileToBundle -FileObject $packagerScriptFileObject `
+            -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
+            -BundleBuilder $fileContentBuilder
+        # Update metadata if needed (e.g., if it had a synopsis we wanted in AI state, though it's a utility script)
+        & $UpdateMetadataFromProcessingResult -FileObjectParam $packagerScriptFileObject -ProcessingResult $packagerProcessingResult
+        # Add its path to the explicit exclusion list for ProjectScanner, so it's not processed twice
+        # if "Meta" was NOT in $ExcludedFolders for some reason (though it usually is).
+        # This is more of a safeguard.
+        if ($null -eq $MetaFilesToExcludeExplicitly) { $MetaFilesToExcludeExplicitly = @() }
+        $MetaFilesToExcludeExplicitly += $packagerScriptFileObject.FullName
+    }
+    else {
+        Write-Warning "Release Packager script 'Meta\Package-PoShBackupRelease.ps1' not found. It will not be included in the bundle."
+    }
+
+  # --- NEW: Add Version.psd1 from Meta folder ---
+    $versionMetaFile = Join-Path -Path $PSScriptRoot -ChildPath "Version.psd1"
+    if (Test-Path -LiteralPath $versionMetaFile -PathType Leaf) {
+        $versionMetaFileObject = Get-Item -LiteralPath $versionMetaFile
+        Write-Verbose "Explicitly adding Meta Version file to bundle: $($versionMetaFileObject.FullName)"
+        $versionMetaProcessingResult = Add-FileToBundle -FileObject $versionMetaFileObject `
+            -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
+            -BundleBuilder $fileContentBuilder
+        # Version.psd1 doesn't have a synopsis, so $UpdateMetadataFromProcessingResult might not add much but is harmless
+        & $UpdateMetadataFromProcessingResult -FileObjectParam $versionMetaFileObject -ProcessingResult $versionMetaProcessingResult
+        if ($null -eq $MetaFilesToExcludeExplicitly) { $MetaFilesToExcludeExplicitly = @() }
+        $MetaFilesToExcludeExplicitly += $versionMetaFileObject.FullName
+    }
+    else {
+        Write-Warning "Meta Version file 'Meta\Version.psd1' not found. It will not be included in the bundle."
+    }
+    # --- END NEW ---
+
+    # --- NEW: Add apply_update.ps1 from Meta folder ---
+    $applyUpdateScriptFile = Join-Path -Path $PSScriptRoot -ChildPath "apply_update.ps1"
+    if (Test-Path -LiteralPath $applyUpdateScriptFile -PathType Leaf) {
+        $applyUpdateScriptFileObject = Get-Item -LiteralPath $applyUpdateScriptFile
+        Write-Verbose "Explicitly adding Apply Update script to bundle: $($applyUpdateScriptFileObject.FullName)"
+        $applyUpdateProcessingResult = Add-FileToBundle -FileObject $applyUpdateScriptFileObject `
+            -RootPathForRelativeCalculations $normalisedProjectRootForCalculations `
+            -BundleBuilder $fileContentBuilder
+        & $UpdateMetadataFromProcessingResult -FileObjectParam $applyUpdateScriptFileObject -ProcessingResult $applyUpdateProcessingResult
+        if ($null -eq $MetaFilesToExcludeExplicitly) { $MetaFilesToExcludeExplicitly = @() }
+        $MetaFilesToExcludeExplicitly += $applyUpdateScriptFileObject.FullName
+    }
+    else {
+        Write-Warning "Apply Update script 'Meta\apply_update.ps1' not found. It will not be included in the bundle."
+    }
+    # --- END NEW ---
 
     # Add Bundler Modules
     $bundlerModulesDir = Join-Path -Path $PSScriptRoot -ChildPath "BundlerModules"

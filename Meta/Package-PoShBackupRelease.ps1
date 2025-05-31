@@ -33,7 +33,7 @@
     Default: "Recommended"
 .PARAMETER UpdateMessage
     A custom message to include in the version_manifest.psd1.
-    Default: "Please review the release notes for details on changes in this version."
+    Default: "" (empty)
 .EXAMPLE
     .\Meta\Package-PoShBackupRelease.ps1
     Parses PoSh-Backup.ps1 for version, generates Meta\Version.psd1, packages the project,
@@ -157,7 +157,11 @@ if ([string]::IsNullOrWhiteSpace($sevenZipExe)) {
     if ([string]::IsNullOrWhiteSpace($sevenZipExe)) {
         try {
             $sevenZipExe = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
-        } catch {}
+        } catch {
+            # This catch block will only be hit if Get-Command itself throws an unexpected error
+            # (beyond just not finding 7z.exe, which is handled by SilentlyContinue and checking $Source).
+            Write-Error "Package-PoShBackupRelease: Exception during Get-Command for 7z.exe (attempting to find in PATH). This is usually benign if 7z.exe is found via other methods. Error: $($_.Exception.Message)"
+        }
     }
 }
 if ([string]::IsNullOrWhiteSpace($sevenZipExe) -or -not (Test-Path -LiteralPath $sevenZipExe -PathType Leaf)) {

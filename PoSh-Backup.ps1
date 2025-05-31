@@ -412,7 +412,10 @@ if ($CheckForUpdate.IsPresent) {
         Write-Host "`n[ERROR] Update check failed: $($_.Exception.Message)" -ForegroundColor $Global:ColourError
         if ($Host.Name -eq "ConsoleHost") {
             Write-Host "`nPress any key to exit..." -ForegroundColor $Global:ColourWarning
-            try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null } catch {}
+            try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null } catch {
+                # Shuts up PSSA warning
+                & $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: Non-critical error during ReadKey for final pause: $($_.Exception.Message)" -Level "DEBUG"
+            }
         }
         exit 13 # Different exit code for this specific failure path
     }

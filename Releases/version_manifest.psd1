@@ -1,5 +1,5 @@
 # PoSh-Backup Remote Version Manifest
-# Generated: Saturday 31 May 2025, 13:36:48
+# Generated: Saturday 31 May 2025, 14:48:19
 #
 # This file provides information about the latest official release of PoSh-Backup.
 # It is fetched by the -CheckForUpdate feature.
@@ -9,11 +9,11 @@
     ReleaseDate     = '2025-05-31'
     ReleaseNotesUrl = 'https://github.com/BootBlock/PoSh-Backup/releases/tag/v1.14.6'
     DownloadUrl     = 'https://github.com/BootBlock/PoSh-Backup/archive/refs/tags/v1.14.6.zip'
-    SHA256Checksum  = 'DF8E505A5D2D017A4F0E777F66C7CFB225D1B81037503C0C79CF6B28940E2EB5'
+    SHA256Checksum  = '1725B9757220A59F94E13A444DBF201751362B01E0525F1F36C4FB68A40AC330'
     Severity        = 'Recommended'
     Message         = ''
     ScriptVersions  = @{
-        'Meta\\apply_update.ps1' = 'N/A'
+        'Meta\\apply_update.ps1' = '1.0.0'
         'Meta\\BundlerModules\\Bundle.ExternalTools.psm1' = '1.1.0'
         'Meta\\BundlerModules\\Bundle.FileProcessor.psm1' = '1.0.1'
         'Meta\\BundlerModules\\Bundle.ProjectScanner.psm1' = '1.0.2'

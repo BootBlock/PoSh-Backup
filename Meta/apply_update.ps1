@@ -1,8 +1,66 @@
 # PoSh-Backup\Meta\apply_update.ps1
-# Standalone script to apply a PoSh-Backup update.
-# This script is launched by Update.psm1 after downloading and backing up.
-# It should have no dependencies on PoSh-Backup modules.
-# The visual console output will be manually improved in a later version as AI/Gemini blows.
+<#
+.SYNOPSIS
+    Standalone script to apply a downloaded PoSh-Backup update package.
+    It handles file extraction, deletion of old files, copying of new files,
+    and careful restoration of user configuration.
+.DESCRIPTION
+    This script is launched by the main PoSh-Backup update mechanism (Update.psm1)
+    after a new version has been downloaded and the current installation backed up.
+    It should NOT be run directly by the user without the correct parameters.
+
+    The script performs the following critical steps:
+    1. Waits for the main PoSh-Backup process to exit (if its PID is provided).
+    2. Extracts the downloaded new version ZIP package to a temporary location.
+    3. Identifies the root of the new version's files within the extracted package.
+    4. Temporarily backs up the user's existing 'Config' directory from the full backup
+       (created by Update.psm1) to prevent data loss.
+    5. Deletes specified application files and folders (including the old 'Config' directory)
+       from the target PoSh-Backup installation path. It avoids deleting user data
+       folders like 'Logs' and 'Reports'.
+    6. Copies all files and folders from the new version's temporary extraction path
+       to the target installation path. This includes the new 'Default.psd1' and
+       any new default themes.
+    7. Restores the user's specific configuration items by copying all files and folders
+       from their temporarily backed-up 'Config' directory back into the new installation's
+       'Config' directory, *except* for 'Default.psd1' (which remains the new version's).
+       This preserves 'User.psd1', custom themes, and any other user-added config files.
+    8. Cleans up temporary files and the downloaded ZIP package on success.
+    9. Logs its actions to a dedicated update log file and to the console.
+    10. Provides clear feedback to the user on success or failure, including the location
+        of the full backup if the update fails.
+
+    This script is designed to be robust and prioritize the preservation of user settings.
+.PARAMETER DownloadedZipPath
+    Mandatory. The full path to the downloaded PoSh-Backup update ZIP package.
+.PARAMETER InstallPath
+    Mandatory. The full path to the root directory of the current PoSh-Backup installation
+    that is to be updated (e.g., "C:\Scripts\PoSh-Backup").
+.PARAMETER BackupPath
+    Mandatory. The full path to the directory where the *entire* old version of PoSh-Backup
+    (including its 'Config' folder) was backed up by the calling script (Update.psm1).
+.PARAMETER UpdateLogPath
+    Optional. The full path to the log file where this update script will record its actions.
+    Defaults to 'Logs\PoSh-Backup-Update.log' within the InstallPath.
+.PARAMETER MainPID
+    Optional. The Process ID of the main PoSh-Backup.ps1 script that launched this update.
+    If provided and greater than 0, this script will wait for that process to exit before
+    proceeding, to avoid file locking issues. Defaults to 0 (no wait).
+.EXAMPLE
+    # This script is intended to be called by PoSh-Backup's Update.psm1 module, for example:
+    # Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `".\Meta\apply_update.ps1`" -DownloadedZipPath `"C:\Temp\PoShBackupUpdate\new_version.zip`" -InstallPath `"C:\PoSh-Backup`" -BackupPath `"C:\PoSh-Backup_Backup_v1.14.6_20230101120000`" -UpdateLogPath `"C:\PoSh-Backup\Logs\update.log`" -MainPID 1234"
+    # (The above is an illustrative example of how it might be launched)
+.NOTES
+    Version:        1.0.0
+    Author:         Joe Cox/AI Assistant
+    DateCreated:    31-May-2025
+    LastModified:   31-May-2025
+    Prerequisites:  PowerShell 5.1 or higher.
+                    This script should be located in the 'Meta' subdirectory of the PoSh-Backup installation.
+                    It is designed to be self-contained and not rely on any PoSh-Backup modules.
+    WARNING:        This script performs file and folder deletion and replacement. It should only
+                    be launched by the official PoSh-Backup update mechanism.
+#>
 param(
     [Parameter(Mandatory=$true)][string]$DownloadedZipPath,
     [Parameter(Mandatory=$true)][string]$InstallPath,       # e.g., D:\Scripts\PoSh-Backup
