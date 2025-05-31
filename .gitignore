@@ -6,5 +6,5 @@ Reports/*.md
 Reports/*.html
 
 # Explicit files
-Config/User.psd1
+Config/User*.psd1
 PoSh-Backup-AI-Bundle.txt
