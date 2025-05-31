@@ -368,6 +368,58 @@ Write-Host $websiteLink -ForegroundColor $authorInfoColor
 Write-Host # Blank line after author info
 # --- End Starting Banner ---
 
+try {
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -Global -ErrorAction Stop
+} catch {
+    Write-Host "[FATAL] Failed to import CRITICAL Utils.psm1 module." -ForegroundColor $Global:ColourError
+    Write-Host "Ensure 'Modules\Utils.psm1' exists relative to PoSh-Backup.ps1." -ForegroundColor $Global:ColourError
+    Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor "DarkRed"
+    exit 10 # Critical failure, cannot proceed without logger
+}
+
+$LoggerScriptBlock = ${function:Write-LogMessage} # Now the logger is available
+
+# --- EARLY EXIT FOR CheckForUpdate ---
+if ($CheckForUpdate.IsPresent) {
+    & $LoggerScriptBlock -Message "[INFO] PoSh-Backup.ps1: -CheckForUpdate specified. Initiating update check mode directly." -Level "INFO"
+    $updateModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utilities\Update.psm1"
+
+    try {
+        Write-Host "`n--- Checking for PoSh-Backup Updates ---" -ForegroundColor $Global:ColourHeading # Use global color
+
+        if (-not (Test-Path -LiteralPath $updateModulePath -PathType Leaf)) {
+            & $LoggerScriptBlock -Message "[ERROR] PoSh-Backup.ps1: Update module (Update.psm1) not found at '$updateModulePath'. Cannot check for updates." -Level "ERROR"
+            throw "Update module not found." # Throw to be caught by this block's catch
+        }
+
+        # Explicitly remove and import Update.psm1 to ensure latest version
+        Remove-Module -Name Update -Force -ErrorAction SilentlyContinue
+        Import-Module -Name $updateModulePath -Force -ErrorAction Stop
+        
+        $updateCheckParams = @{
+            Logger                 = $LoggerScriptBlock
+            PSScriptRootForPaths   = $PSScriptRoot
+            PSCmdletInstance       = $PSCmdlet
+        }
+        Invoke-PoShBackupUpdateCheckAndApply @updateCheckParams # Direct call
+        
+        & $LoggerScriptBlock -Message "[INFO] PoSh-Backup.ps1: Update check process finished. Exiting." -Level "INFO"
+        Write-Host "`n--- Update Check Finished ---" -ForegroundColor $Global:ColourHeading
+        exit 0
+
+    } catch {
+        & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Error during -CheckForUpdate mode. Error: $($_.Exception.Message)" -Level "ERROR"
+        Write-Host "`n[ERROR] Update check failed: $($_.Exception.Message)" -ForegroundColor $Global:ColourError
+        if ($Host.Name -eq "ConsoleHost") {
+            Write-Host "`nPress any key to exit..." -ForegroundColor $Global:ColourWarning
+            try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null } catch {}
+        }
+        exit 13 # Different exit code for this specific failure path
+    }
+}
+# --- END OF EARLY EXIT FOR CheckForUpdate ---
+
+
 $ScriptStartTime                            = Get-Date
 $IsSimulateMode                             = $Simulate.IsPresent
 
@@ -441,7 +493,7 @@ try {
 
 $configLoadParams = @{
     UserSpecifiedPath           = $ConfigFile
-    IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($CheckForUpdate.IsPresent)) # Include CheckForUpdate here
+    IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent))
     MainScriptPSScriptRoot      = $PSScriptRoot
     Logger                      = $LoggerScriptBlock
     SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
@@ -478,7 +530,7 @@ if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
 Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
                             -ListBackupSetsSwitch $ListBackupSets.IsPresent `
                             -TestConfigSwitch $TestConfig.IsPresent `
-                            -CheckForUpdateSwitch $CheckForUpdate.IsPresent `
+                            -CheckForUpdateSwitch $false `
                             -Configuration $Configuration `
                             -ActualConfigFile $ActualConfigFile `
                             -ConfigLoadResult $configResult `

@@ -322,7 +322,7 @@ $escapedMessageForPsd1 = if (-not [string]::IsNullOrWhiteSpace($manifestData.Mes
 
 $manifestContent = @"
 # PoSh-Backup Remote Version Manifest
-# Generated: $(Get-Date)
+# Generated: $(Get-Date -Format "dddd dd MMMM yyyy, HH:mm:ss")
 #
 # This file provides information about the latest official release of PoSh-Backup.
 # It is fetched by the -CheckForUpdate feature.
@@ -334,7 +334,7 @@ $manifestContent = @"
     DownloadUrl     = '$($manifestData.DownloadUrl)'
     SHA256Checksum  = '$($manifestData.SHA256Checksum)'
     Severity        = '$($manifestData.Severity)'
-    Message         = $escapedMessageForPsd1 # Use the pre-formatted string
+    Message         = $escapedMessageForPsd1
 }
 "@
 

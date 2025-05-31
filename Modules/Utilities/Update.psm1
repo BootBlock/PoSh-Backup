@@ -24,6 +24,7 @@
                     Requires Meta\Version.psd1 to exist locally.
                     Requires network access to fetch the remote version manifest and update package.
                     The 'apply_update.ps1' script is expected in the 'Meta' directory for self-update.
+                    Utils.psm1 (providing Get-PoshBackupFileHash and Write-LogMessage) must be loaded.
 #>
 
 #region --- Module Dependencies ---
@@ -32,7 +33,8 @@
 #endregion
 
 #region --- Private Module-Scoped Variables ---
-$script:RemoteVersionManifestUrl = "https://raw.githubusercontent.com/BootBlock/PoSh-Backup/main/Releases/version_remote.psd1"
+# URL to the remote version manifest file.
+$script:RemoteVersionManifestUrl = "https://raw.githubusercontent.com/BootBlock/PoSh-Backup/main/Meta/version_manifest.psd1" # EXAMPLE URL - REPLACE WITH ACTUAL
 #endregion
 
 #region --- Exported Functions ---
@@ -88,7 +90,9 @@ function Invoke-PoShBackupUpdateCheckAndApply {
         if ([string]::IsNullOrWhiteSpace($remoteManifestContent)) {
             throw "Remote version manifest content is empty."
         }
-        $remoteManifest = Invoke-Expression -Command $remoteManifestContent -ErrorAction Stop
+        # Use $ExecutionContext.InvokeCommand.NewScriptBlock to avoid Invoke-Expression PSSA warning
+        $scriptBlock = $ExecutionContext.InvokeCommand.NewScriptBlock($remoteManifestContent)
+        $remoteManifest = Invoke-Command -ScriptBlock $scriptBlock # Removed -NoNewScope as it's not needed here
         if (-not ($remoteManifest -is [hashtable]) -or -not $remoteManifest.ContainsKey('LatestVersion') -or -not $remoteManifest.ContainsKey('ReleaseNotesUrl') -or -not $remoteManifest.ContainsKey('DownloadUrl')) {
             throw "Remote version manifest is malformed or missing required keys (LatestVersion, ReleaseNotesUrl, DownloadUrl)."
         }
@@ -136,6 +140,9 @@ function Invoke-PoShBackupUpdateCheckAndApply {
         }
         Write-Host "  Release Notes            : $($remoteManifest.ReleaseNotesUrl)"
         Write-Host "  Download URL             : $($remoteManifest.DownloadUrl)"
+        if ($remoteManifest.ContainsKey('SHA256Checksum') -and -not [string]::IsNullOrWhiteSpace($remoteManifest.SHA256Checksum)) {
+            Write-Host "  Package SHA256           : $($remoteManifest.SHA256Checksum)"
+        }
         Write-Host "------------------------------------------------------------" -ForegroundColor Yellow
         Write-Host ""
 
@@ -160,12 +167,12 @@ function Invoke-PoShBackupUpdateCheckAndApply {
                 }
 
                 # --- 4a. Download Update Package ---
-                $tempDirForDownload = Join-Path -Path $env:TEMP -ChildPath "PoShBackupUpdate"
+                $tempDirForDownload = Join-Path -Path $env:TEMP -ChildPath "PoShBackupUpdate_$(Get-Random)" # Unique temp dir
                 if (-not (Test-Path -Path $tempDirForDownload -PathType Container)) {
                     New-Item -Path $tempDirForDownload -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
                 }
                 $downloadFileName = Split-Path -Path $remoteManifest.DownloadUrl -Leaf
-                if ([string]::IsNullOrWhiteSpace($downloadFileName)) { $downloadFileName = "PoSh-Backup-Update.zip" } # Fallback
+                if ([string]::IsNullOrWhiteSpace($downloadFileName)) { $downloadFileName = "PoSh-Backup-Update.zip" }
                 $tempZipPath = Join-Path -Path $tempDirForDownload -ChildPath $downloadFileName
 
                 & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Downloading update from '$($remoteManifest.DownloadUrl)' to '$tempZipPath'..." -Level "INFO"
@@ -176,6 +183,7 @@ function Invoke-PoShBackupUpdateCheckAndApply {
                 } catch {
                     & $LocalWriteLog -Message "[ERROR] Update/Invoke-PoShBackupUpdateCheckAndApply: Failed to download update package. Error: $($_.Exception.Message)" -Level "ERROR"
                     Write-Host "ERROR: Failed to download update package. Please try again later or download manually." -ForegroundColor Red
+                    if (Test-Path -LiteralPath $tempDirForDownload -PathType Container) { Remove-Item -Recurse -Force -LiteralPath $tempDirForDownload -ErrorAction SilentlyContinue }
                     return
                 }
 
@@ -183,13 +191,13 @@ function Invoke-PoShBackupUpdateCheckAndApply {
                 if ($remoteManifest.ContainsKey('SHA256Checksum') -and -not [string]::IsNullOrWhiteSpace($remoteManifest.SHA256Checksum)) {
                     & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Verifying checksum of downloaded package..." -Level "INFO"
                     Write-Host "Verifying downloaded file integrity..." -ForegroundColor Cyan
-                    $expectedChecksum = $remoteManifest.SHA256Checksum.ToUpperInvariant()
-                    $actualChecksum = (Get-PoshBackupFileHash -FilePath $tempZipPath -Algorithm "SHA256" -Logger $Logger).ToUpperInvariant() # Get-PoshBackupFileHash is from FileUtils via Utils facade
+                    $expectedChecksum = $remoteManifest.SHA256Checksum.Trim().ToUpperInvariant()
+                    $actualChecksum = (Get-PoshBackupFileHash -FilePath $tempZipPath -Algorithm "SHA256" -Logger $Logger).Trim().ToUpperInvariant()
 
                     if ($actualChecksum -ne $expectedChecksum) {
                         & $LocalWriteLog -Message "[ERROR] Update/Invoke-PoShBackupUpdateCheckAndApply: Checksum mismatch! Expected: '$expectedChecksum', Actual: '$actualChecksum'. Update aborted." -Level "ERROR"
                         Write-Host "ERROR: Downloaded file checksum does not match. The file may be corrupted or tampered with. Update aborted." -ForegroundColor Red
-                        Remove-Item -LiteralPath $tempZipPath -Force -ErrorAction SilentlyContinue
+                        Remove-Item -Recurse -Force -LiteralPath $tempDirForDownload -ErrorAction SilentlyContinue
                         return
                     }
                     & $LocalWriteLog -Message "    - Update/Invoke-PoShBackupUpdateCheckAndApply: Checksum VERIFIED." -Level "SUCCESS"
@@ -201,7 +209,15 @@ function Invoke-PoShBackupUpdateCheckAndApply {
 
                 # --- 4c. Backup Current Installation ---
                 $backupDirName = "PoSh-Backup_Backup_v$($installedVersionString)_$(Get-Date -Format 'yyyyMMddHHmmss')"
-                $backupParentDir = Join-Path -Path $PSScriptRootForPaths -ChildPath ".." # Backup to one level above current install
+                # Backup to a directory *outside* the main installation path if possible, e.g., in the parent of PSScriptRootForPaths
+                $backupParentDir = Split-Path -Path $PSScriptRootForPaths -Parent
+                if ([string]::IsNullOrWhiteSpace($backupParentDir) -or (-not (Test-Path -LiteralPath $backupParentDir -PathType Container))) {
+                    # Fallback to a _Backups folder inside the current install path if parent is not accessible/determinable
+                    $backupParentDir = Join-Path -Path $PSScriptRootForPaths -ChildPath "_Backups"
+                    if (-not (Test-Path -LiteralPath $backupParentDir -PathType Container)) {
+                        New-Item -Path $backupParentDir -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
+                    }
+                }
                 $backupFullPath = Join-Path -Path $backupParentDir -ChildPath $backupDirName
                 
                 & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Backing up current installation from '$PSScriptRootForPaths' to '$backupFullPath'..." -Level "INFO"
@@ -213,39 +229,57 @@ function Invoke-PoShBackupUpdateCheckAndApply {
                 } catch {
                     & $LocalWriteLog -Message "[ERROR] Update/Invoke-PoShBackupUpdateCheckAndApply: Failed to back up current installation. Error: $($_.Exception.Message). Update aborted." -Level "ERROR"
                     Write-Host "ERROR: Failed to back up current installation. Update aborted." -ForegroundColor Red
-                    Remove-Item -LiteralPath $tempZipPath -Force -ErrorAction SilentlyContinue # Clean up downloaded file
+                    Remove-Item -Recurse -Force -LiteralPath $tempDirForDownload -ErrorAction SilentlyContinue
                     return
                 }
 
                 # --- 4d. Launch apply_update.ps1 ---
-                $applyUpdateScriptFullPath = Join-Path -Path $PSScriptRootForPaths -ChildPath "Meta\apply_update.ps1"
+                $applyUpdateScriptRelativePath = "Meta\apply_update.ps1"
+                $applyUpdateScriptFullPath = Join-Path -Path $PSScriptRootForPaths -ChildPath $applyUpdateScriptRelativePath
+                
                 if (-not (Test-Path -LiteralPath $applyUpdateScriptFullPath -PathType Leaf)) {
                     & $LocalWriteLog -Message "[ERROR] Update/Invoke-PoShBackupUpdateCheckAndApply: apply_update.ps1 script not found at '$applyUpdateScriptFullPath'. Cannot proceed with update." -Level "ERROR"
                     Write-Host "ERROR: Update helper script (apply_update.ps1) not found. Update aborted." -ForegroundColor Red
-                    Remove-Item -LiteralPath $tempZipPath -Force -ErrorAction SilentlyContinue
-                    # Consider how to handle the backup directory here - maybe leave it for manual recovery?
+                    Remove-Item -Recurse -Force -LiteralPath $tempDirForDownload -ErrorAction SilentlyContinue
+                    # The backup directory $backupFullPath is left in place for potential manual recovery.
                     return
                 }
 
                 $updateLogForApplyScript = Join-Path -Path $PSScriptRootForPaths -ChildPath "Logs\PoSh-Backup-Update_$(Get-Date -Format 'yyyyMMddHHmmss').log"
                 $currentPID = $PID
 
-                $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$applyUpdateScriptFullPath`" -DownloadedZipPath `"$tempZipPath`" -InstallPath `"$PSScriptRootForPaths`" -BackupPath `"$backupFullPath`" -UpdateLogPath `"$updateLogForApplyScript`" -MainPID $currentPID"
+                $arguments = @(
+                    "-NoProfile",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", "`"$applyUpdateScriptFullPath`"",
+                    "-DownloadedZipPath", "`"$tempZipPath`"",
+                    "-InstallPath", "`"$PSScriptRootForPaths`"",
+                    "-BackupPath", "`"$backupFullPath`"",
+                    "-UpdateLogPath", "`"$updateLogForApplyScript`"",
+                    "-MainPID", $currentPID
+                )
                 
                 & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Launching apply_update.ps1..." -Level "INFO"
-                & $LocalWriteLog -Message "    Arguments: $arguments" -Level "DEBUG"
+                & $LocalWriteLog -Message ("    Arguments: powershell.exe " + ($arguments -join " ")) -Level "DEBUG"
                 Write-Host "Launching update process... PoSh-Backup will now exit." -ForegroundColor Cyan
-                Write-Host "Monitor the console window of the apply_update.ps1 script for progress." -ForegroundColor Cyan
+                Write-Host "Monitor the console window of the apply_update.ps1 script (if visible) or its log file for progress:"
+                Write-Host $updateLogForApplyScript -ForegroundColor Yellow
                 
                 try {
-                    Start-Process powershell.exe -ArgumentList $arguments -Verb RunAs -ErrorAction Stop # Consider if RunAs is always needed/desired
-                    # PoSh-Backup should exit after this. ScriptModeHandler will handle the exit.
+                    # Attempt to run with elevation for file operations in protected directories
+                    Start-Process powershell.exe -ArgumentList $arguments -Verb RunAs -ErrorAction Stop
                 } catch {
-                    & $LocalWriteLog -Message "[ERROR] Update/Invoke-PoShBackupUpdateCheckAndApply: Failed to launch apply_update.ps1. Error: $($_.Exception.Message)" -Level "ERROR"
-                    Write-Host "ERROR: Failed to launch the update helper script. Please apply the update manually from '$tempZipPath'." -ForegroundColor Red
-                    Write-Host "Your current version is backed up at: $backupFullPath" -ForegroundColor Yellow
+                    & $LocalWriteLog -Message "[ERROR] Update/Invoke-PoShBackupUpdateCheckAndApply: Failed to launch apply_update.ps1 with elevation. Error: $($_.Exception.Message). Attempting without elevation..." -Level "ERROR"
+                    Write-Host "WARNING: Failed to launch update helper with elevation. Attempting without..." -ForegroundColor Yellow
+                    try {
+                        Start-Process powershell.exe -ArgumentList $arguments -ErrorAction Stop
+                    } catch {
+                        & $LocalWriteLog -Message "[ERROR] Update/Invoke-PoShBackupUpdateCheckAndApply: Failed to launch apply_update.ps1 even without elevation. Error: $($_.Exception.Message)" -Level "ERROR"
+                        Write-Host "ERROR: Failed to launch the update helper script. Please apply the update manually from '$tempZipPath'." -ForegroundColor Red
+                        Write-Host "Your current version is backed up at: $backupFullPath" -ForegroundColor Yellow
+                    }
                 }
-                # The main script (via ScriptModeHandler) will exit after this function returns.
+                # PoSh-Backup should exit after this. ScriptModeHandler will handle the exit.
             }
             1 { # No
                 & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: User chose not to update at this time." -Level "INFO"

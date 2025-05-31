@@ -4,6 +4,8 @@ Reports/*.csv
 Reports/*.xml
 Reports/*.md
 Reports/*.html
+Releases/*.7z
+Releases/*.zip
 
 # Explicit files
 Config/User*.psd1
