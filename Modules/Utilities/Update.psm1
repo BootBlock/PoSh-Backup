@@ -39,6 +39,25 @@ $script:RemoteVersionManifestUrl = "https://raw.githubusercontent.com/BootBlock/
 
 #region --- Exported Functions ---
 
+# This is duplicated from ConsoleDisplayUtils.psm1 as this updater must be standalone, so we can't import stuff.
+function Write-NameValue {
+    param(
+        [Parameter(Mandatory)][string]$name,
+        [Parameter(Mandatory)][string]$value,
+        [Int16]$namePadding = 0
+    )
+
+    $nameText = $name
+
+    if ($namePadding -gt 0) {
+        $nameText = $name.PadRight($namePadding, " ")
+    }
+
+    Write-Host "  $($nameText): " -NoNewline -ForegroundColor "DarkGray"
+    Write-Host $value -ForegroundColor "Gray"
+}
+
+
 function Invoke-PoShBackupUpdateCheckAndApply {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     param(
@@ -58,7 +77,8 @@ function Invoke-PoShBackupUpdateCheckAndApply {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLog -Message "Update/Invoke-PoShBackupUpdateCheckAndApply: Initializing update check." -Level "INFO"
+    
+    #& $LocalWriteLog -Message "Update/Invoke-PoShBackupUpdateCheckAndApply: Initializing update check." -Level "DEBUG"
 
     # --- 1. Read Local Version Information ---
     $localVersionInfo = $null
@@ -73,7 +93,7 @@ function Invoke-PoShBackupUpdateCheckAndApply {
         if (-not ($localVersionInfo -is [hashtable]) -or -not $localVersionInfo.ContainsKey('InstalledVersion')) {
             throw "Local version file '$localVersionFilePathAbsolute' is malformed or missing 'InstalledVersion'."
         }
-        & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Current installed version: $($localVersionInfo.InstalledVersion) (Released: $($localVersionInfo.ReleaseDate))" -Level "INFO"
+        #& $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Current installed version: $($localVersionInfo.InstalledVersion) (Released: $($localVersionInfo.ReleaseDate))" -Level "DEBUG"
     }
     catch {
         & $LocalWriteLog -Message "[ERROR] Update/Invoke-PoShBackupUpdateCheckAndApply: Failed to read or parse local version file '$localVersionFilePathAbsolute'. Error: $($_.Exception.Message)" -Level "ERROR"
@@ -81,7 +101,7 @@ function Invoke-PoShBackupUpdateCheckAndApply {
     }
 
     # --- 2. Fetch and Parse Remote Version Manifest ---
-    & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Fetching remote version manifest from '$script:RemoteVersionManifestUrl'..." -Level "INFO"
+    #& $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Fetching remote version manifest from '$script:RemoteVersionManifestUrl'..." -Level "DEBUG"
     $remoteManifest = $null
     $remoteManifestContent = ""
     try {
@@ -96,7 +116,7 @@ function Invoke-PoShBackupUpdateCheckAndApply {
         if (-not ($remoteManifest -is [hashtable]) -or -not $remoteManifest.ContainsKey('LatestVersion') -or -not $remoteManifest.ContainsKey('ReleaseNotesUrl') -or -not $remoteManifest.ContainsKey('DownloadUrl')) {
             throw "Remote version manifest is malformed or missing required keys (LatestVersion, ReleaseNotesUrl, DownloadUrl)."
         }
-        & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Successfully fetched and parsed remote version manifest." -Level "INFO"
+        #& $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Successfully fetched and parsed remote version manifest." -Level "DEBUG"
     }
     catch {
         & $LocalWriteLog -Message "[ERROR] Update/Invoke-PoShBackupUpdateCheckAndApply: Failed to fetch or parse remote version manifest. Error: $($_.Exception.Message)" -Level "ERROR"
@@ -125,30 +145,30 @@ function Invoke-PoShBackupUpdateCheckAndApply {
     $updateSeverity = if ($remoteManifest.ContainsKey('Severity')) { $remoteManifest.Severity } else { "Optional" }
     $updateMessage = if ($remoteManifest.ContainsKey('Message')) { $remoteManifest.Message } else { "A new version is available." }
 
-    & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Comparing installed version '$installedVersion' with latest '$latestVersion'." -Level "DEBUG"
+    #& $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: Comparing installed version '$installedVersion' with latest '$latestVersion'." -Level "DEBUG"
 
     if ($latestVersion -gt $installedVersion) {
-        Write-Host ""
-        Write-Host "------------------------------------------------------------" -ForegroundColor Yellow
-        Write-Host " PoSh-Backup Update Available!" -ForegroundColor Green
-        Write-Host "------------------------------------------------------------" -ForegroundColor Yellow
-        Write-Host "  Current Installed Version: $installedVersion"
-        Write-Host "  Latest Available Version : $latestVersion (Severity: $updateSeverity)" -ForegroundColor Cyan
-        Write-Host "  Latest Release Date      : $($remoteManifest.ReleaseDate)"
+        Write-Host "  An update is available!" -ForegroundColor Green
+        Write-Host
+
+        Write-NameValue "Current Installed Version" $installedVersion 26
+        Write-NameValue "Latest Available Version" "$latestVersion (Severity: $updateSeverity)" 26
+        Write-NameValue "Latest Release Date" $remoteManifest.ReleaseDate 26
+        
         if (-not [string]::IsNullOrWhiteSpace($updateMessage)) {
-            Write-Host "  Message                  : $updateMessage"
+            Write-NameValue "Message" $updateMessage
         }
-        Write-Host "  Release Notes            : $($remoteManifest.ReleaseNotesUrl)"
-        Write-Host "  Download URL             : $($remoteManifest.DownloadUrl)"
+        
+        Write-NameValue "Release Notes" $remoteManifest.ReleaseNotesUrl 26
+        Write-NameValue "Download URL" $remoteManifest.DownloadUrl 26
+        
         if ($remoteManifest.ContainsKey('SHA256Checksum') -and -not [string]::IsNullOrWhiteSpace($remoteManifest.SHA256Checksum)) {
-            Write-Host "  Package SHA256           : $($remoteManifest.SHA256Checksum)"
+            Write-NameValue "Package SHA256" $remoteManifest.SHA256Checksum 26
         }
-        Write-Host "------------------------------------------------------------" -ForegroundColor Yellow
-        Write-Host ""
+        Write-Host
 
         # --- 4. Prompt User to Update ---
-        $updateChoiceTitle = "PoSh-Backup Update Available"
-        $updateChoiceMessage = "Version $latestVersion is available. Would you like to download and apply this update now?`nYour current installation will be backed up before updating.`nWARNING: PoSh-Backup will exit after starting the update process."
+        $updateChoiceMessage = "  Version $latestVersion is available. Would you like to download and apply this update now?`n`n  Your current installation will be backed up before updating.`n  WARNING: PoSh-Backup will exit after starting the update process.`n`n"
         $choiceYes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Download and apply the update."
         $choiceNo = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Do not update at this time."
         $choiceViewNotes = New-Object System.Management.Automation.Host.ChoiceDescription "&View Release Notes", "Open release notes in your browser."
@@ -283,38 +303,38 @@ function Invoke-PoShBackupUpdateCheckAndApply {
             }
             1 { # No
                 & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: User chose not to update at this time." -Level "INFO"
-                Write-Host "Update declined by user." -ForegroundColor Yellow
+                Write-Host "  Update declined by user." -ForegroundColor Yellow
             }
             2 { # View Release Notes
                 & $LocalWriteLog -Message "  - Update/Invoke-PoShBackupUpdateCheckAndApply: User chose to view release notes." -Level "INFO"
                 try {
                     Start-Process $remoteManifest.ReleaseNotesUrl
-                    Write-Host "Opened release notes in your browser. You can run -CheckForUpdate again if you decide to update." -ForegroundColor Cyan
+                    Write-Host "  Opened release notes in your browser. You can run -CheckForUpdate again if you decide to update." -ForegroundColor DarkCyan
                 } catch {
                     & $LocalWriteLog -Message "[ERROR] Update/Invoke-PoShBackupUpdateCheckAndApply: Failed to open release notes URL '$($remoteManifest.ReleaseNotesUrl)'. Error: $($_.Exception.Message)" -Level "ERROR"
-                    Write-Host "ERROR: Could not open the release notes URL. Please visit it manually: $($remoteManifest.ReleaseNotesUrl)" -ForegroundColor Red
+                    Write-Host "  ERROR: Could not open the release notes URL. Please visit it manually: $($remoteManifest.ReleaseNotesUrl)" -ForegroundColor Red
                 }
             }
         }
-
+    
     } elseif ($latestVersion -lt $installedVersion) {
-        Write-Host ""
-        Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
-        Write-Host " PoSh-Backup - Development Version Detected" -ForegroundColor Cyan
-        Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
-        Write-Host "  Your installed version ($installedVersion) is newer than the latest"
-        Write-Host "  official version ($latestVersion) found in the remote manifest."
-        Write-Host "  This may be a local development build or a pre-release."
-        Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
-        Write-Host ""
+        Write-Host "   PoSh-Backup - Development Version Detected!" -ForegroundColor Yellow
+        Write-Host
+
+        Write-NameValue "Current Installed Version" $installedVersion 26
+        Write-NameValue "Latest Available Version" $latestVersion 26
+        Write-Host
+
+        Write-Host "  Your installed version is newer than the latest" -ForegroundColor Gray
+        Write-Host "  official version found in the remote manifest." -ForegroundColor Gray
+        Write-Host "  This may be a local development build or a pre-release." -ForegroundColor Gray
+        Write-Host
     } else {
-        Write-Host ""
-        Write-Host "------------------------------------------------------------" -ForegroundColor Green
-        Write-Host " PoSh-Backup is Up-To-Date!" -ForegroundColor Green
-        Write-Host "------------------------------------------------------------" -ForegroundColor Green
-        Write-Host "  Your installed version ($installedVersion) is the latest available."
-        Write-Host "------------------------------------------------------------" -ForegroundColor Green
-        Write-Host ""
+        Write-Host "   Your installed " -NoNewline
+        Write-Host $installedVersion -NoNewline -ForegroundColor DarkYellow
+        Write-Host " version is the latest."
+        Write-Host "   No update available." -ForegroundColor DarkGray
+        Write-Host
     }
 }
 

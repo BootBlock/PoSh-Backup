@@ -358,7 +358,7 @@ $websiteLink = "https://bootblock.co.uk"
 $authorInfoColor = $Global:ColourDebug
 
 Write-Host # Blank line for spacing
-Write-Host "        $authorName" -ForegroundColor $authorInfoColor -NoNewline
+Write-Host "        $authorName" -ForegroundColor White -NoNewline
 Write-Host " : " -ForegroundColor $Global:ColourHeading -NoNewline
 Write-Host $githubLink -ForegroundColor $authorInfoColor
 
@@ -381,11 +381,19 @@ $LoggerScriptBlock = ${function:Write-LogMessage} # Now the logger is available
 
 # --- EARLY EXIT FOR CheckForUpdate ---
 if ($CheckForUpdate.IsPresent) {
-    & $LoggerScriptBlock -Message "[INFO] PoSh-Backup.ps1: -CheckForUpdate specified. Initiating update check mode directly." -Level "INFO"
+    #& $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: -CheckForUpdate specified. Initiating update check mode directly." -Level "DEBUG"
+
+    Write-ConsoleBanner -NameText "Check for Update" `
+                        -NameForegroundColor "Yellow" `
+                        -BorderForegroundColor 'DarkGray' `
+                        -CenterText `
+
+    Write-Host
+
     $updateModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utilities\Update.psm1"
 
     try {
-        Write-Host "`n--- Checking for PoSh-Backup Updates ---" -ForegroundColor $Global:ColourHeading # Use global color
+        #Write-Host "  --- Checking for PoSh-Backup Updates ---" -ForegroundColor $Global:ColourHeading # Use global color
 
         if (-not (Test-Path -LiteralPath $updateModulePath -PathType Leaf)) {
             & $LoggerScriptBlock -Message "[ERROR] PoSh-Backup.ps1: Update module (Update.psm1) not found at '$updateModulePath'. Cannot check for updates." -Level "ERROR"
@@ -403,8 +411,8 @@ if ($CheckForUpdate.IsPresent) {
         }
         Invoke-PoShBackupUpdateCheckAndApply @updateCheckParams # Direct call
         
-        & $LoggerScriptBlock -Message "[INFO] PoSh-Backup.ps1: Update check process finished. Exiting." -Level "INFO"
-        Write-Host "`n--- Update Check Finished ---" -ForegroundColor $Global:ColourHeading
+        #& $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: Update check process finished. Exiting." -Level "DEBUG"
+        #Write-Host "`n--- Update Check Finished ---" -ForegroundColor $Global:ColourHeading
         exit 0
 
     } catch {
