@@ -18,6 +18,7 @@
     PowerShell modules. The main job/set processing loop is now handled by 'JobOrchestrator.psm1'.
     Post-run system action logic is now handled by 'PostRunActionOrchestrator.psm1'.
     Job dependency resolution and execution ordering is handled by 'JobDependencyManager.psm1'.
+    CLI parameter processing is now handled by 'CliManager.psm1'.
 
     Key Features:
     - Modular Design, External Configuration, Local and Remote Backups, Granular Job Control.
@@ -161,8 +162,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.14.6 # Added -CheckForUpdate parameter.
-    Date:           31-May-2025
+    Version:        1.15.0 # Modularised CLI override processing to CliManager.psm1.
+    Date:           01-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -434,32 +435,11 @@ if ($CheckForUpdate.IsPresent) {
 $ScriptStartTime                            = Get-Date
 $IsSimulateMode                             = $Simulate.IsPresent
 
-$cliOverrideSettings = @{
-    UseVSS                             = if ($PSBoundParameters.ContainsKey('UseVSS')) { $UseVSS.IsPresent } else { $null }
-    EnableRetries                      = if ($PSBoundParameters.ContainsKey('EnableRetriesCLI')) { $EnableRetriesCLI.IsPresent } else { $null }
-    TestArchive                        = if ($PSBoundParameters.ContainsKey('TestArchive')) { $TestArchive.IsPresent } else { $null }
-    VerifyLocalArchiveBeforeTransferCLI = if ($PSBoundParameters.ContainsKey('VerifyLocalArchiveBeforeTransferCLI')) { $VerifyLocalArchiveBeforeTransferCLI.IsPresent } else { $null }
-    GenerateHtmlReport                 = if ($PSBoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $GenerateHtmlReportCLI.IsPresent } else { $null }
-    TreatSevenZipWarningsAsSuccess     = if ($PSBoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $TreatSevenZipWarningsAsSuccessCLI.IsPresent } else { $null }
-    SevenZipPriority                   = if ($PSBoundParameters.ContainsKey('SevenZipPriorityCLI')) { $SevenZipPriorityCLI } else { $null }
-    SevenZipCpuAffinity                = if ($PSBoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $SevenZipCpuAffinityCLI } else { $null }
-    SevenZipIncludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $SevenZipIncludeListFileCLI } else { $null }
-    SevenZipExcludeListFile            = if ($PSBoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $SevenZipExcludeListFileCLI } else { $null }
-    SplitVolumeSizeCLI                 = if ($PSBoundParameters.ContainsKey('SplitVolumeSizeCLI')) { $SplitVolumeSizeCLI } else { $null }
-    LogRetentionCountCLI               = if ($PSBoundParameters.ContainsKey('LogRetentionCountCLI')) { $LogRetentionCountCLI } else { $null }
-    PauseBehaviour                     = if ($PSBoundParameters.ContainsKey('PauseBehaviourCLI')) { $PauseBehaviourCLI } else { $null }
-    PostRunActionCli                   = if ($PSBoundParameters.ContainsKey('PostRunActionCli')) { $PostRunActionCli } else { $null }
-    PostRunActionDelaySecondsCli       = if ($PSBoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $PostRunActionDelaySecondsCli } else { $null }
-    PostRunActionForceCli              = if ($PSBoundParameters.ContainsKey('PostRunActionForceCli')) { $PostRunActionForceCli.IsPresent } else { $null }
-    PostRunActionTriggerOnStatusCli    = if ($PSBoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $PostRunActionTriggerOnStatusCli } else { $null }
-}
-
-$script:BuildJobExecutionOrderFuncRef = $null # Initialize
-
+# --- Import Core and Manager Modules ---
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -Global -ErrorAction Stop
 } catch {
-    Write-Host "[FATAL] Failed to import CRITICAL Utils.psm1 module." -ForegroundColor Red
+    Write-Host "[FATAL] Failed to re-import CRITICAL Utils.psm1 module." -ForegroundColor Red
     Write-Host "Ensure 'Modules\Utils.psm1' exists relative to PoSh-Backup.ps1." -ForegroundColor Red
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
     exit 10
@@ -478,8 +458,8 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\HookManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\SystemStateManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
-
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CliManager.psm1") -Force -ErrorAction Stop # NEW
 
     $cmdInfo = Get-Command Build-JobExecutionOrder -ErrorAction SilentlyContinue
     if (-not $cmdInfo) {
@@ -490,7 +470,7 @@ try {
         $script:BuildJobExecutionOrderFuncRef = $cmdInfo
     }
 
-    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including JobOrchestrator, PostRunActionOrchestrator, and JobDependencyManager." -Level "INFO"
+    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including JobOrchestrator, PostRunActionOrchestrator, JobDependencyManager, and CliManager." -Level "INFO"
 
 } catch {
     & $LoggerScriptBlock -Message "[FATAL] Failed to import one or more required script modules." -Level "ERROR"
@@ -498,6 +478,10 @@ try {
     & $LoggerScriptBlock -Message "Error details: $($_.Exception.Message)" -Level "ERROR"
     exit 10
 }
+#endregion
+
+#region --- CLI Override Processing ---
+$cliOverrideSettings = Get-PoShBackupCliOverrides -BoundParameters $PSBoundParameters
 #endregion
 
 #region --- Configuration Loading, Validation & Job Determination ---
