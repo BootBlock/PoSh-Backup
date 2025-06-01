@@ -16,10 +16,11 @@
     It is designed for robustness, extensive configurability, and detailed operational feedback.
     Core logic is managed by this main script, which orchestrates operations performed by dedicated
     PowerShell modules. Initial setup (globals, banner) is handled by 'InitialisationManager.psm1'.
+    CLI parameter processing is handled by 'CliManager.psm1'.
+    Core setup (module imports, config load, job resolution) is handled by 'CoreSetupManager.psm1'.
     The main job/set processing loop is now handled by 'JobOrchestrator.psm1'.
     Post-run system action logic is now handled by 'PostRunActionOrchestrator.psm1'.
     Job dependency resolution and execution ordering is handled by 'JobDependencyManager.psm1'.
-    CLI parameter processing is now handled by 'CliManager.psm1'.
 
     Key Features:
     - Modular Design, External Configuration, Local and Remote Backups, Granular Job Control.
@@ -163,7 +164,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.16.0 # Modularised initial setup (globals, banner) to InitialisationManager.psm1.
+    Version:        1.17.0 # Modularised core setup (module imports, config load, job resolution) to CoreSetupManager.psm1.
     Date:           01-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -214,8 +215,6 @@ param (
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Path to a text file containing 7-Zip include patterns. Overrides all configured include list files.")]
     [ValidateScript({
-        # If the path is provided, it must exist as a file.
-        # If no path is provided (empty string or $null from CLI not setting it), validation passes.
         if ([string]::IsNullOrWhiteSpace($_)) { return $true }
         if (Test-Path -LiteralPath $_ -PathType Leaf) { return $true }
         throw "File not found at path: $_"
@@ -231,7 +230,7 @@ param (
     [string]$SevenZipExcludeListFileCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Size for splitting archives (e.g., '100m', '4g'). Overrides config. Empty string disables splitting via CLI.")]
-    [ValidatePattern('(^$)|(^\d+[kmg]$)')] # Allow empty string or digits followed by k, m, or g
+    [ValidatePattern('(^$)|(^\d+[kmg]$)')]
     [string]$SplitVolumeSizeCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="CLI Override: Number of log files to keep per job name pattern. 0 for infinite. Overrides all config.")]
@@ -279,7 +278,7 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\InitialisationManager.psm1") -Force -ErrorAction Stop
     Invoke-PoShBackupInitialSetup -MainScriptPath $PSCommandPath
 } catch {
-    Write-Host "[FATAL] Failed to import or run CRITICAL InitialisationManager.psm1 module." -ForegroundColor Red
+    Write-Host "[FATAL] Failed to import or run CRITICAL InitialisationManager.psm1 module." -ForegroundColor Red # Colour may not be set yet
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
     exit 11
 }
@@ -288,13 +287,13 @@ try {
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -Global -ErrorAction Stop
 } catch {
-    Write-Host "[FATAL] Failed to import CRITICAL Utils.psm1 module." -ForegroundColor $Global:ColourError # Use global color now
+    Write-Host "[FATAL] Failed to import CRITICAL Utils.psm1 module." -ForegroundColor $Global:ColourError
     Write-Host "Ensure 'Modules\Utils.psm1' exists relative to PoSh-Backup.ps1." -ForegroundColor $Global:ColourError
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor "DarkRed"
-    exit 10 # Critical failure, cannot proceed without logger
+    exit 10
 }
 
-$LoggerScriptBlock = ${function:Write-LogMessage} # Now the logger is available
+$LoggerScriptBlock = ${function:Write-LogMessage}
 
 # --- EARLY EXIT FOR CheckForUpdate ---
 if ($CheckForUpdate.IsPresent) {
@@ -303,7 +302,6 @@ if ($CheckForUpdate.IsPresent) {
                         -BorderForegroundColor '$Global:ColourBorder' `
                         -CenterText `
     Write-Host
-
     $updateModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utilities\Update.psm1"
     try {
         if (-not (Test-Path -LiteralPath $updateModulePath -PathType Leaf)) {
@@ -335,175 +333,61 @@ if ($CheckForUpdate.IsPresent) {
 
 $ScriptStartTime                            = Get-Date
 $IsSimulateMode                             = $Simulate.IsPresent
+#endregion
 
-# --- Import Core and Manager Modules ---
+#region --- CLI Override Processing & Core Setup ---
+$cliOverrideSettings = $null
+$Configuration = $null
+$ActualConfigFile = $null
+$jobsToProcess = [System.Collections.Generic.List[string]]::new()
+$currentSetName = $null
+$stopSetOnError = $true
+$setSpecificPostRunAction = $null
+
 try {
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\Operations.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CliManager.psm1") -Force -ErrorAction Stop
+    $cliOverrideSettings = Get-PoShBackupCliOverrides -BoundParameters $PSBoundParameters
+
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CoreSetupManager.psm1") -Force -ErrorAction Stop
+        $coreSetupResult = Invoke-PoShBackupCoreSetup -LoggerScriptBlock $LoggerScriptBlock `
+                                                -PSScriptRoot $PSScriptRoot `
+                                                -CliOverrideSettings $cliOverrideSettings `
+                                                -BackupLocationName $BackupLocationName `
+                                                -RunSet $RunSet `
+                                                -ConfigFile $ConfigFile `
+                                                -Simulate:$Simulate.IsPresent `
+                                                -TestConfig:$TestConfig.IsPresent `
+                                                -ListBackupLocations:$ListBackupLocations.IsPresent `
+                                                -ListBackupSets:$ListBackupSets.IsPresent `
+                                                -SkipUserConfigCreation:$SkipUserConfigCreation.IsPresent `
+                                                -PSCmdlet $PSCmdlet
+
+    $Configuration = $coreSetupResult.Configuration
+    $ActualConfigFile = $coreSetupResult.ActualConfigFile
+    $jobsToProcess = $coreSetupResult.JobsToProcess
+    $currentSetName = $coreSetupResult.CurrentSetName
+    $stopSetOnError = $coreSetupResult.StopSetOnErrorPolicy
+    $setSpecificPostRunAction = $coreSetupResult.SetSpecificPostRunAction
+
+    # Stupid scoping issues, so importing these here.
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\JobOrchestrator.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\PostRunActionOrchestrator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Reporting.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\VssManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\RetentionManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\HookManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\SystemStateManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CliManager.psm1") -Force -ErrorAction Stop
 
-    $cmdInfo = Get-Command Build-JobExecutionOrder -ErrorAction SilentlyContinue
-    if (-not $cmdInfo) {
-        & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Build-JobExecutionOrder from JobDependencyManager is NOT available after import!" -Level "ERROR"
-        exit 99
-    } else {
-        & $LoggerScriptBlock -Message "[INFO] PoSh-Backup.ps1: Build-JobExecutionOrder IS available. Type: $($cmdInfo.CommandType)" -Level "INFO"
-        $script:BuildJobExecutionOrderFuncRef = $cmdInfo
-    }
-    & $LoggerScriptBlock -Message "[INFO] Core modules loaded." -Level "INFO"
 } catch {
-    & $LoggerScriptBlock -Message "[FATAL] Failed to import one or more required script modules." -Level "ERROR"
-    & $LoggerScriptBlock -Message "Ensure core modules are in '.\Modules\' (or subdirectories) relative to PoSh-Backup.ps1." -Level "ERROR"
-    & $LoggerScriptBlock -Message "Error details: $($_.Exception.Message)" -Level "ERROR"
-    exit 10
-}
-#endregion
-
-#region --- CLI Override Processing ---
-$cliOverrideSettings = Get-PoShBackupCliOverrides -BoundParameters $PSBoundParameters
-#endregion
-
-#region --- Configuration Loading, Validation & Job Determination ---
-$configLoadParams = @{
-    UserSpecifiedPath           = $ConfigFile
-    IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent))
-    MainScriptPSScriptRoot      = $PSScriptRoot
-    Logger                      = $LoggerScriptBlock
-    SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
-    IsSimulateModeSwitch        = [bool]$Simulate.IsPresent
-    ListBackupLocationsSwitch   = [bool]$ListBackupLocations.IsPresent
-    ListBackupSetsSwitch        = [bool]$ListBackupSets.IsPresent
-    CliOverrideSettings         = $cliOverrideSettings
-}
-$configResult = Import-AppConfiguration @configLoadParams
-
-if (-not $configResult.IsValid) {
-    & $LoggerScriptBlock -Message "FATAL: Configuration loading or validation failed. Exiting." -Level "ERROR"
-    exit 1
-}
-$Configuration = $configResult.Configuration
-$ActualConfigFile = $configResult.ActualPath
-
-if ($configResult.PSObject.Properties.Name -contains 'UserConfigLoaded') {
-    if ($configResult.UserConfigLoaded) {
-        & $LoggerScriptBlock -Message "[INFO] User override configuration from '$($configResult.UserConfigPath)' was successfully loaded and merged." -Level "INFO"
-    } elseif (($null -ne $configResult.UserConfigPath) -and (-not $configResult.UserConfigLoaded) -and (Test-Path -LiteralPath $configResult.UserConfigPath -PathType Leaf)) {
-        & $LoggerScriptBlock -Message "[WARNING] User override configuration '$($configResult.UserConfigPath)' was found but an issue occurred during its loading/merging (check previous messages). Effective configuration may not include user overrides." -Level "WARNING"
-    }
-}
-
-if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
-    $Configuration['_PoShBackup_PSScriptRoot'] = $PSScriptRoot
-} else {
-    & $LoggerScriptBlock -Message "FATAL: Configuration object is not a valid hashtable after loading. Cannot inject PSScriptRoot." -Level "ERROR"
-    exit 1
-}
-
-Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
-                            -ListBackupSetsSwitch $ListBackupSets.IsPresent `
-                            -TestConfigSwitch $TestConfig.IsPresent `
-                            -CheckForUpdateSwitch $false `
-                            -Configuration $Configuration `
-                            -ActualConfigFile $ActualConfigFile `
-                            -ConfigLoadResult $configResult `
-                            -Logger $LoggerScriptBlock `
-                            -PSScriptRootForUpdateCheck $PSScriptRoot `
-                            -PSCmdletForUpdateCheck $PSCmdlet
-
-$sevenZipPathFromFinalConfig = if ($Configuration.ContainsKey('SevenZipPath')) { $Configuration.SevenZipPath } else { $null }
-if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
-    & $LoggerScriptBlock -Message "FATAL: 7-Zip executable path ('$sevenZipPathFromFinalConfig') is invalid or not found after configuration loading and auto-detection attempts." -Level "ERROR"
-    & $LoggerScriptBlock -Message "       Please ensure 'SevenZipPath' is correctly set in your configuration (Default.psd1 or User.psd1)," -Level "ERROR"
-    & $LoggerScriptBlock -Message "       or that 7z.exe is available in standard Program Files locations or your system PATH for auto-detection." -Level "ERROR"
-
-    $_earlyExitPauseSetting = if ($Configuration.ContainsKey('PauseBeforeExit')) { $Configuration.PauseBeforeExit } else { "Always" }
-    $_shouldEarlyExitPause = $false
-    if ($_earlyExitPauseSetting -is [bool]) {
-        $_shouldEarlyExitPause = $_earlyExitPauseSetting
-    } elseif ($_earlyExitPauseSetting -is [string]) {
-        if ($_earlyExitPauseSetting.ToLowerInvariant() -in @("always", "onfailure", "onfailureorwarning", "true")) { $_shouldEarlyExitPause = $true }
-    }
-    if ($cliOverrideSettings.PauseBehaviour) {
-        if ($cliOverrideSettings.PauseBehaviour.ToLowerInvariant() -in @("always", "onfailure", "onfailureorwarning", "true")) { $_shouldEarlyExitPause = $true }
-        elseif ($cliOverrideSettings.PauseBehaviour.ToLowerInvariant() -in @("never", "false")) { $_shouldEarlyExitPause = $false }
-    }
-
-    if ($_shouldEarlyExitPause -and ($Host.Name -eq "ConsoleHost")) {
-        & $LoggerScriptBlock -Message "`nPress any key to exit..." -Level "WARNING"
-        try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
-        catch { Write-Warning "Failed to read key for pause: $($_.Exception.Message)" }
-    }
-    exit 3
-} else {
-    & $LoggerScriptBlock -Message "[INFO] Effective 7-Zip executable path confirmed: '$sevenZipPathFromFinalConfig'" -Level "INFO"
-}
-
-$Global:GlobalEnableFileLogging = if ($Configuration.ContainsKey('EnableFileLogging')) { $Configuration.EnableFileLogging } else { $false }
-if ($Global:GlobalEnableFileLogging) {
-    $logDirConfig = if ($Configuration.ContainsKey('LogDirectory')) { $Configuration.LogDirectory } else { "Logs" }
-    $Global:GlobalLogDirectory = if ([System.IO.Path]::IsPathRooted($logDirConfig)) { $logDirConfig } else { Join-Path -Path $PSScriptRoot -ChildPath $logDirConfig }
-
-    if (-not (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
-        try {
-            New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
-            & $LoggerScriptBlock -Message "[INFO] Log directory '$Global:GlobalLogDirectory' created." -Level "INFO"
-        } catch {
-            & $LoggerScriptBlock -Message "[WARNING] Failed to create log directory '$Global:GlobalLogDirectory'. File logging may be impacted. Error: $($_.Exception.Message)" -Level "WARNING"
-            $Global:GlobalEnableFileLogging = $false
-        }
-    }
-}
-
-$jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
-
-if (-not $jobResolutionResult.Success) {
-    & $LoggerScriptBlock -Message "FATAL: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
-    exit 1
-}
-$initialJobsToConsider = $jobResolutionResult.JobsToRun
-$currentSetName = $jobResolutionResult.SetName
-$stopSetOnError = $jobResolutionResult.StopSetOnErrorPolicy
-$setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
-
-# --- Build Job Execution Order based on Dependencies ---
-$jobsToProcess = [System.Collections.Generic.List[string]]::new()
-if ($initialJobsToConsider.Count -gt 0) {
-    & $LoggerScriptBlock -Message "[INFO] Building job execution order considering dependencies..." -Level "INFO"
-    if ($null -eq $script:BuildJobExecutionOrderFuncRef) {
-        & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Function reference for Build-JobExecutionOrder is null before calling!" -Level "ERROR"
-        exit 98
-    }
-    $executionOrderResult = & $script:BuildJobExecutionOrderFuncRef -InitialJobsToConsider $initialJobsToConsider `
-                                                                    -AllBackupLocations $Configuration.BackupLocations `
-                                                                    -Logger $LoggerScriptBlock
-    if (-not $executionOrderResult.Success) {
-        & $LoggerScriptBlock -Message "FATAL: Could not build job execution order. Error: $($executionOrderResult.ErrorMessage)" -Level "ERROR"
-        exit 1
-    }
-    if ($executionOrderResult.OrderedJobs -is [array]) {
-        $jobsToProcess = New-Object System.Collections.Generic.List[string]
-        $executionOrderResult.OrderedJobs | ForEach-Object { $jobsToProcess.Add($_) }
-    } elseif ($executionOrderResult.OrderedJobs -is [System.Collections.Generic.List[string]]) {
-        $jobsToProcess = $executionOrderResult.OrderedJobs
+    # Errors from CliManager or CoreSetupManager (like module import failures, config load failures)
+    # will be caught here. Logger might be available if Utils loaded but other modules failed.
+    if ($null -ne $LoggerScriptBlock) {
+        & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Critical error during CLI processing or core setup phase. Error: $($_.Exception.Message)" -Level "ERROR"
     } else {
-        & $LoggerScriptBlock -Message "FATAL: Build-JobExecutionOrder returned unexpected type for OrderedJobs: $($executionOrderResult.OrderedJobs.GetType().FullName)" -Level "ERROR"
-        exit 1
+        Write-Host "[FATAL] PoSh-Backup.ps1: Critical error during CLI processing or core setup phase. Logger not available. Error: $($_.Exception.Message)" -ForegroundColor $Global:ColourError
     }
-    if ($jobsToProcess.Count -gt 0) {
-        & $LoggerScriptBlock -Message "[INFO] Final job execution order: $($jobsToProcess -join ', ')" -Level "INFO"
+    # Attempt a graceful exit if possible
+    if ($Host.Name -eq "ConsoleHost") {
+        Write-Host "`nPress any key to exit..." -ForegroundColor $Global:ColourWarning
+        try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null } catch {}
     }
+    exit 12 # Specific exit code for setup phase failure
 }
-# --- END: Build Job Execution Order ---
 #endregion
 
 #region --- Main Processing (Delegated to JobOrchestrator.psm1) ---

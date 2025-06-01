@@ -22,14 +22,24 @@
 # $PSScriptRoot here is Modules\ConfigManagement\ConfigLoader.
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\..\..\Modules\Utils.psm1") -Force -ErrorAction Stop
-    # 7ZipManager is expected to be loaded by the parent ConfigLoader.psm1 or main script,
-    # so Find-SevenZipExecutable should be available in the session.
-    # If direct import is preferred here for strictness:
-    # Import-Module -Name (Join-Path $PSScriptRoot "..\..\..\Modules\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "SevenZipPathResolver.psm1 (ConfigLoader submodule) FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
+}
+
+# Explicitly import the 7ZipManager.psm1 facade to ensure Find-SevenZipExecutable is available.
+# This module (SevenZipPathResolver) needs a function from 7ZipManager. Importing via ConfigLoader.psm1 doesn't seem to work any more.
+try {
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\..\..\Modules\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
+}
+catch {
+    # Log an error, but don't throw immediately. Let Resolve-SevenZipPath report the missing command if it occurs.
+    # This allows the logger (if passed to Resolve-SevenZipPath) to function.
+    $errorMessage = "SevenZipPathResolver.psm1 (ConfigLoader submodule) WARNING: Could not import 7ZipManager.psm1. Find-SevenZipExecutable might not be available. Error: $($_.Exception.Message)"
+    Write-Warning $errorMessage
+    # If a logger is available to this top-level script block, use it too.
+    # This is tricky as $Logger isn't passed to the module script block itself.
 }
 
 #region --- 7-Zip Path Resolver Function ---

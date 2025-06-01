@@ -22,9 +22,9 @@
     - Applies log file retention policy for the completed job.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.4 # Refactored job banner to use Write-ConsoleBanner with Name/Value.
+    Version:        1.1.5 # Added import for ConfigManager.psm1.
     DateCreated:    25-May-2025
-    LastModified:   29-May-2025
+    LastModified:   01-Jun-2025
     Purpose:        To centralise the main job/set processing loop from PoSh-Backup.ps1.
     Prerequisites:  PowerShell 5.1+.
                     Depends on ConfigManager.psm1, Operations.psm1, Reporting.psm1, and Utils.psm1.
@@ -35,9 +35,12 @@
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\LogManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "ConfigManager.psm1") -Force -ErrorAction Stop # ADDED
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Operations.psm1") -Force -ErrorAction Stop # Already present but ensure it's here
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Reporting.psm1") -Force -ErrorAction Stop # Already present but ensure it's here
 }
 catch {
-    Write-Error "JobOrchestrator.psm1 FATAL: Could not import required Utils.psm1 module. Error: $($_.Exception.Message)"
+    Write-Error "JobOrchestrator.psm1 FATAL: Could not import required dependent modules. Error: $($_.Exception.Message)"
     throw
 }
 #endregion
@@ -91,9 +94,6 @@ function Invoke-PoShBackupRun {
                             -CenterText `
                             -PrependNewLine
 
-        # Log a simpler version to the file via the logger
-        # & $LocalWriteLog -Message "--- Starting Processing for Job: $currentJobName ---" -Level "HEADING"
-
         $Global:GlobalJobLogEntries = [System.Collections.Generic.List[object]]::new()
         $Global:GlobalJobHookScriptData = [System.Collections.Generic.List[object]]::new()
 
@@ -120,7 +120,6 @@ function Invoke-PoShBackupRun {
         $dependencyFailureReason = ""
 
         try {
-            # Get effective config first to check dependencies and for TreatSevenZipWarningsAsSuccess
             $setSevenZipIncludeListFileForEffConfig = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName) -and $Configuration.BackupSets.ContainsKey($CurrentSetName) -and $Configuration.BackupSets[$CurrentSetName].ContainsKey('SevenZipIncludeListFile')) { $Configuration.BackupSets[$CurrentSetName].SevenZipIncludeListFile } else { $null }
             $setSevenZipExcludeListFileForEffConfig = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName) -and $Configuration.BackupSets.ContainsKey($CurrentSetName) -and $Configuration.BackupSets[$CurrentSetName].ContainsKey('SevenZipExcludeListFile')) { $Configuration.BackupSets[$CurrentSetName].SevenZipExcludeListFile } else { $null }
 
@@ -133,9 +132,9 @@ function Invoke-PoShBackupRun {
                 SetSevenZipIncludeListFile = $setSevenZipIncludeListFileForEffConfig
                 SetSevenZipExcludeListFile = $setSevenZipExcludeListFileForEffConfig
             }
+            # This is the call that was failing:
             $effectiveJobConfigForThisJob = Get-PoShBackupJobEffectiveConfiguration @effectiveConfigParams
 
-            # --- Dependency Check ---
             if ($effectiveJobConfigForThisJob.ContainsKey('DependsOnJobs') -and $effectiveJobConfigForThisJob.DependsOnJobs -is [array] -and $effectiveJobConfigForThisJob.DependsOnJobs.Count -gt 0) {
                 & $LocalWriteLog -Message "  - Job '$currentJobName' has dependencies: $($effectiveJobConfigForThisJob.DependsOnJobs -join ', ')" -Level "INFO"
                 foreach ($dependencyName in $effectiveJobConfigForThisJob.DependsOnJobs) {
@@ -146,7 +145,6 @@ function Invoke-PoShBackupRun {
                         break
                     }
                     if ($jobEffectiveSuccessState[$dependencyName] -eq $false) {
-                        # Check our tracked effective success state
                         $dependencyFailureReason = "Prerequisite job '$dependencyName' did not complete successfully (effective status: FAILED/SKIPPED)."
                         & $LocalWriteLog -Message "[WARNING] Job '$currentJobName' SKIPPED. $dependencyFailureReason" -Level "WARNING"
                         $skipJobDueToDependencyFailure = $true
@@ -155,7 +153,6 @@ function Invoke-PoShBackupRun {
                     & $LocalWriteLog -Message "    - Prerequisite job '$dependencyName' effectively succeeded. Continuing check..." -Level "DEBUG"
                 }
             }
-            # --- End Dependency Check ---
 
             if ($skipJobDueToDependencyFailure) {
                 $currentJobIndividualStatus = "SKIPPED_DEPENDENCY"
@@ -177,8 +174,7 @@ function Invoke-PoShBackupRun {
                 $currentJobIndividualStatus = $jobResult.Status
             }
 
-            # Determine effective success for dependency tracking
-            $currentJobEffectiveSuccess = $false # Assume failure/skipped unless conditions met
+            $currentJobEffectiveSuccess = $false
             if ($currentJobIndividualStatus -eq "SUCCESS" -or $currentJobIndividualStatus -eq "SIMULATED_COMPLETE") {
                 $currentJobEffectiveSuccess = $true
             }
@@ -192,10 +188,8 @@ function Invoke-PoShBackupRun {
                 }
             }
             elseif ($currentJobIndividualStatus -eq "SKIPPED_DEPENDENCY") {
-                # A job skipped due to dependency is effectively a failure for any further jobs depending on it.
                 $currentJobEffectiveSuccess = $false
             }
-            # Any other status (e.g., FAILURE) means $currentJobEffectiveSuccess remains $false.
             $jobEffectiveSuccessState[$currentJobName] = $currentJobEffectiveSuccess
 
             if (-not $CurrentSetName) {
@@ -207,7 +201,7 @@ function Invoke-PoShBackupRun {
             $currentJobIndividualStatus = "FAILURE"
             & $LocalWriteLog -Message "[FATAL] JobOrchestrator: Unhandled exception during processing of job '$currentJobName': $($_.Exception.ToString())" -Level "ERROR"
             $currentJobReportData['ErrorMessage'] = $_.Exception.ToString()
-            $jobEffectiveSuccessState[$currentJobName] = $false # Mark as failed for dependency tracking
+            $jobEffectiveSuccessState[$currentJobName] = $false
         }
 
         $currentJobReportData['LogEntries'] = if ($null -ne $Global:GlobalJobLogEntries) { $Global:GlobalJobLogEntries } else { [System.Collections.Generic.List[object]]::new() }
@@ -238,7 +232,7 @@ function Invoke-PoShBackupRun {
             $overallSetStatus = "WARNINGS"
         }
         elseif ($currentJobIndividualStatus -eq "SKIPPED_DEPENDENCY" -and $overallSetStatus -ne "FAILURE") {
-            $overallSetStatus = "WARNINGS" # A skipped job means the set wasn't fully successful
+            $overallSetStatus = "WARNINGS"
         }
 
         $displayStatusForLog = $currentJobReportData.OverallStatus
@@ -272,6 +266,7 @@ function Invoke-PoShBackupRun {
                     & $LocalWriteLog -Message "[WARNING] Failed to create default reports directory '$defaultJobReportsDir'. Report generation may fail. Error: $($_.Exception.Message)" -Level "WARNING"
                 }
             }
+            # This is the second call that was failing:
             Invoke-ReportGenerator -ReportDirectory $defaultJobReportsDir `
                 -JobName $currentJobName `
                 -ReportData $currentJobReportData `
@@ -305,13 +300,10 @@ function Invoke-PoShBackupRun {
         }
 
         if ($CurrentSetName -and $StopSetOnErrorPolicy) {
-            # Stop if the job itself failed operationally OR if it was skipped due to a dependency failure
-            # (as a skipped job means the prerequisite effectively failed from the set's perspective if we're stopping on error)
             if ($currentJobIndividualStatus -eq "FAILURE" -or $skipJobDueToDependencyFailure) {
                 $stopReason = if ($currentJobIndividualStatus -eq "FAILURE") { "FAILED (Status: $currentJobIndividualStatus)" } else { "SKIPPED due to dependency failure" }
                 & $LocalWriteLog -Message "[ERROR] Job '$currentJobName' in set '$CurrentSetName' $stopReason. Stopping set as 'OnErrorInJob' policy is 'StopSet'." -Level "ERROR"
-                # Ensure overall set status reflects this critical stop if it wasn't already a FAILURE
-                if ($overallSetStatus -ne "FAILURE") { $overallSetStatus = "FAILURE" } # A stopped set due to dependency is a failure of the set.
+                if ($overallSetStatus -ne "FAILURE") { $overallSetStatus = "FAILURE" }
                 break
             }
         }
