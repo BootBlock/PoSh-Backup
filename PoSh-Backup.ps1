@@ -15,7 +15,8 @@
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
     It is designed for robustness, extensive configurability, and detailed operational feedback.
     Core logic is managed by this main script, which orchestrates operations performed by dedicated
-    PowerShell modules. The main job/set processing loop is now handled by 'JobOrchestrator.psm1'.
+    PowerShell modules. Initial setup (globals, banner) is handled by 'InitialisationManager.psm1'.
+    The main job/set processing loop is now handled by 'JobOrchestrator.psm1'.
     Post-run system action logic is now handled by 'PostRunActionOrchestrator.psm1'.
     Job dependency resolution and execution ordering is handled by 'JobDependencyManager.psm1'.
     CLI parameter processing is now handled by 'CliManager.psm1'.
@@ -162,7 +163,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.15.0 # Modularised CLI override processing to CliManager.psm1.
+    Version:        1.16.0 # Modularised initial setup (globals, banner) to InitialisationManager.psm1.
     Date:           01-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -273,106 +274,21 @@ param (
 #endregion
 
 #region --- Initial Script Setup & Module Import ---
-$Global:ColourInfo                          = "Cyan"
-$Global:ColourSuccess                       = "Green"
-$Global:ColourWarning                       = "Yellow"
-$Global:ColourError                         = "Red"
-$Global:ColourDebug                         = "Gray"
-$Global:ColourBorder                        = "DarkGray"
-$Global:ColourValue                         = "DarkYellow"
-$Global:ColourHeading                       = "White"
-$Global:ColourSimulate                      = "Magenta"
-$Global:ColourAdmin                         = "Orange"
-
-$Global:StatusToColourMap = @{
-    "SUCCESS"           = $Global:ColourSuccess
-    "WARNINGS"          = $Global:ColourWarning
-    "WARNING"           = $Global:ColourWarning
-    "FAILURE"           = $Global:ColourError
-    "ERROR"             = $Global:ColourError
-    "SIMULATED_COMPLETE"= $Global:ColourSimulate
-    "INFO"              = $Global:ColourInfo
-    "DEBUG"             = $Global:ColourDebug
-    "VSS"               = $Global:ColourAdmin
-    "HOOK"              = $Global:ColourDebug
-    "CONFIG_TEST"       = $Global:ColourSimulate
-    "HEADING"           = $Global:ColourHeading
-    "NONE"              = $Host.UI.RawUI.ForegroundColor
-    "DEFAULT"           = $Global:ColourInfo
-}
-
-$Global:GlobalLogFile                       = $null
-$Global:GlobalEnableFileLogging             = $false
-$Global:GlobalLogDirectory                  = $null
-$Global:GlobalJobLogEntries                 = $null
-$Global:GlobalJobHookScriptData             = $null
-
+# Import InitialisationManager first to set up globals and display banner
 try {
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\InitialisationManager.psm1") -Force -ErrorAction Stop
+    Invoke-PoShBackupInitialSetup -MainScriptPath $PSCommandPath
 } catch {
-    Write-Host "[DEBUG] PoSh-Backup.ps1: Couldn't import the ConsoleDisplayUtils.psm1 module: $($_.Exception.Message)." -ForegroundColor $Global:ColourError
+    Write-Host "[FATAL] Failed to import or run CRITICAL InitialisationManager.psm1 module." -ForegroundColor Red
+    Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
+    exit 11
 }
 
-# --- Starting Banner ---
-# Dynamically get script version for the banner
-$scriptVersionForBanner = "vN/A" # Default
-try {
-    $mainScriptContentForVersion = Get-Content -LiteralPath $PSCommandPath -Raw -ErrorAction SilentlyContinue
-    if (-not [string]::IsNullOrWhiteSpace($mainScriptContentForVersion)) {
-        # Regex to find version like "Version: X.Y.Z" or "Version: X.Y.Z # comment"
-        # It will capture only the "X.Y.Z" part.
-        $regexMatch = [regex]::Match($mainScriptContentForVersion, '(?im)^\s*Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
-        if ($regexMatch.Success) {
-            $extractedVersion = $regexMatch.Groups[1].Value.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($extractedVersion) -and $extractedVersion -ne "N/A") {
-                $scriptVersionForBanner = "v$extractedVersion"
-            }
-        } else { # Fallback to .NOTES section if primary version line not found
-            $regexMatch = [regex]::Match($mainScriptContentForVersion, '(?s)\.NOTES(?:.|\s)*?Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
-            if ($regexMatch.Success) {
-                $extractedVersion = $regexMatch.Groups[1].Value.Trim()
-                if (-not [string]::IsNullOrWhiteSpace($extractedVersion) -and $extractedVersion -ne "N/A") {
-                    $scriptVersionForBanner = "v$extractedVersion"
-                }
-            }
-        }
-    }
-}
-catch {
-    # Log to console if an error occurs, as logger is not yet available. This is for debugging purposes if version extraction fails and also shuts up a PSSA warning.
-    Write-Host "[DEBUG] PoSh-Backup.ps1: Error during dynamic version extraction for banner: $($_.Exception.Message). Version will show as 'vN/A'." -ForegroundColor $Global:ColourDebug
-}
-
-Write-ConsoleBanner -NameText "PoSh Backup" `
-                    -NameForegroundColor '$Global:ColourInfo' `
-                    -ValueText $scriptVersionForBanner `
-                    -ValueForegroundColor '$Global:ColourValue' `
-                    -BannerWidth 78 `
-                    -BorderForegroundColor '$Global:ColourHeading' `
-                    -CenterText `
-                    -PrependNewLine
-
-# Author Information
-$authorName = "Joe Cox"
-$githubLink = "https://github.com/BootBlock/PoSh-Backup"
-$websiteLink = "https://bootblock.co.uk"
-$authorInfoColor = $Global:ColourDebug
-
-Write-Host # Blank line for spacing
-Write-Host "        $authorName" -ForegroundColor White -NoNewline
-Write-Host " : " -ForegroundColor $Global:ColourHeading -NoNewline
-Write-Host $githubLink -ForegroundColor $authorInfoColor
-
-Write-Host "    " -ForegroundColor $authorInfoColor -NoNewline
-Write-Host "            : " -ForegroundColor $Global:ColourHeading -NoNewline
-Write-Host $websiteLink -ForegroundColor $authorInfoColor
-Write-Host # Blank line after author info
-# --- End Starting Banner ---
-
+# Now that globals are set, Utils.psm1 (which provides Write-LogMessage) can be imported.
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -Global -ErrorAction Stop
 } catch {
-    Write-Host "[FATAL] Failed to import CRITICAL Utils.psm1 module." -ForegroundColor $Global:ColourError
+    Write-Host "[FATAL] Failed to import CRITICAL Utils.psm1 module." -ForegroundColor $Global:ColourError # Use global color now
     Write-Host "Ensure 'Modules\Utils.psm1' exists relative to PoSh-Backup.ps1." -ForegroundColor $Global:ColourError
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor "DarkRed"
     exit 10 # Critical failure, cannot proceed without logger
@@ -382,70 +298,45 @@ $LoggerScriptBlock = ${function:Write-LogMessage} # Now the logger is available
 
 # --- EARLY EXIT FOR CheckForUpdate ---
 if ($CheckForUpdate.IsPresent) {
-    #& $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: -CheckForUpdate specified. Initiating update check mode directly." -Level "DEBUG"
-
     Write-ConsoleBanner -NameText "Check for Update" `
                         -NameForegroundColor "Yellow" `
-                        -BorderForegroundColor 'DarkGray' `
+                        -BorderForegroundColor '$Global:ColourBorder' `
                         -CenterText `
-
     Write-Host
 
     $updateModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utilities\Update.psm1"
-
     try {
-        #Write-Host "  --- Checking for PoSh-Backup Updates ---" -ForegroundColor $Global:ColourHeading # Use global color
-
         if (-not (Test-Path -LiteralPath $updateModulePath -PathType Leaf)) {
             & $LoggerScriptBlock -Message "[ERROR] PoSh-Backup.ps1: Update module (Update.psm1) not found at '$updateModulePath'. Cannot check for updates." -Level "ERROR"
-            throw "Update module not found." # Throw to be caught by this block's catch
+            throw "Update module not found."
         }
-
-        # Explicitly remove and import Update.psm1 to ensure latest version
         Remove-Module -Name Update -Force -ErrorAction SilentlyContinue
         Import-Module -Name $updateModulePath -Force -ErrorAction Stop
-        
         $updateCheckParams = @{
             Logger                 = $LoggerScriptBlock
             PSScriptRootForPaths   = $PSScriptRoot
             PSCmdletInstance       = $PSCmdlet
         }
-        Invoke-PoShBackupUpdateCheckAndApply @updateCheckParams # Direct call
-        
-        #& $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: Update check process finished. Exiting." -Level "DEBUG"
-        #Write-Host "`n--- Update Check Finished ---" -ForegroundColor $Global:ColourHeading
+        Invoke-PoShBackupUpdateCheckAndApply @updateCheckParams
         exit 0
-
     } catch {
         & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Error during -CheckForUpdate mode. Error: $($_.Exception.Message)" -Level "ERROR"
         Write-Host "`n[ERROR] Update check failed: $($_.Exception.Message)" -ForegroundColor $Global:ColourError
         if ($Host.Name -eq "ConsoleHost") {
             Write-Host "`nPress any key to exit..." -ForegroundColor $Global:ColourWarning
             try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null } catch {
-                # Shuts up PSSA warning
                 & $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: Non-critical error during ReadKey for final pause: $($_.Exception.Message)" -Level "DEBUG"
             }
         }
-        exit 13 # Different exit code for this specific failure path
+        exit 13
     }
 }
 # --- END OF EARLY EXIT FOR CheckForUpdate ---
-
 
 $ScriptStartTime                            = Get-Date
 $IsSimulateMode                             = $Simulate.IsPresent
 
 # --- Import Core and Manager Modules ---
-try {
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -Global -ErrorAction Stop
-} catch {
-    Write-Host "[FATAL] Failed to re-import CRITICAL Utils.psm1 module." -ForegroundColor Red
-    Write-Host "Ensure 'Modules\Utils.psm1' exists relative to PoSh-Backup.ps1." -ForegroundColor Red
-    Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
-    exit 10
-}
-$LoggerScriptBlock = ${function:Write-LogMessage}
-
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\Operations.psm1") -Force -ErrorAction Stop
@@ -459,7 +350,7 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\SystemStateManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CliManager.psm1") -Force -ErrorAction Stop # NEW
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CliManager.psm1") -Force -ErrorAction Stop
 
     $cmdInfo = Get-Command Build-JobExecutionOrder -ErrorAction SilentlyContinue
     if (-not $cmdInfo) {
@@ -469,9 +360,7 @@ try {
         & $LoggerScriptBlock -Message "[INFO] PoSh-Backup.ps1: Build-JobExecutionOrder IS available. Type: $($cmdInfo.CommandType)" -Level "INFO"
         $script:BuildJobExecutionOrderFuncRef = $cmdInfo
     }
-
-    & $LoggerScriptBlock -Message "[INFO] Core modules loaded, including JobOrchestrator, PostRunActionOrchestrator, JobDependencyManager, and CliManager." -Level "INFO"
-
+    & $LoggerScriptBlock -Message "[INFO] Core modules loaded." -Level "INFO"
 } catch {
     & $LoggerScriptBlock -Message "[FATAL] Failed to import one or more required script modules." -Level "ERROR"
     & $LoggerScriptBlock -Message "Ensure core modules are in '.\Modules\' (or subdirectories) relative to PoSh-Backup.ps1." -Level "ERROR"
@@ -485,7 +374,6 @@ $cliOverrideSettings = Get-PoShBackupCliOverrides -BoundParameters $PSBoundParam
 #endregion
 
 #region --- Configuration Loading, Validation & Job Determination ---
-
 $configLoadParams = @{
     UserSpecifiedPath           = $ConfigFile
     IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent))
@@ -498,7 +386,6 @@ $configLoadParams = @{
     CliOverrideSettings         = $cliOverrideSettings
 }
 $configResult = Import-AppConfiguration @configLoadParams
-
 
 if (-not $configResult.IsValid) {
     & $LoggerScriptBlock -Message "FATAL: Configuration loading or validation failed. Exiting." -Level "ERROR"
@@ -532,7 +419,6 @@ Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPr
                             -Logger $LoggerScriptBlock `
                             -PSScriptRootForUpdateCheck $PSScriptRoot `
                             -PSCmdletForUpdateCheck $PSCmdlet
-
 
 $sevenZipPathFromFinalConfig = if ($Configuration.ContainsKey('SevenZipPath')) { $Configuration.SevenZipPath } else { $null }
 if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
@@ -593,12 +479,10 @@ $setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
 $jobsToProcess = [System.Collections.Generic.List[string]]::new()
 if ($initialJobsToConsider.Count -gt 0) {
     & $LoggerScriptBlock -Message "[INFO] Building job execution order considering dependencies..." -Level "INFO"
-
     if ($null -eq $script:BuildJobExecutionOrderFuncRef) {
         & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Function reference for Build-JobExecutionOrder is null before calling!" -Level "ERROR"
         exit 98
     }
-
     $executionOrderResult = & $script:BuildJobExecutionOrderFuncRef -InitialJobsToConsider $initialJobsToConsider `
                                                                     -AllBackupLocations $Configuration.BackupLocations `
                                                                     -Logger $LoggerScriptBlock
@@ -606,7 +490,6 @@ if ($initialJobsToConsider.Count -gt 0) {
         & $LoggerScriptBlock -Message "FATAL: Could not build job execution order. Error: $($executionOrderResult.ErrorMessage)" -Level "ERROR"
         exit 1
     }
-
     if ($executionOrderResult.OrderedJobs -is [array]) {
         $jobsToProcess = New-Object System.Collections.Generic.List[string]
         $executionOrderResult.OrderedJobs | ForEach-Object { $jobsToProcess.Add($_) }
@@ -616,13 +499,11 @@ if ($initialJobsToConsider.Count -gt 0) {
         & $LoggerScriptBlock -Message "FATAL: Build-JobExecutionOrder returned unexpected type for OrderedJobs: $($executionOrderResult.OrderedJobs.GetType().FullName)" -Level "ERROR"
         exit 1
     }
-
     if ($jobsToProcess.Count -gt 0) {
         & $LoggerScriptBlock -Message "[INFO] Final job execution order: $($jobsToProcess -join ', ')" -Level "INFO"
     }
 }
 # --- END: Build Job Execution Order ---
-
 #endregion
 
 #region --- Main Processing (Delegated to JobOrchestrator.psm1) ---
@@ -644,13 +525,11 @@ if ($jobsToProcess.Count -gt 0) {
         CliOverrideSettings      = $cliOverrideSettings
     }
     $orchestratorResult = Invoke-PoShBackupRun @runParams
-
     try {
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -ErrorAction Stop
     } catch {
         & $LoggerScriptBlock -Message "[FATAL PoSh-Backup.ps1] Failed to re-import Utils.psm1 locally. Error: $($_.Exception.Message)" -Level "ERROR"
     }
-
     $overallSetStatus = $orchestratorResult.OverallSetStatus
     $jobSpecificPostRunActionForNonSetRun = $orchestratorResult.JobSpecificPostRunActionForNonSet
 } else {
@@ -662,27 +541,11 @@ if ($jobsToProcess.Count -gt 0) {
 $finalScriptEndTime = Get-Date
 
 # --- Completion Banner ---
-$finalScriptEndTime = Get-Date
-
-# --- Use Utility for Completion Banner ---
-
-# Determine colors based on overall status
-$completionBorderColor = '$Global:ColourHeading' # Default
-$completionNameFgColor = '$Global:ColourSuccess' # Default for the text
-# Background for the text line is not directly supported by Write-ConsoleBanner v1.1.2 in a simple way
-# We'll rely on the border color and text color to convey status.
-
-if ($overallSetStatus -eq "FAILURE") {
-    $completionBorderColor = '$Global:ColourError'
-    $completionNameFgColor = '$Global:ColourError'
-} elseif ($overallSetStatus -eq "WARNINGS") {
-    $completionBorderColor = '$Global:ColourWarning'
-    $completionNameFgColor = '$Global:ColourWarning'
-} elseif ($overallSetStatus -eq "SIMULATED_COMPLETE") {
-    $completionBorderColor = '$Global:ColourSimulate'
-    $completionNameFgColor = '$Global:ColourSimulate'
-}
-# For SUCCESS, it will use the defaults ($Global:ColourHeading for border, $Global:ColourSuccess for text)
+$completionBorderColor = '$Global:ColourHeading'
+$completionNameFgColor = '$Global:ColourSuccess'
+if ($overallSetStatus -eq "FAILURE") { $completionBorderColor = '$Global:ColourError'; $completionNameFgColor = '$Global:ColourError' }
+elseif ($overallSetStatus -eq "WARNINGS") { $completionBorderColor = '$Global:ColourWarning'; $completionNameFgColor = '$Global:ColourWarning' }
+elseif ($overallSetStatus -eq "SIMULATED_COMPLETE") { $completionBorderColor = '$Global:ColourSimulate'; $completionNameFgColor = '$Global:ColourSimulate' }
 
 Write-ConsoleBanner -NameText "All PoSh Backup Operations Completed" `
                     -NameForegroundColor $completionNameFgColor `
