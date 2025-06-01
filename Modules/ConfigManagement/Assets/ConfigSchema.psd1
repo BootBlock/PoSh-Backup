@@ -64,6 +64,7 @@
     DefaultSplitVolumeSize                    = @{ Type = 'string'; Required = $false; Pattern = '(^$)|(^\d+[kmg]$)' } # NEW
 
     DefaultGenerateArchiveChecksum            = @{ Type = 'boolean'; Required = $false }
+    DefaultGenerateSplitArchiveManifest       = @{ Type = 'boolean'; Required = $false }
     DefaultChecksumAlgorithm                  = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
     DefaultVerifyArchiveChecksumOnTest        = @{ Type = 'boolean'; Required = $false }
 
@@ -165,6 +166,7 @@
                 TestArchiveAfterCreation                  = @{ Type = 'boolean'; Required = $false }
                 VerifyLocalArchiveBeforeTransfer          = @{ Type = 'boolean'; Required = $false }
                 GenerateArchiveChecksum                   = @{ Type = 'boolean'; Required = $false }
+                GenerateSplitArchiveManifest              = @{ Type = 'boolean'; Required = $false }
                 ChecksumAlgorithm                         = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
                 VerifyArchiveChecksumOnTest               = @{ Type = 'boolean'; Required = $false }
                 HtmlReportTheme                           = @{ Type = 'string'; Required = $false }

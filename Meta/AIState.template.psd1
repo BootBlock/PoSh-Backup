@@ -38,10 +38,10 @@
     "    - Goal: Reduce the size and complexity of `PoSh-Backup.ps1` by extracting logical blocks into new manager modules.",
     "    - **Phase 1: CLI Override Processing**",
     "        - New Module `Modules\\Managers\\CliManager.psm1` (v1.0.0) created.",
-    "            - Contains `Get-PoShBackupCliOverrides` function to process `$PSBoundParameters` from `PoSh-Backup.ps1` and return the `$cliOverrideSettings` hashtable.",
+    "            - Contains `Get-PoShBackupCliOverride` function to process `$PSBoundParameters` from `PoSh-Backup.ps1` and return the `$cliOverrideSettings` hashtable.",
     "        - `PoSh-Backup.ps1` (v1.14.6 -> v1.15.0):",
     "            - Imports `CliManager.psm1`.",
-    "            - Calls `Get-PoShBackupCliOverrides` to populate `$cliOverrideSettings`.",
+    "            - Calls `Get-PoShBackupCliOverride` to populate `$cliOverrideSettings`.",
     "            - Removed manual definition of `$cliOverrideSettings` hashtable.",
     "    - **Phase 2: Initial Script Setup (Globals, Banner)**",
     "        - New Module `Modules\\Managers\\InitialisationManager.psm1` (v1.0.0) created.",
@@ -91,7 +91,7 @@
     "  - Core Refactorings (Operations, Logging, Managers, Utils facade, PoSh-Backup.ps1 main loop to JobOrchestrator, ScriptModeHandler).",
     "  - SFX Archives, Checksums, Post-Run Actions, Expanded Backup Targets (UNC, Replicate, SFTP), Log File Retention.",
     "--- PROJECT STATUS ---",
-    "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. PSSA warnings addressed (2 known for SFTP). Next logical step could be further Pester tests or AI State update."
+    "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. Multi-Volume Manifest feature (MV_MANIFEST_001) is IN PROGRESS. Parameter binding bug in 7-Zip argument generation RESOLVED. PSSA warnings: 1 known for `CliManager.psm1` (plural noun), 2 known for `SFTP.Target.psm1` (`ConvertTo-SecureString`). Next logical step is to adapt Target Providers for manifest file transfer."
   )
 
   main_script_poSh_backup_version = "1.18.0" # Reflects modularisation into CliManager, InitialisationManager, CoreSetupManager, FinalisationManager.

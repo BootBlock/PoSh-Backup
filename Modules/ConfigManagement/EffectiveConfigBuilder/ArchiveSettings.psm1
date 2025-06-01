@@ -6,12 +6,12 @@
     This sub-module for EffectiveConfigBuilder.psm1 determines the effective
     settings related to the archive file itself, including its type, naming convention
     (date format), Self-Extracting Archive (SFX) options, multi-volume (split) settings,
-    and checksum generation/verification parameters.
+    checksum generation/verification parameters, and split archive manifest generation.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Added GenerateSplitArchiveManifest resolution.
     DateCreated:    30-May-2025
-    LastModified:   30-May-2025
+    LastModified:   01-Jun-2025
     Purpose:        Archive-specific settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -38,7 +38,7 @@ function Resolve-ArchiveConfiguration {
     )
 
     # PSSA: Directly use Logger and CliOverrides for initial debug message
-    & $Logger -Message "EffectiveConfigBuilder/DestinationSettings/Resolve-DestinationConfiguration: Logger active. CLI Overrides count: $($CliOverrides.Count)." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "EffectiveConfigBuilder/ArchiveSettings/Resolve-ArchiveConfiguration: Logger active. CLI Overrides count: $($CliOverrides.Count)." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
@@ -110,6 +110,18 @@ function Resolve-ArchiveConfiguration {
     $resolvedSettings.ChecksumAlgorithm = Get-ConfigValue -ConfigObject $JobConfig -Key 'ChecksumAlgorithm' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultChecksumAlgorithm' -DefaultValue "SHA256")
     $resolvedSettings.VerifyArchiveChecksumOnTest = Get-ConfigValue -ConfigObject $JobConfig -Key 'VerifyArchiveChecksumOnTest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVerifyArchiveChecksumOnTest' -DefaultValue $false)
 
+    # NEW: Split Archive Manifest Setting
+    $resolvedSettings.GenerateSplitArchiveManifest = Get-ConfigValue -ConfigObject $JobConfig -Key 'GenerateSplitArchiveManifest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultGenerateSplitArchiveManifest' -DefaultValue $false)
+    $reportData.GenerateSplitArchiveManifest = $resolvedSettings.GenerateSplitArchiveManifest # Add to report data
+
+    # If splitting and manifest generation is enabled, GenerateArchiveChecksum (for single file) is effectively false.
+    if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.SplitVolumeSize) -and $resolvedSettings.GenerateSplitArchiveManifest) {
+        if ($resolvedSettings.GenerateArchiveChecksum) {
+            & $LocalWriteLog -Message "  - Resolve-ArchiveConfiguration: SplitVolumeSize is active and GenerateSplitArchiveManifest is true. The 'GenerateArchiveChecksum' setting (for single/first volume) will be ignored in favor of the manifest." -Level "INFO"
+            $resolvedSettings.GenerateArchiveChecksum = $false # Manifest takes precedence
+        }
+    }
+    
     return $resolvedSettings
 }
 

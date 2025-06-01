@@ -1,17 +1,19 @@
 # Modules\Managers\RetentionManager\Scanner.psm1
 <#
 .SYNOPSIS
-    Sub-module for RetentionManager. Handles scanning for and grouping backup archive instances.
+    Sub-module for RetentionManager. Handles scanning for and grouping backup archive instances,
+    including their associated manifest files.
 .DESCRIPTION
     This module contains the 'Find-BackupArchiveInstance' function, responsible for
-    identifying all relevant backup files (single or multi-volume parts) in a given
-    directory that match a base name and extension. It groups these files into logical
-    "backup instances" and determines a sortable timestamp for each instance.
+    identifying all relevant backup files (single or multi-volume parts) and their
+    associated manifest files in a given directory that match a base name and extension.
+    It groups these files into logical "backup instances" and determines a sortable
+    timestamp for each instance.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Added manifest file detection.
     DateCreated:    29-May-2025
-    LastModified:   29-May-2025
+    LastModified:   01-Jun-2025
     Purpose:        Backup archive instance discovery and grouping logic for RetentionManager.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -58,8 +60,11 @@ function Find-BackupArchiveInstance {
         return $backupInstances
     }
 
+    # Regex to match the base archive name and primary extension, capturing it for instance identification.
+    # This pattern will match "archive.7z" or "archive.exe" and also "archive.7z.001", "archive.exe.001" etc.
+    # It also tries to match SFX files that might have had their original extension embedded, e.g. "archive.7z.exe"
     $literalBaseName = $ArchiveBaseFileName -replace '([\.\^\$\*\+\?\(\)\[\]\{\}\|\\])', '\$1'
-    $fileFilterPattern = "$($literalBaseName)$([regex]::Escape($ArchiveExtension))*"
+    $fileFilterPattern = "$($literalBaseName)$([regex]::Escape($ArchiveExtension))*" # Main filter for Get-ChildItem
 
     & $LocalWriteLog -Message "   - RetentionManager/Scanner: Scanning for files with filter pattern: '$fileFilterPattern' in '$DestinationDirectory'" -Level "DEBUG"
     $allMatchingFiles = Get-ChildItem -Path $DestinationDirectory -Filter $fileFilterPattern -File -ErrorAction SilentlyContinue
@@ -74,18 +79,21 @@ function Find-BackupArchiveInstance {
         $isFirstVolumePart = $false
         $fileIsPartOfSplitSet = $false
 
+        # Pattern for split volumes: "BaseNameAndPrimaryExt.NNN" (e.g., "MyJob [Date].7z.001")
         $splitVolumePattern = "^($([regex]::Escape($ArchiveBaseFileName + $ArchiveExtension)))\.(\d{3,})$"
 
         if ($fileInfo.Name -match $splitVolumePattern) {
-            $instanceIdentifier = $Matches[1]
+            $instanceIdentifier = $Matches[1] # e.g., "MyJob [Date].7z"
             $fileIsPartOfSplitSet = $true
             if ($Matches[2] -eq "001") {
                 $isFirstVolumePart = $true
             }
         } else {
+            # For non-split files, or SFX files where ArchiveExtension might be .exe
+            # The instance identifier is the full filename.
             if ($fileInfo.Name -eq ($ArchiveBaseFileName + $ArchiveExtension)) {
                  $instanceIdentifier = $fileInfo.Name
-            } elseif ($ArchiveExtension -ne $fileInfo.Extension -and $fileInfo.Name -like ($ArchiveBaseFileName + "*")) {
+            } elseif ($ArchiveExtension -ne $fileInfo.Extension -and $fileInfo.Name -like ($ArchiveBaseFileName + "*") -and $fileInfo.Extension -eq ".exe") { # Handles SFX like "MyJob [Date].7z.exe"
                 $instanceIdentifier = $fileInfo.Name
             } else {
                 & $LocalWriteLog -Message "   - RetentionManager/Scanner: File '$($fileInfo.Name)' does not match expected single or split volume pattern for base '$ArchiveBaseFileName' and ext '$ArchiveExtension'. Skipping." -Level "DEBUG"
@@ -105,11 +113,13 @@ function Find-BackupArchiveInstance {
             if ($fileInfo.CreationTime -lt $backupInstances[$instanceIdentifier].SortTime) {
                 $backupInstances[$instanceIdentifier].SortTime = $fileInfo.CreationTime
             }
-        } elseif (-not $fileIsPartOfSplitSet) {
+        } elseif (-not $fileIsPartOfSplitSet) { # Single file archive
              $backupInstances[$instanceIdentifier].SortTime = $fileInfo.CreationTime
         }
     }
 
+    # Refine SortTime for split sets that might have been processed out of order or missing .001 initially
+    # And now, also look for associated manifest files for each identified instance.
     foreach ($instanceKeyToRefine in $backupInstances.Keys) {
         if ($backupInstances[$instanceKeyToRefine].SortTime -eq [datetime]::MaxValue) {
             if ($backupInstances[$instanceKeyToRefine].Files.Count -gt 0) {
@@ -117,12 +127,30 @@ function Find-BackupArchiveInstance {
                 $backupInstances[$instanceKeyToRefine].SortTime = $earliestPartFoundTime
                 & $LocalWriteLog -Message "[WARNING] RetentionManager/Scanner: Backup instance '$instanceKeyToRefine' appears to be missing its first volume part (e.g., .001) or was processed out of order. Using earliest found part's time for sorting. This might indicate an incomplete backup set." -Level "WARNING"
             } else {
+                # Should not happen if files were added, but as a safeguard
                 $backupInstances.Remove($instanceKeyToRefine)
+                continue # Skip to next instance if this one is now empty
             }
+        }
+
+        # Look for manifest file associated with this instance
+        # $instanceKeyToRefine is "JobName [DateStamp].<PrimaryExtension>" e.g. "MyJob [2025-06-01].7z"
+        # Manifest pattern: "JobName [DateStamp].<PrimaryExtension>.manifest.*"
+        $manifestPattern = [regex]::Escape($instanceKeyToRefine) + ".manifest.*"
+        $manifestFile = Get-ChildItem -Path $DestinationDirectory -File -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -match $manifestPattern } |
+                        Sort-Object CreationTime -Descending | # Get newest if multiple (should not happen)
+                        Select-Object -First 1
+        
+        if ($null -ne $manifestFile) {
+            & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found associated manifest file '$($manifestFile.Name)' for instance '$instanceKeyToRefine'." -Level "DEBUG"
+            $backupInstances[$instanceKeyToRefine].Files.Add($manifestFile)
+        } else {
+            & $LocalWriteLog -Message "   - RetentionManager/Scanner: No manifest file found matching pattern '$manifestPattern' for instance '$instanceKeyToRefine'." -Level "DEBUG"
         }
     }
 
-    & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found $($backupInstances.Count) logical backup instance(s)." -Level "DEBUG"
+    & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found $($backupInstances.Count) logical backup instance(s) after processing and manifest scan." -Level "DEBUG"
     return $backupInstances
 }
 #endregion

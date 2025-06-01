@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.4.6: Added DefaultSplitVolumeSize and job-level SplitVolumeSize settings.
+# Version 1.4.7: Added DefaultGenerateSplitArchiveManifest and job-level GenerateSplitArchiveManifest settings.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -188,13 +188,16 @@
                                                                       # "Console": (Default) Uses 7-Zip's default console SFX module (e.g., 7zCon.sfx). Extracts to current dir without prompt.
                                                                       # "GUI": Uses 7-Zip's standard GUI SFX module (e.g., 7zS.sfx). Prompts user for extraction path.
                                                                       # "Installer": Uses 7-Zip's installer-like GUI SFX module (e.g., 7zSD.sfx). Prompts user for extraction path.
-    DefaultSplitVolumeSize          = ""                              # NEW: Global default for splitting archives. Empty means no split.
+    DefaultSplitVolumeSize          = ""                              # Global default for splitting archives. Empty means no split.
                                                                       # Examples: "100m" (100 Megabytes), "4g" (4 Gigabytes), "700k" (700 Kilobytes).
                                                                       # Use 'k', 'm', 'g'. Case might matter for 7-Zip; schema will enforce lowercase.
+    DefaultGenerateSplitArchiveManifest = $false                      # Global default. $true to generate a manifest file listing all volumes and their checksums for split archives.
+                                                                      # If $true and SplitVolumeSize is active, this overrides DefaultGenerateArchiveChecksum for the primary archive file.
     #endregion
 
     #region --- Checksum Settings (Global Defaults) ---
     DefaultGenerateArchiveChecksum      = $false                      # Global default. $true to generate a checksum file for the local archive.
+                                                                      # For split archives, if DefaultGenerateSplitArchiveManifest is $false, this applies to the first volume (.001).
     DefaultChecksumAlgorithm            = "SHA256"                    # Global default. Algorithm for checksum. Valid: "SHA1", "SHA256", "SHA384", "SHA512", "MD5".
     DefaultVerifyArchiveChecksumOnTest  = $false                      # Global default. $true to verify checksum during archive test (if TestArchiveAfterCreation is also true).
                                                                       # Checksum file is named <ArchiveFileName>.<Algorithm>.checksum (e.g., MyJob_Date.7z.SHA256.checksum).
@@ -379,7 +382,8 @@
             CreateSFX               = $false                          # Job-specific. $true to create a Self-Extracting Archive (.exe).
             SFXModule               = "Console"                       # Job-specific SFX module type. "Console", "GUI", "Installer".
                                                                       # If CreateSFX is $true, ArchiveExtension effectively becomes ".exe".
-            SplitVolumeSize         = ""                              # NEW: Job-specific volume size (e.g., "100m", "4g"). Empty for no split.
+            #SplitVolumeSize         = ""                             # Job-specific volume size (e.g., "100m", "4g"). Empty for no split.
+            #GenerateSplitArchiveManifest = $false                    # Job-specific. $true to generate a manifest for split archives. Overrides GenerateArchiveChecksum for the primary archive.
 
             GenerateArchiveChecksum     = $true                       # Example: Enable checksum generation for this job
             ChecksumAlgorithm           = "SHA256"                    # Use SHA256
@@ -418,6 +422,7 @@
             CreateSFX                  = $false                       # Example, not creating SFX here.
             SFXModule                  = "Console"                    # Default if CreateSFX is false, but good to show.
             SplitVolumeSize            = "700m"                       # NEW EXAMPLE: Split into 700MB volumes.
+            GenerateSplitArchiveManifest = $true                     # NEW EXAMPLE: Generate manifest for these split volumes.
             ArchiveDateFormat          = "dd-MM-yyyy"                 # Custom date format for this job's archives. Overrides DefaultArchiveDateFormat.
             MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for local staging. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
@@ -427,7 +432,7 @@
             SevenZipExcludeListFile    = ""
 
             # Checksum settings (will use global defaults if not specified here, e.g., DefaultGenerateArchiveChecksum = $false)
-            # GenerateArchiveChecksum     = $false
+            # GenerateArchiveChecksum     = $false # This would be ignored if GenerateSplitArchiveManifest is true for a split archive.
             # VerifyArchiveChecksumOnTest = $false
 
             # PostRunAction = @{ Enabled = $false }                   # Example: Explicitly disable for this job
@@ -453,7 +458,8 @@
             SFXModule                  = "GUI"                        # Use GUI SFX module to prompt for extraction path.
                                                                       # ArchiveExtension will effectively be ".exe" for the output file.
                                                                       # DefaultArchiveType (e.g., -t7z) will determine the internal SFX content.
-            SplitVolumeSize            = ""                           # NEW: No split for this SFX job.
+            SplitVolumeSize            = ""                           # No split for this SFX job.
+            # GenerateSplitArchiveManifest = $false                   # Not applicable if not splitting.
 
             GenerateArchiveChecksum     = $true
             ChecksumAlgorithm           = "MD5"
@@ -486,8 +492,9 @@
             CreateSFX               = $false
             SFXModule               = "Console"
             SplitVolumeSize         = "1g"                            # NEW EXAMPLE: Split into 1GB volumes.
+            GenerateSplitArchiveManifest = $true                     # NEW EXAMPLE: Generate manifest for these split volumes.
 
-            GenerateArchiveChecksum     = $true
+            GenerateArchiveChecksum     = $true # This would be ignored if GenerateSplitArchiveManifest is true.
             ChecksumAlgorithm           = "SHA512"
             VerifyArchiveChecksumOnTest = $true
             # SevenZipCpuAffinity will use global default if not specified
@@ -532,7 +539,8 @@
             ArchiveExtension        = ".7z"
             CreateSFX               = $true                           # Example: Create SFX
             SFXModule               = "Installer"                     # Example: Use Installer SFX
-            SplitVolumeSize         = ""                              # NEW: No split if SFX is primary goal.
+            SplitVolumeSize         = ""                              # No split if SFX is primary goal.
+            # GenerateSplitArchiveManifest = $false                   # Not applicable if not splitting.
             ArchiveDateFormat       = "yyyy-MM-dd_HHmm"
 
             ThreadsToUse            = 2
@@ -559,7 +567,7 @@
             TestArchiveAfterCreation      = $true
             TreatSevenZipWarningsAsSuccess = $false
 
-            GenerateArchiveChecksum     = $true
+            GenerateArchiveChecksum     = $true # This would be ignored if GenerateSplitArchiveManifest is true and SplitVolumeSize is active.
             ChecksumAlgorithm           = "SHA256"
             VerifyArchiveChecksumOnTest = $true
 
@@ -594,7 +602,8 @@
             DestinationDir          = "\\BACKUPSERVER\Share\DBs\LocalStage_DB"
             LocalRetentionCount     = 3
             DependsOnJobs           = @() # No dependencies for this one
-            SplitVolumeSize         = ""  # NEW
+            SplitVolumeSize         = ""  # No split
+            # GenerateSplitArchiveManifest = $false
             # ... other settings ...
         }
         #>

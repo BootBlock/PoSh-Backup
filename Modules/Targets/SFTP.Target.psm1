@@ -31,7 +31,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.6 # Useless inline supression that doesn't do anything
+    Version:        1.0.7 # Replication manifest thing
     DateCreated:    22-May-2025
     LastModified:   27-May-2025
     Purpose:        SFTP Target Provider for PoSh-Backup.
@@ -169,6 +169,159 @@ function Invoke-PoShBackupSFTPTargetSettingsValidation {
         }
         # Add checks for other RemoteRetentionSettings keys if they are introduced for SFTP
     }
+}
+#endregion
+
+#region --- Private Helper: Group Remote SFTP Backup Instances ---
+function Group-RemoteSFTPBackupInstancesInternal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$SftpSessionIdToUse,
+        [Parameter(Mandatory = $true)]
+        [string]$RemoteDirectoryToScan,
+        [Parameter(Mandatory = $true)]
+        [string]$BaseNameToMatch, # e.g., "JobName [DateStamp]"
+        [Parameter(Mandatory = $true)]
+        [string]$PrimaryArchiveExtension, # e.g., ".7z" (the one used for .001, .002, or the manifest base)
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger
+    )
+    $LocalWriteLog = { param([string]$Message, [string]$Level = "DEBUG") & $Logger -Message $Message -Level $Level }
+    & $LocalWriteLog -Message "SFTP.Target/Group-RemoteSFTPBackupInstancesInternal: Scanning '$RemoteDirectoryToScan' for base '$BaseNameToMatch', primary ext '$PrimaryArchiveExtension'."
+
+    $instances = @{}
+    $literalBase = [regex]::Escape($BaseNameToMatch) # e.g. "JobName \[DateStamp\]"
+    $literalExt = [regex]::Escape($PrimaryArchiveExtension) # e.g. "\.7z"
+
+    try {
+        # Get all non-directory items from the remote path
+        $remoteFileObjects = Get-SFTPChildItem -SessionId $SftpSessionIdToUse -Path $RemoteDirectoryToScan -ErrorAction Stop | Where-Object { -not $_.IsDirectory }
+        
+        if ($null -eq $remoteFileObjects) {
+            & $LocalWriteLog -Message "SFTP.Target/GroupHelper: No files found in remote directory '$RemoteDirectoryToScan'."
+            return $instances
+        }
+
+        foreach ($fileObject in $remoteFileObjects) {
+            $fileName = $fileObject.Name
+            $instanceKey = $null
+            $fileSortTime = $fileObject.LastWriteTime # Posh-SSH SftpFile object has LastWriteTime
+
+            # Define patterns to identify parts of a backup instance
+            # Instance key should be "JobName [DateStamp].<PrimaryExtension>" e.g., "MyJob [2025-06-01].7z"
+            
+            $splitVolumePattern = "^($literalBase$literalExt)\.(\d{3,})$" # Matches "basename.priExt.001"
+            $splitManifestPattern = "^($literalBase$literalExt)\.manifest\.[a-zA-Z0-9]+$" # Matches "basename.priExt.manifest.algo"
+            
+            # For single files, the instance key is "basename.actualFileExtension"
+            # This needs to handle cases where PrimaryArchiveExtension (e.g. .7z for split) might differ from actual file (e.g. .exe for SFX)
+            # $ArchiveBaseName is "JobName [DateStamp]"
+            # $ArchiveExtension (PrimaryArchiveExtension here) is the one from job config (e.g. .7z or .exe)
+            $singleFilePattern = "^($literalBase$literalExt)$" # e.g. MyJob [DateStamp].7z (if $ArchiveExtension is .7z)
+            $sfxFilePattern = "^($literalBase\.[a-zA-Z0-9]+)$" # Catches "JobName [DateStamp].exe" more broadly
+            $sfxManifestPattern = "^($literalBase\.[a-zA-Z0-9]+)\.manifest\.[a-zA-Z0-9]+$" # Catches "JobName [DateStamp].exe.manifest.algo"
+
+
+            if ($fileName -match $splitVolumePattern) {
+                # e.g., MyJob [DateStamp].7z.001
+                $instanceKey = $Matches[1] # "MyJob [DateStamp].7z"
+            }
+            elseif ($fileName -match $splitManifestPattern) {
+                # e.g., MyJob [DateStamp].7z.manifest.sha256
+                $instanceKey = $Matches[1] # "MyJob [DateStamp].7z"
+            }
+            elseif ($fileName -match $sfxManifestPattern) {
+                # e.g., MyJob [DateStamp].exe.manifest.sha256
+                $instanceKey = $Matches[1] # This would be "MyJob [DateStamp].exe"
+            }
+            elseif ($fileName -match $singleFilePattern) {
+                # e.g., MyJob [DateStamp].7z or MyJob [DateStamp].exe (if $ArchiveExtension matches)
+                $instanceKey = $Matches[1]
+            }
+            elseif ($fileName -match $sfxFilePattern) {
+                # e.g. MyJob [DateStamp].exe (if $ArchiveExtension was different, like .7z)
+                $instanceKey = $Matches[1] # "MyJob [DateStamp].exe"
+            }
+            else {
+                # Fallback if it starts with BaseNameToMatch but doesn't fit common patterns
+                if ($fileName.StartsWith($BaseNameToMatch)) {
+                    # Try to construct a key like "JobName [DateStamp].actualExt"
+                    # This regex tries to capture up to the first dot after BaseNameToMatch that isn't part of a common multi-part like ".7z.001"
+                    $basePlusExtMatch = $fileName -match "^($literalBase(\.[^.\s]+)?)" 
+                    if ($basePlusExtMatch) {
+                        $potentialKey = $Matches[1]
+                        # If this potential key, when used to check for .001, matches the filename, it's likely a split set base
+                        if ($fileName -match ([regex]::Escape($potentialKey) + "\.\d{3,}")) {
+                            $instanceKey = $potentialKey
+                        }
+                        elseif ($fileName -match ([regex]::Escape($potentialKey) + "\.manifest\.[a-zA-Z0-9]+$")) {
+                            $instanceKey = $potentialKey
+                        }
+                        elseif ($fileName -eq $potentialKey) {
+                            # Exact match
+                            $instanceKey = $potentialKey
+                        }
+                    }
+                }
+            }
+            
+            if ($null -eq $instanceKey) {
+                & $LocalWriteLog -Message "SFTP.Target/GroupHelper: Could not determine instance key for remote file '$fileName'. Base: '$BaseNameToMatch', PrimaryExt: '$PrimaryArchiveExtension'. Skipping." -Level "VERBOSE"
+                continue # Skips to the next file in $remoteFileObjects
+            }
+
+            if (-not $instances.ContainsKey($instanceKey)) {
+                $instances[$instanceKey] = @{
+                    SortTime = $fileSortTime # Initial sort time, will be refined
+                    Files    = [System.Collections.Generic.List[object]]::new() # Store SFTP file objects
+                }
+            }
+            $instances[$instanceKey].Files.Add($fileObject)
+
+            # Refine SortTime: if it's a .001 part, its LastWriteTime is authoritative for the instance.
+            # The PrimaryArchiveExtension is used here to correctly identify the first volume part.
+            if ($fileName -match "$literalExt\.001$") { 
+                if ($fileSortTime -lt $instances[$instanceKey].SortTime) {
+                    $instances[$instanceKey].SortTime = $fileSortTime
+                }
+            }
+        }
+        
+        # Second pass to refine sort times for instances that didn't have a .001 part explicitly found first
+        # or if the first file encountered wasn't the .001 part.
+        foreach ($keyToRefine in $instances.Keys) {
+            if ($instances[$keyToRefine].Files.Count -gt 0) {
+                # Try to find the .001 file specifically for this instance's primary extension
+                $firstVolumeFile = $instances[$keyToRefine].Files | Where-Object { $_.Name -match ([regex]::Escape($keyToRefine) + "\.001$") } | Sort-Object LastWriteTime | Select-Object -First 1
+                if (-not $firstVolumeFile -and $keyToRefine.EndsWith($PrimaryArchiveExtension)) {
+                    # If key IS primary ext, and no .001, it might be a single file or .001 is missing
+                    $firstVolumeFile = $instances[$keyToRefine].Files | Where-Object { $_.Name -eq $keyToRefine } | Sort-Object LastWriteTime | Select-Object -First 1
+                }
+
+
+                if ($firstVolumeFile) {
+                    # Always prefer .001's time if present and it's earlier
+                    if ($firstVolumeFile.LastWriteTime -lt $instances[$keyToRefine].SortTime) {
+                        $instances[$keyToRefine].SortTime = $firstVolumeFile.LastWriteTime
+                    }
+                }
+                else {
+                    # If no .001 part, use the LastWriteTime of the earliest file in the group
+                    $earliestFileInGroup = $instances[$keyToRefine].Files | Sort-Object LastWriteTime | Select-Object -First 1
+                    if ($earliestFileInGroup -and $earliestFileInGroup.LastWriteTime -lt $instances[$keyToRefine].SortTime) {
+                        $instances[$keyToRefine].SortTime = $earliestFileInGroup.LastWriteTime
+                    }
+                }
+            }
+        }
+
+    }
+    catch {
+        & $LocalWriteLog -Message "SFTP.Target/GroupHelper: Error listing or processing files in '$RemoteDirectoryToScan'. Error: $($_.Exception.Message)" -Level "ERROR"
+    }
+    & $LocalWriteLog -Message "SFTP.Target/GroupHelper: Found $($instances.Keys.Count) distinct instances in '$RemoteDirectoryToScan' for base '$BaseNameToMatch'."
+    return $instances
 }
 #endregion
 
@@ -349,12 +502,73 @@ function Invoke-PoShBackupTargetTransfer {
             $remoteKeepCount = $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': Applying remote retention (KeepCount: {1}) in '{2}'." -f $targetNameForLog, $remoteKeepCount, $remoteFinalDirectory) -Level "INFO"
 
-            $literalBaseNameForRemote = $ArchiveBaseName
-            $remoteFilePattern = "$($literalBaseNameForRemote)*$($ArchiveExtension)"
+            # $literalBaseNameForRemote = $ArchiveBaseName
+            # $remoteFilePattern = "$($literalBaseNameForRemote)*$($ArchiveExtension)"
 
-            $existingRemoteBackups = Get-SFTPChildItem -SessionId $sftpSessionId -Path $remoteFinalDirectory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like $remoteFilePattern -and (-not $_.IsDirectory) } |
-            Sort-Object LastWriteTime -Descending
+            # $existingRemoteBackups = Get-SFTPChildItem -SessionId $sftpSessionId -Path $remoteFinalDirectory -ErrorAction SilentlyContinue |
+            # Where-Object { $_.Name -like $remoteFilePattern -and (-not $_.IsDirectory) } |
+            # Sort-Object LastWriteTime -Descending
+
+            if ($IsSimulateMode.IsPresent) {
+                & $LocalWriteLog -Message ("SIMULATE: SFTP Target '{0}': Would scan '{1}', group instances by base '{2}' (primary ext '{3}'), sort, and delete oldest instances' files exceeding {4}." -f $targetNameForLog, $remoteFinalDirectoryForJob, $ArchiveBaseName, $ArchiveExtension, $remoteKeepCount) -Level "SIMULATE"
+            }
+            elseif ($sftpSessionIdForThisFileTransfer) {
+                # Only run if session was established for the file transfer
+                try {
+                    # $ArchiveBaseName is "JobName [DateStamp]"
+                    # $ArchiveExtension is the primary extension (e.g. .7z or .exe for SFX)
+                    $remoteInstances = Group-RemoteSFTPBackupInstancesInternal -SftpSessionIdToUse $sftpSessionIdForThisFileTransfer -RemoteDirectoryToScan $remoteFinalDirectoryForJob -BaseNameToMatch $ArchiveBaseName -PrimaryArchiveExtension $ArchiveExtension -Logger $Logger
+            
+                    if ($remoteInstances.Count -gt $remoteKeepCount) {
+                        $sortedInstances = $remoteInstances.GetEnumerator() | Sort-Object { $_.Value.SortTime } -Descending # Posh-SSH uses LastWriteTime, which our helper maps to SortTime
+                        $instancesToDelete = $sortedInstances | Select-Object -Skip $remoteKeepCount
+                
+                        & $LocalWriteLog -Message ("    - SFTP Target '{0}': Found {1} remote instances. Will delete files for {2} older instance(s)." -f $targetNameForLog, $remoteInstances.Count, $instancesToDelete.Count) -Level "INFO"
+                
+                        foreach ($instanceEntry in $instancesToDelete) {
+                            $instanceIdentifier = $instanceEntry.Name # This is the instance key, e.g., "JobName [DateStamp].7z"
+                            & $LocalWriteLog -Message "      - SFTP Target '{0}': Preparing to delete instance files for '$instanceIdentifier' (SortTime: $($instanceEntry.Value.SortTime)) from '$remoteFinalDirectoryForJob'." -Level "WARNING"
+                            foreach ($remoteFileObjInInstance in $instanceEntry.Value.Files) {
+                                # $remoteFileObjInInstance is an SFTP file object
+                                $fileToDeletePathOnSftp = "$remoteFinalDirectoryForJob/$($remoteFileObjInInstance.Name)"
+                                if (-not $PSCmdlet.ShouldProcess($fileToDeletePathOnSftp, "Delete Remote SFTP File/Part (Retention)")) {
+                                    & $LocalWriteLog -Message ("        - Deletion of '{0}' skipped by user." -f $fileToDeletePathOnSftp) -Level "WARNING"; continue
+                                }
+                                & $LocalWriteLog -Message ("        - Deleting: '{0}' (LastWriteTime: $($remoteFileObjInInstance.LastWriteTime))" -f $fileToDeletePathOnSftp) -Level "WARNING"
+                                try { 
+                                    Remove-SFTPItem -SessionId $sftpSessionIdForThisFileTransfer -Path $fileToDeletePathOnSftp -ErrorAction Stop
+                                    & $LocalWriteLog "          - Status: DELETED" -Level "SUCCESS" 
+                                }
+                                catch { 
+                                    & $LocalWriteLog "          - Status: FAILED to delete! Error: $($_.Exception.Message)" -Level "ERROR"
+                                    # Decide if this individual file deletion failure should mark the overall transfer as failed
+                                    # For now, we'll log it but not change $result.Success for the current file transfer
+                                    # However, we should note the error in the aggregated error messages.
+                                    $retentionDeleteError = "Failed to delete remote SFTP file '$fileToDeletePathOnSftp' for instance '$instanceIdentifier' during retention. Error: $($_.Exception.Message)"
+                                    if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retentionDeleteError }
+                                    else { $result.ErrorMessage += "; $retentionDeleteError" }
+                                    # Consider if $result.Success for the *current file transfer* should be set to $false here.
+                                    # If retention of *old* files fails, it doesn't mean the *current* upload failed.
+                                    # However, it does mean the overall state of the target is not ideal.
+                                    # For now, let's not set $result.Success to $false for the current file transfer due to old retention failure.
+                                } 
+                            }
+                        }
+                    }
+                    else { 
+                        & $LocalWriteLog ("    - SFTP Target '{0}': No old instances to delete based on retention count {1} (Found: $($remoteInstances.Count))." -f $targetNameForLog, $remoteKeepCount) -Level "INFO" 
+                    }
+                }
+                catch {
+                    $retError = "Error during SFTP remote retention execution: $($_.Exception.Message)"
+                    & $LocalWriteLog "[WARNING] SFTP Target '$targetNameForLog': $retError" -Level "WARNING"
+                    if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retError } else { $result.ErrorMessage += "; $retError" }
+                }
+            }
+            elseif (-not $IsSimulateMode.IsPresent) {
+                # This elseif corresponds to: if ($sftpSessionIdForThisFileTransfer)
+                & $LocalWriteLog -Message ("  - SFTP Target '{0}': Skipping remote retention for file '$ArchiveFileName' as SFTP session was not established or current file transfer failed." -f $targetNameForLog) -Level "WARNING"
+            }
 
             if (($null -ne $existingRemoteBackups) -and ($existingRemoteBackups.Count -gt $remoteKeepCount)) {
                 $remoteBackupsToDelete = $existingRemoteBackups | Select-Object -Skip $remoteKeepCount

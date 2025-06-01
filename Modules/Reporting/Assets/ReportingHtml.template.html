@@ -60,8 +60,40 @@
         </div>
         {{IF_SHOW_TARGET_TRANSFERS_END}}
 
+        <!-- Manifest Verification Details Section -->
+        {{IF_SHOW_MANIFEST_DETAILS_START}}
+        <div class='details-section manifest-details-section'>
+            <details id='details-manifest' open>
+                <summary><h2>Archive Manifest & Volume Verification</h2></summary>
+                <p><strong>Manifest File:</strong> {{MANIFEST_FILE_PATH_HTML}}</p>
+                <p><strong>Overall Manifest Verification Status:</strong> <span class='{{MANIFEST_OVERALL_STATUS_CLASS}}'>{{MANIFEST_OVERALL_STATUS_HTML}}</span></p>
+                
+                {{IF_MANIFEST_VOLUMES_TABLE_START}}
+                <table data-sortable-table='true'>
+                    <thead>
+                        <tr>
+                            <th data-sortable-column='true'>Volume Filename</th>
+                            <th data-sortable-column='true'>Expected Checksum</th>
+                            <th data-sortable-column='true'>Actual Checksum</th>
+                            <th data-sortable-column='true'>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{MANIFEST_VOLUMES_TABLE_ROWS_HTML}}
+                    </tbody>
+                </table>
+                {{IF_MANIFEST_VOLUMES_TABLE_END}}
+
+                {{IF_MANIFEST_RAW_DETAILS_START}}
+                <p><strong>Detailed Verification Log/Notes:</strong></p>
+                <pre>{{MANIFEST_RAW_DETAILS_HTML}}</pre>
+                {{IF_MANIFEST_RAW_DETAILS_END}}
+            </details>
+        </div>
+        {{IF_SHOW_MANIFEST_DETAILS_END}}
+
         <!-- Configuration Section -->
-        {{IF_SHOW_CONFIGURATION_START}}
+        {{IF_SHOW_CONFIG_START}}
         <div class='details-section config-section'>
             <details id='details-config'>
                 <summary><h2>Configuration Used for Job '{{JOB_NAME_FOR_HEADER}}'</h2></summary>
@@ -78,8 +110,8 @@
                 </table>
             </details>
         </div>
-        {{IF_SHOW_CONFIGURATION_END}}
-
+        {{IF_SHOW_CONFIG_END}}
+        
         <!-- Hook Scripts Section -->
         {{IF_SHOW_HOOKS_START}}
         <div class='details-section hooks-section'>

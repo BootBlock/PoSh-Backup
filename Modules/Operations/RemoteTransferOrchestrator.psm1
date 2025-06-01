@@ -1,25 +1,26 @@
 # Modules\Operations\RemoteTransferOrchestrator.psm1
 <#
 .SYNOPSIS
-    Orchestrates the transfer of a local backup archive to multiple configured remote targets.
+    Orchestrates the transfer of a local backup archive (including all volumes of a
+    split set and any associated manifest file) to multiple configured remote targets.
 .DESCRIPTION
     This module is a sub-component of the main Operations module for PoSh-Backup.
     It encapsulates the logic for:
+    - Identifying all local archive files to transfer (single file, or all volumes of a split set, plus any manifest file).
     - Iterating through resolved remote target instances defined for a job.
-    - Dynamically loading the appropriate target provider module (e.g., UNC.Target.psm1, SFTP.Target.psm1)
-      from the 'Modules\Targets\' directory.
-    - Invoking the 'Invoke-PoShBackupTargetTransfer' function within the loaded provider module.
+    - Dynamically loading the appropriate target provider module.
+    - Invoking the 'Invoke-PoShBackupTargetTransfer' function within the loaded provider module for each file to be transferred.
     - Aggregating the results from each target transfer.
-    - Handling the deletion of the local staged archive if all transfers are successful and configured.
+    - Handling the deletion of all local staged archive files (volumes and manifest) if all transfers are successful and configured.
     - Updating the job report data with the outcomes of all remote transfers.
 
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1
     after the local archive has been successfully created and (optionally) verified.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Renamed Invoke-AllRemoteTargetTransfers to Invoke-RemoteTargetTransferOrchestration.
+    Version:        1.1.0 # Handles multi-volume transfer and manifest file transfer.
     DateCreated:    24-May-2025
-    LastModified:   24-May-2025
+    LastModified:   01-Jun-2025
     Purpose:        To modularise remote target transfer orchestration from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the parent 'Modules' directory.
@@ -35,15 +36,15 @@ try {
     throw
 }
 
-function Invoke-RemoteTargetTransferOrchestration { # Renamed from Invoke-AllRemoteTargetTransfers
+function Invoke-RemoteTargetTransferOrchestration {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [hashtable]$EffectiveJobConfig,
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $true)] # Path to the first volume or the single archive file
         [string]$LocalFinalArchivePath,
-        [Parameter(Mandatory = $true)]
-        [string]$ArchiveFileNameOnly, # The leaf name of the archive, e.g., MyArchive_Date.7z
+        [Parameter(Mandatory = $true)] # Base archive name (e.g., MyJob [Date].7z or MyJob [Date].exe)
+        [string]$ArchiveFileNameOnly, 
         [Parameter(Mandatory = $true)]
         [ref]$JobReportDataRef,
         [Parameter(Mandatory = $true)]
@@ -64,12 +65,13 @@ function Invoke-RemoteTargetTransferOrchestration { # Renamed from Invoke-AllRem
             & $Logger -Message $Message -Level $Level
         }
     }
-    # PSSA: Logger parameter used via $LocalWriteLog
-    & $LocalWriteLog -Message "RemoteTransferOrchestrator/Invoke-RemoteTargetTransferOrchestration: Logger active for job '$($EffectiveJobConfig.JobName)'." -Level "DEBUG" # Updated function name
+    & $LocalWriteLog -Message "RemoteTransferOrchestrator/Invoke-RemoteTargetTransferOrchestration: Logger active for job '$($EffectiveJobConfig.JobName)'." -Level "DEBUG"
 
     $reportData = $JobReportDataRef.Value
-    $allTargetTransfersSuccessfulOverall = $true # Assume success until a failure occurs
+    $allTargetTransfersSuccessfulOverall = $true 
     $jobName = $EffectiveJobConfig.JobName
+    $localFilesToTransfer = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    $localManifestFile = $null
 
     if ($EffectiveJobConfig.ResolvedTargetInstances.Count -eq 0) {
         & $LocalWriteLog -Message "[INFO] RemoteTransferOrchestrator: No remote targets configured for job '$jobName'. Skipping remote transfers." -Level "INFO"
@@ -78,65 +80,71 @@ function Invoke-RemoteTargetTransferOrchestration { # Renamed from Invoke-AllRem
 
     & $LocalWriteLog -Message "`n[INFO] RemoteTransferOrchestrator: Starting remote target transfers for job '$jobName'..." -Level "INFO"
 
-    if (-not $IsSimulateMode.IsPresent -and -not (Test-Path -LiteralPath $LocalFinalArchivePath -PathType Leaf)) {
-        & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Local staged archive '$LocalFinalArchivePath' not found. Cannot proceed with remote target transfers." -Level "ERROR"
-        foreach ($targetInstanceConfig in $EffectiveJobConfig.ResolvedTargetInstances) {
-            $targetInstanceName = $targetInstanceConfig._TargetInstanceName_
-            $targetInstanceType = $targetInstanceConfig.Type
-            $reportData.TargetTransfers.Add(@{
-                TargetName   = $targetInstanceName
-                TargetType   = $targetInstanceType
-                Status       = "Skipped"
-                RemotePath   = "N/A"
-                ErrorMessage = "Local source archive not found: $LocalFinalArchivePath"
-                TransferDuration = "N/A"
-                TransferSize = 0
-                TransferSizeFormatted = "N/A"
-            })
+    # --- Identify all local files to transfer (volumes and manifest) ---
+    $baseArchiveNameForManifestAndVolumes = "$($EffectiveJobConfig.BaseFileName) [$($ReportData.ScriptStartTime | Get-Date -Format $EffectiveJobConfig.JobArchiveDateFormat)]$($EffectiveJobConfig.InternalArchiveExtension)"
+    $localArchiveDirectory = Split-Path -Path $LocalFinalArchivePath -Parent
+
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize)) {
+        # Find all volumes: e.g., "basename.7z.001", "basename.7z.002", ...
+        $volumePattern = [regex]::Escape($baseArchiveNameForManifestAndVolumes) + "\.\d{3,}"
+        Get-ChildItem -Path $localArchiveDirectory -File | Where-Object { $_.Name -match $volumePattern } | ForEach-Object { $localFilesToTransfer.Add($_) }
+        if ($localFilesToTransfer.Count -eq 0) {
+            & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Local staged archive (first volume) '$LocalFinalArchivePath' was expected, but no volume parts found matching pattern '$volumePattern' in '$localArchiveDirectory'. Cannot proceed with remote target transfers." -Level "ERROR"
+            # Add entries to TargetTransfers indicating failure for all targets
+            foreach ($targetInstanceCfg in $EffectiveJobConfig.ResolvedTargetInstances) {
+                $reportData.TargetTransfers.Add(@{ TargetName = $targetInstanceCfg._TargetInstanceName_; TargetType = $targetInstanceCfg.Type; Status = "Skipped"; ErrorMessage = "Local archive volumes not found."})
+            }
+            return @{ AllTransfersSuccessful = $false }
         }
+        & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Identified $($localFilesToTransfer.Count) volume(s) for transfer." -Level "DEBUG"
+    } else {
+        # Single archive file
+        if (Test-Path -LiteralPath $LocalFinalArchivePath -PathType Leaf) {
+            $localFilesToTransfer.Add((Get-Item -LiteralPath $LocalFinalArchivePath))
+        } else {
+             & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Local staged archive '$LocalFinalArchivePath' not found. Cannot proceed with remote target transfers." -Level "ERROR"
+            foreach ($targetInstanceCfg in $EffectiveJobConfig.ResolvedTargetInstances) {
+                $reportData.TargetTransfers.Add(@{ TargetName = $targetInstanceCfg._TargetInstanceName_; TargetType = $targetInstanceCfg.Type; Status = "Skipped"; ErrorMessage = "Local source archive not found: $LocalFinalArchivePath"})
+            }
+            return @{ AllTransfersSuccessful = $false }
+        }
+    }
+
+    # Check for and add manifest file if it exists and is configured
+    if ($EffectiveJobConfig.GenerateSplitArchiveManifest -or ($EffectiveJobConfig.GenerateArchiveChecksum -and $localFilesToTransfer.Count -eq 1)) {
+        $manifestBaseName = if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize)) { $baseArchiveNameForManifestAndVolumes } else { $ArchiveFileNameOnly }
+        $expectedManifestFileName = "$($manifestBaseName).manifest.$($EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant())"
+        if ($EffectiveJobConfig.GenerateArchiveChecksum -and $localFilesToTransfer.Count -eq 1 -and -not $EffectiveJobConfig.GenerateSplitArchiveManifest) { # Single file checksum
+             $expectedManifestFileName = "$($ArchiveFileNameOnly).$($EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant())"
+        }
+
+        $potentialManifestPath = Join-Path -Path $localArchiveDirectory -ChildPath $expectedManifestFileName
+        if (Test-Path -LiteralPath $potentialManifestPath -PathType Leaf) {
+            $localManifestFile = Get-Item -LiteralPath $potentialManifestPath
+            $localFilesToTransfer.Add($localManifestFile) # Add manifest to the list of files to transfer
+            & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Identified manifest file '$($localManifestFile.Name)' for transfer." -Level "DEBUG"
+        } elseif ($EffectiveJobConfig.GenerateSplitArchiveManifest) {
+             & $LocalWriteLog -Message "[WARNING] RemoteTransferOrchestrator: Manifest generation was enabled, but manifest file '$expectedManifestFileName' not found at '$localArchiveDirectory'." -Level "WARNING"
+        }
+    }
+    
+    if ($localFilesToTransfer.Count -eq 0) {
+        & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: No local files (archive parts or manifest) identified for transfer for job '$jobName'." -Level "ERROR"
         return @{ AllTransfersSuccessful = $false }
     }
 
-    $localArchiveSizeBytesForTransfer = 0
-    $localArchiveCreationTimestampForTransfer = Get-Date 
-    if (-not $IsSimulateMode.IsPresent -and (Test-Path -LiteralPath $LocalFinalArchivePath -PathType Leaf)) {
-        try {
-            $archiveItem = Get-Item -LiteralPath $LocalFinalArchivePath
-            $localArchiveSizeBytesForTransfer = $archiveItem.Length
-            $localArchiveCreationTimestampForTransfer = $archiveItem.CreationTime
-        } catch {
-            & $LocalWriteLog -Message "[WARNING] RemoteTransferOrchestrator: Could not get size/timestamp for local archive '$LocalFinalArchivePath'. Using defaults. Error: $($_.Exception.Message)" -Level "WARNING"
-        }
-    } elseif ($IsSimulateMode.IsPresent) {
-        $localArchiveSizeBytesForTransfer = if ($reportData.ContainsKey('ArchiveSizeBytes')) { $reportData.ArchiveSizeBytes } else { 0 }
-        $localArchiveCreationTimestampForTransfer = Get-Date 
-    }
-
-
+    # --- Transfer each identified file to each target ---
     foreach ($targetInstanceConfig in $EffectiveJobConfig.ResolvedTargetInstances) {
         $targetInstanceName = $targetInstanceConfig._TargetInstanceName_
         $targetInstanceType = $targetInstanceConfig.Type
-        & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Preparing transfer to Target Instance: '$targetInstanceName' (Type: '$targetInstanceType')." -Level "INFO"
+        & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Processing Target Instance: '$targetInstanceName' (Type: '$targetInstanceType')." -Level "INFO"
 
         $targetProviderModuleName = "$($targetInstanceType).Target.psm1"
         $targetProviderModulePath = Join-Path -Path $PSScriptRootForPaths -ChildPath "Modules\Targets\$targetProviderModuleName"
 
-        $currentTransferReport = @{
-            TargetName            = $targetInstanceName
-            TargetType            = $targetInstanceType
-            Status                = "Skipped"
-            RemotePath            = "N/A"
-            ErrorMessage          = "Provider module load/call failed."
-            TransferDuration      = "N/A"
-            TransferSize          = 0
-            TransferSizeFormatted = "N/A"
-        }
-
         if (-not (Test-Path -LiteralPath $targetProviderModulePath -PathType Leaf)) {
-            & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Target Provider module '$targetProviderModuleName' for type '$targetInstanceType' not found at '$targetProviderModulePath'. Skipping transfer to '$targetInstanceName'." -Level "ERROR"
-            $currentTransferReport.Status = "Failure (Provider Not Found)"
-            $currentTransferReport.ErrorMessage = "Provider module '$targetProviderModuleName' not found."
-            $reportData.TargetTransfers.Add($currentTransferReport)
+            & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Target Provider module '$targetProviderModuleName' not found. Skipping transfer to '$targetInstanceName'." -Level "ERROR"
+            $reportData.TargetTransfers.Add(@{ TargetName = $targetInstanceName; TargetType = $targetInstanceType; Status = "Failure (Provider Not Found)"; ErrorMessage = "Provider module '$targetProviderModuleName' not found."})
             $allTargetTransfersSuccessfulOverall = $false
             continue
         }
@@ -148,87 +156,106 @@ function Invoke-RemoteTargetTransferOrchestration { # Renamed from Invoke-AllRem
                 throw "Function 'Invoke-PoShBackupTargetTransfer' not found in provider module '$targetProviderModuleName'."
             }
 
-            $transferParams = @{
-                LocalArchivePath            = $LocalFinalArchivePath
-                TargetInstanceConfiguration = $targetInstanceConfig
-                JobName                     = $jobName
-                ArchiveFileName             = $ArchiveFileNameOnly
-                ArchiveBaseName             = $EffectiveJobConfig.BaseFileName 
-                ArchiveExtension            = $EffectiveJobConfig.JobArchiveExtension 
-                IsSimulateMode              = $IsSimulateMode.IsPresent
-                Logger                      = $Logger
-                EffectiveJobConfig          = $EffectiveJobConfig
-                LocalArchiveSizeBytes       = $localArchiveSizeBytesForTransfer
-                LocalArchiveCreationTimestamp = $localArchiveCreationTimestampForTransfer
-                PasswordInUse               = $EffectiveJobConfig.PasswordInUseFor7Zip
-                PSCmdlet                    = $PSCmdlet
-            }
-            $transferOutcome = & $invokeTargetTransferCmd @transferParams
+            foreach ($fileToTransferInfo in $localFilesToTransfer) {
+                $currentFileLocalPath = $fileToTransferInfo.FullName
+                $currentFileNameOnly = $fileToTransferInfo.Name
+                
+                & $LocalWriteLog -Message "    - RemoteTransferOrchestrator: Preparing to transfer file '$currentFileNameOnly' to Target '$targetInstanceName'." -Level "DEBUG"
 
-            $currentTransferReport.Status = if ($transferOutcome.Success) { "Success" } else { "Failure" }
-            $currentTransferReport.RemotePath = $transferOutcome.RemotePath
-            $currentTransferReport.ErrorMessage = $transferOutcome.ErrorMessage
-            $currentTransferReport.TransferDuration = if ($null -ne $transferOutcome.TransferDuration) { $transferOutcome.TransferDuration.ToString() } else { "N/A" }
-            $currentTransferReport.TransferSize = $transferOutcome.TransferSize
-
-            if (-not [string]::IsNullOrWhiteSpace($transferOutcome.RemotePath) -and $transferOutcome.Success -and (-not $IsSimulateMode.IsPresent)) {
-                if (Test-Path -LiteralPath $transferOutcome.RemotePath -ErrorAction SilentlyContinue) {
-                    $currentTransferReport.TransferSizeFormatted = Get-ArchiveSizeFormatted -PathToArchive $transferOutcome.RemotePath -Logger $Logger
-                } else { $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromByte -Bytes $transferOutcome.TransferSize }
-            } elseif ($IsSimulateMode.IsPresent -and $transferOutcome.TransferSize -gt 0) {
-                $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromByte -Bytes $transferOutcome.TransferSize
-            } else {
-                $currentTransferReport.TransferSizeFormatted = "N/A"
-            }
-            
-            if ($transferOutcome.ContainsKey('ReplicationDetails') -and $transferOutcome.ReplicationDetails -is [array] -and $transferOutcome.ReplicationDetails.Count -gt 0) {
-                $currentTransferReport.ReplicationDetails = $transferOutcome.ReplicationDetails 
-                & $LocalWriteLog -Message "    - RemoteTransferOrchestrator: Replication Details for Target '$targetInstanceName':" -Level "INFO"
-                foreach ($detail in $transferOutcome.ReplicationDetails) {
-                    $detailStatusText = if ($null -ne $detail.Status) { $detail.Status } else { "N/A" }
-                    $detailPathText = if ($null -ne $detail.Path) { $detail.Path } else { "N/A" }
-                    $detailErrorText = if ($null -ne $detail.Error -and -not [string]::IsNullOrWhiteSpace($detail.Error)) { $detail.Error } else { "None" }
-                    & $LocalWriteLog -Message "      - Dest: '$detailPathText', Status: $detailStatusText, Error: $detailErrorText" -Level "INFO"
+                $currentTransferReport = @{
+                    TargetName            = $targetInstanceName
+                    TargetType            = $targetInstanceType
+                    FileTransferred       = $currentFileNameOnly # New field to identify which part/manifest
+                    Status                = "Skipped"
+                    RemotePath            = "N/A"
+                    ErrorMessage          = "Provider module load/call failed for this file."
+                    TransferDuration      = "N/A"
+                    TransferSize          = 0
+                    TransferSizeFormatted = "N/A"
                 }
-            }
 
-            if (-not $transferOutcome.Success) {
-                $allTargetTransfersSuccessfulOverall = $false
-                & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Transfer to Target '$targetInstanceName' FAILED. Reason: $($transferOutcome.ErrorMessage)" -Level "ERROR"
-            } else {
-                & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Transfer to Target '$targetInstanceName' SUCCEEDED. Remote Path: $($transferOutcome.RemotePath)" -Level "SUCCESS"
-            }
+                $fileSizeBytesForTransfer = $fileToTransferInfo.Length
+                $fileCreationTimestampForTransfer = $fileToTransferInfo.CreationTime
 
+                $transferParams = @{
+                    LocalArchivePath            = $currentFileLocalPath # Path to the specific file (volume or manifest)
+                    TargetInstanceConfiguration = $targetInstanceConfig
+                    JobName                     = $jobName
+                    ArchiveFileName             = $currentFileNameOnly    # Name of the specific file being transferred
+                    ArchiveBaseName             = $EffectiveJobConfig.BaseFileName 
+                    ArchiveExtension            = $EffectiveJobConfig.JobArchiveExtension # Primary extension
+                    IsSimulateMode              = $IsSimulateMode.IsPresent
+                    Logger                      = $Logger
+                    EffectiveJobConfig          = $EffectiveJobConfig
+                    LocalArchiveSizeBytes       = $fileSizeBytesForTransfer
+                    LocalArchiveCreationTimestamp = $fileCreationTimestampForTransfer
+                    PasswordInUse               = $EffectiveJobConfig.PasswordInUseFor7Zip
+                    PSCmdlet                    = $PSCmdlet
+                }
+                $transferOutcome = & $invokeTargetTransferCmd @transferParams
+
+                $currentTransferReport.Status = if ($transferOutcome.Success) { "Success" } else { "Failure" }
+                $currentTransferReport.RemotePath = $transferOutcome.RemotePath
+                $currentTransferReport.ErrorMessage = $transferOutcome.ErrorMessage
+                $currentTransferReport.TransferDuration = if ($null -ne $transferOutcome.TransferDuration) { $transferOutcome.TransferDuration.ToString() } else { "N/A" }
+                $currentTransferReport.TransferSize = $transferOutcome.TransferSize
+                $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromByte -Bytes $transferOutcome.TransferSize
+
+
+                if ($transferOutcome.ContainsKey('ReplicationDetails') -and $transferOutcome.ReplicationDetails -is [array] -and $transferOutcome.ReplicationDetails.Count -gt 0) {
+                    $currentTransferReport.ReplicationDetails = $transferOutcome.ReplicationDetails 
+                }
+
+                if (-not $transferOutcome.Success) {
+                    $allTargetTransfersSuccessfulOverall = $false
+                    & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Transfer of file '$currentFileNameOnly' to Target '$targetInstanceName' FAILED. Reason: $($transferOutcome.ErrorMessage)" -Level "ERROR"
+                } else {
+                    & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Transfer of file '$currentFileNameOnly' to Target '$targetInstanceName' SUCCEEDED. Remote Path: $($transferOutcome.RemotePath)" -Level "SUCCESS"
+                }
+                $reportData.TargetTransfers.Add($currentTransferReport)
+                if (-not $allTargetTransfersSuccessfulOverall) { break } # If one part fails for a target, stop trying other parts for that target
+            } # End foreach fileToTransferInfo
         } catch {
-            & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Critical error during transfer to Target '$targetInstanceName' (Type: '$targetInstanceType'). Error: $($_.Exception.ToString())" -Level "ERROR"
-            $currentTransferReport.Status = "Failure (Exception)"
-            $currentTransferReport.ErrorMessage = $_.Exception.ToString()
+            & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Critical error during transfer processing for Target '$targetInstanceName' (Type: '$targetInstanceType'). Error: $($_.Exception.ToString())" -Level "ERROR"
+            # Add a general failure entry for this target if not already added for a specific file
+            if (-not ($reportData.TargetTransfers | Where-Object {$_.TargetName -eq $targetInstanceName -and $_.Status -like "Failure*"})) {
+                 $reportData.TargetTransfers.Add(@{ TargetName = $targetInstanceName; TargetType = $targetInstanceType; FileTransferred = "N/A"; Status = "Failure (Orchestration Exception)"; ErrorMessage = $_.Exception.ToString()})
+            }
             $allTargetTransfersSuccessfulOverall = $false
         }
-        $reportData.TargetTransfers.Add($currentTransferReport)
-    }
+        if (-not $allTargetTransfersSuccessfulOverall) {
+             & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Halting further transfers to other targets for job '$jobName' due to failure with target '$targetInstanceName'." -Level "WARNING"
+            break # Stop processing other targets if one target failed completely for any file
+        }
+    } # End foreach targetInstanceConfig
 
     if ($allTargetTransfersSuccessfulOverall -and $EffectiveJobConfig.ResolvedTargetInstances.Count -gt 0) {
-        & $LocalWriteLog -Message "[INFO] RemoteTransferOrchestrator: All attempted remote target transfers for job '$jobName' completed successfully." -Level "SUCCESS"
+        & $LocalWriteLog -Message "[INFO] RemoteTransferOrchestrator: All attempted remote target transfers for job '$jobName' (all parts and manifest if applicable) completed successfully." -Level "SUCCESS"
     } elseif ($EffectiveJobConfig.ResolvedTargetInstances.Count -gt 0) {
         & $LocalWriteLog -Message "[WARNING] RemoteTransferOrchestrator: One or more remote target transfers for job '$jobName' FAILED or were skipped due to errors." -Level "WARNING"
     }
 
+    # Delete local staged files (all volumes and manifest) if all transfers to all targets were successful
     if ($EffectiveJobConfig.DeleteLocalArchiveAfterSuccessfulTransfer -and $allTargetTransfersSuccessfulOverall -and $EffectiveJobConfig.ResolvedTargetInstances.Count -gt 0) {
-        if ((-not $IsSimulateMode.IsPresent) -and (Test-Path -LiteralPath $LocalFinalArchivePath -PathType Leaf)) {
-            if ($PSCmdlet.ShouldProcess($LocalFinalArchivePath, "Delete Local Staged Archive (Post-All-Successful-Transfers)")) {
-                & $LocalWriteLog -Message "[INFO] RemoteTransferOrchestrator: Deleting local staged archive '$LocalFinalArchivePath' as all target transfers succeeded and DeleteLocalArchiveAfterSuccessfulTransfer is true." -Level "INFO"
-                try { Remove-Item -LiteralPath $LocalFinalArchivePath -Force -ErrorAction Stop }
-                catch { & $LocalWriteLog -Message "[WARNING] RemoteTransferOrchestrator: Failed to delete local staged archive '$LocalFinalArchivePath'. Error: $($_.Exception.Message)" -Level "WARNING" }
+        & $LocalWriteLog -Message "[INFO] RemoteTransferOrchestrator: Deleting local staged archive files as all target transfers succeeded and DeleteLocalArchiveAfterSuccessfulTransfer is true." -Level "INFO"
+        foreach($localFileToDeleteInfo in $localFilesToTransfer) {
+            if ((-not $IsSimulateMode.IsPresent) -and (Test-Path -LiteralPath $localFileToDeleteInfo.FullName -PathType Leaf)) {
+                if ($PSCmdlet.ShouldProcess($localFileToDeleteInfo.FullName, "Delete Local Staged Archive File (Post-All-Successful-Transfers)")) {
+                    & $LocalWriteLog -Message "  - Deleting: '$($localFileToDeleteInfo.FullName)'" -Level "INFO"
+                    try { Remove-Item -LiteralPath $localFileToDeleteInfo.FullName -Force -ErrorAction Stop }
+                    catch { & $LocalWriteLog -Message "[WARNING] RemoteTransferOrchestrator: Failed to delete local staged file '$($localFileToDeleteInfo.FullName)'. Error: $($_.Exception.Message)" -Level "WARNING" }
+                } else {
+                     & $LocalWriteLog -Message "  - Deletion of local staged file '$($localFileToDeleteInfo.FullName)' skipped by user (ShouldProcess)." -Level "INFO"
+                }
+            } elseif ($IsSimulateMode.IsPresent) {
+                & $LocalWriteLog -Message "SIMULATE: RemoteTransferOrchestrator: Would delete local staged file '$($localFileToDeleteInfo.FullName)'." -Level "SIMULATE"
             }
-        } elseif ($IsSimulateMode.IsPresent) {
-            & $LocalWriteLog -Message "SIMULATE: RemoteTransferOrchestrator: Would delete local staged archive '$LocalFinalArchivePath' (all target transfers successful and configured to delete)." -Level "SIMULATE"
         }
     } elseif ($EffectiveJobConfig.DeleteLocalArchiveAfterSuccessfulTransfer -and (-not $allTargetTransfersSuccessfulOverall) -and $EffectiveJobConfig.ResolvedTargetInstances.Count -gt 0) {
-        & $LocalWriteLog -Message "[INFO] RemoteTransferOrchestrator: Local staged archive '$LocalFinalArchivePath' KEPT because one or more target transfers failed (and DeleteLocalArchiveAfterSuccessfulTransfer is true)." -Level "INFO"
+        & $LocalWriteLog -Message "[INFO] RemoteTransferOrchestrator: Local staged archive files KEPT because one or more target transfers failed (and DeleteLocalArchiveAfterSuccessfulTransfer is true)." -Level "INFO"
     }
 
     return @{ AllTransfersSuccessful = $allTargetTransfersSuccessfulOverall }
 }
 
-Export-ModuleMember -Function Invoke-RemoteTargetTransferOrchestration # Updated export
+Export-ModuleMember -Function Invoke-RemoteTargetTransferOrchestration

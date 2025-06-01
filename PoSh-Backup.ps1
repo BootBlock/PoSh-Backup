@@ -345,7 +345,7 @@ $setSpecificPostRunAction = $null
 
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CliManager.psm1") -Force -ErrorAction Stop
-    $cliOverrideSettings = Get-PoShBackupCliOverrides -BoundParameters $PSBoundParameters
+    $cliOverrideSettings = Get-PoShBackupCliOverride -BoundParameters $PSBoundParameters
 
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CoreSetupManager.psm1") -Force -ErrorAction Stop
     $coreSetupResult = Invoke-PoShBackupCoreSetup -LoggerScriptBlock $LoggerScriptBlock `
@@ -379,7 +379,12 @@ try {
     }
     if ($Host.Name -eq "ConsoleHost") {
         Write-Host "`nPress any key to exit..." -ForegroundColor $Global:ColourWarning
-        try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null } catch {}
+        try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null } catch {
+            # Log non-critical error during final pause attempt
+            if ($null -ne $LoggerScriptBlock) {
+                & $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: Non-critical error during ReadKey for final pause: $($_.Exception.Message)" -Level "DEBUG"
+            }
+        }
     }
     exit 12
 }

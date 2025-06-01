@@ -15,7 +15,7 @@
     Prerequisites:  PowerShell 5.1+.
 #>
 
-function Get-PoShBackupCliOverrides {
+function Get-PoShBackupCliOverride {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -52,4 +52,4 @@ function Get-PoShBackupCliOverrides {
     return $cliOverrideSettings
 }
 
-Export-ModuleMember -Function Get-PoShBackupCliOverrides
+Export-ModuleMember -Function Get-PoShBackupCliOverride
