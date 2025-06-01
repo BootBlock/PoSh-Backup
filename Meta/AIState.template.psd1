@@ -1,4 +1,3 @@
-# Meta\AIState.template.psd1
 @{
   bundle_generation_time          = "__BUNDLE_GENERATION_TIME_PLACEHOLDER__"
   bundler_script_version          = "__BUNDLER_VERSION_PLACEHOLDER__" # Populated by bundler
@@ -8,7 +7,7 @@
     "CRITICAL (AI): VERIFY LINE COUNTS AND COMMENT INTEGRITY. EXTREME VIGILANCE REQUIRED.",
     "CRITICAL (AI): Ensure no extraneous trailing whitespace.",
     "CRITICAL (AI): When modifying existing files, EXPLICITLY CONFIRM THE BASELINE VERSION/CONTENT. If errors persist, switch to diffs/patches or manual user changes.",
-    "CRITICAL (SYNTAX): PowerShell strings for Markdown triple backticks: use single quotes externally, e.g., '''`'''.",
+    "CRITICAL (SYNTAX): PowerShell strings for Markdown triple backticks: use single quotes externally, e.g., ''''''.",
     "CRITICAL (SYNTAX): Escaping in PowerShell here-strings for JavaScript (e.g., `$`, `${}`) requires care.",
     "CRITICAL (SYNTAX): `-replace` operator replacement strings with special chars need single quotes.",
     "CRITICAL (SYNTAX - PSD1/Strings): Avoid `$(...)` in PSD1 strings if variables/properties might be null. Use formatting or pre-resolution.",
@@ -16,7 +15,7 @@
     "AI STRATEGY (ACCURACY): When providing full files, state estimated line count difference and mention significant refactoring.",
     "AI STRATEGY (OUTPUT): Provide one file at a time unless small & related (confirm with user).",
     "STRUCTURE: Respect modular design (Core, Managers, Utilities, Operations, etc.). `Write-LogMessage` is now in `Managers\\LogManager.psm1`.",
-    "SCOPE: Global color/status map variables in `PoSh-Backup.ps1` must be accessible for `Write-LogMessage` (via `Utils.psm1` facade from `Managers\\LogManager.psm1`).",
+    "SCOPE: Global color/status map variables in `PoSh-Backup.ps1` (now initialised by `InitialisationManager.psm1`) must be accessible for `Write-LogMessage` (via `Utils.psm1` facade from `Managers\\LogManager.psm1`).",
     "SYNTAX (PSSA): `$null` should be on the left side of equality comparisons (e.g., `if (`$null -eq `$variable)`).",
     "PESTER (v5.7.1 Environment - Key Learnings & Workarounds):",
     "  - **Pattern A: Testing ACTUAL IMPORTED Module Functions (e.g., for `ConfigUtils.Tests.ps1`):**",
@@ -27,68 +26,75 @@
     "    1. Top-level of `.Tests.ps1`: Define dummy functions and local copies of functions under test.",
     "    2. `BeforeAll`: Dot-source self, mock dependencies, get `$script:` references to local test functions.",
     "    3. `It` blocks: Call local functions via `$script:` reference. Local functions call mocked dependencies directly. Assert mock calls (`Should -Invoke`). For external cmdlets like `Get-FileHash`, make them injectable `[scriptblock]` parameters in local test functions.",
-    "  - **General Pester 5 Notes for This Environment:** `Import-Module` + `Get-Command` + `$script:`-scoped data is key for Pattern A. `$MyInvocation.MyCommand.ScriptBlock.File` for self dot-sourcing. `(`$result.GetType().IsArray) | Should -Be `$true` for array assertion. Clear shared mock log arrays in `BeforeEach` if used. PSSA `PSUseDeclaredVarsMoreThanAssignments` and `$var = `$null` interaction."
+    "  - **General Pester 5 Notes for This Environment:** `Import-Module` + `Get-Command` + `$script:`-scoped data is key for Pattern A. `$MyInvocation.MyCommand.ScriptBlock.File` for self dot-sourcing. `(`$result.GetType().IsArray) | Should -Be `$true` for array assertion. Clear shared mock log arrays in `BeforeEach` if used. PSSA `PSUseDeclaredVarsMoreThanAssignments` and `$var = `$null` interaction.",
+    "MODULE_SCOPE (IMPORTANT): Functions from modules imported by a 'manager' or 'orchestrator' module are not automatically available to other modules called by that manager/orchestrator, nor to the script that called the manager. The module needing the function must typically import the provider of that function directly, or the calling script must import modules whose functions it will call directly after the manager/orchestrator returns. Using `-Global` on imports is a workaround but generally less desirable."
   )
 
   conversation_summary            = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.14.6).",
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.18.0).",
     "Modular design: Core (Modules\\Core\\), Managers (Modules\\Managers\\), Utilities (Modules\\Utilities\\), Operations (Modules\\Operations\\), ConfigManagement (Modules\\ConfigManagement\\), Reporting (Modules\\Reporting\\), Targets (Modules\\Targets\\).",
     "AI State structure loaded from 'Meta\\AIState.template.psd1', dynamically populated by Bundler (v__BUNDLER_VERSION_PLACEHOLDER__).",
-    "--- Feature: Update Checking and Self-Application Framework (Current Session Segment) ---",
-    "    - Goal: Implement a mechanism for users to check for new versions and for the script to (eventually) self-update.",
-    "    - **Phase 1: Update Checking Logic & Initial Files:**",
-    "        - New File `Meta\\Version.psd1`: Stores local installation metadata (InstalledVersion, ReleaseDate, ProjectUrl, etc.).",
-    "        - New Module `Modules\\Utilities\\Update.psm1` (v0.1.0 initially, then to v0.2.0):",
-    "            - `Invoke-PoShBackupUpdateCheckAndApply` function created.",
-    "            - Reads local version from `Meta\\Version.psd1`.",
-    "            - Fetches and parses a remote `version_manifest.psd1` (URL hardcoded).",
-    "            - Compares versions and notifies user of update status.",
-    "        - `PoSh-Backup.ps1` (v1.14.5 -> v1.14.6): Added `-CheckForUpdate` CLI parameter.",
-    "        - `Modules\\Utils.psm1` (v1.15.0 -> v1.16.0): Updated to re-export `Invoke-PoShBackupUpdateCheckAndApply`.",
-    "        - `Modules\\ScriptModeHandler.psm1` (v1.0.0 -> v1.1.0): Modified to handle `-CheckForUpdate`, lazy-load `Update.psm1`, and call its function.",
-    "        - `README.md`: Updated to document the new `-CheckForUpdate` feature.",
-    "    - **Phase 2: Refining `-CheckForUpdate` Execution Path:**",
-    "        - Modified `PoSh-Backup.ps1` to handle `-CheckForUpdate` as an early exit, bypassing full config load and main module imports. Logger is initialized early, then `Update.psm1` is loaded and its function called directly, followed by `exit 0`.",
-    "        - `Modules\\ScriptModeHandler.psm1` parameters for Configuration, ActualConfigFile, ConfigLoadResult made non-mandatory to support the lean call from `PoSh-Backup.ps1`'s early update check path.",
-    "    - **Phase 3: Implementing Self-Update Application Logic:**",
-    "        - `Modules\\Utilities\\Update.psm1` (v0.1.0 -> v0.2.0):",
-    "            - `Invoke-PoShBackupUpdateCheckAndApply` enhanced to:",
-    "                - Prompt user to proceed with update.",
-    "                - Download update package (ZIP) from URL in remote manifest.",
-    "                - Verify SHA256 checksum of the downloaded package.",
-    "                - Back up the current PoSh-Backup installation directory.",
-    "                - Launch `Meta\\apply_update.ps1` (new script) using `Start-Process` (attempting with `-Verb RunAs`).",
-    "        - New Script `Meta\\apply_update.ps1` (standalone):",
-    "            - Performs the actual update after `PoSh-Backup.ps1` exits.",
-    "            - Parameters: DownloadedZipPath, InstallPath, BackupPath, UpdateLogPath, MainPID.",
-    "            - Extracts new version, deletes old application files (preserving user data folders like Logs/Reports).",
-    "            - Critically, preserves user configuration by copying the new `Config` folder (with new `Default.psd1`), then restoring all other user files/folders (like `User.psd1`, custom themes) from the backup of the old `Config` directory.",
-    "            - Includes its own logging and error handling.",
-    "    - **Phase 4: Release Packaging Script (`Meta\\Package-PoShBackupRelease.ps1`):**",
-    "        - Created a standalone script to automate release packaging.",
-    "        - Parses `PoSh-Backup.ps1` for the main version number.",
-    "        - Auto-generates `Meta\\Version.psd1` with this version and current date.",
-    "        - Scans all project `.ps1` and `.psm1` files (excluding non-distribution items like `.git`, `Logs`, `Releases`, etc.) and extracts their individual versions.",
-    "        - Creates a ZIP archive of the project, excluding `Config\\User*.psd1` and other non-distribution files/folders.",
-    "        - Calculates SHA256 checksum of the ZIP.",
-    "        - Generates `version_manifest.psd1` including main version, release date, URLs, checksum, and the hashtable of all scanned script/module versions.",
-    "        - Addressed PSSA warning for an empty catch block related to `Get-Command 7z.exe`.",
-    "    - **Bundler Script (`Generate-ProjectBundleForAI.ps1`) Updates:**",
-    "        - Modified to explicitly include `Meta\\Package-PoShBackupRelease.ps1`, `Meta\\Version.psd1`, and `Meta\\apply_update.ps1` in the AI bundle.",
-    "    - **PSScriptAnalyzer Warnings Addressed:**",
-    "        - Corrected unused `Logger` and `CliOverrides` parameters in `DestinationSettings.psm1`.",
-    "        - Corrected unused `Logger` parameter in `JobExecutor.FinalisationHandler.psm1`.",
-    "        - Corrected empty `catch` blocks in `PoSh-Backup.ps1` (for ReadKey pauses) and `Package-PoShBackupRelease.ps1` (for Get-Command 7z.exe).",
+    "--- Modularisation of PoSh-Backup.ps1 (Current Session Segment) ---",
+    "    - Goal: Reduce the size and complexity of `PoSh-Backup.ps1` by extracting logical blocks into new manager modules.",
+    "    - **Phase 1: CLI Override Processing**",
+    "        - New Module `Modules\\Managers\\CliManager.psm1` (v1.0.0) created.",
+    "            - Contains `Get-PoShBackupCliOverrides` function to process `$PSBoundParameters` from `PoSh-Backup.ps1` and return the `$cliOverrideSettings` hashtable.",
+    "        - `PoSh-Backup.ps1` (v1.14.6 -> v1.15.0):",
+    "            - Imports `CliManager.psm1`.",
+    "            - Calls `Get-PoShBackupCliOverrides` to populate `$cliOverrideSettings`.",
+    "            - Removed manual definition of `$cliOverrideSettings` hashtable.",
+    "    - **Phase 2: Initial Script Setup (Globals, Banner)**",
+    "        - New Module `Modules\\Managers\\InitialisationManager.psm1` (v1.0.0) created.",
+    "            - Contains `Invoke-PoShBackupInitialSetup` function to:",
+    "                - Define global colour variables (e.g., `$Global:ColourInfo`).",
+    "                - Define global status-to-colour map (`$Global:StatusToColourMap`).",
+    "                - Initialise global logging variables (e.g., `$Global:GlobalLogFile`).",
+    "                - Display the starting script banner (including dynamic version extraction).",
+    "        - `PoSh-Backup.ps1` (v1.15.0 -> v1.16.0):",
+    "            - Imports `InitialisationManager.psm1`.",
+    "            - Calls `Invoke-PoShBackupInitialSetup` at the beginning.",
+    "            - Removed the corresponding global variable definitions and banner logic.",
+    "    - **Phase 3: Core Setup (Module Imports, Config Load, Job Resolution)**",
+    "        - New Module `Modules\\Managers\\CoreSetupManager.psm1` (v1.0.0, then to v1.0.2) created.",
+    "            - Contains `Invoke-PoShBackupCoreSetup` function to:",
+    "                - Import the bulk of core and manager modules (ConfigManager, Operations, Reporting, various Managers, etc.).",
+    "                - Load and validate application configuration (calling `Import-AppConfiguration`).",
+    "                - Handle informational script modes (calling `Invoke-PoShBackupScriptMode`).",
+    "                - Validate 7-Zip path.",
+    "                - Initialise global file logging variables based on config.",
+    "                - Resolve jobs to process (calling `Get-JobsToProcess`).",
+    "                - Build final job execution order (calling `Build-JobExecutionOrder`).",
+    "                - Returns key results like `$Configuration`, `$jobsToProcess`, etc.",
+    "        - `PoSh-Backup.ps1` (v1.16.0 -> v1.17.0):",
+    "            - Imports `CoreSetupManager.psm1`.",
+    "            - Calls `Invoke-PoShBackupCoreSetup` and receives necessary variables.",
+    "            - Removed the corresponding blocks of logic.",
+    "        - Addressed module scope issues where `Find-SevenZipExecutable` (from `7ZipManager` via `Discovery.psm1`) was not found by `SevenZipPathResolver.psm1`. Resolved by having `SevenZipPathResolver.psm1` explicitly import `7ZipManager.psm1`.",
+    "        - Addressed module scope issues where `Invoke-PoShBackupRun` (from `JobOrchestrator.psm1`) and `Invoke-PoShBackupPostRunActionHandler` (from `PostRunActionOrchestrator.psm1`) were not found by `PoSh-Backup.ps1`. Resolved by having `PoSh-Backup.ps1` explicitly import these two modules after `CoreSetupManager.psm1` has run. Also ensured `JobOrchestrator.psm1` imports `ConfigManager.psm1` and `Reporting.psm1`.",
+    "    - **Phase 4: Finalisation (Summary, Pause, Exit)**",
+    "        - New Module `Modules\\Managers\\FinalisationManager.psm1` (v1.0.0) created.",
+    "            - Contains `Invoke-PoShBackupFinalisation` function to:",
+    "                - Display completion banner.",
+    "                - Log final script statistics.",
+    "                - Call `Invoke-PoShBackupPostRunActionHandler` (from `PostRunActionOrchestrator.psm1`, which `FinalisationManager.psm1` now imports).",
+    "                - Handle pause behaviour.",
+    "                - Exit with appropriate status code.",
+    "        - `PoSh-Backup.ps1` (v1.17.1 -> v1.18.0):",
+    "            - Imports `FinalisationManager.psm1`.",
+    "            - Calls `Invoke-PoShBackupFinalisation` at the end.",
+    "            - Removed the corresponding finalisation logic.",
+    "        - Addressed syntax error in `PoSh-Backup.ps1` call to `Invoke-PoShBackupFinalisation` for the `-JobNameForLog` parameter (missing `$()` for subexpression).",
     "--- PREVIOUS MAJOR FEATURES (Summary from prior state) ---",
+    "  - Update Checking and Self-Application Framework (Meta\\Version.psd1, Utilities\\Update.psm1, Meta\\apply_update.ps1, Meta\\Package-PoShBackupRelease.ps1).",
     "  - Pester Testing - Phase 1: Utilities (ConfigUtils.Tests.ps1, FileUtils.Tests.ps1 established patterns; SystemUtils.Tests.ps1 was next).",
     "  - Multi-Volume (Split) Archives, Job Chaining/Dependencies, 7-Zip Password Handling (-p switch), Include/Exclude List Files, CPU Affinity.",
     "  - Core Refactorings (Operations, Logging, Managers, Utils facade, PoSh-Backup.ps1 main loop to JobOrchestrator, ScriptModeHandler).",
     "  - SFX Archives, Checksums, Post-Run Actions, Expanded Backup Targets (UNC, Replicate, SFTP), Log File Retention.",
     "--- PROJECT STATUS ---",
-    "Overall: Core local/remote backup stable. Update checking and self-application framework implemented (packager ready). PSSA warnings addressed. Next logical step would be Pester tests for SystemUtils or further refinement/testing of the update mechanism."
+    "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. PSSA warnings addressed (2 known for SFTP). Next logical step could be further Pester tests or AI State update."
   )
 
-  main_script_poSh_backup_version = "1.14.6" # Reflects -CheckForUpdate parameter and early exit logic
+  main_script_poSh_backup_version = "1.18.0" # Reflects modularisation into CliManager, InitialisationManager, CoreSetupManager, FinalisationManager.
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
@@ -110,6 +116,11 @@
 
   module_descriptions             = @{
     "__MODULE_DESCRIPTIONS_PLACEHOLDER__" = "This is a placeholder entry." # Dynamically populated
+    # Descriptions for new modules will be added here by the bundler based on their synopsis
+    "Modules\\Managers\\CliManager.psm1" = "Manages Command-Line Interface (CLI) parameter processing for PoSh-Backup."
+    "Modules\\Managers\\InitialisationManager.psm1" = "Manages the initial setup of global variables and console display for PoSh-Backup."
+    "Modules\\Managers\\CoreSetupManager.psm1" = "Manages the core setup phase of PoSh-Backup, including module imports, configuration loading, job resolution, and dependency ordering."
+    "Modules\\Managers\\FinalisationManager.psm1" = "Manages the finalisation tasks for the PoSh-Backup script, including summary display, post-run action invocation, pause behaviour, and exit code."
   }
 
   project_root_folder_name        = "__PROJECT_ROOT_NAME_PLACEHOLDER__"
@@ -123,7 +134,8 @@
       "shutdown.exe (Windows utility - for Shutdown, Restart, LogOff actions)"
     )
     powershell_modules = @(
-      "Posh-SSH (for SFTP target provider)"
+      "Posh-SSH (for SFTP target provider)" # Assuming this is still a direct dependency for SFTP.Target.psm1
+      # Microsoft.PowerShell.SecretManagement is a system component, not typically listed as an external module to *bundle*.
     )
   }
 }
