@@ -19,8 +19,7 @@
     CLI parameter processing is handled by 'CliManager.psm1'.
     Core setup (module imports, config load, job resolution) is handled by 'CoreSetupManager.psm1'.
     The main job/set processing loop is now handled by 'JobOrchestrator.psm1'.
-    Post-run system action logic is now handled by 'PostRunActionOrchestrator.psm1'.
-    Job dependency resolution and execution ordering is handled by 'JobDependencyManager.psm1'.
+    Script finalisation (summary, post-run actions, pause, exit) is handled by 'FinalisationManager.psm1'.
 
     Key Features:
     - Modular Design, External Configuration, Local and Remote Backups, Granular Job Control.
@@ -164,7 +163,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.17.0 # Modularised core setup (module imports, config load, job resolution) to CoreSetupManager.psm1.
+    Version:        1.18.0 # Modularised final summary and exit logic to FinalisationManager.psm1.
     Date:           01-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -278,7 +277,7 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\InitialisationManager.psm1") -Force -ErrorAction Stop
     Invoke-PoShBackupInitialSetup -MainScriptPath $PSCommandPath
 } catch {
-    Write-Host "[FATAL] Failed to import or run CRITICAL InitialisationManager.psm1 module." -ForegroundColor Red # Colour may not be set yet
+    Write-Host "[FATAL] Failed to import or run CRITICAL InitialisationManager.psm1 module." -ForegroundColor Red
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
     exit 11
 }
@@ -349,7 +348,7 @@ try {
     $cliOverrideSettings = Get-PoShBackupCliOverrides -BoundParameters $PSBoundParameters
 
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CoreSetupManager.psm1") -Force -ErrorAction Stop
-        $coreSetupResult = Invoke-PoShBackupCoreSetup -LoggerScriptBlock $LoggerScriptBlock `
+    $coreSetupResult = Invoke-PoShBackupCoreSetup -LoggerScriptBlock $LoggerScriptBlock `
                                                 -PSScriptRoot $PSScriptRoot `
                                                 -CliOverrideSettings $cliOverrideSettings `
                                                 -BackupLocationName $BackupLocationName `
@@ -361,7 +360,7 @@ try {
                                                 -ListBackupSets:$ListBackupSets.IsPresent `
                                                 -SkipUserConfigCreation:$SkipUserConfigCreation.IsPresent `
                                                 -PSCmdlet $PSCmdlet
-
+    
     $Configuration = $coreSetupResult.Configuration
     $ActualConfigFile = $coreSetupResult.ActualConfigFile
     $jobsToProcess = $coreSetupResult.JobsToProcess
@@ -369,24 +368,20 @@ try {
     $stopSetOnError = $coreSetupResult.StopSetOnErrorPolicy
     $setSpecificPostRunAction = $coreSetupResult.SetSpecificPostRunAction
 
-    # Stupid scoping issues, so importing these here.
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\JobOrchestrator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\PostRunActionOrchestrator.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\FinalisationManager.psm1") -Force -ErrorAction Stop # Import new FinalisationManager
 
 } catch {
-    # Errors from CliManager or CoreSetupManager (like module import failures, config load failures)
-    # will be caught here. Logger might be available if Utils loaded but other modules failed.
     if ($null -ne $LoggerScriptBlock) {
         & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: Critical error during CLI processing or core setup phase. Error: $($_.Exception.Message)" -Level "ERROR"
     } else {
         Write-Host "[FATAL] PoSh-Backup.ps1: Critical error during CLI processing or core setup phase. Logger not available. Error: $($_.Exception.Message)" -ForegroundColor $Global:ColourError
     }
-    # Attempt a graceful exit if possible
     if ($Host.Name -eq "ConsoleHost") {
         Write-Host "`nPress any key to exit..." -ForegroundColor $Global:ColourWarning
         try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null } catch {}
     }
-    exit 12 # Specific exit code for setup phase failure
+    exit 12
 }
 #endregion
 
@@ -421,95 +416,19 @@ if ($jobsToProcess.Count -gt 0) {
 }
 #endregion
 
-#region --- Final Script Summary & Exit ---
-$finalScriptEndTime = Get-Date
-
-# --- Completion Banner ---
-$completionBorderColor = '$Global:ColourHeading'
-$completionNameFgColor = '$Global:ColourSuccess'
-if ($overallSetStatus -eq "FAILURE") { $completionBorderColor = '$Global:ColourError'; $completionNameFgColor = '$Global:ColourError' }
-elseif ($overallSetStatus -eq "WARNINGS") { $completionBorderColor = '$Global:ColourWarning'; $completionNameFgColor = '$Global:ColourWarning' }
-elseif ($overallSetStatus -eq "SIMULATED_COMPLETE") { $completionBorderColor = '$Global:ColourSimulate'; $completionNameFgColor = '$Global:ColourSimulate' }
-
-Write-ConsoleBanner -NameText "All PoSh Backup Operations Completed" `
-                    -NameForegroundColor $completionNameFgColor `
-                    -BannerWidth 78 `
-                    -BorderForegroundColor $completionBorderColor `
-                    -CenterText `
-                    -PrependNewLine
-# --- End Completion Banner ---
-
-if ($IsSimulateMode.IsPresent -and $overallSetStatus -ne "FAILURE" -and $overallSetStatus -ne "WARNINGS") {
-    $overallSetStatus = "SIMULATED_COMPLETE"
-}
-
-& $LoggerScriptBlock -Message "Overall Script Status: $overallSetStatus" -Level $overallSetStatus
-& $LoggerScriptBlock -Message "Script started : $ScriptStartTime" -Level "INFO"
-& $LoggerScriptBlock -Message "Script ended   : $finalScriptEndTime" -Level "INFO"
-& $LoggerScriptBlock -Message "Total duration : $($finalScriptEndTime - $ScriptStartTime)" -Level "INFO"
-
-# --- Post-Run Action Handling (Delegated to PostRunActionOrchestrator.psm1) ---
-$postRunParams = @{
-    OverallStatus                     = $overallSetStatus
-    CliOverrideSettings               = $cliOverrideSettings
-    SetSpecificPostRunAction          = $setSpecificPostRunAction
-    JobSpecificPostRunActionForNonSet = $jobSpecificPostRunActionForNonSetRun
-    GlobalConfig                      = $Configuration
-    IsSimulateMode                    = [bool]$Simulate.IsPresent
-    TestConfigIsPresent               = [bool]$TestConfig.IsPresent
-    Logger                            = $LoggerScriptBlock
-    PSCmdletInstance                  = $PSCmdlet
-    CurrentSetNameForLog              = $currentSetName
-    JobNameForLog                     = if ($jobsToProcess.Count -eq 1 -and (-not $currentSetName)) { $jobsToProcess[0] } else { $null }
-}
-Invoke-PoShBackupPostRunActionHandler @postRunParams
-# --- End Post-Run Action Handling ---
-
-$_pauseDefaultFromScript = "OnFailureOrWarning"
-$_pauseSettingFromConfig = if ($Configuration.ContainsKey('PauseBeforeExit')) { $Configuration.PauseBeforeExit } else { $_pauseDefaultFromScript }
-$normalizedPauseConfigValue = ""
-if ($_pauseSettingFromConfig -is [bool]) {
-    $normalizedPauseConfigValue = if ($_pauseSettingFromConfig) { "always" } else { "never" }
-} elseif ($null -ne $_pauseSettingFromConfig -and $_pauseSettingFromConfig -is [string]) {
-    $normalizedPauseConfigValue = $_pauseSettingFromConfig.ToLowerInvariant()
-} else {
-    $normalizedPauseConfigValue = $_pauseDefaultFromScript.ToLowerInvariant()
-}
-$effectivePauseBehaviour = $normalizedPauseConfigValue
-if ($null -ne $cliOverrideSettings.PauseBehaviour) {
-    $effectivePauseBehaviour = $cliOverrideSettings.PauseBehaviour.ToLowerInvariant()
-    if ($effectivePauseBehaviour -eq "true") { $effectivePauseBehaviour = "always" }
-    if ($effectivePauseBehaviour -eq "false") { $effectivePauseBehaviour = "never" }
-    & $LoggerScriptBlock -Message "[INFO] Pause behaviour explicitly set by CLI to: '$($cliOverrideSettings.PauseBehaviour)' (effective: '$effectivePauseBehaviour')." -Level "INFO"
-}
-
-$shouldPhysicallyPause = $false
-switch ($effectivePauseBehaviour) {
-    "always"             { $shouldPhysicallyPause = $true }
-    "never"              { $shouldPhysicallyPause = $false }
-    "onfailure"          { if ($overallSetStatus -eq "FAILURE") { $shouldPhysicallyPause = $true } }
-    "onwarning"          { if ($overallSetStatus -eq "WARNINGS") { $shouldPhysicallyPause = $true } }
-    "onfailureorwarning" { if ($overallSetStatus -in @("FAILURE", "WARNINGS")) { $shouldPhysicallyPause = $true } }
-    default {
-        & $LoggerScriptBlock -Message "[WARNING] Unknown PauseBeforeExit value '$effectivePauseBehaviour' was resolved. Defaulting to not pausing (simulating 'Never' behaviour)." -Level "WARNING"
-        $shouldPhysicallyPause = $false
-    }
-}
-if (($IsSimulateMode.IsPresent -or $TestConfig.IsPresent) -and $effectivePauseBehaviour -ne "always") {
-    $shouldPhysicallyPause = $false
-}
-
-if ($shouldPhysicallyPause) {
-    & $LoggerScriptBlock -Message "`nPress any key to exit..." -Level "WARNING"
-    if ($Host.Name -eq "ConsoleHost") {
-        try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
-        catch { Write-Warning "Failed to read key for final pause: $($_.Exception.Message)" }
-    } else {
-        & $LoggerScriptBlock -Message "  (Pause configured for '$effectivePauseBehaviour' and current status '$overallSetStatus', but not running in ConsoleHost: $($Host.Name).)" -Level "INFO"
-    }
-}
-
-if ($overallSetStatus -in @("SUCCESS", "SIMULATED_COMPLETE")) { exit 0 }
-elseif ($overallSetStatus -eq "WARNINGS") { exit 1 }
-else { exit 2 }
+#region --- Final Script Summary & Exit (Delegated to FinalisationManager.psm1) ---
+Invoke-PoShBackupFinalisation -OverallSetStatus $overallSetStatus `
+                              -ScriptStartTime $ScriptStartTime `
+                              -IsSimulateMode:$IsSimulateMode `
+                              -TestConfigIsPresent:$TestConfig.IsPresent `
+                              -CliOverrideSettings $cliOverrideSettings `
+                              -SetSpecificPostRunAction $setSpecificPostRunAction `
+                              -JobSpecificPostRunActionForNonSetRun $jobSpecificPostRunActionForNonSetRun `
+                              -Configuration $Configuration `
+                              -LoggerScriptBlock $LoggerScriptBlock `
+                              -PSCmdletInstance $PSCmdlet `
+                              -CurrentSetNameForLog $currentSetName `
+                              -JobNameForLog $(if ($jobsToProcess.Count -eq 1 -and (-not $currentSetName)) { $jobsToProcess[0] } else { $null }) `
+                              -JobsToProcessCount $jobsToProcess.Count
+# The Invoke-PoShBackupFinalisation function will call exit internally.
 #endregion
