@@ -2,27 +2,27 @@
 .SYNOPSIS
     Generates XML (Extensible Markup Language) reports for PoSh-Backup jobs using
     PowerShell's 'Export-Clixml' format. This format serialises PowerShell objects,
-    including their type information, details of remote target transfers (if any),
-    and archive checksum information (if generated), making it suitable for
-    re-importing into PowerShell with high fidelity.
+    including their type information, details of remote target transfers (for each file part),
+    archive checksum information, and multi-volume manifest details (if generated),
+    making it suitable for re-importing into PowerShell with high fidelity.
 
 .DESCRIPTION
     This module creates an XML representation of the backup job's report data.
     It utilises PowerShell's native 'Export-Clixml' cmdlet, which produces a detailed
     XML structure that accurately represents PowerShell objects. The '$ReportData' hashtable
-    (which now may include a 'TargetTransfers' array and checksum details)
-    is first cast to a [PSCustomObject] to ensure proper serialisation by 'Export-Clixml'.
+    (which now may include a 'TargetTransfers' array with per-file details, checksum details,
+    and multi-volume manifest data) is first cast to a [PSCustomObject] to ensure proper
+    serialisation by 'Export-Clixml'.
 
     The resulting .xml file can be easily re-hydrated into a PowerShell object using
-    'Import-Clixml', preserving the original data structure and types, including any
-    target transfer and checksum information. This makes it particularly useful for
-    PowerShell-based post-processing, auditing, or archiving of report data.
+    'Import-Clixml', preserving the original data structure and types. This makes it
+    particularly useful for PowerShell-based post-processing, auditing, or archiving of report data.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.2 # Checksum information now implicitly included in ReportData.
+    Version:        1.2.3 # Manifest/volume checksum data now implicitly included in ReportData.
     DateCreated:    14-May-2025
-    LastModified:   24-May-2025
+    LastModified:   01-Jun-2025
     Purpose:        XML (specifically PowerShell Clixml) report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -33,13 +33,14 @@ function Invoke-XmlReport {
     <#
     .SYNOPSIS
         Generates a single XML (Clixml) file containing all report data for a PoSh-Backup job,
-        including any remote target transfer and checksum details.
+        including any remote target transfer (per-file), multi-volume manifest, and checksum details.
     .DESCRIPTION
         This function takes the consolidated report data for a backup job and serialises
         the entire data structure into a single XML file using PowerShell's 'Export-Clixml'
-        cmdlet. The input '$ReportData' hashtable (which will include a 'TargetTransfers' array
-        and checksum details if applicable) is cast to a [PSCustomObject] before export
-        to ensure optimal serialisation. The output file is named using the job name and a timestamp.
+        cmdlet. The input '$ReportData' hashtable (which will include 'TargetTransfers' array
+        with per-file details, multi-volume manifest data, and checksum details if applicable)
+        is cast to a [PSCustomObject] before export to ensure optimal serialisation.
+        The output file is named using the job name and a timestamp.
         This format is primarily intended for consumption by other PowerShell scripts or for archiving
         data in a way that can be perfectly re-imported into PowerShell.
     .PARAMETER ReportDirectory

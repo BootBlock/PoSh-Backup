@@ -2,32 +2,30 @@
 .SYNOPSIS
     Generates plain text (.txt) summary reports for PoSh-Backup jobs.
     These reports provide a simple, human-readable overview of the backup operation,
-    including summary details (now with checksum information and split volume size if applicable),
-    configuration settings used, hook script actions, details of remote target transfers (if any),
-    and a chronological list of log entries.
+    including summary details (checksum information, split volume size, manifest status),
+    configuration settings, hook script actions, remote target transfers (detailing each
+    file part if applicable), multi-volume manifest verification details, and log entries.
 
 .DESCRIPTION
-    This module produces a straightforward plain text report, formatted for easy reading
-    in any text editor or for straightforward inclusion in email bodies. It aims to present
-    the most critical information from a backup job in a clean, uncluttered format.
+    This module produces a straightforward plain text report, formatted for easy reading.
+    The report typically includes:
+    - Header: Job name and generation timestamp.
+    - Simulation Notice: If applicable.
+    - SUMMARY: Key outcomes, including checksum/manifest status.
+    - CONFIGURATION USED: Job-specific settings.
+    - HOOK SCRIPTS EXECUTED: Details of custom scripts.
+    - REMOTE TARGET TRANSFERS: Details for each file transferred to each target.
+    - ARCHIVE MANIFEST & VOLUME VERIFICATION: (If applicable) Manifest path, overall status,
+      and per-volume checksum verification details.
+    - DETAILED LOG: Chronological log messages.
 
-    The report typically includes the following sections:
-    - A header with the job name and generation timestamp.
-    - A "SUMMARY" section with key operational outcomes and statistics, including archive
-      checksum details if generated.
-    - A "CONFIGURATION USED" section listing the specific settings applied to the job.
-    - A "HOOK SCRIPTS EXECUTED" section detailing any custom scripts that were run, their status, and their output.
-    - A "REMOTE TARGET TRANSFERS" section (if applicable) detailing each attempted transfer to a remote target.
-    - A "DETAILED LOG" section with all timestamped log messages generated during the job's execution.
-
-    Array values in the summary and configuration are typically joined with semicolons, and multi-line
-    hook script output is indented for readability.
+    Array values are typically joined with semicolons; multi-line outputs are indented.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.3 # Added SplitVolumeSize to Summary section.
+    Version:        1.3.0 # Added Multi-Volume Manifest details section and FileTransferred to TargetTransfers.
     DateCreated:    14-May-2025
-    LastModified:   29-May-2025
+    LastModified:   01-Jun-2025
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
 #>
@@ -39,30 +37,19 @@ function Invoke-TxtReport {
         Generates a plain text (.txt) report file summarising a PoSh-Backup job.
     .DESCRIPTION
         This function takes the consolidated report data for a backup job and formats it
-        into a human-readable plain text file. The report includes a summary of the job
-        (including checksum details and split volume size if applicable), the configuration
-        that was used, details of any hook scripts executed, details of any remote target
-        transfers, and the full sequence of log messages.
+        into a human-readable plain text file. The report includes a summary, configuration,
+        hook script details, target transfer data (including individual file parts),
+        multi-volume manifest verification details (if applicable), and log messages.
     .PARAMETER ReportDirectory
-        The target directory where the generated .txt report file for this job will be saved.
-        This path is typically resolved by the main Reporting.psm1 orchestrator.
+        The target directory where the generated .txt report file will be saved.
     .PARAMETER JobName
-        The name of the backup job. This is used in the filename and header of the generated report.
+        The name of the backup job.
     .PARAMETER ReportData
         A hashtable containing all data collected during the backup job's execution.
-        The function extracts and formats information from this hashtable.
     .PARAMETER Logger
-        A mandatory scriptblock reference to the 'Write-LogMessage' function from Utils.psm1.
-        Used for logging the .txt report generation process itself.
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .EXAMPLE
-        # This function is typically called by Reporting.psm1 (orchestrator)
-        # $txtParams = @{
-        #     ReportDirectory = "C:\PoShBackup\Reports\TXT\MyJob"
-        #     JobName         = "MyJob"
-        #     ReportData      = $JobReportDataObject
-        #     Logger          = ${function:Write-LogMessage}
-        # }
-        # Invoke-TxtReport @txtParams
+        # Invoke-TxtReport -ReportDirectory "C:\Reports\TXT" -JobName "MyJob" -ReportData $JobData -Logger ${function:Write-LogMessage}
     .OUTPUTS
         None. This function creates a file in the specified ReportDirectory.
     #>
@@ -77,11 +64,7 @@ function Invoke-TxtReport {
         [scriptblock]$Logger
     )
 
-    # Defensive PSSA appeasement line: Logger is functionally used via $LocalWriteLog,
-    # but this direct call ensures PSSA sees it explicitly.
     & $Logger -Message "Invoke-TxtReport: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
@@ -100,7 +83,8 @@ function Invoke-TxtReport {
 
     $reportContent = [System.Text.StringBuilder]::new()
     $separatorLine = "-" * 70
-    $subSeparatorLine = "  " + ("-" * 66) # Indented separator
+    $subSeparatorLine = "  " + ("-" * 66) 
+    $keyPadWidth = 38 # Increased padding for keys
 
     $null = $reportContent.AppendLine("PoSh Backup Report - Job: $JobName")
     $null = $reportContent.AppendLine("Generated: $(Get-Date)")
@@ -112,12 +96,12 @@ function Invoke-TxtReport {
     $null = $reportContent.AppendLine($separatorLine)
 
     $null = $reportContent.AppendLine("SUMMARY:")
-    # Exclude TargetTransfers from the main summary block as it will have its own section
-    # The new checksum fields (ArchiveChecksum, ArchiveChecksumAlgorithm, ArchiveChecksumFile, ArchiveChecksumVerificationStatus)
-    # will be automatically included here if they exist in $ReportData as top-level keys.
-    $ReportData.GetEnumerator() | Where-Object {$_.Name -notin @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', '_PoShBackup_PSScriptRoot', 'TargetTransfers')} | ForEach-Object {
+    $excludedFromSummary = @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', 
+                             '_PoShBackup_PSScriptRoot', 'TargetTransfers', 'VolumeChecksums', 
+                             'ManifestVerificationDetails', 'ManifestVerificationResults')
+    $ReportData.GetEnumerator() | Where-Object {$_.Name -notin $excludedFromSummary} | ForEach-Object {
         $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $_ -replace "`r`n", " " -replace "`n", " " }) -join '; ' } else { ($_.Value | Out-String).Trim() }
-        $null = $reportContent.AppendLine("  $($_.Name.PadRight(35)): $value") # Increased PadRight for new longer keys
+        $null = $reportContent.AppendLine("  $($_.Name.PadRight($keyPadWidth)): $value")
     }
     $null = $reportContent.AppendLine($separatorLine)
 
@@ -125,7 +109,7 @@ function Invoke-TxtReport {
         $null = $reportContent.AppendLine("CONFIGURATION USED FOR JOB '$JobName':")
         $ReportData.JobConfiguration.GetEnumerator() | Sort-Object Name | ForEach-Object {
             $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $_ -replace "`r`n", " " -replace "`n", " " }) -join '; ' } else { ($_.Value | Out-String).Trim() }
-            $null = $reportContent.AppendLine("  $($_.Name.PadRight(35)): $value") # Increased PadRight
+            $null = $reportContent.AppendLine("  $($_.Name.PadRight($keyPadWidth)): $value")
         }
         $null = $reportContent.AppendLine($separatorLine)
     }
@@ -140,33 +124,77 @@ function Invoke-TxtReport {
                 $indentedOutput = ($_.Output.TrimEnd() -split '\r?\n' | ForEach-Object { "              $_" }) -join [Environment]::NewLine
                 $null = $reportContent.AppendLine("  Output    : $($indentedOutput.TrimStart())")
             }
-            $null = $reportContent.AppendLine() # Extra blank line for readability between hooks
+            $null = $reportContent.AppendLine() 
         }
         $null = $reportContent.AppendLine($separatorLine)
     }
 
-    # --- NEW: Remote Target Transfers Section ---
     if ($ReportData.ContainsKey('TargetTransfers') -and $null -ne $ReportData.TargetTransfers -and $ReportData.TargetTransfers.Count -gt 0) {
         $null = $reportContent.AppendLine("REMOTE TARGET TRANSFERS:")
         foreach ($transferEntry in $ReportData.TargetTransfers) {
             $null = $reportContent.AppendLine("  Target Name : $($transferEntry.TargetName)")
+            $fileTransferredDisplay = if ($transferEntry.PSObject.Properties.Name -contains 'FileTransferred') { $transferEntry.FileTransferred } else { 'N/A (Archive)'}
+            $null = $reportContent.AppendLine("  File Xferred: $fileTransferredDisplay")
             $null = $reportContent.AppendLine("  Target Type : $($transferEntry.TargetType)")
             $null = $reportContent.AppendLine("  Status      : $($transferEntry.Status)")
             $null = $reportContent.AppendLine("  Remote Path : $($transferEntry.RemotePath)")
             $null = $reportContent.AppendLine("  Duration    : $($transferEntry.TransferDuration)")
             $null = $reportContent.AppendLine("  Size        : $($transferEntry.TransferSizeFormatted)")
             if (-not [string]::IsNullOrWhiteSpace($transferEntry.ErrorMessage)) {
-                # Indent multi-line error messages for readability
                 $indentedError = ($transferEntry.ErrorMessage.TrimEnd() -split '\r?\n' | ForEach-Object { "                $_" }) -join [Environment]::NewLine
                 $null = $reportContent.AppendLine("  Error Msg   : $($indentedError.TrimStart())")
             }
             if ($ReportData.TargetTransfers.IndexOf($transferEntry) -lt ($ReportData.TargetTransfers.Count - 1)) {
-                $null = $reportContent.AppendLine($subSeparatorLine) # Add separator if not the last transfer entry
+                $null = $reportContent.AppendLine($subSeparatorLine) 
             }
         }
         $null = $reportContent.AppendLine($separatorLine)
     }
-    # --- END NEW: Remote Target Transfers Section ---
+
+    # --- NEW: Archive Manifest & Volume Verification Section ---
+    $generateManifest = $ReportData.GenerateSplitArchiveManifest -is [boolean] ? $ReportData.GenerateSplitArchiveManifest : ($ReportData.GenerateSplitArchiveManifest -eq $true)
+    $hasManifestFile = $ReportData.ContainsKey('ArchiveChecksumFile') -and -not [string]::IsNullOrWhiteSpace($ReportData.ArchiveChecksumFile) -and $ReportData.ArchiveChecksumFile -ne "N/A"
+    $hasManifestVerificationResults = $ReportData.ContainsKey('ManifestVerificationResults') -and $null -ne $ReportData.ManifestVerificationResults -and $ReportData.ManifestVerificationResults -is [array] -and $ReportData.ManifestVerificationResults.Count -gt 0
+    $hasVolumeChecksumsForDisplay = $ReportData.ContainsKey('VolumeChecksums') -and $null -ne $ReportData.VolumeChecksums -and $ReportData.VolumeChecksums -is [array] -and $ReportData.VolumeChecksums.Count -gt 0
+    $hasManifestRawDetails = $ReportData.ContainsKey('ManifestVerificationDetails') -and -not [string]::IsNullOrWhiteSpace($ReportData.ManifestVerificationDetails)
+
+    if ($generateManifest -and ($hasManifestFile -or $hasManifestVerificationResults -or $hasVolumeChecksumsForDisplay)) {
+        $null = $reportContent.AppendLine("ARCHIVE MANIFEST & VOLUME VERIFICATION:")
+        if ($hasManifestFile) {
+            $null = $reportContent.AppendLine("  Manifest File: $($ReportData.ArchiveChecksumFile)")
+        }
+        if ($ReportData.ContainsKey('ArchiveChecksumVerificationStatus')) {
+            $null = $reportContent.AppendLine("  Overall Manifest Verification Status: $($ReportData.ArchiveChecksumVerificationStatus)")
+        }
+        $null = $reportContent.AppendLine() # Blank line for spacing
+
+        if ($hasManifestVerificationResults) {
+            $null = $reportContent.AppendLine("  Volume Verification Details:")
+            $ReportData.ManifestVerificationResults | ForEach-Object {
+                $null = $reportContent.AppendLine("    Volume            : $($_.VolumeName)")
+                $null = $reportContent.AppendLine("    Expected Checksum : $($_.ExpectedChecksum)")
+                $null = $reportContent.AppendLine("    Actual Checksum   : $($_.ActualChecksum)")
+                $null = $reportContent.AppendLine("    Status            : $($_.Status)")
+                $null = $reportContent.AppendLine("    ------------------------------------")
+            }
+        } elseif ($hasVolumeChecksumsForDisplay) {
+            $null = $reportContent.AppendLine("  Generated Volume Checksums (Verification Not Performed):")
+            $ReportData.VolumeChecksums | ForEach-Object {
+                $null = $reportContent.AppendLine("    Volume            : $($_.VolumeName)")
+                $null = $reportContent.AppendLine("    Generated Checksum: $($_.Checksum)")
+                $null = $reportContent.AppendLine("    ------------------------------------")
+            }
+        }
+        
+        if ($hasManifestRawDetails) {
+            $null = $reportContent.AppendLine()
+            $null = $reportContent.AppendLine("  Detailed Verification Log/Notes:")
+            $indentedDetails = ($ReportData.ManifestVerificationDetails.TrimEnd() -split '\r?\n' | ForEach-Object { "    $_" }) -join [Environment]::NewLine
+            $null = $reportContent.AppendLine($indentedDetails)
+        }
+        $null = $reportContent.AppendLine($separatorLine)
+    }
+    # --- END NEW ---
 
     if ($ReportData.ContainsKey('LogEntries') -and $null -ne $ReportData.LogEntries -and $ReportData.LogEntries.Count -gt 0) {
         $null = $reportContent.AppendLine("DETAILED LOG:")

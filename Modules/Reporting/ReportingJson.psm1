@@ -2,24 +2,24 @@
 .SYNOPSIS
     Generates JSON (JavaScript Object Notation) reports for PoSh-Backup jobs.
     It serialises the complete report data structure for a backup job (including
-    checksum information if generated), making it ideal for programmatic consumption,
-    API integration, or use with various data processing tools.
+    checksum information, multi-volume manifest details if applicable, and target
+    transfer details for each file part), making it ideal for programmatic consumption.
 
 .DESCRIPTION
     This module is responsible for creating a JSON representation of the backup job report data.
     It takes the entire '$ReportData' hashtable (which contains summary, logs, configuration,
-    hook script details, checksum details, etc.) and converts it into a single JSON formatted
-    file using PowerShell's 'ConvertTo-Json' cmdlet with a sufficient depth to capture all
-    nested objects.
+    hook script details, checksum details, multi-volume manifest data, target transfer details, etc.)
+    and converts it into a single JSON formatted file using PowerShell's 'ConvertTo-Json'
+    cmdlet with a sufficient depth to capture all nested objects.
 
     The resulting JSON file provides a comprehensive, machine-readable snapshot of the backup
     job's execution and outcome.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.4 # Checksum information now implicitly included in ReportData.
+    Version:        1.2.0 # Manifest/volume checksum data now implicitly included in ReportData.
     DateCreated:    14-May-2025
-    LastModified:   24-May-2025
+    LastModified:   01-Jun-2025
     Purpose:        JSON report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -34,29 +34,20 @@ function Invoke-JsonReport {
         This function takes the consolidated report data for a backup job and serialises
         the entire data structure into a single JSON file. The 'ConvertTo-Json' cmdlet
         is used with a depth of 10 to ensure comprehensive serialisation of nested objects
-        within the report data (including checksum details if present). The output file is
-        named using the job name and a timestamp.
+        within the report data (including multi-volume manifest and checksum details if present,
+        and per-file target transfer information). The output file is named using the job name
+        and a timestamp.
     .PARAMETER ReportDirectory
         The target directory where the generated JSON report file for this job will be saved.
-        This path is typically resolved by the main Reporting.psm1 orchestrator.
     .PARAMETER JobName
-        The name of the backup job. This is used in the filename of the generated JSON report
-        to clearly associate it with the job.
+        The name of the backup job. Used in the filename of the generated JSON report.
     .PARAMETER ReportData
         A hashtable containing all data collected during the backup job's execution.
         This entire hashtable will be serialised to JSON.
     .PARAMETER Logger
-        A mandatory scriptblock reference to the 'Write-LogMessage' function from Utils.psm1.
-        Used for logging the JSON report generation process itself.
+        A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .EXAMPLE
-        # This function is typically called by Reporting.psm1 (orchestrator)
-        # $jsonParams = @{
-        #     ReportDirectory = "C:\PoShBackup\Reports\JSON\MyJob"
-        #     JobName         = "MyJob"
-        #     ReportData      = $JobReportDataObject
-        #     Logger          = ${function:Write-LogMessage}
-        # }
-        # Invoke-JsonReport @jsonParams
+        # Invoke-JsonReport -ReportDirectory "C:\Reports\JSON" -JobName "MyJob" -ReportData $JobData -Logger ${function:Write-LogMessage}
     .OUTPUTS
         None. This function creates a file in the specified ReportDirectory.
     #>
@@ -71,11 +62,7 @@ function Invoke-JsonReport {
         [scriptblock]$Logger
     )
 
-    # Defensive PSSA appeasement line: Logger is functionally used via $LocalWriteLog,
-    # but this direct call ensures PSSA sees it explicitly.
     & $Logger -Message "Invoke-JsonReport: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {

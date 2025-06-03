@@ -443,7 +443,7 @@ PoSh-Backup can check if a newer version is available online. This is a manual c
     4.  The script will then prompt if you wish to attempt an automatic update. (Note: The self-application of the update is currently under development. For now, you will be directed to download and apply it manually.)
     5.  If your version is current or newer (e.g., a development build), an appropriate message will be shown.
 *   **Local Version File (`Meta\Version.psd1`):** This file in your PoSh-Backup installation directory stores the version number and release date of your current installation. It's updated by the developers with each release.
-*   **No Automatic Updates:** This feature *informs* you about updates. It does not download or install them without your explicit action at this stage.
+*   **Automatic Updates:** This feature informs you about updates and then prompts you on whether you would like to update. Note that this feature hasn't been fully tested; ensure you have manually backed up any custom `Config\` configuration files first.
 *   **Internet Access:** Requires an internet connection to fetch the remote version manifest.
 
 For a full list of all command-line parameters and their descriptions, use PowerShell's built-in help:
