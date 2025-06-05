@@ -62,7 +62,19 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **PowerShell:** Version 5.1 or higher.
 *   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
 *   **Posh-SSH Module (New):** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).*   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files, and potentially for some Post-Run System Actions (e.g., Shutdown, Restart, Hibernate).
+*   **(WebDAV):** The WebDAV target provider uses built-in PowerShell cmdlets (`Invoke-WebRequest`) and does not require an additional external module for its core functionality.
 *   **Network/Remote Access:** For using Backup Targets, appropriate permissions and connectivity to the remote locations (e.g., UNC shares) are necessary for the user account running PoSh-Backup. For the Update Checking feature, internet access is required to fetch the remote version manifest.
+
+**Important Note on WebDAV Remote Retention (Current Status):**
+
+The `WebDAV.Target.psm1` provider (version 0.1.0) includes a placeholder for `RemoteRetentionSettings` (e.g., `KeepCount`) in its configuration example. However, the actual logic to automatically delete old backup archives from the WebDAV server based on these settings is **not yet fully implemented**.
+
+**What this means for you:**
+*   If you configure `RemoteRetentionSettings` for a WebDAV target, PoSh-Backup will currently **not** automatically delete older backup sets from your WebDAV server.
+*   You will need to **manually manage and delete old backup archives** on your WebDAV server to control storage usage until this feature is fully implemented in a future version of the WebDAV target provider.
+*   The local retention policy for the staging directory (`DestinationDir`) will still apply as configured for the job.
+
+We plan to implement full remote retention capabilities for WebDAV targets in a future update. Please check the release notes for updates on this feature.
 
 ### 2. Installation & Initial Setup
 1.  **Obtain the Script:**
@@ -142,6 +154,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             ```powershell
             # Inside User.psd1 or Default.psd1, within the main @{ ... }
             BackupTargets = @{
+
                 "MyMainUNCShare" = @{
                     Type = "UNC" # Refers to Modules\Targets\UNC.Target.psm1
                     TargetSpecificSettings = @{
@@ -150,6 +163,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                     }
                     # Optional: RemoteRetentionSettings = @{ KeepCount = 7 }
                 }
+
                 # Example for the "Replicate" target type
                 "MyReplicatedBackups" = @{
                     Type = "Replicate" # Refers to Modules\Targets\Replicate.Target.psm1
@@ -169,6 +183,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                         }
                     )
                 }
+
                 "MySecureFTPServer" = @{ # NEW SFTP Target Example
                     Type = "SFTP" # Refers to Modules\Targets\SFTP.Target.psm1
                     TargetSpecificSettings = @{
@@ -192,7 +207,25 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                     RemoteRetentionSettings = @{ # Optional: Retention on the SFTP server
                         KeepCount = 5 # Keep the last 5 archives for this job on this SFTP target
                     }
-                }                # Add other targets, e.g., for FTP, S3, etc. as providers become available.
+                }
+
+                "MyNextcloudWebDAV" = @{ # WebDAV Target Example
+                    Type = "WebDAV" # Refers to Modules\Targets\WebDAV.Target.psm1
+                    TargetSpecificSettings = @{
+                        WebDAVUrl             = "https://cloud.example.com/remote.php/dav/files/youruser" # Full URL to your WebDAV base directory
+                        CredentialsSecretName = "NextcloudCredentials" # Secret should store a PSCredential object (Username + App Password/Token or Regular Password)
+                        # CredentialsVaultName  = "MySpecificVault"       # Optional: Specify vault if not default
+                        RemotePath            = "PoShBackup"            # Optional: Relative path within the WebDAVUrl to store backups.
+                                                                    # e.g., /PoShBackup. If empty or not present, uses the root of WebDAVUrl.
+                        CreateJobNameSubdirectory = $true               # Optional: If $true, creates /PoShBackup/JobName/. Default is $false.
+                        RequestTimeoutSec     = 180                   # Optional: Timeout for WebDAV HTTP requests in seconds. Default is 120.
+                    }
+                    RemoteRetentionSettings = @{ # Optional: Retention on the WebDAV server
+                        KeepCount = 7 # Example: Keep the last 7 backup instances for any job using this target.
+                                    # NOTE: WebDAV retention is currently a placeholder and not fully implemented in WebDAV.Target.psm1 v0.1.0.
+                                    # Manual cleanup on the WebDAV server will be required.
+                    }
+                }       # Add other targets, e.g., for FTP, S3, etc. as providers become available.
             }
             ```
     *   **`BackupLocations` (Job Definitions):**
@@ -262,6 +295,19 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                 VerifyLocalArchiveBeforeTransfer = $true # NEW: Ensure this archive is good before sending to MyMainUNCShare
                 SevenZipCpuAffinity         = "0,1"  # Restrict 7-Zip to CPU cores 0 and 1
                 SevenZipExcludeListFile     = "C:\PoShBackup\Config\MyDocsExcludes.txt" # NEW
+            }
+
+            # Inside BackupLocations in User.psd1 or Default.psd1
+            "MyDocs_To_WebDAV" = @{
+                Path                       = "C:\Users\YourUserName\Documents\ImportantProject"
+                Name                       = "ProjectDocs_WebDAV"
+                DestinationDir             = "D:\PoShBackup_Staging\WebDAV" # Local staging directory
+                TargetNames                = @("MyNextcloudWebDAV")         # Reference the WebDAV target instance defined above
+                DeleteLocalArchiveAfterSuccessfulTransfer = $true
+                LocalRetentionCount        = 2
+                ArchivePasswordMethod      = "SecretManagement"
+                ArchivePasswordSecretName  = "MyArchivePasswordForWebDAV" # Separate secret for archive encryption if needed
+                # ... other relevant job settings like CreateSFX, SplitVolumeSize, etc. ...
             }
             ```
     *   **`BackupSets` (Set Definitions):**

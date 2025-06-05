@@ -84,14 +84,21 @@
     "            - Calls `Invoke-PoShBackupFinalisation` at the end.",
     "            - Removed the corresponding finalisation logic.",
     "        - Addressed syntax error in `PoSh-Backup.ps1` call to `Invoke-PoShBackupFinalisation` for the `-JobNameForLog` parameter (missing `$()` for subexpression).",
-    "--- PREVIOUS MAJOR FEATURES (Summary from prior state) ---",
+    "--- PREVIOUS MAJOR FEATURES (Summary from prior state) ---", # Ensure this is above the new section if it exists
     "  - Update Checking and Self-Application Framework (Meta\\Version.psd1, Utilities\\Update.psm1, Meta\\apply_update.ps1, Meta\\Package-PoShBackupRelease.ps1).",
     "  - Pester Testing - Phase 1: Utilities (ConfigUtils.Tests.ps1, FileUtils.Tests.ps1 established patterns; SystemUtils.Tests.ps1 was next).",
     "  - Multi-Volume (Split) Archives, Job Chaining/Dependencies, 7-Zip Password Handling (-p switch), Include/Exclude List Files, CPU Affinity.",
     "  - Core Refactorings (Operations, Logging, Managers, Utils facade, PoSh-Backup.ps1 main loop to JobOrchestrator, ScriptModeHandler).",
     "  - SFX Archives, Checksums, Post-Run Actions, Expanded Backup Targets (UNC, Replicate, SFTP), Log File Retention.",
+    "--- Feature: Backup Target Provider - WebDAV (Current Session Segment) ---",
+    "    - Goal: Add support for transferring backups to WebDAV shares.",
+    "    - New Module: `Modules\\Targets\\WebDAV.Target.psm1` (v0.1.0) created with initial structure for WebDAV operations (PUT, MKCOL, PROPFIND, DELETE) and settings validation. Includes placeholder for remote retention.",
+    "    - `Config\\Default.psd1` (v1.4.7 -> v1.4.8): Added 'WebDAV' target type example under `BackupTargets` (WebDAVUrl, CredentialsSecretName, RemotePath, etc.) and an example job `Docs_To_WebDAV_Example`.",
+    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated to include 'WebDAV' in `AllowedValues` for `BackupTargets.Type`. Changed `TargetSpecificSettings.Type` to 'object' for better flexibility with provider-specific structures (e.g. Replicate target's array).",
+    "    - `Modules\\PoShBackupValidator.psm1` (v1.7.0): No direct code changes needed due to its dynamic target provider validation mechanism; it will call `Invoke-PoShBackupWebDAVTargetSettingsValidation` from the new WebDAV module.",
+    "    - `README.md`: Updated to document the WebDAV target provider, including configuration examples and a caveat about the current placeholder status of WebDAV remote retention.",
     "--- PROJECT STATUS ---",
-    "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. Multi-Volume Manifest feature (MV_MANIFEST_001) is IN PROGRESS. Parameter binding bug in 7-Zip argument generation RESOLVED. PSSA warnings: 1 known for `CliManager.psm1` (plural noun), 2 known for `SFTP.Target.psm1` (`ConvertTo-SecureString`). Next logical step is to adapt Target Providers for manifest file transfer."
+    "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. WebDAV target provider added (v0.1.0, retention pending). PSSA warnings: 1 known for `CliManager.psm1` (plural noun), 2 known for `SFTP.Target.psm1` (`ConvertTo-SecureString`). Next logical step is to test WebDAV functionality and then implement WebDAV remote retention."
   )
 
   main_script_poSh_backup_version = "1.18.0" # Reflects modularisation into CliManager, InitialisationManager, CoreSetupManager, FinalisationManager.
@@ -121,6 +128,7 @@
     "Modules\\Managers\\InitialisationManager.psm1" = "Manages the initial setup of global variables and console display for PoSh-Backup."
     "Modules\\Managers\\CoreSetupManager.psm1" = "Manages the core setup phase of PoSh-Backup, including module imports, configuration loading, job resolution, and dependency ordering."
     "Modules\\Managers\\FinalisationManager.psm1" = "Manages the finalisation tasks for the PoSh-Backup script, including summary display, post-run action invocation, pause behaviour, and exit code."
+    "Modules\\Targets\\WebDAV.Target.psm1" = "PoSh-Backup Target Provider for WebDAV. Handles transferring backups to WebDAV servers and supports credential-based authentication. Remote retention is currently a placeholder."
   }
 
   project_root_folder_name        = "__PROJECT_ROOT_NAME_PLACEHOLDER__"

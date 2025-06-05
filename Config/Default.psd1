@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.4.7: Added DefaultGenerateSplitArchiveManifest and job-level GenerateSplitArchiveManifest settings.
+# Version 1.4.8: Added WebDAV target type example and settings.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -309,6 +309,22 @@
                 KeepCount = 7 # e.g., Keep the last 7 archives for any job using this target, on the SFTP server.
             }
         }
+        "ExampleWebDAVServer" = @{ # WebDAV Example
+            Type = "WebDAV" # Provider module 'Modules\Targets\WebDAV.Target.psm1' will handle this
+            TargetSpecificSettings = @{
+                WebDAVUrl             = "https://webdav.example.com/remote.php/dav/files/backupuser" # Full URL to the base WebDAV directory
+                CredentialsSecretName = "MyWebDAVUserCredentials" # Secret should store a PSCredential object (Username + Password)
+                # CredentialsVaultName  = "MySpecificVault"       # Optional: Specify vault if not default
+                RemotePath            = "PoShBackupArchives"      # Optional: Relative path within the WebDAVUrl to store backups. If empty, uses WebDAVUrl root.
+                CreateJobNameSubdirectory = $true                 # Optional: If $true, creates /PoShBackupArchives/JobName/. Default is $false.
+                RequestTimeoutSec     = 120                     # Optional: Timeout for WebDAV requests in seconds. Default is 120.
+            }
+            RemoteRetentionSettings = @{
+                KeepCount = 5 # Example: Keep the last 5 backup instances on this WebDAV target.
+                            # Note: WebDAV retention is currently a placeholder in WebDAV.Target.psm1 and not fully implemented.
+            }
+        }
+
         # "ExampleS3Bucket" = @{ # Example for a future S3 target provider
         #    Type = "S3"
         #    TargetSpecificSettings = @{
@@ -508,6 +524,19 @@
             }
         }
 
+        "Docs_To_WebDAV_Example" = @{ # Example Job using WebDAV
+            Path                       = "C:\Users\YourUser\Documents\CriticalDocs"
+            Name                       = "UserCriticalDocs_WebDAV"
+            DestinationDir             = "D:\BackupStaging\WebDAV_Stage" # Local staging
+            TargetNames                = @("ExampleWebDAVServer")
+            DeleteLocalArchiveAfterSuccessfulTransfer = $true
+            LocalRetentionCount        = 2
+            ArchivePasswordMethod      = "SecretManagement"
+            ArchivePasswordSecretName  = "MyArchiveEncryptionPassword"
+            SplitVolumeSize            = "500m" # Example: Split into 500MB volumes
+            GenerateSplitArchiveManifest = $true
+        }
+
         #region --- Comprehensive Example (Commented Out for Reference) ---
         <#
         "ComprehensiveExample_WebApp" = @{
@@ -620,7 +649,8 @@
                 "Projects",
                 "AnExample_WithRemoteTarget",
                 "Docs_Replicated_Example",
-                "CriticalData_To_SFTP_Example"
+                "CriticalData_To_SFTP_Example",
+                "Docs_To_WebDAV_Example"
             )
             OnErrorInJob = "StopSet"
             LogRetentionCount = 7 # Logs for jobs run as part of this set will keep only 7 files, overriding their individual or global settings.

@@ -4,7 +4,7 @@
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
-# Version: (Implicit) Updated 29-May-2025 (Added SplitVolumeSize)
+# Version: (Implicit) Updated 05-Jun-2025 (Added WebDAV target type schema)
 
 @{
     # Top-level global settings
@@ -61,7 +61,7 @@
     DefaultArchiveDateFormat                  = @{ Type = 'string'; Required = $false }
     DefaultCreateSFX                          = @{ Type = 'boolean'; Required = $false }
     DefaultSFXModule                          = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") }
-    DefaultSplitVolumeSize                    = @{ Type = 'string'; Required = $false; Pattern = '(^$)|(^\d+[kmg]$)' } # NEW
+    DefaultSplitVolumeSize                    = @{ Type = 'string'; Required = $false; Pattern = '(^$)|(^\d+[kmg]$)' }
 
     DefaultGenerateArchiveChecksum            = @{ Type = 'boolean'; Required = $false }
     DefaultGenerateSplitArchiveManifest       = @{ Type = 'boolean'; Required = $false }
@@ -88,14 +88,32 @@
     BackupTargets                             = @{
         Type             = 'hashtable'
         Required         = $false
-        DynamicKeySchema = @{
+        DynamicKeySchema = @{ # Schema for each named target instance (e.g., "MyUNCShare", "MySFTPServer")
             Type     = "hashtable"
             Required = $true
             Schema   = @{
-                Type                    = @{ Type = 'string'; Required = $true }
-                TargetSpecificSettings  = @{ Type = 'object'; Required = $true }
-                CredentialsSecretName   = @{ Type = 'string'; Required = $false }
-                RemoteRetentionSettings = @{ Type = 'hashtable'; Required = $false }
+                Type = @{
+                    Type          = 'string'
+                    Required      = $true
+                    AllowedValues = @("UNC", "Replicate", "SFTP", "WebDAV") # Added WebDAV
+                }
+                TargetSpecificSettings = @{
+                    Type     = 'object' # This will be validated by the specific target provider's validation function
+                    Required = $true
+                    # No generic schema here as it depends on 'Type'.
+                    # PoShBackupValidator.psm1 will call the appropriate target-specific validator.
+                }
+                CredentialsSecretName = @{ # Optional, used by providers like SFTP, WebDAV
+                    Type     = 'string'
+                    Required = $false
+                }
+                RemoteRetentionSettings = @{ # Optional, structure defined by each provider
+                    Type     = 'hashtable'
+                    Required = $false
+                    # Example for a provider that supports KeepCount:
+                    # Schema = @{ KeepCount = @{ Type = 'int'; Required = $true; Min = 1 } }
+                    # This will be validated by the specific target provider's validation function if it supports it.
+                }
             }
         }
     }
@@ -151,7 +169,7 @@
                 ArchiveExtension                          = @{ Type = 'string'; Required = $false }
                 CreateSFX                                 = @{ Type = 'boolean'; Required = $false }
                 SFXModule                                 = @{ Type = 'string'; Required = $false; AllowedValues = @("Console", "GUI", "Installer", "Default") }
-                SplitVolumeSize                           = @{ Type = 'string'; Required = $false; Pattern = '(^$)|(^\d+[kmg]$)' } # NEW
+                SplitVolumeSize                           = @{ Type = 'string'; Required = $false; Pattern = '(^$)|(^\d+[kmg]$)' }
                 ArchiveDateFormat                         = @{ Type = 'string'; Required = $false }
                 ThreadsToUse                              = @{ Type = 'int'; Required = $false; Min = 0 }
                 CompressionLevel                          = @{ Type = 'string'; Required = $false }
