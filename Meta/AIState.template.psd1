@@ -90,13 +90,21 @@
     "  - Multi-Volume (Split) Archives, Job Chaining/Dependencies, 7-Zip Password Handling (-p switch), Include/Exclude List Files, CPU Affinity.",
     "  - Core Refactorings (Operations, Logging, Managers, Utils facade, PoSh-Backup.ps1 main loop to JobOrchestrator, ScriptModeHandler).",
     "  - SFX Archives, Checksums, Post-Run Actions, Expanded Backup Targets (UNC, Replicate, SFTP), Log File Retention.",
-    "--- Feature: Backup Target Provider - WebDAV (Current Session Segment) ---",
-    "    - Goal: Add support for transferring backups to WebDAV shares.",
-    "    - New Module: `Modules\\Targets\\WebDAV.Target.psm1` (v0.1.0) created with initial structure for WebDAV operations (PUT, MKCOL, PROPFIND, DELETE) and settings validation. Includes placeholder for remote retention.",
-    "    - `Config\\Default.psd1` (v1.4.7 -> v1.4.8): Added 'WebDAV' target type example under `BackupTargets` (WebDAVUrl, CredentialsSecretName, RemotePath, etc.) and an example job `Docs_To_WebDAV_Example`.",
-    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated to include 'WebDAV' in `AllowedValues` for `BackupTargets.Type`. Changed `TargetSpecificSettings.Type` to 'object' for better flexibility with provider-specific structures (e.g. Replicate target's array).",
-    "    - `Modules\\PoShBackupValidator.psm1` (v1.7.0): No direct code changes needed due to its dynamic target provider validation mechanism; it will call `Invoke-PoShBackupWebDAVTargetSettingsValidation` from the new WebDAV module.",
-    "    - `README.md`: Updated to document the WebDAV target provider, including configuration examples and a caveat about the current placeholder status of WebDAV remote retention.",
+    "--- Feature: Backup Target Provider - WebDAV (Completed in Current Session Segment) ---",
+    "    - Goal: Add support for transferring backups to WebDAV shares, including remote retention.",
+    "    - `Modules\\Targets\\WebDAV.Target.psm1` (v0.1.0 -> v0.2.0):",
+    "        - Added internal helper function `Group-RemoteWebDAVBackupInstancesInternal` to list and group backup instances from the WebDAV server using `PROPFIND` and parsing the XML response.",
+    "        - `Invoke-PoShBackupTargetTransfer` modified to:",
+    "            - Call `Group-RemoteWebDAVBackupInstancesInternal` after successful uploads if retention is configured (`RemoteRetentionSettings.KeepCount`).",
+    "            - Determine which instances to delete based on `KeepCount`.",
+    "            - Use the `DELETE` WebDAV method to remove files belonging to instances marked for deletion.",
+    "            - Respect simulation mode for retention operations.",
+    "        - `Initialize-WebDAVRemotePathInternal` improved to better handle PROPFIND checks before MKCOL.",
+    "    - `Config\\Default.psd1`: No changes in this segment (WebDAV example was added previously).",
+    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: No changes in this segment (WebDAV type was added previously).",
+    "    - `Modules\\PoShBackupValidator.psm1`: No direct code changes needed due to dynamic validation (WebDAV validation function was added previously).",
+    "    - `README.md`: Updated to reflect that WebDAV remote retention is now implemented.",
+    "    - User reported syntax errors in `WebDAV.Target.psm1` v0.2.0 (around line 146 in `Initialize-WebDAVRemotePathInternal` for logging PROPFIND status/error) which were manually corrected by the user."
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. WebDAV target provider added (v0.1.0, retention pending). PSSA warnings: 1 known for `CliManager.psm1` (plural noun), 2 known for `SFTP.Target.psm1` (`ConvertTo-SecureString`). Next logical step is to test WebDAV functionality and then implement WebDAV remote retention."
   )
@@ -128,7 +136,7 @@
     "Modules\\Managers\\InitialisationManager.psm1" = "Manages the initial setup of global variables and console display for PoSh-Backup."
     "Modules\\Managers\\CoreSetupManager.psm1" = "Manages the core setup phase of PoSh-Backup, including module imports, configuration loading, job resolution, and dependency ordering."
     "Modules\\Managers\\FinalisationManager.psm1" = "Manages the finalisation tasks for the PoSh-Backup script, including summary display, post-run action invocation, pause behaviour, and exit code."
-    "Modules\\Targets\\WebDAV.Target.psm1" = "PoSh-Backup Target Provider for WebDAV. Handles transferring backups to WebDAV servers and supports credential-based authentication. Remote retention is currently a placeholder."
+    "Modules\\Targets\\WebDAV.Target.psm1" = "PoSh-Backup Target Provider for WebDAV (Web Distributed Authoring and Versioning). Handles transferring backup archives to WebDAV servers, managing remote retention (PROPFIND/DELETE), and supporting credential-based authentication via PowerShell SecretManagement."
   }
 
   project_root_folder_name        = "__PROJECT_ROOT_NAME_PLACEHOLDER__"

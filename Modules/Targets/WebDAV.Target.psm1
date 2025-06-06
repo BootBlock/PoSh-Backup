@@ -28,9 +28,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        0.1.0
+    Version:        0.2.0 # Implemented remote retention logic.
     DateCreated:    05-Jun-2025
-    LastModified:   05-Jun-2025
+    LastModified:   06-Jun-2025
     Purpose:        WebDAV Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     PowerShell SecretManagement configured if using secrets for credentials.
@@ -99,11 +99,13 @@ function Initialize-WebDAVRemotePathInternal {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
     param(
         [Parameter(Mandatory)]
-        [string]$BaseWebDAVUrl, # e.g., https://webdav.example.com
+        [string]$BaseWebDAVUrl, 
         [Parameter(Mandatory)]
-        [string]$RelativePathToEnsure, # e.g., /backups/jobname
+        [string]$RelativePathToEnsure, 
         [Parameter(Mandatory)]
         [System.Management.Automation.PSCredential]$Credential,
+        [Parameter(Mandatory)]
+        [int]$RequestTimeoutSec,
         [Parameter(Mandatory)]
         [scriptblock]$Logger,
         [Parameter(Mandatory)]
@@ -113,64 +115,57 @@ function Initialize-WebDAVRemotePathInternal {
     )
     $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
     & $LocalWriteLog -Message "WebDAV.Target/Initialize-WebDAVRemotePathInternal: Ensuring path '$RelativePathToEnsure' on '$BaseWebDAVUrl'." -Level "DEBUG"
-
-    $fullUrlToEnsure = ($BaseWebDAVUrl.TrimEnd("/") + "/" + $RelativePathToEnsure.TrimStart("/")).TrimEnd("/")
     
     if ($IsSimulateMode.IsPresent) {
-        & $LocalWriteLog -Message "SIMULATE: WebDAV.Target: Would check/create remote directory structure for '$fullUrlToEnsure'." -Level "SIMULATE"
+        & $LocalWriteLog -Message "SIMULATE: WebDAV.Target: Would check/create remote directory structure for '$RelativePathToEnsure' under '$BaseWebDAVUrl'." -Level "SIMULATE"
         return @{ Success = $true }
     }
 
     $pathSegments = $RelativePathToEnsure.Trim("/").Split("/") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-    $currentRelativePath = ""
+    $currentRelativePathForMkcol = ""
     
     foreach ($segment in $pathSegments) {
-        $currentRelativePath += "/$segment"
-        $currentSegmentUrl = ($BaseWebDAVUrl.TrimEnd("/") + $currentRelativePath).TrimEnd("/")
+        $currentRelativePathForMkcol += "/$segment"
+        $currentSegmentUrl = ($BaseWebDAVUrl.TrimEnd("/") + $currentRelativePathForMkcol).TrimEnd("/")
         
         if (-not $PSCmdletInstance.ShouldProcess($currentSegmentUrl, "Check/Create WebDAV Collection")) {
             return @{ Success = $false; ErrorMessage = "WebDAV collection creation for '$currentSegmentUrl' skipped by user." }
         }
 
         try {
-            # Attempt to check if collection exists (PROPFIND depth 0).
-            # -ErrorAction SilentlyContinue means HTTP errors (like 404 Not Found) won't cause this try to fail and jump to catch.
-            # Instead, $? would be $false, and an error record added to $Error.
-            # This PROPFIND is a preliminary check; the subsequent MKCOL is the definitive action.
-            Invoke-WebRequest -Uri $currentSegmentUrl -Method "PROPFIND" -Credential $Credential -Headers @{"Depth"="0"} -TimeoutSec 30 -ErrorAction SilentlyContinue -OutNull
-            # No action needed here based on $? because we will attempt MKCOL regardless,
-            # and the MKCOL logic handles cases where the directory might already exist (e.g., HTTP 405).
-        } catch {
-            # This catch block is for unexpected, terminating errors from Invoke-WebRequest during the PROPFIND attempt itself
-            # (e.g., network issues, DNS failure), not for HTTP status codes like 404 when SilentlyContinue is used.
-            & $LocalWriteLog -Message "[DEBUG] WebDAV.Target: The PROPFIND request for '$currentSegmentUrl' encountered an unexpected issue (this is not an HTTP status error like 404). Error: $($_.Exception.Message). Proceeding to attempt MKCOL anyway." -Level "DEBUG"
-        }
-
-        # Always attempt MKCOL, as it has logic to handle "already exists" (e.g., HTTP 405 response)
-        try {
-            & $LocalWriteLog -Message "  - WebDAV.Target: Attempting MKCOL for '$currentSegmentUrl'." -Level "DEBUG"
-            Invoke-WebRequest -Uri $currentSegmentUrl -Method "MKCOL" -Credential $Credential -TimeoutSec 30 -ErrorAction Stop -OutNull # ErrorAction Stop for MKCOL
-            & $LocalWriteLog -Message "    - WebDAV.Target: MKCOL successful or collection already existed for '$currentSegmentUrl'." -Level "DEBUG"
-        } catch {
-            # Check if the error is "405 Method Not Allowed" - this often means the collection already exists.
-            if ($_.Exception.Response -and $_.Exception.Response.StatusCode -eq 405) {
-                & $LocalWriteLog -Message "    - WebDAV.Target: MKCOL returned 405 (Method Not Allowed) for '$currentSegmentUrl', assuming collection already exists." -Level "DEBUG"
+            & $LocalWriteLog -Message "  - WebDAV.Target: Attempting PROPFIND for '$currentSegmentUrl' (Depth 0) to check existence." -Level "DEBUG"
+            Invoke-WebRequest -Uri $currentSegmentUrl -Method "PROPFIND" -Credential $Credential -Headers @{"Depth"="0"} -TimeoutSec $RequestTimeoutSec -ErrorAction SilentlyContinue -OutNull
+            if ($? -and ($Error.Count -eq 0)) { # $? is true if last command succeeded (no terminating error) AND $Error is clear for this specific command
+                 & $LocalWriteLog -Message "    - WebDAV.Target: PROPFIND for '$currentSegmentUrl' succeeded (HTTP 207 or similar). Collection likely exists." -Level "DEBUG"
+                 continue # Assume collection exists
+            } elseif ($Error[0].Exception.Response -and $Error[0].Exception.Response.StatusCode -eq 404) {
+                 & $LocalWriteLog -Message "    - WebDAV.Target: PROPFIND for '$currentSegmentUrl' returned 404 (Not Found). Attempting MKCOL." -Level "DEBUG"
+                 Clear-Error # Clear the 404 error before attempting MKCOL
             } else {
-                $errorMessage = "Failed to create WebDAV collection '$currentSegmentUrl'. Error: $($_.Exception.Message)"
-                if ($_.Exception.Response) { $errorMessage += " Status: $($_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)" }
-                & $LocalWriteLog -Message "[ERROR] WebDAV.Target: $errorMessage" -Level "ERROR"
-                return @{ Success = $false; ErrorMessage = $errorMessage }
+                 # Some other error with PROPFIND, or $? was false. Log it but still try MKCOL.
+
+                 $propfindStatusMsg = "N/A"
+                 if ($Error[0].Exception.Response) {
+                     $propfindStatusMsg = $Error[0].Exception.Response.StatusCode
+                 }
+                 $propfindErrorMsg = "N/A"
+                 if ($Error[0]) {
+                     $propfindErrorMsg = $Error[0].ToString()
+                 }
+                 & $LocalWriteLog -Message "[DEBUG] WebDAV.Target: PROPFIND for '$currentSegmentUrl' did not definitively confirm existence (Status: $propfindStatusMsg, Error: $propfindErrorMsg). Attempting MKCOL." -Level "DEBUG"
+
+                 Clear-Error
             }
+        } catch {
+             & $LocalWriteLog -Message "[DEBUG] WebDAV.Target: Unexpected error during PROPFIND for '$currentSegmentUrl': $($_.Exception.Message). Attempting MKCOL." -Level "DEBUG"
         }
 
-        # Attempt MKCOL if it might not exist. Some servers return 405 if it exists.
         try {
             & $LocalWriteLog -Message "  - WebDAV.Target: Attempting MKCOL for '$currentSegmentUrl'." -Level "DEBUG"
-            Invoke-WebRequest -Uri $currentSegmentUrl -Method "MKCOL" -Credential $Credential -TimeoutSec 30 -ErrorAction Stop -OutNull
-            & $LocalWriteLog -Message "    - WebDAV.Target: MKCOL successful or collection already existed for '$currentSegmentUrl'." -Level "DEBUG"
+            Invoke-WebRequest -Uri $currentSegmentUrl -Method "MKCOL" -Credential $Credential -TimeoutSec $RequestTimeoutSec -ErrorAction Stop -OutNull
+            & $LocalWriteLog -Message "    - WebDAV.Target: MKCOL successful for '$currentSegmentUrl'." -Level "DEBUG"
         } catch {
-            # Check if the error is "405 Method Not Allowed" - this often means the collection already exists.
-            if ($_.Exception.Response -and $_.Exception.Response.StatusCode -eq 405) {
+            if ($_.Exception.Response -and $_.Exception.Response.StatusCode -eq 405) { # 405 Method Not Allowed often means it exists
                 & $LocalWriteLog -Message "    - WebDAV.Target: MKCOL returned 405 (Method Not Allowed) for '$currentSegmentUrl', assuming collection already exists." -Level "DEBUG"
             } else {
                 $errorMessage = "Failed to create WebDAV collection '$currentSegmentUrl'. Error: $($_.Exception.Message)"
@@ -181,6 +176,141 @@ function Initialize-WebDAVRemotePathInternal {
         }
     }
     return @{ Success = $true }
+}
+#endregion
+
+#region --- Private Helper: Group Remote WebDAV Backup Instances ---
+function Group-RemoteWebDAVBackupInstancesInternal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BaseWebDAVUrl, # e.g. https://server/dav
+        [Parameter(Mandatory = $true)]
+        [string]$RemoteDirectoryToList, # Relative path from BaseWebDAVUrl, e.g., /backups/jobname
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCredential]$Credential,
+        [Parameter(Mandatory = $true)]
+        [int]$RequestTimeoutSec,
+        [Parameter(Mandatory = $true)]
+        [string]$BaseNameToMatch, # e.g., "JobName [DateStamp]"
+        [Parameter(Mandatory = $true)]
+        [string]$PrimaryArchiveExtension, # e.g., ".7z"
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger
+    )
+    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "DEBUG") & $Logger -Message $MessageParam -Level $LevelParam }
+    & $LocalWriteLog -Message "WebDAV.Target/Group-RemoteWebDAVBackupInstancesInternal: Listing '$RemoteDirectoryToList' on '$BaseWebDAVUrl' for base '$BaseNameToMatch', primary ext '$PrimaryArchiveExtension'."
+
+    $instances = @{}
+    $fullDirectoryUrl = ($BaseWebDAVUrl.TrimEnd("/") + "/" + $RemoteDirectoryToList.TrimStart("/")).TrimEnd("/")
+    
+    try {
+        $propfindBody = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:getlastmodified/><d:getcontentlength/><d:resourcetype/></d:prop></d:propfind>'
+        $propfindResponseXml = Invoke-WebRequest -Uri $fullDirectoryUrl -Method "PROPFIND" -Credential $Credential -Headers @{"Depth"="1"} -Body $propfindBody -ContentType "application/xml" -TimeoutSec $RequestTimeoutSec -ErrorAction Stop
+        
+        if ($null -eq $propfindResponseXml -or [string]::IsNullOrWhiteSpace($propfindResponseXml.Content)) {
+            & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: PROPFIND response for '$fullDirectoryUrl' was empty." -Level "WARNING"
+            return $instances
+        }
+
+        [xml]$xmlDoc = $propfindResponseXml.Content
+        $ns = @{ d = "DAV:" } # Define the DAV namespace. [3, 4]
+
+        # Select all 'response' elements for items within the directory (not the directory itself)
+        $responses = Select-Xml -Xml $xmlDoc -Namespace $ns -XPath "//d:response[not(d:propstat/d:prop/d:resourcetype/d:collection)]/d:propstat/d:prop" # Select props of files only
+        
+        if ($null -eq $responses) {
+             & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: No file resources found in PROPFIND response for '$fullDirectoryUrl'."
+             return $instances
+        }
+
+        foreach ($responseNode in $responses) {
+            $propNode = $responseNode.Node # This is the <d:prop> element
+            $hrefNode = $propNode.ParentNode.ParentNode.SelectSingleNode("d:href", $xmlDoc.NameTable) # Go up to <d:response> then find <d:href>
+            $fileNameRaw = $hrefNode.InnerText.TrimEnd("/")
+            $fileName = Split-Path -Path $fileNameRaw -Leaf # Extract just the filename
+
+            $lastModifiedNode = $propNode.SelectSingleNode("d:getlastmodified", $xmlDoc.NameTable)
+            $fileSortTime = [datetime]::MinValue
+            if ($null -ne $lastModifiedNode -and -not [string]::IsNullOrWhiteSpace($lastModifiedNode.InnerText)) {
+                try { $fileSortTime = [datetime]::Parse($lastModifiedNode.InnerText, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal) } # WebDAV dates are typically GMT/UTC. [2]
+                catch { & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: Could not parse getlastmodified '$($lastModifiedNode.InnerText)' for '$fileName'. Error: $($_.Exception.Message)" -Level "WARNING" }
+            }
+
+            $contentLengthNode = $propNode.SelectSingleNode("d:getcontentlength", $xmlDoc.NameTable)
+            $fileSize = 0
+            if ($null -ne $contentLengthNode -and -not [string]::IsNullOrWhiteSpace($contentLengthNode.InnerText)) {
+                try { $fileSize = [long]$contentLengthNode.InnerText } catch {}
+            }
+            
+            $instanceKey = $null
+            $literalBase = [regex]::Escape($BaseNameToMatch)
+            $literalExt = [regex]::Escape($PrimaryArchiveExtension)
+
+            $splitVolumePattern = "^($literalBase$literalExt)\.(\d{3,})$"
+            $splitManifestPattern = "^($literalBase$literalExt)\.manifest\.[a-zA-Z0-9]+$"
+            $singleFilePattern = "^($literalBase$literalExt)$"
+            $sfxFilePattern = "^($literalBase\.[a-zA-Z0-9]+)$" 
+            $sfxManifestPattern = "^($literalBase\.[a-zA-Z0-9]+)\.manifest\.[a-zA-Z0-9]+$"
+
+            if ($fileName -match $splitVolumePattern) { $instanceKey = $Matches[1] }
+            elseif ($fileName -match $splitManifestPattern) { $instanceKey = $Matches[1] }
+            elseif ($fileName -match $sfxManifestPattern) { $instanceKey = $Matches[1] }
+            elseif ($fileName -match $singleFilePattern) { $instanceKey = $Matches[1] }
+            elseif ($fileName -match $sfxFilePattern) { $instanceKey = $Matches[1] }
+            else {
+                if ($fileName.StartsWith($BaseNameToMatch)) {
+                    $basePlusExtMatch = $fileName -match "^($literalBase(\.[^.\s]+)?)"
+                    if ($basePlusExtMatch) {
+                        $potentialKey = $Matches[1]
+                        if ($fileName -match ([regex]::Escape($potentialKey) + "\.\d{3,}") -or `
+                            $fileName -match ([regex]::Escape($potentialKey) + "\.manifest\.[a-zA-Z0-9]+$") -or `
+                            $fileName -eq $potentialKey) {
+                            $instanceKey = $potentialKey
+                        }
+                    }
+                }
+            }
+            
+            if ($null -eq $instanceKey) {
+                & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: Could not determine instance key for remote file '$fileName'. Base: '$BaseNameToMatch', PrimaryExt: '$PrimaryArchiveExtension'. Skipping." -Level "VERBOSE"
+                continue
+            }
+
+            if (-not $instances.ContainsKey($instanceKey)) {
+                $instances[$instanceKey] = @{ SortTime = $fileSortTime; Files = [System.Collections.Generic.List[object]]::new() }
+            }
+            # Store a custom object with name and sort time for each file, as we don't have full FileInfo
+            $instances[$instanceKey].Files.Add(@{ Name = $fileName; SortTime = $fileSortTime; FullHref = $hrefNode.InnerText; Size = $fileSize })
+
+            if ($fileName -match "$literalExt\.001$") {
+                if ($fileSortTime -lt $instances[$instanceKey].SortTime) { $instances[$instanceKey].SortTime = $fileSortTime }
+            }
+        }
+        
+        foreach ($keyToRefine in $instances.Keys) {
+            if ($instances[$keyToRefine].Files.Count -gt 0) {
+                $firstVolumeFileObj = $instances[$keyToRefine].Files | Where-Object { $_.Name -match ([regex]::Escape($keyToRefine) + "\.001$") } | Sort-Object SortTime | Select-Object -First 1
+                if (-not $firstVolumeFileObj -and $keyToRefine.EndsWith($PrimaryArchiveExtension)) {
+                    $firstVolumeFileObj = $instances[$keyToRefine].Files | Where-Object { $_.Name -eq $keyToRefine } | Sort-Object SortTime | Select-Object -First 1
+                }
+                if ($firstVolumeFileObj -and $firstVolumeFileObj.SortTime -lt $instances[$keyToRefine].SortTime) {
+                    $instances[$keyToRefine].SortTime = $firstVolumeFileObj.SortTime
+                } elseif (-not $firstVolumeFileObj) { # If no .001 or direct match, use earliest file in group
+                    $earliestFileInGroup = $instances[$keyToRefine].Files | Sort-Object SortTime | Select-Object -First 1
+                    if ($earliestFileInGroup -and $earliestFileInGroup.SortTime -lt $instances[$keyToRefine].SortTime) {
+                        $instances[$keyToRefine].SortTime = $earliestFileInGroup.SortTime
+                    }
+                }
+            }
+        }
+
+    } catch {
+        & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: Error listing or processing files from '$fullDirectoryUrl'. Error: $($_.Exception.Message)" -Level "ERROR"
+        if ($_.Exception.Response) { & $LocalWriteLog -Message "  Status: $($_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)" -Level "ERROR" }
+    }
+    & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: Found $($instances.Keys.Count) distinct instances in '$RemoteDirectoryToList' for base '$BaseNameToMatch'."
+    return $instances
 }
 #endregion
 
@@ -227,7 +357,7 @@ function Invoke-PoShBackupWebDAVTargetSettingsValidation {
         $ValidationMessagesListRef.Value.Add("WebDAV Target '$TargetInstanceName': 'CredentialsSecretName' in 'TargetSpecificSettings' is missing, not a string, or empty. This secret should store a PSCredential object. Path: '$fullPathToSettings.CredentialsSecretName'.")
     }
     
-    if ($TargetSpecificSettings.ContainsKey('RemotePath') -and (-not ($TargetSpecificSettings.RemotePath -is [string]))) { # RemotePath is optional, defaults to root if not present
+    if ($TargetSpecificSettings.ContainsKey('RemotePath') -and (-not ($TargetSpecificSettings.RemotePath -is [string]))) {
         $ValidationMessagesListRef.Value.Add("WebDAV Target '$TargetInstanceName': 'RemotePath' in 'TargetSpecificSettings' must be a string if defined. Path: '$fullPathToSettings.RemotePath'.")
     }
 
@@ -297,15 +427,13 @@ function Invoke-PoShBackupTargetTransfer {
     }
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    # --- Parse WebDAV Specific Settings ---
-    $sftpSettings = $TargetInstanceConfiguration.TargetSpecificSettings # Re-using var name, but it's WebDAV settings
-    $webDAVUrlBase = $sftpSettings.WebDAVUrl.TrimEnd("/")
-    $credentialSecretName = $sftpSettings.CredentialsSecretName
-    $credentialVaultName = $sftpSettings.CredentialsVaultName # Optional
-    $remotePathRelative = ($sftpSettings.RemotePath -replace "^/+", "").TrimEnd("/") # Relative path on server
-    $createJobSubDir = if ($sftpSettings.ContainsKey('CreateJobNameSubdirectory')) { $sftpSettings.CreateJobNameSubdirectory } else { $false }
-    $requestTimeoutSec = if ($sftpSettings.ContainsKey('RequestTimeoutSec')) { $sftpSettings.RequestTimeoutSec } else { 120 }
-
+    $webDAVSettings = $TargetInstanceConfiguration.TargetSpecificSettings
+    $webDAVUrlBase = $webDAVSettings.WebDAVUrl.TrimEnd("/")
+    $credentialSecretName = $webDAVSettings.CredentialsSecretName
+    $credentialVaultName = $webDAVSettings.CredentialsVaultName 
+    $remotePathRelative = ($webDAVSettings.RemotePath -replace "^/+", "").TrimEnd("/") 
+    $createJobSubDir = if ($webDAVSettings.ContainsKey('CreateJobNameSubdirectory')) { $webDAVSettings.CreateJobNameSubdirectory } else { $false }
+    $requestTimeoutSec = if ($webDAVSettings.ContainsKey('RequestTimeoutSec')) { $webDAVSettings.RequestTimeoutSec } else { 120 }
 
     if ([string]::IsNullOrWhiteSpace($webDAVUrlBase) -or [string]::IsNullOrWhiteSpace($credentialSecretName)) {
         $result.ErrorMessage = "WebDAV Target '$targetNameForLog': WebDAVUrl or CredentialsSecretName is missing."
@@ -318,69 +446,91 @@ function Invoke-PoShBackupTargetTransfer {
         & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"; $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
     }
 
-    $remoteFinalRelativeDir = if ($createJobSubDir) { "$remotePathRelative/$JobName".TrimStart("/") } else { $remotePathRelative }
-    $remoteFinalRelativeDir = $remoteFinalRelativeDir.TrimStart("/") # Ensure it's relative for Initialize-WebDAVRemotePathInternal
+    $remoteFinalRelativeDirForJob = if ($createJobSubDir) { "$remotePathRelative/$JobName".TrimStart("/") } else { $remotePathRelative }
+    $remoteFinalRelativeDirForJob = $remoteFinalRelativeDirForJob.TrimStart("/")
     
-    $fullRemoteArchivePath = ($webDAVUrlBase + "/" + $remoteFinalRelativeDir.TrimStart("/") + "/" + $ArchiveFileName).TrimEnd("/")
+    $fullRemoteArchivePath = ($webDAVUrlBase + "/" + $remoteFinalRelativeDirForJob.TrimStart("/") + "/" + $ArchiveFileName).TrimEnd("/")
     $result.RemotePath = $fullRemoteArchivePath
 
-    & $LocalWriteLog -Message ("  - WebDAV Target '{0}': Base URL '{1}', Relative Path '{2}', Create Subdir '{3}'." -f $targetNameForLog, $webDAVUrlBase, $remotePathRelative, $createJobSubDir) -Level "DEBUG"
-    & $LocalWriteLog -Message ("    - Final Remote Directory (relative): '{0}'" -f $remoteFinalRelativeDir) -Level "DEBUG"
+    & $LocalWriteLog -Message ("  - WebDAV Target '{0}': Base URL '{1}', Relative Path for Job '{2}'." -f $targetNameForLog, $webDAVUrlBase, $remoteFinalRelativeDirForJob) -Level "DEBUG"
     & $LocalWriteLog -Message ("    - Full Remote Archive Destination URL: '{0}'" -f $fullRemoteArchivePath) -Level "DEBUG"
 
-    # --- Simulation Mode ---
     if ($IsSimulateMode.IsPresent) {
         & $LocalWriteLog -Message "SIMULATE: WebDAV.Target '$targetNameForLog': Would connect to '$webDAVUrlBase' with retrieved credentials." -Level "SIMULATE"
-        & $LocalWriteLog -Message "SIMULATE: WebDAV.Target '$targetNameForLog': Would ensure remote directory structure for relative path '$remoteFinalRelativeDir' exists." -Level "SIMULATE"
+        & $LocalWriteLog -Message "SIMULATE: WebDAV.Target '$targetNameForLog': Would ensure remote directory structure for relative path '$remoteFinalRelativeDirForJob' exists." -Level "SIMULATE"
         & $LocalWriteLog -Message "SIMULATE: WebDAV.Target '$targetNameForLog': Would upload '$LocalArchivePath' to '$fullRemoteArchivePath'." -Level "SIMULATE"
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
-        # Retention Simulation
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
-            & $LocalWriteLog -Message ("SIMULATE: WebDAV.Target '{0}': Would apply remote retention (KeepCount: {1}) in relative path '{2}'." -f $targetNameForLog, $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount, $remoteFinalRelativeDir) -Level "SIMULATE"
+            & $LocalWriteLog -Message ("SIMULATE: WebDAV.Target '{0}': Would apply remote retention (KeepCount: {1}) in relative path '{2}'." -f $targetNameForLog, $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount, $remoteFinalRelativeDirForJob) -Level "SIMULATE"
         }
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
     }
 
-    # --- Actual WebDAV Operations ---
     if (-not $PSCmdlet.ShouldProcess($fullRemoteArchivePath, "Transfer Archive via WebDAV")) {
         $result.ErrorMessage = "WebDAV Target '$targetNameForLog': Transfer to '$fullRemoteArchivePath' skipped by user (ShouldProcess)."
         & $LocalWriteLog -Message "[WARNING] $($result.ErrorMessage)" -Level "WARNING"; $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
     }
 
     try {
-        # Ensure remote directory exists
-        $ensurePathResult = Initialize-WebDAVRemotePathInternal -BaseWebDAVUrl $webDAVUrlBase -RelativePathToEnsure $remoteFinalRelativeDir -Credential $credential -Logger $Logger -IsSimulateMode:$IsSimulateMode -PSCmdletInstance $PSCmdlet
-        if (-not $ensurePathResult.Success) {
-            throw ("Failed to ensure WebDAV remote directory structure. Error: " + $ensurePathResult.ErrorMessage)
-        }
+        $ensurePathResult = Initialize-WebDAVRemotePathInternal -BaseWebDAVUrl $webDAVUrlBase -RelativePathToEnsure $remoteFinalRelativeDirForJob -Credential $credential -RequestTimeoutSec $requestTimeoutSec -Logger $Logger -IsSimulateMode:$IsSimulateMode -PSCmdletInstance $PSCmdlet
+        if (-not $ensurePathResult.Success) { throw ("Failed to ensure WebDAV remote directory structure. Error: " + $ensurePathResult.ErrorMessage) }
 
-        # Upload file
         & $LocalWriteLog -Message ("  - WebDAV Target '{0}': Uploading '{1}' to '{2}'..." -f $targetNameForLog, $LocalArchivePath, $fullRemoteArchivePath) -Level "INFO"
         Invoke-WebRequest -Uri $fullRemoteArchivePath -Method Put -InFile $LocalArchivePath -Credential $credential -ContentType "application/octet-stream" -TimeoutSec $requestTimeoutSec -ErrorAction Stop
-        $result.Success = $true
-        $result.TransferSize = $LocalArchiveSizeBytes # Assume full file size transferred on success
+        $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
         & $LocalWriteLog -Message ("    - WebDAV Target '{0}': File uploaded successfully." -f $targetNameForLog) -Level "SUCCESS"
 
-        # Remote Retention (Placeholder - WebDAV PROPFIND and DELETE are complex)
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and `
                 $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -is [int] -and `
                 $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
             $remoteKeepCount = $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount
-            & $LocalWriteLog -Message ("  - WebDAV Target '{0}': Remote retention (KeepCount: {1}) in relative path '{2}' - PLACEHOLDER. WebDAV retention not fully implemented." -f $targetNameForLog, $remoteKeepCount, $remoteFinalRelativeDir) -Level "INFO"
-            # TODO: Implement WebDAV PROPFIND to list files, parse XML, sort by date, and DELETE oldest.
-            # This is non-trivial. For now, log that it's a placeholder.
-            & $LocalWriteLog -Message "[WARNING] WebDAV.Target '$targetNameForLog': Remote retention policy is configured but NOT YET IMPLEMENTED for WebDAV targets. Old files will not be deleted automatically by this provider." -Level "WARNING"
+            & $LocalWriteLog -Message ("  - WebDAV Target '{0}': Applying remote retention (KeepCount: {1}) in relative path '{2}'." -f $targetNameForLog, $remoteKeepCount, $remoteFinalRelativeDirForJob) -Level "INFO"
+            
+            $remoteInstances = Group-RemoteWebDAVBackupInstancesInternal -BaseWebDAVUrl $webDAVUrlBase `
+                -RemoteDirectoryToList $remoteFinalRelativeDirForJob `
+                -Credential $credential `
+                -RequestTimeoutSec $requestTimeoutSec `
+                -BaseNameToMatch $ArchiveBaseName `
+                -PrimaryArchiveExtension $ArchiveExtension `
+                -Logger $Logger
+            
+            if ($remoteInstances.Count -gt $remoteKeepCount) {
+                $sortedInstances = $remoteInstances.GetEnumerator() | Sort-Object {$_.Value.SortTime} -Descending
+                $instancesToDelete = $sortedInstances | Select-Object -Skip $remoteKeepCount
+                & $LocalWriteLog -Message ("    - WebDAV Target '{0}': Found {1} remote instances. Will delete files for {2} older instance(s)." -f $targetNameForLog, $remoteInstances.Count, $instancesToDelete.Count) -Level "INFO"
+
+                foreach ($instanceEntry in $instancesToDelete) {
+                    $instanceKeyToDelete = $instanceEntry.Name
+                    & $LocalWriteLog -Message "      - WebDAV Target '{0}': Preparing to delete instance files for '$instanceKeyToDelete' (SortTime: $($instanceEntry.Value.SortTime))." -Level "WARNING"
+                    foreach ($remoteFileObjInInstance in $instanceEntry.Value.Files) {
+                        $fileToDeleteUrl = ($BaseWebDAVUrl.TrimEnd("/") + $remoteFileObjInInstance.FullHref).TrimEnd("/") # FullHref from PROPFIND
+                        if (-not $PSCmdlet.ShouldProcess($fileToDeleteUrl, "Delete Remote WebDAV File/Part (Retention)")) {
+                            & $LocalWriteLog -Message ("        - Deletion of '{0}' skipped by user." -f $fileToDeleteUrl) -Level "WARNING"; continue
+                        }
+                        & $LocalWriteLog -Message ("        - Deleting: '{0}' (Original SortTime: $($remoteFileObjInInstance.SortTime))" -f $fileToDeleteUrl) -Level "WARNING"
+                        try { 
+                            Invoke-WebRequest -Uri $fileToDeleteUrl -Method "DELETE" -Credential $credential -TimeoutSec $requestTimeoutSec -ErrorAction Stop
+                            & $LocalWriteLog "          - Status: DELETED (Remote WebDAV Retention)" -Level "SUCCESS" 
+                        }
+                        catch { 
+                            $deleteErrorMsg = "Failed to delete remote WebDAV file '$fileToDeleteUrl'. Error: $($_.Exception.Message)"
+                            if ($_.Exception.Response) { $deleteErrorMsg += " Status: $($_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)" }
+                            & $LocalWriteLog "          - Status: FAILED! $deleteErrorMsg" -Level "ERROR"
+                            if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $deleteErrorMsg }
+                            else { $result.ErrorMessage += "; $deleteErrorMsg" }
+                        } 
+                    }
+                }
+            } else { & $LocalWriteLog ("    - WebDAV Target '{0}': No old instances to delete based on retention count {1} (Found: $($remoteInstances.Count))." -f $targetNameForLog, $remoteKeepCount) -Level "INFO" }
         }
 
     } catch {
         $result.ErrorMessage = "WebDAV Target '$targetNameForLog': Operation failed. Error: $($_.Exception.Message)"
         if ($_.Exception.Response) { $result.ErrorMessage += " Status: $($_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)" }
-        & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"
-        $result.Success = $false
+        & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"; $result.Success = $false
     }
 
-    $stopwatch.Stop()
-    $result.TransferDuration = $stopwatch.Elapsed
+    $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed
     & $LocalWriteLog -Message ("[INFO] WebDAV Target: Finished transfer attempt for Job '{0}' to Target '{1}', File '{2}'. Success: {3}." -f $JobName, $targetNameForLog, $ArchiveFileName, $result.Success) -Level "INFO"
     return $result
 }
