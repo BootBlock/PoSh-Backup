@@ -1212,12 +1212,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** `Modules\ScriptModeHandler.psm1` (for `-TestConfig` logic), `Modules\Managers\7ZipManager.psm1`.
     *   **Acceptance Criteria:** `-TestConfig` provides clearer feedback if the configured `7z.exe` is not functional.
 
-135. **Feature: Archive Comment Support**
-    *   **Goal:** Allow users to add a comment to the created 7-Zip archive.
-    *   **Description:** Useful for embedding metadata or notes directly into the archive file.
-    *   **Scope & Impact:** `Config\Default.psd1` (job-level `ArchiveComment` string or `ArchiveCommentFile` path), `Modules\Managers\7ZipManager.psm1` (add `-z{commentfile.txt}` switch).
-    *   **Acceptance Criteria:** Archive is created with the specified comment.
-
 **XXXII. Backup Target Enhancements (Practical)**
 
 136. **Enhancement: UNC Target - Option to Use Robocopy for Transfers**
@@ -1499,18 +1493,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Acceptance Criteria:** `-TestConfig` clearly shows the effective post-run action and its configuration source.
 
 **XLVI. Practical Archive & File Handling**
-
-178. **Feature: Option to Exclude Files Based on Attributes**
-    *   **Goal:** Allow 7-Zip to exclude files based on system attributes (e.g., Hidden, System, Temporary).
-    *   **Description:** 7-Zip supports this with the `-x!ARCACL` or similar switches (e.g., `-x!H` for hidden).
-    *   **Scope & Impact:** `Config\Default.psd1` (job-level `ExcludeFileAttributes` array like `@("Hidden", "System")`), `Modules\Managers\7ZipManager\ArgumentBuilder.psm1` (to translate these to 7-Zip switches).
-    *   **Acceptance Criteria:** Files with specified attributes are excluded from the archive.
-
-179. **Feature: Option to Exclude Files Older/Newer Than X Days/Date**
-    *   **Goal:** Allow 7-Zip to include/exclude files based on their modification date.
-    *   **Description:** 7-Zip supports this with `-to` (older than) and `-tn` (newer than) switches.
-    *   **Scope & Impact:** `Config\Default.psd1` (job-level `IncludeFilesNewerThan`, `ExcludeFilesOlderThan`), `Modules\Managers\7ZipManager\ArgumentBuilder.psm1`.
-    *   **Acceptance Criteria:** Files are included/excluded based on date criteria.
 
 180. **Feature: "Test Before Delete" for Local Retention**
     *   **Goal:** Before deleting an old local archive due to retention, optionally perform an integrity test (`7z t`) on it. If the test fails, do not delete it (and warn the admin).
