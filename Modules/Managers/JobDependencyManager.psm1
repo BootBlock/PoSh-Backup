@@ -15,6 +15,16 @@
     Prerequisites:  PowerShell 5.1+.
 #>
 
+#region --- Module Dependencies ---
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+}
+catch {
+    Write-Error "JobDependencyManager.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw # Critical dependency
+}
+#endregion
+
 #region --- Internal Helper Functions ---
 
 function Test-CycleInJobRecursiveInternal ($currentJob, $currentPathMessage, $dependencyListForValidation, $visitingHashtable, $processedHashtable, $ValidationMessagesListRef) {
@@ -86,6 +96,13 @@ function Test-PoShBackupJobDependencyGraph {
                         # Check against PowerShell array
                         $ValidationMessagesListRef.Value.Add("Job Dependency Error: Job '$jobName' has a dependency on a non-existent job '$depJobName'.")
                     }
+                    elseif ($AllBackupLocations.ContainsKey($depJobName)) {
+                        $depJobConf = $AllBackupLocations[$depJobName]
+                        $isDepEnabled = Get-ConfigValue -ConfigObject $depJobConf -Key 'Enabled' -DefaultValue $true
+                        if (-not $isDepEnabled) {
+                            $ValidationMessagesListRef.Value.Add("Job Dependency Error: Job '$jobName' has a dependency on job '$depJobName', which is disabled (Enabled = `$false).")
+                        }
+                    }
                 }
                 Else {
                     $ValidationMessagesListRef.Value.Add("Job Dependency Error: Job '$jobName' has an empty or whitespace dependency defined in 'DependsOnJobs'.")
@@ -152,6 +169,15 @@ function Build-JobExecutionOrder {
     $InitialJobsToConsider | ForEach-Object {
         $jobToConsider = $_
         if (-not [string]::IsNullOrWhiteSpace($jobToConsider) -and $AllBackupLocations.ContainsKey($jobToConsider)) {
+            # --- Start of filtering logic
+            $jobConfForEnableCheck = $AllBackupLocations[$jobToConsider]
+            $isJobEnabled = Get-ConfigValue -ConfigObject $jobConfForEnableCheck -Key 'Enabled' -DefaultValue $true
+            if (-not $isJobEnabled) {
+                & $LocalWriteLog -Message "JobDependencyManager/Build-JobExecutionOrder: Initial job '$jobToConsider' is disabled. Skipping it and its dependencies for ordering." -Level "INFO"
+                return # Skips this job in ForEach-Object
+            }
+            # --- End of filtering logic
+
             if (-not $relevantJobsSet.ContainsKey($jobToConsider)) {
                 $relevantJobsSet[$jobToConsider] = $true
                 $queueForDependencyExpansion.Enqueue($jobToConsider) 

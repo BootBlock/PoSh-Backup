@@ -366,8 +366,9 @@
             Path                    = "P:\Images\*"                   # Path(s) to back up. Can be a single string or an array of strings for multiple sources.
             Name                    = "Projects"                      # Base name for the archive file (date stamp and extension will be appended).
             DestinationDir          = "D:\Backups"                    # Specific directory for this job. If remote targets are specified, this acts as a LOCAL STAGING area.
-                                                                      # If no remote targets, this is the FINAL BACKUP DESTINATION.
+            Enabled                 = $true                           # Set to $false to disable this job without deleting its configuration.
             #TargetNames             = @("ExampleUNCShare")           # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
+                                                                      # If no remote targets, this is the FINAL BACKUP DESTINATION.
                                                                       # If empty or not present, this job is local-only to DestinationDir.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override. Only effective if TargetNames are specified.
 
@@ -418,6 +419,7 @@
             Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
             Name                       = "MyImportantDocuments"
             DestinationDir             = "D:\Backups\LocalStage"      # LOCAL STAGING directory, as TargetNames are specified below. Archive is created here first.
+            Enabled                    = $true                        # Set to $false to disable this job without deleting its configuration.
 
             TargetNames                = @("ExampleUNCShare")         # Archive will be sent to "ExampleUNCShare" (defined in BackupTargets) after local creation.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Delete from local staging after successful transfer to ALL targets.
@@ -457,6 +459,7 @@
             Path                       = @("C:\Users\YourUser\Documents\Reports", "C:\Users\YourUser\Pictures\Screenshots")
             Name                       = "UserDocs_MultiCopy"         # Example: base name for the archive
             DestinationDir             = "C:\BackupStaging\UserDocs"  # Local staging directory before replication (as TargetNames are specified).
+            Enabled                    = $false                       # Set to $false to disable this job without deleting its configuration.
 
             TargetNames                = @("ExampleReplicatedStorage") # Reference the "Replicate" target instance defined in BackupTargets
 
@@ -546,6 +549,7 @@
                                       )
             Name                    = "WebApp_Production"
             DestinationDir          = "\\BACKUPSERVER\Share\WebApps\LocalStage_WebApp"
+            Enabled                 = $true                                    # Set to $false to disable this job without deleting its configuration.
 
             LocalRetentionCount                       = 1
             LogRetentionCount                         = 15                     # Example: Keep 15 logs for this specific job

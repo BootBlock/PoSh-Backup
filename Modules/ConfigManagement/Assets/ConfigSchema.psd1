@@ -137,6 +137,7 @@
                 Path                                      = @{ Type = 'string_or_array'; Required = $true }
                 Name                                      = @{ Type = 'string'; Required = $true }
                 DestinationDir                            = @{ Type = 'string'; Required = $false }
+                Enabled                                   = @{ Type = 'boolean'; Required = $false }
                 LocalRetentionCount                       = @{ Type = 'int'; Required = $false; Min = 0 }
                 LogRetentionCount                         = @{ Type = 'int'; Required = $false; Min = 0 }
                 TargetNames                               = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } }

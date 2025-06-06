@@ -94,6 +94,25 @@ function Get-JobsToProcess {
             $setName = $SpecifiedSetName
             $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @())
 
+            # --- Start of filtering logic
+            foreach ($jobNameCandidateInSet in $tempJobsInSet) {
+                if ($Config.BackupLocations.ContainsKey($jobNameCandidateInSet)) {
+                    $jobConfForEnableCheck = $Config.BackupLocations[$jobNameCandidateInSet]
+                    # Get-ConfigValue will default to $true if 'Enabled' is missing
+                    $isJobEnabled = Get-ConfigValue -ConfigObject $jobConfForEnableCheck -Key 'Enabled' -DefaultValue $true
+                    if ($isJobEnabled) {
+                        $jobsToRun.Add($jobNameCandidateInSet)
+                    } else {
+                        & $LocalWriteLog -Message "  - JobResolver: Job '$jobNameCandidateInSet' in set '$setName' is disabled (Enabled = `$false). Skipping." -Level "INFO"
+                    }
+                } else {
+                    # This case should ideally be caught by dependency/validation checks later,
+                    # but good to log if a set references a non-existent job.
+                    & $LocalWriteLog -Message "  - JobResolver: Job '$jobNameCandidateInSet' listed in set '$setName' not found in BackupLocations. Skipping." -Level "WARNING"
+                }
+            }
+            # --- End of filtering logic
+
             if ($jobNamesInSet.Count -gt 0) {
                 $jobNamesInSet | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) { $jobsToRun.Add($_.Trim()) } }
                 if ($jobsToRun.Count -eq 0) {
@@ -124,8 +143,18 @@ function Get-JobsToProcess {
     }
     elseif (-not [string]::IsNullOrWhiteSpace($SpecifiedJobName)) {
         if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable] -and $Config['BackupLocations'].ContainsKey($SpecifiedJobName)) {
-            $jobsToRun.Add($SpecifiedJobName)
-            & $LocalWriteLog -Message "`n[INFO] JobResolver: Single Backup Location specified by user: '$SpecifiedJobName'" -Level "INFO"
+
+            # --- Start of filtering logic
+            $jobConfForEnableCheck = $Config.BackupLocations[$SpecifiedJobName]
+            $isJobEnabled = Get-ConfigValue -ConfigObject $jobConfForEnableCheck -Key 'Enabled' -DefaultValue $true
+            if ($isJobEnabled) {
+                $jobsToRun.Add($SpecifiedJobName)
+                & $LocalWriteLog -Message "`n[INFO] JobResolver: Single Backup Location specified by user: '$SpecifiedJobName'" -Level "INFO"
+            } else {
+                return @{ Success = $false; ErrorMessage = "JobResolver: Specified BackupLocationName '$SpecifiedJobName' is disabled (Enabled = `$false)." }
+            }
+            # --- End of filtering logic
+
         }
         else {
             $availableJobsMessage = "No Backup Locations defined."
@@ -144,8 +173,18 @@ function Get-JobsToProcess {
 
         if ($jobCount -eq 1) {
             $singleJobKey = ($Config['BackupLocations'].Keys | Select-Object -First 1)
-            $jobsToRun.Add($singleJobKey)
-            & $LocalWriteLog -Message "`n[INFO] JobResolver: No job/set specified. Auto-selected single defined Backup Location: '$singleJobKey'" -Level "INFO"
+
+            # --- Start of filtering logic
+            $jobConfForEnableCheck = $Config.BackupLocations[$singleJobKey]
+            $isJobEnabled = Get-ConfigValue -ConfigObject $jobConfForEnableCheck -Key 'Enabled' -DefaultValue $true
+            if ($isJobEnabled) {
+                $jobsToRun.Add($singleJobKey)
+                & $LocalWriteLog -Message "`n[INFO] JobResolver: No job/set specified. Auto-selected single defined Backup Location: '$singleJobKey'" -Level "INFO"
+            } else {
+                return @{ Success = $false; ErrorMessage = "JobResolver: No job/set specified. The only defined Backup Location ('$singleJobKey') is disabled (Enabled = `$false)." }
+            }
+            # --- End of filtering logic
+
         }
         elseif ($jobCount -eq 0) {
             return @{ Success = $false; ErrorMessage = "JobResolver: No job/set specified, and no Backup Locations defined. Nothing to back up." }

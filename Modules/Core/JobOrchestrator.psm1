@@ -89,6 +89,72 @@ function Invoke-PoShBackupRun {
 
     foreach ($currentJobName in $JobsToProcess) {
 
+        $jobConfigForEnableCheck = $Configuration.BackupLocations[$currentJobName] # Assumes $currentJobName is valid and exists
+        $isJobEnabledForExecution = Get-ConfigValue -ConfigObject $jobConfigForEnableCheck -Key 'Enabled' -DefaultValue $true
+
+        if (-not $isJobEnabledForExecution) {
+            & $LocalWriteLog -Message "[INFO] JobOrchestrator: Job '$currentJobName' is marked as disabled in its configuration. Skipping execution." -Level "INFO"
+            $currentJobReportData = [ordered]@{ JobName = $currentJobName; ScriptStartTime = Get-Date } # Basic report data for skipped job
+            $currentJobReportData.OverallStatus = "SKIPPED_DISABLED"
+            $currentJobReportData.ErrorMessage = "Job is disabled (Enabled = `$false in configuration)."
+            # Populate other essential report fields for consistency
+            $currentJobReportData.LogEntries = if ($null -ne $Global:GlobalJobLogEntries) { $Global:GlobalJobLogEntries } else { [System.Collections.Generic.List[object]]::new() }
+            $currentJobReportData.HookScripts = if ($null -ne $Global:GlobalJobHookScriptData) { $Global:GlobalJobHookScriptData } else { [System.Collections.Generic.List[object]]::new() }
+            $currentJobReportData.ScriptEndTime = Get-Date
+            $currentJobReportData.TotalDuration = $currentJobReportData.ScriptEndTime - $currentJobReportData.ScriptStartTime
+            $currentJobReportData.TotalDurationSeconds = ($currentJobReportData.ScriptEndTime - $currentJobReportData.ScriptStartTime).TotalSeconds
+            
+            # Minimal report generation for disabled/skipped job
+            $_jobSpecificReportTypesSettingSkipped = Get-ConfigValue -ConfigObject $jobConfigForEnableCheck -Key 'ReportGeneratorType' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'ReportGeneratorType' -DefaultValue "HTML")
+
+            # Minimal report generation for disabled/skipped job
+            # $_jobSpecificReportTypesSettingSkipped is already defined above this block
+            $_jobReportGeneratorTypesListSkipped = [System.Collections.Generic.List[string]]::new()
+            if ($_jobSpecificReportTypesSettingSkipped -is [array]) {
+                $_jobSpecificReportTypesSettingSkipped | ForEach-Object { $_jobReportGeneratorTypesListSkipped.Add($_.ToString().ToUpperInvariant()) }
+            }
+            else {
+                $_jobReportGeneratorTypesListSkipped.Add($_jobSpecificReportTypesSettingSkipped.ToString().ToUpperInvariant())
+            }
+            # Apply CLI override for HTML report if present
+            if ($CliOverrideSettings.GenerateHtmlReport -eq $true) { # Assuming CliOverrideSettings is available in this scope
+                if ("HTML" -notin $_jobReportGeneratorTypesListSkipped) { $_jobReportGeneratorTypesListSkipped.Add("HTML") }
+                if ($_jobReportGeneratorTypesListSkipped.Contains("NONE") -and $_jobReportGeneratorTypesListSkipped.Count -gt 1) { $_jobReportGeneratorTypesListSkipped.Remove("NONE") }
+                elseif ($_jobReportGeneratorTypesListSkipped.Count -eq 1 -and $_jobReportGeneratorTypesListSkipped[0] -eq "NONE") { $_jobReportGeneratorTypesListSkipped = [System.Collections.Generic.List[string]]@("HTML") }
+            }
+            $_finalJobReportTypesSkipped = $_jobReportGeneratorTypesListSkipped | Select-Object -Unique
+            $_activeReportTypesForSkippedJob = $_finalJobReportTypesSkipped | Where-Object { $_ -ne "NONE" }
+
+            if ($_activeReportTypesForSkippedJob.Count -gt 0) {
+                $defaultJobReportsDirSkipped = Join-Path -Path $PSScriptRootForPaths -ChildPath "Reports"
+                # Ensure directory exists (simplified check, assumes it might have been created by a previous job in the set)
+                if (-not (Test-Path -LiteralPath $defaultJobReportsDirSkipped -PathType Container)) {
+                    try {
+                        New-Item -Path $defaultJobReportsDirSkipped -ItemType Directory -Force -ErrorAction Stop | Out-Null
+                        & $LocalWriteLog -Message "[INFO] JobOrchestrator: Default reports directory '$defaultJobReportsDirSkipped' created for skipped job report." -Level "INFO"
+                    } catch {
+                        & $LocalWriteLog -Message "[WARNING] JobOrchestrator: Failed to create reports directory '$defaultJobReportsDirSkipped' for skipped job. Report generation may fail. Error: $($_.Exception.Message)" -Level "WARNING"
+                    }
+                }
+                if (Test-Path -LiteralPath $defaultJobReportsDirSkipped -PathType Container) {
+                    Invoke-ReportGenerator -ReportDirectory $defaultJobReportsDirSkipped `
+                        -JobName $currentJobName `
+                        -ReportData $currentJobReportData `
+                        -GlobalConfig $Configuration `
+                        -JobConfig $jobConfigForEnableCheck `
+                        -Logger $Logger
+                }
+            }
+
+            $jobEffectiveSuccessState[$currentJobName] = $false # A disabled job did not "succeed" for dependency purposes
+            if ($CurrentSetName -and $StopSetOnErrorPolicy) {
+                & $LocalWriteLog -Message "[WARNING] Job '$currentJobName' in set '$CurrentSetName' was disabled. Stopping set as 'OnErrorInJob' policy is 'StopSet' (treating disabled as a non-success)." -Level "WARNING"
+                if ($overallSetStatus -ne "FAILURE") { $overallSetStatus = "WARNINGS" } # Or FAILURE depending on how strict you want to be
+                break # Stop processing further jobs in the set
+            }
+            continue # Move to the next job in $JobsToProcess
+        }
+
         Write-ConsoleBanner -NameText "Processing Job:" `
                             -ValueText $currentJobName `
                             -CenterText `

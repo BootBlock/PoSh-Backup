@@ -90,7 +90,17 @@
     "  - Multi-Volume (Split) Archives, Job Chaining/Dependencies, 7-Zip Password Handling (-p switch), Include/Exclude List Files, CPU Affinity.",
     "  - Core Refactorings (Operations, Logging, Managers, Utils facade, PoSh-Backup.ps1 main loop to JobOrchestrator, ScriptModeHandler).",
     "  - SFX Archives, Checksums, Post-Run Actions, Expanded Backup Targets (UNC, Replicate, SFTP), Log File Retention.",
-    "--- Feature: Backup Target Provider - WebDAV (Completed in Current Session Segment) ---",
+    "--- Feature: Disable Job Flag (Current Session Segment) ---",
+    "    - Goal: Allow individual jobs to be disabled via an 'Enabled = $false' flag in configuration.",
+    "    - `Config\\Default.psd1`: Added `Enabled = $true` (boolean) to example job definitions.",
+    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Added `Enabled` key (boolean, optional) to the job schema.",
+    "    - `Modules\\ConfigManagement\\JobResolver.psm1`: Modified `Get-JobsToProcess` to filter out jobs where `Enabled` is `$false` during job/set resolution.",
+    "    - `Modules\\Managers\\JobDependencyManager.psm1`:",
+    "        - `Build-JobExecutionOrder` now skips initially specified disabled jobs.",
+    "        - `Test-PoShBackupJobDependencyGraph` now flags dependencies on disabled jobs as errors.",
+    "    - `Modules\\Core\\JobOrchestrator.psm1`: Modified `Invoke-PoShBackupRun` to perform a final check and skip execution of disabled jobs, generating a minimal 'SKIPPED_DISABLED' report.",
+    "    - Resolved 'Get-ConfigValue not recognized' error in `JobDependencyManager.psm1` by adding a direct `Import-Module Utils.psm1`.",
+    "--- Feature: Backup Target Provider - WebDAV (Completed in Previous Session Segment) ---",
     "    - Goal: Add support for transferring backups to WebDAV shares, including remote retention.",
     "    - `Modules\\Targets\\WebDAV.Target.psm1` (v0.1.0 -> v0.2.0):",
     "        - Added internal helper function `Group-RemoteWebDAVBackupInstancesInternal` to list and group backup instances from the WebDAV server using `PROPFIND` and parsing the XML response.",
@@ -106,7 +116,7 @@
     "    - `README.md`: Updated to reflect that WebDAV remote retention is now implemented.",
     "    - User reported syntax errors in `WebDAV.Target.psm1` v0.2.0 (around line 146 in `Initialize-WebDAVRemotePathInternal` for logging PROPFIND status/error) which were manually corrected by the user."
     "--- PROJECT STATUS ---",
-    "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. WebDAV target provider added (v0.1.0, retention pending). PSSA warnings: 1 known for `CliManager.psm1` (plural noun), 2 known for `SFTP.Target.psm1` (`ConvertTo-SecureString`). Next logical step is to test WebDAV functionality and then implement WebDAV remote retention."
+    "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. WebDAV target provider (v0.2.0) now has remote retention. 'Disable Job' flag feature added. PSSA warnings: 1 known for ArgumentBuilder.psm1, several for unused parameters in target providers, 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
   main_script_poSh_backup_version = "1.18.0" # Reflects modularisation into CliManager, InitialisationManager, CoreSetupManager, FinalisationManager.
