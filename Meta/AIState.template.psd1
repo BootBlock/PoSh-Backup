@@ -119,7 +119,7 @@
     "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. WebDAV target provider (v0.2.0) now has remote retention. 'Disable Job' flag feature added. PSSA warnings: 1 known for ArgumentBuilder.psm1, several for unused parameters in target providers, 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.18.0" # Reflects modularisation into CliManager, InitialisationManager, CoreSetupManager, FinalisationManager.
+  main_script_poSh_backup_version = "1.18.0 # Modularised final summary and exit logic to FinalisationManager.psm1."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

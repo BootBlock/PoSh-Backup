@@ -12,9 +12,9 @@
     the configuration, and determines the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2 # Corrected module import paths to use main script's PSScriptRoot.
+    Version:        1.0.3 # Added -Version switch parameter pass-through.
     DateCreated:    01-Jun-2025
-    LastModified:   01-Jun-2025
+    LastModified:   06-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
     Prerequisites:  PowerShell 5.1+.
                     Relies on InitialisationManager.psm1 and CliManager.psm1 having been run.
@@ -52,6 +52,8 @@ function Invoke-PoShBackupCoreSetup {
         [Parameter(Mandatory = $true)]
         [switch]$SkipUserConfigCreation,
         [Parameter(Mandatory = $true)]
+        [switch]$Version,
+        [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
 
@@ -88,7 +90,7 @@ function Invoke-PoShBackupCoreSetup {
     # --- Configuration Loading, Validation & Job Determination ---
     $configLoadParams = @{
         UserSpecifiedPath           = $ConfigFile
-        IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent))
+        IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent))
         MainScriptPSScriptRoot      = $PSScriptRoot # Pass the main script's PSScriptRoot
         Logger                      = $LoggerScriptBlock
         SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
@@ -125,6 +127,7 @@ function Invoke-PoShBackupCoreSetup {
                                 -ListBackupSetsSwitch $ListBackupSets.IsPresent `
                                 -TestConfigSwitch $TestConfig.IsPresent `
                                 -CheckForUpdateSwitch $false `
+                                -VersionSwitch $Version.IsPresent `
                                 -Configuration $Configuration `
                                 -ActualConfigFile $ActualConfigFile `
                                 -ConfigLoadResult $configResult `

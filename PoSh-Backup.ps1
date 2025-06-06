@@ -146,6 +146,9 @@
 .PARAMETER CheckForUpdate
     Optional. A switch parameter. If present, checks for available updates to PoSh-Backup and exits.
 
+.PARAMETER Version
+    Optional. A switch parameter. If present, displays the PoSh-Backup script version and exits.
+
 .EXAMPLE
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -SevenZipExcludeListFileCLI "C:\Config\MyGlobalExcludes.txt"
     Runs the "MyDocs_To_UNC" job and uses the specified file for 7-Zip exclusion rules, overriding any
@@ -161,9 +164,13 @@
     .\PoSh-Backup.ps1 -CheckForUpdate
     Checks if a new version of PoSh-Backup is available online and displays the information.
 
+.EXAMPLE
+    .\PoSh-Backup.ps1 -Version
+    Displays the current version of the PoSh-Backup script and exits.
+
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.18.0 # Modularised final summary and exit logic to FinalisationManager.psm1.
+    Version:        1.19.0 # Added -Version switch.
     Date:           01-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -267,7 +274,10 @@ param (
     [string[]]$PostRunActionTriggerOnStatusCli = @("ANY"),
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Checks for available updates to PoSh-Backup and exits.")]
-    [switch]$CheckForUpdate
+    [switch]$CheckForUpdate,
+
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Displays the PoSh-Backup script version and exits.")]
+    [switch]$Version
 )
 #endregion
 
@@ -359,6 +369,7 @@ try {
                                                 -ListBackupLocations:$ListBackupLocations.IsPresent `
                                                 -ListBackupSets:$ListBackupSets.IsPresent `
                                                 -SkipUserConfigCreation:$SkipUserConfigCreation.IsPresent `
+                                                -Version:$Version.IsPresent `
                                                 -PSCmdlet $PSCmdlet
     
     $Configuration = $coreSetupResult.Configuration

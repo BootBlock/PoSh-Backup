@@ -2,21 +2,21 @@
 <#
 .SYNOPSIS
     Handles informational script modes for PoSh-Backup, such as listing backup locations,
-    listing backup sets, testing the configuration, or checking for updates.
+    listing backup sets, testing the configuration, checking for updates, or displaying the version.
 .DESCRIPTION
     This module provides a function, Invoke-PoShBackupScriptMode, which checks if PoSh-Backup
     was invoked with parameters like -ListBackupLocations, -ListBackupSets, -TestConfig,
-    or -CheckForUpdate.
+    -CheckForUpdate, or -Version.
     If one of these modes is active, this module takes over, performs the requested action
-    (e.g., printing the list, configuration summary, or update status to the console),
+    (e.g., printing the list, configuration summary, update status, or version),
     and then exits the script.
     For -CheckForUpdate, it lazy-loads 'Modules\Utilities\Update.psm1'.
     This keeps the main PoSh-Backup.ps1 script cleaner by offloading this mode-specific logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added -CheckForUpdate mode handling.
+    Version:        1.2.0 # Added -Version switch handling.
     DateCreated:    24-May-2025
-    LastModified:   31-May-2025
+    LastModified:   06-Jun-2025
     Purpose:        To handle informational script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
@@ -28,10 +28,10 @@ function Invoke-PoShBackupScriptMode {
     [CmdletBinding()]
     <#
     .SYNOPSIS
-        Checks for and handles informational script modes (-ListBackupLocations, -ListBackupSets, -TestConfig, -CheckForUpdate).
+        Checks for and handles informational script modes (-ListBackupLocations, -ListBackupSets, -TestConfig, -CheckForUpdate, -Version).
     .DESCRIPTION
         If one of the specified informational CLI switches is present, this function executes
-        the corresponding logic (listing items, testing configuration, or checking for updates)
+        the corresponding logic (listing items, testing configuration, checking for updates, or displaying version)
         and then exits the script. If no such mode is active, it returns a value indicating
         that the main script should continue.
     .PARAMETER ListBackupLocationsSwitch
@@ -42,6 +42,8 @@ function Invoke-PoShBackupScriptMode {
         The $TestConfig.IsPresent switch value from the main script.
     .PARAMETER CheckForUpdateSwitch
         The $CheckForUpdate.IsPresent switch value from the main script.
+    .PARAMETER VersionSwitch
+        The $Version.IsPresent switch value from the main script.
     .PARAMETER Configuration
         The loaded PoSh-Backup configuration hashtable.
     .PARAMETER ActualConfigFile
@@ -51,7 +53,7 @@ function Invoke-PoShBackupScriptMode {
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .PARAMETER PSScriptRootForUpdateCheck
-        The $PSScriptRoot of the main PoSh-Backup.ps1 script, needed for resolving paths if -CheckForUpdate is used.
+        The $PSScriptRoot of the main PoSh-Backup.ps1 script, needed for resolving paths if -CheckForUpdate or -Version is used.
     .PARAMETER PSCmdletForUpdateCheck
         The $PSCmdlet automatic variable from the main PoSh-Backup.ps1 script, for ShouldProcess in update check.
     .OUTPUTS
@@ -72,7 +74,10 @@ function Invoke-PoShBackupScriptMode {
         [bool]$TestConfigSwitch,
 
         [Parameter(Mandatory = $true)]
-        [bool]$CheckForUpdateSwitch, # NEW
+        [bool]$CheckForUpdateSwitch,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$VersionSwitch,
 
         [Parameter(Mandatory = $true)]
         [hashtable]$Configuration,
@@ -86,7 +91,7 @@ function Invoke-PoShBackupScriptMode {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
 
-        [Parameter(Mandatory = $false)] # Only needed if CheckForUpdateSwitch is true
+        [Parameter(Mandatory = $false)] # Only needed if CheckForUpdateSwitch or VersionSwitch is true
         [string]$PSScriptRootForUpdateCheck,
 
         [Parameter(Mandatory = $false)] # Only needed if CheckForUpdateSwitch is true
@@ -103,6 +108,20 @@ function Invoke-PoShBackupScriptMode {
         } else {
             & $Logger -Message $Message -Level $Level
         }
+    }
+
+    if ($VersionSwitch) {
+        $mainScriptPathForVersion = Join-Path -Path $PSScriptRootForUpdateCheck -ChildPath "PoSh-Backup.ps1"
+        $scriptVersion = "N/A"
+        if (Test-Path -LiteralPath $mainScriptPathForVersion -PathType Leaf) {
+            $mainScriptContent = Get-Content -LiteralPath $mainScriptPathForVersion -Raw -ErrorAction SilentlyContinue
+            $regexMatch = [regex]::Match($mainScriptContent, '(?im)^\s*Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
+            if ($regexMatch.Success) {
+                $scriptVersion = $regexMatch.Groups[1].Value.Trim()
+            }
+        }
+        Write-Host "PoSh-Backup Version: $scriptVersion"
+        exit 0
     }
 
     if ($CheckForUpdateSwitch) {
