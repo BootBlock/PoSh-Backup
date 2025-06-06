@@ -149,6 +149,10 @@
 .PARAMETER Version
     Optional. A switch parameter. If present, displays the PoSh-Backup script version and exits.
 
+.PARAMETER Quiet
+    Optional. A switch parameter. If present, suppresses all non-essential console output.
+    Critical errors will still be displayed.
+
 .EXAMPLE
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -SevenZipExcludeListFileCLI "C:\Config\MyGlobalExcludes.txt"
     Runs the "MyDocs_To_UNC" job and uses the specified file for 7-Zip exclusion rules, overriding any
@@ -168,9 +172,13 @@
     .\PoSh-Backup.ps1 -Version
     Displays the current version of the PoSh-Backup script and exits.
 
+.EXAMPLE
+    .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -Quiet
+    Runs the specified backup set and suppresses all non-error console output.
+
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.19.0 # Added -Version switch.
+    Version:        1.20.0 # Added -Quiet switch.
     Date:           01-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -277,11 +285,17 @@ param (
     [switch]$CheckForUpdate,
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Displays the PoSh-Backup script version and exits.")]
-    [switch]$Version
+    [switch]$Version,
+
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Suppresses all non-essential console output.")]
+    [switch]$Quiet
 )
 #endregion
 
 #region --- Initial Script Setup & Module Import ---
+# Set global quiet mode flag immediately after parameter processing
+$Global:IsQuietMode = $Quiet.IsPresent
+
 # Import InitialisationManager first to set up globals and display banner
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\InitialisationManager.psm1") -Force -ErrorAction Stop

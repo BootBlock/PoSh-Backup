@@ -91,9 +91,9 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     - **Scope & Impact:** `Config\Default.psd1` (job-level `VSSExcludeWriters` array), `Modules\Managers\VssManager.psm1` (modify diskshadow script generation).
     - **Acceptance Criteria:** Specified VSS writers are excluded during shadow copy creation.
 
-1. Modularise existing files, including splitting functionally complete files into sub-modules that are named after the original "master" file; for example, `ConfigLoader.psm1` would be split into further modules named as such `ConfigLoader.submodule.psm1`, `ConfigLoader.another.psm1`, etc, as deemed necessary. The reasons being that it's easier to manage and AI generation will only have to modify the sub-modules most of the time instead of regenerating the entire file and having issues not truncating the output.
+5. Modularise existing files, including splitting functionally complete files into sub-modules that are named after the original "master" file; for example, `ConfigLoader.psm1` would be split into further modules named as such `ConfigLoader.submodule.psm1`, `ConfigLoader.another.psm1`, etc, as deemed necessary. The reasons being that it's easier to manage and AI generation will only have to modify the sub-modules most of the time instead of regenerating the entire file and having issues not truncating the output.
 
-2.  **Feature: Allow User-Defined Custom 7-Zip Command-Line Parameters**
+6.  **Feature: Allow User-Defined Custom 7-Zip Command-Line Parameters**
     *   **Goal:** Enable users to pass arbitrary, custom command-line switches and parameters directly to the `7z.exe` process for a specific backup job.
     *   **Description:** This provides maximum flexibility for advanced users who want to leverage 7-Zip features or options not explicitly exposed through PoSh-Backup's existing configuration settings. The script will not attempt to validate these custom parameters but will pass them through to 7-Zip.
     *   **Scope & Impact:**
@@ -104,7 +104,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Key Technical Considerations:** Parameter order, potential conflicts with PoSh-Backup managed switches, security implications of arbitrary parameters, quoting/escaping for complex switches. An array of strings for `CustomSevenZipSwitches` is likely safest.
     *   **Acceptance Criteria:** User-defined switches are correctly passed to `7z.exe`; feature is documented with appropriate caveats.
 
-4.  **Feature: 7-Zip Archive Update Modes**
+7.  **Feature: 7-Zip Archive Update Modes**
     *   **Goal:** Allow different update modes when an archive with the same name already exists.
     *   **Description:** Enables scenarios like synchronisation or freshening beyond simple overwriting.
     *   **Scope & Impact:**
@@ -115,14 +115,14 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Technical Considerations:** 7-Zip `-u` switch and its sub-parameters. Best for jobs not using date stamps in archive names, or where the date stamp is part of a constant base name.
     *   **Acceptance Criteria:** 7-Zip behaves as per the configured update mode.
 
-5.  **Feature: Memory Usage Limits for 7-Zip (If Supported)**
+8.  **Feature: Memory Usage Limits for 7-Zip (If Supported)**
 	* *BB: I can't seem to see a switch for this, even though the file manager supports this?*
     *   **Goal:** Allow control over 7-Zip's memory usage.
     *   **Description:** Beneficial for memory-intensive compression algorithms.
     *   **Scope & Impact:** Requires research into 7-Zip documentation for relevant switches. If found, implement in config, validator, and `7ZipManager.psm1`.
     *   **Acceptance Criteria:** (Dependent on research) 7-Zip adheres to configured memory limits.
 
-6.  **Feature: Credential Management for Network Share Access (UNC)**
+9.  **Feature: Credential Management for Network Share Access (UNC)**
     *   **Goal:** Allow PoSh-Backup to optionally access UNC paths using specified credentials.
     *   **Description:** Enables access to shares where the executing user lacks direct permissions.
     *   **Scope & Impact:**
@@ -133,7 +133,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Technical Considerations:** `New-PSDrive -Credential`, `Remove-PSDrive`, `Copy-Item -Credential`. Security of credential objects.
     *   **Acceptance Criteria:** PoSh-Backup accesses/writes to UNC paths using specified credentials.
 
-7. **Feature: Parallel Job Processing (Advanced)**
+10. **Feature: Parallel Job Processing (Advanced)**
     *   **Goal:** Allow independent jobs within a Backup Set to run in parallel.
     *   **Description:** Potential to speed up overall backup set completion.
     *   **Scope & Impact:**
@@ -143,7 +143,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Technical Considerations:** `Start-Job`, Runspace API.
     *   **Acceptance Criteria:** Jobs in a parallel-enabled set run concurrently; logs and status are managed correctly.
 
-8. **Feature: Bandwidth Throttling for Remote Transfers**
+11. **Feature: Bandwidth Throttling for Remote Transfers**
     *   **Goal:** Option to limit network bandwidth for remote target transfers.
     *   **Description:** Prevents saturation of network links.
     *   **Scope & Impact:**
@@ -228,20 +228,8 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         *   Target Provider Interface: Define new optional function (e.g., `Test-PoShBackupTargetConnectivity`).
         *   Each Target Provider Module: Implement this test function.
     *   **Acceptance Criteria:** User can test a target; script reports success/failure with diagnostics.
-
-19. **Enhancement: WebDAV - Implement Full Remote Retention**
-    
-    - **Goal:** Complete the WebDAV remote retention functionality.
         
-    - **Description:** Implement PROPFIND to list files/dates and DELETE to remove old backups according to KeepCount.
-        
-    - **Scope & Impact:** Modules\Targets\WebDAV.Target.psm1.
-        
-    - **Technical Considerations:** Parsing WebDAV XML (PROPFIND response), handling different date formats from servers, ensuring correct deletion logic for multi-volume sets and manifests.
-        
-    - **Acceptance Criteria:** Old WebDAV backups are correctly identified and deleted based on retention settings.
-        
-20. **Enhancement: SFTP/FTP - Support for Active Mode**
+19. **Enhancement: SFTP/FTP - Support for Active Mode**
     
     - **Goal:** Add option for Active FTP/SFTP mode if passive is problematic.
         
@@ -251,7 +239,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         
     - **Acceptance Criteria:** Transfers work correctly in configured active mode.
         
-21. **Feature: Backup Target Provider - Rsync (via SSH or daemon)**
+20. **Feature: Backup Target Provider - Rsync (via SSH or daemon)**
     - **Goal:** Add support for transferring backups using rsync.
     - **Description:** Efficient for transferring changes, especially if archives are uncompressed or only partially changed (though 7-Zip archives are typically 
     - monolithic). Could be useful for replicating a directory of archives.
@@ -259,14 +247,14 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     - **Technical Considerations:** Requires rsync client on the PoSh-Backup machine and rsync server on the target. Handles SSH keys/passwords.
     - **Acceptance Criteria:** Archives successfully transferred using rsync.
         
-22. **Feature: Backup Target Provider - Backblaze B2**
+21. **Feature: Backup Target Provider - Backblaze B2**
     - **Goal:** Support for Backblaze B2 cloud storage.
     - **Description:** Cost-effective cloud storage option.
     - **Scope & Impact:** New module Modules\Targets\B2.Target.psm1.
     - **Technical Considerations:** B2 API interaction (likely via official CLI or PowerShell module if available).
     - **Acceptance Criteria:** Archives transferred to/retained on B2.
 
-23. **Feature: Backup Target Provider - FTP/FTPS**
+22. **Feature: Backup Target Provider - FTP/FTPS**
     *   **Goal:** Add support for transferring backups to FTP or FTPS servers.
     *   **Description:** Complements existing UNC and SFTP providers.
     *   **Scope & Impact:**
@@ -276,7 +264,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Technical Considerations:** .NET `System.Net.FtpWebRequest` (manual implementation for modes, SSL/TLS, errors) or external CLI tool (e.g., `WinSCP.com`).
     *   **Acceptance Criteria:** Archives successfully transferred to/retained on FTP/FTPS server.
 
-24. **Feature: Backup Target Provider - Cloud Storage (Generic Placeholder)**
+23. **Feature: Backup Target Provider - Cloud Storage (Generic Placeholder)**
     *   **Goal:** Add support for major cloud storage providers (e.g., Azure Blob, AWS S3, Google Cloud Storage).
     *   **Description:** Enables direct backup to scalable cloud object storage.
     *   **Scope & Impact:** **Large.** Likely one new provider module per cloud service.
@@ -498,27 +486,27 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         
     - **Acceptance Criteria:** Measurable performance improvements in identified bottlenecks.
 
-37. **Task: Implement Comprehensive Pester Tests**
+3. **Task: Implement Comprehensive Pester Tests**
     *   **Goal:** Create a robust suite of Pester tests.
     *   **Description:** Vital for stability, regression prevention, refactoring. Currently non-functional.
     *   **Scope & Impact:** New `Tests/` structure. Unit and Integration tests. Mocking.
     *   **Technical Considerations:** Pester framework, `Mock` command.
     *   **Acceptance Criteria:** Comprehensive Pester test suite passes and covers key functionalities.
 
-38. **Task: Create PowerShell Module Manifests**
+4. **Task: Create PowerShell Module Manifests**
     *   **Goal:** Create `.psd1` manifest files for each `.psm1` module.
     *   **Description:** Improves versioning, explicit exports, metadata.
     *   **Scope & Impact:** Create manifests for all modules. Update `Import-Module` calls if needed.
     *   **Technical Considerations:** `New-ModuleManifest`.
     *   **Acceptance Criteria:** Each module has a manifest; modules load correctly.
 
-39. **Task: Enhance Comment-Based Help for All Exported Module Functions**
+5. **Task: Enhance Comment-Based Help for All Exported Module Functions**
     *   **Goal:** Ensure comprehensive comment-based help for all exported functions.
     *   **Description:** Improves usability and maintainability.
     *   **Scope & Impact:** Review all `.psm1` files; add/update help blocks.
     *   **Acceptance Criteria:** `Get-Help` displays complete, accurate help for all exported functions.
 
-40. **Task: Review and Refine Error Handling in Modules**
+6. **Task: Review and Refine Error Handling in Modules**
     *   **Goal:** Ensure consistent, robust, informative error handling.
     *   **Description:** Catch specific exceptions, log meaningfully, `throw` critical errors.
     *   **Scope & Impact:** Systematic review of `try/catch` in all `.psm1` files.
@@ -546,7 +534,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         
     - **Acceptance Criteria:** Update process is as secure as possible regarding permissions.
 
-41. **Feature: Encryption of Configuration File Sections (Advanced)**
+3. **Feature: Encryption of Configuration File Sections (Advanced)**
     *   **Goal:** Allow encryption of sensitive parts of the configuration file.
     *   **Description:** Additional security for configuration at rest (e.g., API keys if not using SecretManagement).
     *   **Scope & Impact:** **Very complex.**
@@ -555,7 +543,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Technical Considerations:** `Protect-CmsMessage` / `Unprotect-CmsMessage`. Secure key management.
     *   **Acceptance Criteria:** Sensitive config sections can be stored encrypted and are decrypted at runtime.
 
-42. **Feature: Immutable Backup Target Option (WORM-like)**
+4. **Feature: Immutable Backup Target Option (WORM-like)**
     *   **Goal:** Configure backups to be immutable for a period on supporting targets.
     *   **Description:** Protects against accidental deletion or ransomware.
     *   **Scope & Impact:** Highly dependent on target provider capabilities (e.g., S3 Object Lock).
@@ -563,7 +551,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         *   Target Provider Modules: Implement logic to set immutability.
     *   **Acceptance Criteria:** Backups on supporting targets are made immutable as configured.
 
-43. **Feature: Validate SSL/TLS Certificates for Remote Targets**
+5. **Feature: Validate SSL/TLS Certificates for Remote Targets**
     *   **Goal:** Proper SSL/TLS certificate validation for FTPS, WebDAV, HTTPS-based targets.
     *   **Description:** Prevents man-in-the-middle attacks. Default should be to validate.
     *   **Scope & Impact:**
@@ -593,7 +581,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         
     - **Acceptance Criteria:** Job console output reflects the configured verbosity.
 
-46. **Enhancement: Interactive Configuration Setup/Guidance**
+3. **Enhancement: Interactive Configuration Setup/Guidance**
     *   **Goal:** Provide a guided setup or interactive mode for creating initial job configurations.
     *   **Description:** Lowers barrier to entry for new users.
     *   **Scope & Impact:**
@@ -601,19 +589,19 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         *   New module/functions for interactive Q&A. Logic to update `User.psd1`.
     *   **Acceptance Criteria:** New user can use interactive setup to create a valid job definition.
 
-47. **Enhancement: Improved `-TestConfig` Output**
+4. **Enhancement: Improved `-TestConfig` Output**
     *   **Goal:** Make `-TestConfig` output more user-friendly and informative.
     *   **Description:** Structure output better, highlight potential issues, offer suggestions.
     *   **Scope & Impact:** `PoSh-Backup.ps1`: Refactor `-TestConfig` block.
     *   **Acceptance Criteria:** `-TestConfig` output is easier to read and provides more actionable insights.
 
-48. **Enhancement: Internationalisation (I18N) / Localisation (L10N) Support**
+5. **Enhancement: Internationalisation (I18N) / Localisation (L10N) Support**
     *   **Goal:** Prepare script for potential translation of messages and report text.
     *   **Description:** For non-English speaking users. **Very large undertaking.**
     *   **Scope & Impact:** Externalise all user-facing strings. Logic in `Utils.psm1` and reporting modules to load language strings.
     *   **Acceptance Criteria (Initial):** Key messages externalised; mechanism for loading language strings in place.
 
-49. **Feature: Read-Only Mode for Specific Operations**
+6. **Feature: Read-Only Mode for Specific Operations**
     *   **Goal:** Introduce a "read-only" mode for tasks like listing/testing archives.
     *   **Description:** Safety feature to prevent accidental writes/deletes during inspection.
     *   **Scope & Impact:**
@@ -635,7 +623,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     - **Scope & Impact:** Modules\Operations\RemoteTransferOrchestrator.psm1, Modules\Managers\HookManager.psm1 would need to detect and instantiate/call class methods.
     - **Acceptance Criteria:** Class-based custom providers/hooks can be loaded and executed.
 
-50. **Feature: Centralised Configuration Management / Override Hierarchy**
+3. **Feature: Centralised Configuration Management / Override Hierarchy**
     *   **Goal:** Allow sophisticated configuration layering (machine, user, environment-specific).
     *   **Description:** For enterprise deployment and varied user profiles.
     *   **Scope & Impact:**
@@ -644,7 +632,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         *   Documentation: Explain override order.
     *   **Acceptance Criteria:** Configurations are layered; overrides applied correctly.
 
-51. **Feature: "Backup Profile" Support (CLI Selectable)**
+4. **Feature: "Backup Profile" Support (CLI Selectable)**
     *   **Goal:** Define and select "profiles" via CLI, loading specific configurations.
     *   **Description:** E.g., `PoSh-Backup.ps1 -Profile "WorkstationDaily"`.
     *   **Scope & Impact:**
@@ -652,7 +640,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         *   `Modules\ConfigManager.psm1`: Load configs based on profile (e.g., `Config\Profiles\<ProfileName>\User.psd1`).
     *   **Acceptance Criteria:** Specified profile's configuration is loaded.
 
-52. **Feature: Conditional Job Execution within Sets**
+5. **Feature: Conditional Job Execution within Sets**
     *   **Goal:** Allow jobs within a Backup Set to execute conditionally based on previous job outcomes.
     *   **Description:** More granular control than set-level `OnErrorInJob`. E.g., "Run JobC only if JobA succeeded AND JobB failed."
     *   **Scope & Impact:**
@@ -660,7 +648,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         *   `PoSh-Backup.ps1`: Major refactoring of set processing logic.
     *   **Acceptance Criteria:** Jobs in a set execute based on defined conditional logic.
 
-53. **Feature: Global Variable Injection for Hook Scripts**
+6. **Feature: Global Variable Injection for Hook Scripts**
     *   **Goal:** Allow defining custom global variables in config, passed to hook scripts.
     *   **Description:** Pass common settings/data to all hook scripts without hardcoding.
     *   **Scope & Impact:**
@@ -682,19 +670,19 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     - **Scope & Impact:** Update README.md or create separate docs for each target provider.
     - **Acceptance Criteria:** Clear documentation for each target provider's specific settings.
 
-54. **Task: Create a `CONTRIBUTING.md` Guide**
+3. **Task: Create a `CONTRIBUTING.md` Guide**
     *   **Goal:** Provide guidelines for community contributions.
     *   **Description:** How to report bugs, suggest features, coding standards, pull request process.
     *   **Scope & Impact:** New `CONTRIBUTING.md` file in project root.
     *   **Acceptance Criteria:** Clear contribution guidelines are available.
 
-55. **Task: Set up a GitHub Pages Site for Documentation (or similar)**
+4. **Task: Set up a GitHub Pages Site for Documentation (or similar)**
     *   **Goal:** Host user-friendly documentation beyond the README.
     *   **Description:** Could include tutorials, detailed configuration guides, FAQ.
     *   **Scope & Impact:** Requires setting up GitHub Pages (or other static site generator) and writing content.
     *   **Acceptance Criteria:** Publicly accessible documentation site exists.
 
-56. **Task: Example `User.psd1` Configurations**
+5. **Task: Example `User.psd1` Configurations**
     *   **Goal:** Provide a collection of example `User.psd1` files for common scenarios.
     *   **Description:** Helps new users get started quickly (e.g., simple document backup, server application backup, backup to multiple targets).
     *   **Scope & Impact:** Create a new `Config\Examples\` directory with sample `User.psd1` files.
@@ -1270,12 +1258,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** `Modules\Managers\LogManager.psm1` (in `Invoke-LogFileRetention`), `Config\Default.psd1` (e.g., `CompressOldLogs = $true`, `OldLogCompressionFormat = "Zip"`).
     *   **Acceptance Criteria:** Old log files are compressed according to configuration.
 
-142. **Enhancement: `-Quiet` CLI Switch**
-    *   **Goal:** Suppress all non-error console output for completely silent operation.
-    *   **Description:** Useful for scheduled tasks where console output is irrelevant or noisy. Critical errors and essential prompts (like password if interactive) would still appear.
-    *   **Scope & Impact:** `PoSh-Backup.ps1`, `Write-LogMessage` (to respect a global quiet flag for console output).
-    *   **Acceptance Criteria:** `-Quiet` switch significantly reduces console verbosity.
-
 143. **Enhancement: Clearer Progress for Multi-Job Sets**
     *   **Goal:** Provide better console feedback on the overall progress when running a backup set.
     *   **Description:** E.g., "Starting Set 'DailyBackups' (3 jobs total)...", "Job 'Job1' (1 of 3) starting...", "Job 'Job1' (1 of 3) completed. Status: SUCCESS".
@@ -1814,12 +1796,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Acceptance Criteria:** Users can click on section titles to expand/collapse them in the HTML report.
 
 **LV. CLI & Operational Enhancements**
-
-222. **Feature: `-Version` CLI Switch**
-    *   **Goal:** Provide a quick way to display the currently installed PoSh-Backup version.
-    *   **Description:** A simple `PoSh-Backup.ps1 -Version` command that outputs the version string (e.g., from `Meta\Version.psd1` or the main script's header comment) and then exits. This is distinct from `-CheckForUpdate`.
-    *   **Scope & Impact:** `PoSh-Backup.ps1` (add parameter), `Modules\ScriptModeHandler.psm1` (handle the mode).
-    *   **Acceptance Criteria:** `-Version` switch displays the current script version and exits.
 
 223. **Enhancement: `-Quiet` and `-Verbose` CLI Switch Consistency**
     *   **Goal:** Ensure consistent and intuitive behavior for PowerShell common parameters `-Quiet` and `-Verbose`.

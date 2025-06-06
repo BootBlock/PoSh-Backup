@@ -9,9 +9,9 @@
     drawing text banners with borders and custom colors.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.3 # Added Write-NameValue
+    Version:        1.1.4 # Write-ConsoleBanner now respects $Global:IsQuietMode.
     DateCreated:    29-May-2025
-    LastModified:   30-May-2025
+    LastModified:   06-Jun-2025
     Purpose:        Console display enhancement utilities for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Relies on global color variables (e.g., $Global:ColourHeading)
@@ -31,6 +31,11 @@ function Write-ConsoleBanner {
         [switch]$PrependNewLine,
         [switch]$AppendNewLine
     )
+
+    # If in quiet mode, suppress the banner entirely.
+    if ($Global:IsQuietMode -eq $true) {
+        return
+    }
 
     if ($PrependNewLine) { Write-Host }
 

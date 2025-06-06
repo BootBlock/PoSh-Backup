@@ -108,20 +108,22 @@ function Invoke-PoShBackupInitialSetup {
                             -PrependNewLine
 
         # Author Information
-        $authorName = "Joe Cox"
-        $githubLink = "https://github.com/BootBlock/PoSh-Backup"
-        $websiteLink = "https://bootblock.co.uk"
-        $authorInfoColor = $Global:ColourDebug
+        if ($Global:IsQuietMode -ne $true) {
+            $authorName = "Joe Cox"
+            $githubLink = "https://github.com/BootBlock/PoSh-Backup"
+            $websiteLink = "https://bootblock.co.uk"
+            $authorInfoColor = $Global:ColourDebug
 
-        Write-Host # Blank line for spacing
-        Write-Host "        $authorName" -ForegroundColor White -NoNewline
-        Write-Host " : " -ForegroundColor $Global:ColourHeading -NoNewline
-        Write-Host $githubLink -ForegroundColor $authorInfoColor
+            Write-Host # Blank line for spacing
+            Write-Host "        $authorName" -ForegroundColor White -NoNewline
+            Write-Host " : " -ForegroundColor $Global:ColourHeading -NoNewline
+            Write-Host $githubLink -ForegroundColor $authorInfoColor
 
-        Write-Host "    " -ForegroundColor $authorInfoColor -NoNewline
-        Write-Host "            : " -ForegroundColor $Global:ColourHeading -NoNewline
-        Write-Host $websiteLink -ForegroundColor $authorInfoColor
-        Write-Host # Blank line after author info
+            Write-Host "    " -ForegroundColor $authorInfoColor -NoNewline
+            Write-Host "            : " -ForegroundColor $Global:ColourHeading -NoNewline
+            Write-Host $websiteLink -ForegroundColor $authorInfoColor
+            Write-Host # Blank line after author info
+        }
     }
     else {
         Write-Warning "InitialisationManager.psm1: Write-ConsoleBanner command not found. Skipping banner display."

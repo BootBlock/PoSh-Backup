@@ -65,13 +65,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **(WebDAV):** The WebDAV target provider uses built-in PowerShell cmdlets (`Invoke-WebRequest`) and does not require an additional external module for its core functionality.
 *   **Network/Remote Access:** For using Backup Targets, appropriate permissions and connectivity to the remote locations (e.g., UNC shares) are necessary for the user account running PoSh-Backup. For the Update Checking feature, internet access is required to fetch the remote version manifest.
 
-**Important Note on WebDAV Remote Retention (Current Status):**
-
-The `WebDAV.Target.psm1` provider (version 0.1.0) includes a placeholder for `RemoteRetentionSettings` (e.g., `KeepCount`) in its configuration example. However, the actual logic to automatically delete old backup archives from the WebDAV server based on these settings is **not yet fully implemented**.
-
 **What this means for you:**
 *   If you configure `RemoteRetentionSettings` for a WebDAV target, PoSh-Backup will currently **not** automatically delete older backup sets from your WebDAV server.
-*   You will need to **manually manage and delete old backup archives** on your WebDAV server to control storage usage until this feature is fully implemented in a future version of the WebDAV target provider.
 *   The local retention policy for the staging directory (`DestinationDir`) will still apply as configured for the job.
 
 We plan to implement full remote retention capabilities for WebDAV targets in a future update. Please check the release notes for updates on this feature.
@@ -452,6 +447,11 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     (This runs "MyVeryLargeBackup" and splits the archive into 10GB volumes, overriding any `SplitVolumeSize` or `CreateSFX` settings in the configuration for this job.)
     ```
 
+*   **Run a backup set and suppress console output:**
+    ```powershell
+    .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -Quiet
+    ```
+
 *   **Check for PoSh-Backup Updates (New):**
     ```powershell
     .\PoSh-Backup.ps1 -CheckForUpdate
@@ -478,6 +478,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-PostRunActionForceCli`: Switch to force Shutdown/Restart for the CLI-specified action.
 *   `-PostRunActionTriggerOnStatusCli <StatusArray>`: Status(es) to trigger CLI action. Defaults to `@("ANY")` if `-PostRunActionCli` is used but this parameter is not. Valid: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
 *   `-CheckForUpdate` (New): Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
+*   `-Quiet`: (New) Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.
 
 ### Update Checking
 PoSh-Backup can check if a newer version is available online. This is a manual check initiated by the user.

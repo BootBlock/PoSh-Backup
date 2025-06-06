@@ -4,6 +4,7 @@
     Provides utility functions for managing PoSh-Backup log files and console/file logging.
     This includes applying retention policies to log files and handling the core
     Write-LogMessage functionality.
+
 .DESCRIPTION
     This module contains:
     - Invoke-LogFileRetention: Responsible for finding and deleting old log files based
@@ -12,12 +13,14 @@
     - Write-LogMessage: Responsible for standardised console and file logging with
       colour-coding and timestamping. It relies on global variables (e.g.,
       $Global:StatusToColourMap, $Global:GlobalLogFile) set by the main PoSh-Backup
-      script for its operation.
+      script for its operation. It now respects a global $Global:IsQuietMode flag to
+      suppress non-error console output.
+
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added Write-LogMessage function.
+    Version:        1.2.0 # Write-LogMessage now respects $Global:IsQuietMode.
     DateCreated:    27-May-2025
-    LastModified:   27-May-2025
+    LastModified:   06-Jun-2025
     Purpose:        Log file retention management and core message logging utility for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function and PSCmdlet instance to be passed to Invoke-LogFileRetention.
@@ -61,12 +64,15 @@ function Write-LogMessage {
         $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
     }
 
-    # Output to console
-    if ($NoNewLine) {
-        Write-Host $consoleMessage -ForegroundColor $effectiveConsoleColour -NoNewline
-    }
-    else {
-        Write-Host $consoleMessage -ForegroundColor $effectiveConsoleColour
+    # Output to console only if not in quiet mode, or if the message is critical (ERROR level).
+    # The $Global:IsQuietMode flag is set by PoSh-Backup.ps1 at startup.
+    if (($Global:IsQuietMode -ne $true) -or ($Level.ToUpperInvariant() -eq 'ERROR')) {
+        if ($NoNewLine) {
+            Write-Host $consoleMessage -ForegroundColor $effectiveConsoleColour -NoNewline
+        }
+        else {
+            Write-Host $consoleMessage -ForegroundColor $effectiveConsoleColour
+        }
     }
 
     # Add to in-memory log entries for reporting
@@ -84,7 +90,7 @@ function Write-LogMessage {
             Add-Content -Path $Global:GlobalLogFile -Value $logMessage -ErrorAction Stop
         }
         catch {
-            # Critical failure to log to file, output to console with high visibility
+            # Critical failure to log to file, output to console with high visibility, bypassing quiet mode.
             Write-Host "CRITICAL: Failed to write to log file '$($Global:GlobalLogFile)'. Error: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
