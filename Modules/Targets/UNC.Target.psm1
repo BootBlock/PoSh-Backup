@@ -131,9 +131,14 @@ function Group-RemoteUNCBackupInstancesInternal {
         [string]$PrimaryArchiveExtension, # e.g., ".7z" (the one before .001 or .manifest)
         [scriptblock]$Logger
     )
-    $LocalWriteLog = { param([string]$Message, [string]$Level = "DEBUG") & $Logger -Message $Message -Level $Level }
-    & $LocalWriteLog -Message "UNC.Target/Group-RemoteUNCBackupInstancesInternal: Scanning '$Directory' for base '$BaseNameToMatch', primary ext '$PrimaryArchiveExtension'."
 
+    # PSSA Appeasement and initial log entry:
+    & $Logger -Message "UNC.Target/Group-RemoteUNCBackupInstancesInternal: Logger active. Scanning '$Directory' for base '$BaseNameToMatch', primary ext '$PrimaryArchiveExtension'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Define LocalWriteLog for subsequent use within this function if needed.
+    # Based on the previous file content, $LocalWriteLog is used later in this function.
+    $LocalWriteLog = { param([string]$Message, [string]$Level = "DEBUG") & $Logger -Message $Message -Level $Level }
+   
     $instances = @{}
     $literalBase = [regex]::Escape($BaseNameToMatch)
     $literalExt = [regex]::Escape($PrimaryArchiveExtension)
@@ -192,9 +197,12 @@ function Invoke-PoShBackupUNCTargetSettingsValidation {
         [Parameter(Mandatory = $false)] 
         [scriptblock]$Logger
     )
+
+    # PSSA Appeasement: Use the Logger parameter
     if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
-        & $Logger -Message "UNC.Target/Invoke-PoShBackupUNCTargetSettingsValidation: Validating settings for UNC Target '$TargetInstanceName'." -Level "DEBUG"
+        & $Logger -Message "UNC.Target/Invoke-PoShBackupUNCTargetSettingsValidation: Logger active. Validating settings for UNC Target '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
     }
+
     $fullPathToSettings = "Configuration.BackupTargets.$TargetInstanceName.TargetSpecificSettings"
     if (-not ($TargetSpecificSettings -is [hashtable])) {
         $ValidationMessagesListRef.Value.Add("UNC Target '$TargetInstanceName': 'TargetSpecificSettings' must be a Hashtable, but found type '$($TargetSpecificSettings.GetType().Name)'. Path: '$fullPathToSettings'.")
@@ -241,7 +249,12 @@ function Invoke-PoShBackupTargetTransfer {
         [System.Management.Automation.PSCmdlet]$PSCmdlet 
     )
 
-    & $Logger -Message "UNC.Target/Invoke-PoShBackupTargetTransfer: Logger parameter active for Job '$JobName', Target Instance '$($TargetInstanceConfiguration._TargetInstanceName_)', File '$ArchiveFileName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    # PSSA Appeasement: Use the Logger, EffectiveJobConfig, LocalArchiveCreationTimestamp, PasswordInUse parameters
+    if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
+        & $Logger -Message "UNC.Target/Invoke-PoShBackupTargetTransfer: Logger active for Job '$JobName', Target Instance '$($TargetInstanceConfiguration._TargetInstanceName_)', File '$ArchiveFileName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+        & $Logger -Message ("  - UNC.Target Context (PSSA): EffectiveJobConfig.JobName='{0}', CreationTS='{1}', PwdInUse='{2}'." -f $EffectiveJobConfig.JobName, $LocalArchiveCreationTimestamp, $PasswordInUse) -Level "DEBUG" -ErrorAction SilentlyContinue
+    }
+
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {

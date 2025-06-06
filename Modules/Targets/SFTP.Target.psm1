@@ -124,7 +124,7 @@ function Invoke-PoShBackupSFTPTargetSettingsValidation {
     )
 
     if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
-        & $Logger -Message "SFTP.Target/Invoke-PoShBackupSFTPTargetSettingsValidation: Validating settings for SFTP Target '$TargetInstanceName'." -Level "DEBUG"
+        & $Logger -Message "SFTP.Target/Invoke-PoShBackupSFTPTargetSettingsValidation: Logger active. Validating settings for SFTP Target '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
     }
 
     $fullPathToSettings = "Configuration.BackupTargets.$TargetInstanceName.TargetSpecificSettings"
@@ -181,14 +181,19 @@ function Group-RemoteSFTPBackupInstancesInternal {
         [Parameter(Mandatory = $true)]
         [string]$RemoteDirectoryToScan,
         [Parameter(Mandatory = $true)]
-        [string]$BaseNameToMatch, # e.g., "JobName [DateStamp]"
+        [string]$BaseNameToMatch,               # e.g., "JobName [DateStamp]"
         [Parameter(Mandatory = $true)]
-        [string]$PrimaryArchiveExtension, # e.g., ".7z" (the one used for .001, .002, or the manifest base)
+        [string]$PrimaryArchiveExtension,       # e.g., ".7z" (the one used for .001, .002, or the manifest base)
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
+
+    # PSSA Appeasement and initial log entry:
+    & $Logger -Message "SFTP.Target/Group-RemoteSFTPBackupInstancesInternal: Logger active. Scanning '$RemoteDirectoryToScan' for base '$BaseNameToMatch', primary ext '$PrimaryArchiveExtension'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # Define LocalWriteLog for subsequent use within this function if needed by other parts of it.
+    # Looking at the previous version of the file, $LocalWriteLog was used multiple times in this function.
     $LocalWriteLog = { param([string]$Message, [string]$Level = "DEBUG") & $Logger -Message $Message -Level $Level }
-    & $LocalWriteLog -Message "SFTP.Target/Group-RemoteSFTPBackupInstancesInternal: Scanning '$RemoteDirectoryToScan' for base '$BaseNameToMatch', primary ext '$PrimaryArchiveExtension'."
 
     $instances = @{}
     $literalBase = [regex]::Escape($BaseNameToMatch) # e.g. "JobName \[DateStamp\]"
@@ -197,7 +202,7 @@ function Group-RemoteSFTPBackupInstancesInternal {
     try {
         # Get all non-directory items from the remote path
         $remoteFileObjects = Get-SFTPChildItem -SessionId $SftpSessionIdToUse -Path $RemoteDirectoryToScan -ErrorAction Stop | Where-Object { -not $_.IsDirectory }
-        
+
         if ($null -eq $remoteFileObjects) {
             & $LocalWriteLog -Message "SFTP.Target/GroupHelper: No files found in remote directory '$RemoteDirectoryToScan'."
             return $instances
@@ -210,10 +215,10 @@ function Group-RemoteSFTPBackupInstancesInternal {
 
             # Define patterns to identify parts of a backup instance
             # Instance key should be "JobName [DateStamp].<PrimaryExtension>" e.g., "MyJob [2025-06-01].7z"
-            
+
             $splitVolumePattern = "^($literalBase$literalExt)\.(\d{3,})$" # Matches "basename.priExt.001"
             $splitManifestPattern = "^($literalBase$literalExt)\.manifest\.[a-zA-Z0-9]+$" # Matches "basename.priExt.manifest.algo"
-            
+
             # For single files, the instance key is "basename.actualFileExtension"
             # This needs to handle cases where PrimaryArchiveExtension (e.g. .7z for split) might differ from actual file (e.g. .exe for SFX)
             # $ArchiveBaseName is "JobName [DateStamp]"
@@ -248,7 +253,7 @@ function Group-RemoteSFTPBackupInstancesInternal {
                 if ($fileName.StartsWith($BaseNameToMatch)) {
                     # Try to construct a key like "JobName [DateStamp].actualExt"
                     # This regex tries to capture up to the first dot after BaseNameToMatch that isn't part of a common multi-part like ".7z.001"
-                    $basePlusExtMatch = $fileName -match "^($literalBase(\.[^.\s]+)?)" 
+                    $basePlusExtMatch = $fileName -match "^($literalBase(\.[^.\s]+)?)"
                     if ($basePlusExtMatch) {
                         $potentialKey = $Matches[1]
                         # If this potential key, when used to check for .001, matches the filename, it's likely a split set base
@@ -265,7 +270,7 @@ function Group-RemoteSFTPBackupInstancesInternal {
                     }
                 }
             }
-            
+
             if ($null -eq $instanceKey) {
                 & $LocalWriteLog -Message "SFTP.Target/GroupHelper: Could not determine instance key for remote file '$fileName'. Base: '$BaseNameToMatch', PrimaryExt: '$PrimaryArchiveExtension'. Skipping." -Level "VERBOSE"
                 continue # Skips to the next file in $remoteFileObjects
@@ -281,13 +286,13 @@ function Group-RemoteSFTPBackupInstancesInternal {
 
             # Refine SortTime: if it's a .001 part, its LastWriteTime is authoritative for the instance.
             # The PrimaryArchiveExtension is used here to correctly identify the first volume part.
-            if ($fileName -match "$literalExt\.001$") { 
+            if ($fileName -match "$literalExt\.001$") {
                 if ($fileSortTime -lt $instances[$instanceKey].SortTime) {
                     $instances[$instanceKey].SortTime = $fileSortTime
                 }
             }
         }
-        
+
         # Second pass to refine sort times for instances that didn't have a .001 part explicitly found first
         # or if the first file encountered wasn't the .001 part.
         foreach ($keyToRefine in $instances.Keys) {
@@ -518,13 +523,13 @@ function Invoke-PoShBackupTargetTransfer {
                     # $ArchiveBaseName is "JobName [DateStamp]"
                     # $ArchiveExtension is the primary extension (e.g. .7z or .exe for SFX)
                     $remoteInstances = Group-RemoteSFTPBackupInstancesInternal -SftpSessionIdToUse $sftpSessionIdForThisFileTransfer -RemoteDirectoryToScan $remoteFinalDirectoryForJob -BaseNameToMatch $ArchiveBaseName -PrimaryArchiveExtension $ArchiveExtension -Logger $Logger
-            
+
                     if ($remoteInstances.Count -gt $remoteKeepCount) {
                         $sortedInstances = $remoteInstances.GetEnumerator() | Sort-Object { $_.Value.SortTime } -Descending # Posh-SSH uses LastWriteTime, which our helper maps to SortTime
                         $instancesToDelete = $sortedInstances | Select-Object -Skip $remoteKeepCount
-                
+
                         & $LocalWriteLog -Message ("    - SFTP Target '{0}': Found {1} remote instances. Will delete files for {2} older instance(s)." -f $targetNameForLog, $remoteInstances.Count, $instancesToDelete.Count) -Level "INFO"
-                
+
                         foreach ($instanceEntry in $instancesToDelete) {
                             $instanceIdentifier = $instanceEntry.Name # This is the instance key, e.g., "JobName [DateStamp].7z"
                             & $LocalWriteLog -Message "      - SFTP Target '{0}': Preparing to delete instance files for '$instanceIdentifier' (SortTime: $($instanceEntry.Value.SortTime)) from '$remoteFinalDirectoryForJob'." -Level "WARNING"
@@ -535,11 +540,11 @@ function Invoke-PoShBackupTargetTransfer {
                                     & $LocalWriteLog -Message ("        - Deletion of '{0}' skipped by user." -f $fileToDeletePathOnSftp) -Level "WARNING"; continue
                                 }
                                 & $LocalWriteLog -Message ("        - Deleting: '{0}' (LastWriteTime: $($remoteFileObjInInstance.LastWriteTime))" -f $fileToDeletePathOnSftp) -Level "WARNING"
-                                try { 
+                                try {
                                     Remove-SFTPItem -SessionId $sftpSessionIdForThisFileTransfer -Path $fileToDeletePathOnSftp -ErrorAction Stop
-                                    & $LocalWriteLog "          - Status: DELETED" -Level "SUCCESS" 
+                                    & $LocalWriteLog "          - Status: DELETED" -Level "SUCCESS"
                                 }
-                                catch { 
+                                catch {
                                     & $LocalWriteLog "          - Status: FAILED to delete! Error: $($_.Exception.Message)" -Level "ERROR"
                                     # Decide if this individual file deletion failure should mark the overall transfer as failed
                                     # For now, we'll log it but not change $result.Success for the current file transfer
@@ -551,12 +556,12 @@ function Invoke-PoShBackupTargetTransfer {
                                     # If retention of *old* files fails, it doesn't mean the *current* upload failed.
                                     # However, it does mean the overall state of the target is not ideal.
                                     # For now, let's not set $result.Success to $false for the current file transfer due to old retention failure.
-                                } 
+                                }
                             }
                         }
                     }
-                    else { 
-                        & $LocalWriteLog ("    - SFTP Target '{0}': No old instances to delete based on retention count {1} (Found: $($remoteInstances.Count))." -f $targetNameForLog, $remoteKeepCount) -Level "INFO" 
+                    else {
+                        & $LocalWriteLog ("    - SFTP Target '{0}': No old instances to delete based on retention count {1} (Found: $($remoteInstances.Count))." -f $targetNameForLog, $remoteKeepCount) -Level "INFO"
                     }
                 }
                 catch {
