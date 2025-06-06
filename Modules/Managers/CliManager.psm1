@@ -8,9 +8,9 @@
     This helps to decouple CLI argument handling from the main script's core logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Added SkipVSS and SkipRetriesCLI switches.
     DateCreated:    01-Jun-2025
-    LastModified:   01-Jun-2025
+    LastModified:   06-Jun-2025
     Purpose:        To centralise CLI parameter processing.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -29,7 +29,9 @@ function Get-PoShBackupCliOverride {
 
     # Switch parameters: Value will be $true if present, $null otherwise.
     $cliOverrideSettings.UseVSS                             = if ($BoundParameters.ContainsKey('UseVSS')) { $true } else { $null }
+    $cliOverrideSettings.SkipVSS                            = if ($BoundParameters.ContainsKey('SkipVSS')) { $true } else { $null }
     $cliOverrideSettings.EnableRetries                      = if ($BoundParameters.ContainsKey('EnableRetriesCLI')) { $true } else { $null }
+    $cliOverrideSettings.SkipRetries                        = if ($BoundParameters.ContainsKey('SkipRetriesCLI')) { $true } else { $null }
     $cliOverrideSettings.TestArchive                        = if ($BoundParameters.ContainsKey('TestArchive')) { $true } else { $null }
     $cliOverrideSettings.VerifyLocalArchiveBeforeTransferCLI = if ($BoundParameters.ContainsKey('VerifyLocalArchiveBeforeTransferCLI')) { $true } else { $null }
     $cliOverrideSettings.GenerateHtmlReport                 = if ($BoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $true } else { $null }

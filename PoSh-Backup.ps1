@@ -80,10 +80,16 @@
     If verification fails, remote transfers for the job are skipped.
 
 .PARAMETER UseVSS
-    Optional. A switch parameter. If present, this forces the script to attempt using VSS.
+    Optional. A switch parameter. If present, this forces the script to attempt using VSS. Overridden by -SkipVSS.
+
+.PARAMETER SkipVSS
+    Optional. A switch parameter. If present, this forces the script to NOT use VSS, overriding any configuration or -UseVSS.
 
 .PARAMETER EnableRetriesCLI
-    Optional. A switch parameter. If present, this forces the enabling of the 7-Zip retry mechanism for local archiving.
+    Optional. A switch parameter. If present, this forces the enabling of the 7-Zip retry mechanism for local archiving. Overridden by -SkipRetriesCLI.
+
+.PARAMETER SkipRetriesCLI
+    Optional. A switch parameter. If present, this forces the disabling of the 7-Zip retry mechanism, overriding any configuration or -EnableRetriesCLI.
 
 .PARAMETER GenerateHtmlReportCLI
     Optional. A switch parameter. If present, this forces the generation of an HTML report.
@@ -178,7 +184,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.20.0 # Added -Quiet switch.
+    Version:        1.21.0 # Added -SkipVSS and -SkipRetriesCLI switches.
     Date:           01-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -208,11 +214,17 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Switch. Verify local archive before remote transfer. Overrides config.")]
     [switch]$VerifyLocalArchiveBeforeTransferCLI,
 
-    [Parameter(Mandatory=$false, HelpMessage="Switch. Attempt to use VSS. Requires Admin.")]
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Attempt to use VSS. Requires Admin. Overridden by -SkipVSS.")]
     [switch]$UseVSS,
 
-    [Parameter(Mandatory=$false, HelpMessage="Switch. Enable retry mechanism for 7-Zip (local archiving).")]
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Force script to NOT use VSS, overriding config and -UseVSS.")]
+    [switch]$SkipVSS,
+
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Enable retry mechanism for 7-Zip (local archiving). Overridden by -SkipRetriesCLI.")]
     [switch]$EnableRetriesCLI,
+
+    [Parameter(Mandatory=$false, HelpMessage="Switch. Force disabling of 7-Zip retry mechanism, overriding config and -EnableRetriesCLI.")]
+    [switch]$SkipRetriesCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Forces HTML report generation for processed jobs, or adds HTML if ReportGeneratorType is an array.")]
     [switch]$GenerateHtmlReportCLI,

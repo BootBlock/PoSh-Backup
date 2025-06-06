@@ -461,7 +461,10 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
 ### 5. Key Operational Command-Line Parameters
 These parameters allow you to override certain configuration settings for a specific run:
 
-*   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges).
+*   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges). Overridden by `-SkipVSS`.
+*   `-SkipVSS`: (New) Forces the script to NOT use VSS, overriding any configuration or the `-UseVSS` switch. Useful for troubleshooting.
+*   `-EnableRetriesCLI`: Forces the enabling of the 7-Zip retry mechanism for local archiving. Overridden by `-SkipRetriesCLI`.
+*   `-SkipRetriesCLI`: (New) Forces the disabling of the 7-Zip retry mechanism, overriding any configuration or the `-EnableRetriesCLI` switch. Useful for troubleshooting.
 *   `-TestArchive`: Forces an integrity test of newly created *local* archives for all processed jobs. If checksum generation and verification are enabled for the job, this will include checksum verification. This is independent of `-VerifyLocalArchiveBeforeTransferCLI`.
 *   `-VerifyLocalArchiveBeforeTransferCLI`: (New) Forces verification of the local archive (including checksum if enabled for the job) *before* any remote transfers are attempted. Overrides configuration settings. If verification fails, remote transfers for the job are skipped.
 *   `-Simulate`: Runs in simulation mode. Local archiving, remote transfers, retention actions (archive and log), checksum operations, SFX creation, CPU affinity application, and post-run system actions are logged but not actually executed.

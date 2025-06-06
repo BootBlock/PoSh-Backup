@@ -34,6 +34,22 @@
     "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.18.0).",
     "Modular design: Core (Modules\\Core\\), Managers (Modules\\Managers\\), Utilities (Modules\\Utilities\\), Operations (Modules\\Operations\\), ConfigManagement (Modules\\ConfigManagement\\), Reporting (Modules\\Reporting\\), Targets (Modules\\Targets\\).",
     "AI State structure loaded from 'Meta\\AIState.template.psd1', dynamically populated by Bundler (v__BUNDLER_VERSION_PLACEHOLDER__).",
+    "--- CLI Usability Enhancements (Current Session Segment) ---",
+    "    - **Goal:** Add several command-line switches to improve usability and troubleshooting.",
+    "    - **Feature: -Version Switch**",
+    "        - `PoSh-Backup.ps1` (v1.18.0 -> v1.19.0): Added `-Version` parameter and help text.",
+    "        - `Modules\\Managers\\CoreSetupManager.psm1`: Updated to pass the switch.",
+    "        - `Modules\\ScriptModeHandler.psm1`: Added logic to display the script version and exit.",
+    "    - **Feature: -Quiet Switch**",
+    "        - `PoSh-Backup.ps1` (v1.19.0 -> v1.20.0): Added `-Quiet` parameter and set a `$Global:IsQuietMode` flag.",
+    "        - `Modules\\Managers\\LogManager.psm1`: `Write-LogMessage` updated to suppress non-error console output when quiet mode is active.",
+    "        - `Modules\\Utilities\\ConsoleDisplayUtils.psm1`: `Write-ConsoleBanner` updated to respect quiet mode.",
+    "        - `Modules\\Managers\\InitialisationManager.psm1`: Updated to suppress author info block in quiet mode.",
+    "    - **Feature: Troubleshooting Toggles**",
+    "        - `PoSh-Backup.ps1` (v1.20.0 -> v1.21.0): Added `-SkipVSS` and `-SkipRetriesCLI` parameters.",
+    "        - `Modules\\Managers\\CliManager.psm1`: Updated to recognize the new switches.",
+    "        - `Modules\\ConfigManagement\\EffectiveConfigBuilder\\OperationalSettings.psm1`: Updated to implement the override logic for the new switches.",
+    "        - `README.md`: Updated to document the new switches.",
     "--- Modularisation of PoSh-Backup.ps1 (Current Session Segment) ---",
     "    - Goal: Reduce the size and complexity of `PoSh-Backup.ps1` by extracting logical blocks into new manager modules.",
     "    - **Phase 1: CLI Override Processing**",
@@ -119,7 +135,7 @@
     "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. WebDAV target provider (v0.2.0) now has remote retention. 'Disable Job' flag feature added. PSSA warnings: 1 known for ArgumentBuilder.psm1, several for unused parameters in target providers, 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.18.0 # Modularised final summary and exit logic to FinalisationManager.psm1."
+  main_script_poSh_backup_version = "1.21.0 # Added -SkipVSS and -SkipRetriesCLI switches."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
