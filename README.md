@@ -47,6 +47,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Pin Backups:** Protect specific backup archives from automatic deletion by retention policies. This can be done proactively when an archive is created (via the `-Pin` switch or a job setting) or retroactively on any existing archive (via the `-PinBackup <path>` management utility).
 *   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention (archive and log files), **post-run system actions**, and **checksum operations** without making any actual changes.
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`). This includes basic validation of Backup Target definitions and **job dependency validation** (checking for circular references and dependencies on non-existent jobs). Optional advanced schema validation for the overall configuration structure is also available.
+*   **Archive Inspection Utilities (New):** List the contents of any local backup archive directly from the command line using the `-ListArchiveContents` parameter, with support for encrypted archives.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the `DestinationDir` before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives using `7z t`.
 *   **Archive Checksum Generation & Verification:** Optionally generate a checksum file (e.g., SHA256, MD5) for the local archive. If archive testing is enabled, this checksum can also be verified against the archive content for an additional layer of integrity validation.
@@ -490,6 +491,8 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-Pin`: Optional. A switch parameter. If present, the backup archive(s) created during this specific run will be automatically pinned, protecting them from retention policies.
 *   `-PinBackup <FilePath>`: Pins the backup archive specified by `<FilePath>`, protecting it from retention policies. This creates a `.pinned` marker file alongside the archive.
 *   `-UnpinBackup <FilePath>`: Unpins the backup archive specified by `<FilePath>`, making it subject to retention policies again. This removes the `.pinned` marker file.
+*   `-ListArchiveContents <FilePath>`: Lists the contents of the backup archive specified by `<FilePath>`. This is a utility mode and does not run a backup.
+*   `-ArchivePasswordSecretName <SecretName>`: For use with utility modes like `-ListArchiveContents`. Specifies the name of the secret in PowerShell SecretManagement that holds the password for an encrypted archive.
 *   `-CheckForUpdate`: Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.
 
@@ -530,6 +533,35 @@ Use this method to manage pins on any archive that already exists in your backup
 *   **Important Notes on Pinned Backups:**
     *   Pinning applies to an entire backup instance. If you pin the first volume of a multi-volume set (e.g., `archive.7z.001`), the entire set (all `.00x` parts and any associated manifest) is considered pinned. The marker file should be named after the base archive, e.g., `archive.7z.pinned`. The `-PinBackup` command handles this correctly if you point it to the `.001` file.
     *   Pinned backups are *not* counted in the retention number. If you have `KeepCount = 5` and 2 backups are pinned, the retention policy will still keep the 5 most recent *unpinned* backups, in addition to the 2 pinned ones.
+
+### Archive Management Utilities
+PoSh-Backup includes command-line utilities for inspecting and managing existing backup archives without performing a full backup run.
+
+#### Listing Archive Contents
+You can list the contents of any archive file to see what files and folders it contains. This is useful for quickly verifying an archive or finding a specific file.
+
+*   **Command:**
+    ```powershell
+    .\PoSh-Backup.ps1 -ListArchiveContents <path_to_archive_file>
+    ```
+
+*   **For Encrypted Archives:** If the archive is password-protected, you must also provide the name of the secret where the password is stored in PowerShell SecretManagement.
+    ```powershell
+    .\PoSh-Backup.ps1 -ListArchiveContents <path_to_archive_file> -ArchivePasswordSecretName "MyBackupPasswordSecret"
+    ```
+
+*   **Example Output:**
+    ```
+    --- List Archive Contents Mode ---
+    Contents of archive: D:\Backups\Projects [2025-Jun-06].7z
+
+    Path                                     Size   PackedSize Modified             Attributes
+    ----                                     ----   ---------- --------             ----------
+    MyFile1.txt                              1024          150 2025-06-01 10:00:00  A
+    MySubFolder\AnotherFile.log             15360         2400 2025-06-02 11:30:00  A
+
+    Found 2 files/folders.
+    ```
 
 ### Update Checking
 PoSh-Backup can check if a newer version is available online. This is a manual check initiated by the user.

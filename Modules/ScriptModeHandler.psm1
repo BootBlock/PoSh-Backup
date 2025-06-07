@@ -3,34 +3,37 @@
 .SYNOPSIS
     Handles informational script modes for PoSh-Backup, such as listing backup locations,
     listing backup sets, testing the configuration, checking for updates, displaying the version,
-    or managing backup archive pins.
+    or managing backup archive pins, or listing archive contents.
 .DESCRIPTION
     This module provides a function, Invoke-PoShBackupScriptMode, which checks if PoSh-Backup
     was invoked with parameters like -ListBackupLocations, -TestConfig, -Version, -PinBackup,
-    or -UnpinBackup.
+    -UnpinBackup, or -ListArchiveContents.
     If one of these modes is active, this module takes over, performs the requested action
-    (e.g., printing a list, testing config, pinning an archive), and then exits the script.
+    (e.g., printing a list, testing config, pinning an archive, listing archive contents),
+    and then exits the script.
     This keeps the main PoSh-Backup.ps1 script cleaner by offloading this mode-specific logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Added Pin/Unpin backup archive handling.
+    Version:        1.4.1 # Added explicit import for 7ZipManager.
     DateCreated:    24-May-2025
     LastModified:   06-Jun-2025
     Purpose:        To handle informational script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
-                    Requires PinManager.psm1 for pinning functionality.
+                    Requires PinManager.psm1, PasswordManager.psm1, and 7ZipManager.psm1 for specific modes.
 #>
 
 #region --- Module Dependencies ---
 # $PSScriptRoot here is Modules\
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\PinManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\PasswordManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\7ZipManager.psm1") -Force -ErrorAction Stop
 }
 catch {
-    # Don't throw here, as PinManager is only needed for specific modes.
+    # Don't throw here, as these are only needed for specific modes.
     # The check within the mode logic will handle the missing functions.
-    Write-Warning "ScriptModeHandler.psm1: Could not import PinManager.psm1. Pinning/unpinning functionality will be unavailable. Error: $($_.Exception.Message)"
+    Write-Warning "ScriptModeHandler.psm1: Could not import a manager module. Specific modes may be unavailable. Error: $($_.Exception.Message)"
 }
 #endregion
 
@@ -44,36 +47,11 @@ function Invoke-PoShBackupScriptMode {
         If one of the specified informational CLI switches is present, this function executes
         the corresponding logic and then exits the script. If no such mode is active, it returns
         a value indicating that the main script should continue.
-    .PARAMETER ListBackupLocationsSwitch
-        The $ListBackupLocations.IsPresent switch value from the main script.
-    .PARAMETER ListBackupSetsSwitch
-        The $ListBackupSets.IsPresent switch value from the main script.
-    .PARAMETER TestConfigSwitch
-        The $TestConfig.IsPresent switch value from the main script.
-    .PARAMETER CheckForUpdateSwitch
-        The $CheckForUpdate.IsPresent switch value from the main script.
-    .PARAMETER VersionSwitch
-        The $Version.IsPresent switch value from the main script.
-    .PARAMETER PinBackupPath
-        The path provided to the -PinBackup parameter.
-    .PARAMETER UnpinBackupPath
-        The path provided to the -UnpinBackup parameter.
-    .PARAMETER Configuration
-        The loaded PoSh-Backup configuration hashtable.
-    .PARAMETER ActualConfigFile
-        The path to the primary configuration file that was loaded.
-    .PARAMETER ConfigLoadResult
-        The result object from Import-AppConfiguration, containing UserConfigLoaded and UserConfigPath.
-    .PARAMETER Logger
-        A mandatory scriptblock reference to the 'Write-LogMessage' function.
-    .PARAMETER PSScriptRootForUpdateCheck
-        The $PSScriptRoot of the main PoSh-Backup.ps1 script, needed for resolving paths if -CheckForUpdate or -Version is used.
-    .PARAMETER PSCmdletForUpdateCheck
-        The $PSCmdlet automatic variable from the main PoSh-Backup.ps1 script, for ShouldProcess support.
-    .OUTPUTS
-        System.Boolean
-        Returns $true if an informational mode was handled (and the script will exit within this function).
-        Returns $false if no informational mode was active, indicating the main script should proceed.
+    .PARAMETER ListArchiveContentsPath
+        The path provided to the -ListArchiveContents parameter.
+    .PARAMETER ArchivePasswordSecretName
+        The secret name for the archive's password, for use with -ListArchiveContents.
+    #... (other params) ...
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -96,6 +74,12 @@ function Invoke-PoShBackupScriptMode {
 
         [Parameter(Mandatory = $false)]
         [string]$UnpinBackupPath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ListArchiveContentsPath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ArchivePasswordSecretName,
 
         [Parameter(Mandatory = $true)]
         [hashtable]$Configuration,
@@ -126,6 +110,40 @@ function Invoke-PoShBackupScriptMode {
         } else {
             & $Logger -Message $Message -Level $Level
         }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ListArchiveContentsPath)) {
+        & $LocalWriteLog -Message "`n--- List Archive Contents Mode ---" -Level "HEADING"
+        if (-not (Get-Command Get-7ZipArchiveListing -ErrorAction SilentlyContinue)) {
+            & $LocalWriteLog -Message "FATAL: Could not find the Get-7ZipArchiveListing command. Ensure 'Modules\Managers\7ZipManager.psm1' and its sub-modules are present and loaded correctly." -Level "ERROR"
+            exit 15
+        }
+
+        $plainTextPasswordForList = $null
+        if (-not [string]::IsNullOrWhiteSpace($ArchivePasswordSecretName)) {
+            if (-not (Get-Command Get-PoShBackupArchivePassword -ErrorAction SilentlyContinue)) {
+                & $LocalWriteLog -Message "FATAL: Could not find Get-PoShBackupArchivePassword command. Cannot retrieve password for encrypted archive." -Level "ERROR"
+                exit 15
+            }
+            $passwordConfig = @{
+                ArchivePasswordMethod     = 'SecretManagement'
+                ArchivePasswordSecretName = $ArchivePasswordSecretName
+            }
+            $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $passwordConfig -JobName "Archive Listing" -Logger $Logger
+            $plainTextPasswordForList = $passwordResult.PlainTextPassword
+        }
+
+        $sevenZipPath = $Configuration.SevenZipPath
+        $listing = Get-7ZipArchiveListing -SevenZipPathExe $sevenZipPath -ArchivePath $ListArchiveContentsPath -PlainTextPassword $plainTextPasswordForList -Logger $Logger
+        
+        if ($null -ne $listing) {
+            & $LocalWriteLog -Message "Contents of archive: $ListArchiveContentsPath" -Level "INFO"
+            $listing | Format-Table -AutoSize
+            & $LocalWriteLog -Message "Found $($listing.Count) files/folders." -Level "SUCCESS"
+        } else {
+            & $LocalWriteLog -Message "Failed to list contents for archive: $ListArchiveContentsPath. Check previous errors." -Level "ERROR"
+        }
+        exit 0
     }
 
     if (-not [string]::IsNullOrWhiteSpace($PinBackupPath)) {

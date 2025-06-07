@@ -56,6 +56,9 @@ function Get-PoShBackupCliOverride {
 
     $cliOverrideSettings.PinOnCreationCLI                    = if ($BoundParameters.ContainsKey('Pin')) { $true } else { $null }
 
+    $cliOverrideSettings.ListArchiveContents                 = if ($BoundParameters.ContainsKey('ListArchiveContents')) { $BoundParameters['ListArchiveContents'] } else { $null }
+    $cliOverrideSettings.ArchivePasswordSecretName           = if ($BoundParameters.ContainsKey('ArchivePasswordSecretName')) { $BoundParameters['ArchivePasswordSecretName'] } else { $null }
+
     return $cliOverrideSettings
 }
 

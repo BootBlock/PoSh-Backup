@@ -209,6 +209,7 @@
 #region --- Script Parameters ---
 [CmdletBinding(DefaultParameterSetName = 'Execution')]
 param (
+    # Execution Parameter Set: For running backups
     [Parameter(ParameterSetName='Execution', Position=0, Mandatory=$false, HelpMessage="Optional. Name of a single backup location to process.")]
     [string]$BackupLocationName,
 
@@ -218,6 +219,20 @@ param (
     [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Pin the backup archive(s) created during this specific run, protecting them from retention policies.")]
     [switch]$Pin,
 
+    # Pinning/Utility Parameter Set: For managing existing archives
+    [Parameter(ParameterSetName='Pinning', Mandatory=$false, HelpMessage="Pin a backup archive to exclude it from retention policies. Provide the full path to the archive file.")]
+    [string]$PinBackup,
+
+    [Parameter(ParameterSetName='Pinning', Mandatory=$false, HelpMessage="Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.")]
+    [string]$UnpinBackup,
+
+    [Parameter(ParameterSetName='Utility', Mandatory=$false, HelpMessage="List the contents of the specified backup archive file.")]
+    [string]$ListArchiveContents,
+
+    [Parameter(ParameterSetName='Utility', Mandatory=$false, HelpMessage="Specifies the SecretManagement secret name for the password of an encrypted archive for utility operations.")]
+    [string]$ArchivePasswordSecretName,
+
+    # Common Parameters (available to all sets)
     [Parameter(Mandatory=$false, HelpMessage="Optional. Path to the .psd1 configuration file. Defaults to '.\\Config\\Default.psd1' (and merges .\\Config\\User.psd1).")]
     [string]$ConfigFile,
 
@@ -316,13 +331,7 @@ param (
     [switch]$Version,
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Suppresses all non-essential console output.")]
-    [switch]$Quiet,
-
-    [Parameter(Mandatory=$false, ParameterSetName='Pinning', HelpMessage="Pin a backup archive to exclude it from retention policies. Provide the full path to the archive file.")]
-    [string]$PinBackup,
-
-    [Parameter(Mandatory=$false, ParameterSetName='Pinning', HelpMessage="Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.")]
-    [string]$UnpinBackup
+    [switch]$Quiet
 )
 #endregion
 

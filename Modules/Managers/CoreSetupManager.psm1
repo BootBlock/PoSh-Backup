@@ -13,7 +13,7 @@
     the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.4 # Corrected order of operations for informational/pinning modes.
+    Version:        1.1.5 # Corrected order of operations for all informational/utility modes.
     DateCreated:    01-Jun-2025
     LastModified:   06-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
@@ -233,7 +233,7 @@ function Invoke-PoShBackupCoreSetup {
         throw # Re-throw to be handled by PoSh-Backup.ps1
     }
 
-    # --- Configuration Loading, Validation & Job Determination ---
+    # --- Configuration Loading and Validation ---
     $configLoadParams = @{
         UserSpecifiedPath           = $ConfigFile
         IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent))
@@ -270,7 +270,7 @@ function Invoke-PoShBackupCoreSetup {
     }
 
     # --- Handle Informational Modes FIRST ---
-    # This includes Pinning/Unpinning, which must exit before job resolution is attempted.
+    # This includes Pinning, Listing, etc., which must exit before job resolution is attempted for a backup run.
     Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
                                 -ListBackupSetsSwitch $ListBackupSets.IsPresent `
                                 -TestConfigSwitch $TestConfig.IsPresent `
@@ -278,6 +278,8 @@ function Invoke-PoShBackupCoreSetup {
                                 -VersionSwitch $Version.IsPresent `
                                 -PinBackupPath $CliOverrideSettings.PinBackup `
                                 -UnpinBackupPath $CliOverrideSettings.UnpinBackup `
+                                -ListArchiveContentsPath $CliOverrideSettings.ListArchiveContents `
+                                -ArchivePasswordSecretName $CliOverrideSettings.ArchivePasswordSecretName `
                                 -Configuration $Configuration `
                                 -ActualConfigFile $ActualConfigFile `
                                 -ConfigLoadResult $configResult `
