@@ -6,15 +6,16 @@
 .DESCRIPTION
     The RetentionManager module centralizes the logic for applying retention policies.
     It uses sub-modules for specific tasks:
-    - 'Scanner.psm1': Finds and groups backup archive instances.
+    - 'Scanner.psm1': Finds and groups backup archive instances, and identifies pinned backups.
     - 'Deleter.psm1': Handles the actual deletion of identified instances.
 
-    The main function, Invoke-BackupRetentionPolicy, orchestrates these steps.
+    The main function, Invoke-BackupRetentionPolicy, orchestrates these steps, ensuring that
+    any backups marked as 'pinned' are excluded from the retention policy and are not deleted.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.4 # Set ErrorActionPreference to Stop internally for retention logic.
+    Version:        1.3.0 # Added logic to respect pinned backups.
     DateCreated:    17-May-2025
-    LastModified:   29-May-2025
+    LastModified:   06-Jun-2025
     Purpose:        Facade for centralised backup retention policy management.
     Prerequisites:  PowerShell 5.1+.
                     Sub-modules (Scanner.psm1, Deleter.psm1) must exist in '.\Modules\Managers\RetentionManager\'.
@@ -113,29 +114,45 @@ function Invoke-BackupRetentionPolicy {
             return
         }
 
-        & $LocalWriteLog -Message "RetentionManager (Facade): Attempting to sort $($backupInstances.Count) instances..." -Level "DEBUG"
+        # --- NEW: Filter out pinned backups ---
+        $unpinnedInstances = @{}
+        $pinnedInstances = @{}
+        foreach ($instanceEntry in $backupInstances.GetEnumerator()) {
+            if ($instanceEntry.Value.Pinned) {
+                $pinnedInstances[$instanceEntry.Name] = $instanceEntry.Value
+            } else {
+                $unpinnedInstances[$instanceEntry.Name] = $instanceEntry.Value
+            }
+        }
+
+        if ($pinnedInstances.Count -gt 0) {
+            & $LocalWriteLog -Message "   - RetentionManager (Facade): Found $($pinnedInstances.Count) pinned backup instance(s) which are exempt from retention: $($pinnedInstances.Keys -join ', ')" -Level "INFO"
+        }
+        # --- END NEW ---
+
+        & $LocalWriteLog -Message "RetentionManager (Facade): Attempting to sort $($unpinnedInstances.Count) unpinned instance(s)..." -Level "DEBUG"
         $sortedInstances = $null
-        if ($null -ne $backupInstances.GetEnumerator()) {
-            $sortedInstances = $backupInstances.GetEnumerator() | Sort-Object {$_.Value.SortTime} -Descending 
+        if ($null -ne $unpinnedInstances.GetEnumerator()) {
+            $sortedInstances = $unpinnedInstances.GetEnumerator() | Sort-Object {$_.Value.SortTime} -Descending 
             # ErrorAction Stop is inherited
             & $LocalWriteLog -Message "RetentionManager (Facade): Successfully sorted instances. Count: $($sortedInstances.Count)." -Level "DEBUG"
         } else {
-            & $LocalWriteLog -Message "[WARNING] RetentionManager (Facade): backupInstances.GetEnumerator() was null. Cannot sort. Instance count: $($backupInstances.Count)" -Level "WARNING"
+            & $LocalWriteLog -Message "[WARNING] RetentionManager (Facade): unpinnedInstances.GetEnumerator() was null. Cannot sort. Instance count: $($unpinnedInstances.Count)" -Level "WARNING"
             $sortedInstances = @() 
         }
         
         if ($RetentionCountToKeep -le 0) {
-            & $LocalWriteLog -Message "   - RetentionManager (Facade): Retention count is $RetentionCountToKeep; all existing backup instances will be kept." -Level "INFO"
+            & $LocalWriteLog -Message "   - RetentionManager (Facade): Retention count is $RetentionCountToKeep; all existing unpinned backup instances will be kept." -Level "INFO"
             return
         }
         
         $numberOfOldInstancesToPreserve = $RetentionCountToKeep - 1 
         if ($numberOfOldInstancesToPreserve -lt 0) { $numberOfOldInstancesToPreserve = 0 }
-        & $LocalWriteLog -Message "RetentionManager (Facade): Number of old instances to preserve: $numberOfOldInstancesToPreserve. Total sorted instances: $($sortedInstances.Count)." -Level "DEBUG"
+        & $LocalWriteLog -Message "RetentionManager (Facade): Number of old unpinned instances to preserve: $numberOfOldInstancesToPreserve. Total sorted unpinned instances: $($sortedInstances.Count)." -Level "DEBUG"
 
         if ($sortedInstances.Count -gt $numberOfOldInstancesToPreserve) {
             $instancesToDelete = $sortedInstances | Select-Object -Skip $numberOfOldInstancesToPreserve
-            & $LocalWriteLog -Message "[INFO] RetentionManager (Facade): Found $($sortedInstances.Count) existing backup instance(s). Will attempt to delete $($instancesToDelete.Count) older instance(s) to meet retention ($RetentionCountToKeep total target)." -Level "INFO"
+            & $LocalWriteLog -Message "[INFO] RetentionManager (Facade): Found $($sortedInstances.Count) existing unpinned backup instance(s). Will attempt to delete $($instancesToDelete.Count) older instance(s) to meet retention ($RetentionCountToKeep total target)." -Level "INFO"
             & $LocalWriteLog -Message "RetentionManager (Facade): Calling Remove-OldBackupArchiveInstance..." -Level "DEBUG"
 
             Remove-OldBackupArchiveInstance -InstancesToDelete $instancesToDelete `
@@ -145,7 +162,7 @@ function Invoke-BackupRetentionPolicy {
                 -Logger $Logger `
                 -PSCmdlet $PSCmdlet
         } else {
-            & $LocalWriteLog -Message "   - RetentionManager (Facade): Number of existing backup instances ($($sortedInstances.Count)) is at or below target old instances to preserve ($numberOfOldInstancesToPreserve). No older instances to delete." -Level "INFO"
+            & $LocalWriteLog -Message "   - RetentionManager (Facade): Number of existing unpinned backup instances ($($sortedInstances.Count)) is at or below target old instances to preserve ($numberOfOldInstancesToPreserve). No older instances to delete." -Level "INFO"
         }
     } catch {
         & $LocalWriteLog -Message "[ERROR] RetentionManager (Facade): Error during retention policy for '$ArchiveBaseFileName'. Some old backups might not have been deleted. Error: $($_.Exception.Message). Stack: $($_.ScriptStackTrace)" -Level "ERROR"

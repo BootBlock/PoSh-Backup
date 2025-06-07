@@ -8,7 +8,7 @@
     This helps to decouple CLI argument handling from the main script's core logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Added SkipVSS and SkipRetriesCLI switches.
+    Version:        1.0.2 # Added PinBackup and UnpinBackup switches.
     DateCreated:    01-Jun-2025
     LastModified:   06-Jun-2025
     Purpose:        To centralise CLI parameter processing.
@@ -50,6 +50,9 @@ function Get-PoShBackupCliOverride {
     $cliOverrideSettings.PostRunActionCli                   = if ($BoundParameters.ContainsKey('PostRunActionCli')) { $BoundParameters['PostRunActionCli'] } else { $null }
     $cliOverrideSettings.PostRunActionDelaySecondsCli       = if ($BoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $BoundParameters['PostRunActionDelaySecondsCli'] } else { $null }
     $cliOverrideSettings.PostRunActionTriggerOnStatusCli    = if ($BoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $BoundParameters['PostRunActionTriggerOnStatusCli'] } else { $null }
+
+    $cliOverrideSettings.PinBackup                        = if ($BoundParameters.ContainsKey('PinBackup')) { $BoundParameters['PinBackup'] } else { $null }
+    $cliOverrideSettings.UnpinBackup                      = if ($BoundParameters.ContainsKey('UnpinBackup')) { $BoundParameters['UnpinBackup'] } else { $null }
 
     return $cliOverrideSettings
 }

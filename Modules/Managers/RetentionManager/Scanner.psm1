@@ -2,18 +2,18 @@
 <#
 .SYNOPSIS
     Sub-module for RetentionManager. Handles scanning for and grouping backup archive instances,
-    including their associated manifest files.
+    including their associated manifest and pin files.
 .DESCRIPTION
     This module contains the 'Find-BackupArchiveInstance' function, responsible for
-    identifying all relevant backup files (single or multi-volume parts) and their
-    associated manifest files in a given directory that match a base name and extension.
-    It groups these files into logical "backup instances" and determines a sortable
-    timestamp for each instance.
+    identifying all relevant backup files (single or multi-volume parts), their
+    associated manifest files, and any '.pinned' marker files in a given directory that
+    match a base name and extension. It groups these files into logical "backup instances",
+    determines a sortable timestamp for each instance, and flags whether the instance is pinned.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Added manifest file detection.
+    Version:        1.1.0 # Added detection for .pinned files.
     DateCreated:    29-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   06-Jun-2025
     Purpose:        Backup archive instance discovery and grouping logic for RetentionManager.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -53,7 +53,7 @@ function Find-BackupArchiveInstance {
         }
     }
 
-    $backupInstances = @{} # Key: InstanceIdentifier (e.g., "JobName [DateStamp].7z"), Value: @{SortTime=datetime; Files=List[FileInfo]}
+    $backupInstances = @{} # Key: InstanceIdentifier (e.g., "JobName [DateStamp].7z"), Value: @{SortTime=datetime; Files=List[FileInfo]; Pinned=$false}
 
     if (-not (Test-Path -LiteralPath $DestinationDirectory -PathType Container)) {
         & $LocalWriteLog -Message "  - RetentionManager/Scanner: Destination directory '$DestinationDirectory' not found. Returning no instances." -Level "WARNING"
@@ -64,7 +64,7 @@ function Find-BackupArchiveInstance {
     # This pattern will match "archive.7z" or "archive.exe" and also "archive.7z.001", "archive.exe.001" etc.
     # It also tries to match SFX files that might have had their original extension embedded, e.g. "archive.7z.exe"
     $literalBaseName = $ArchiveBaseFileName -replace '([\.\^\$\*\+\?\(\)\[\]\{\}\|\\])', '\$1'
-    $fileFilterPattern = "$($literalBaseName)$([regex]::Escape($ArchiveExtension))*" # Main filter for Get-ChildItem
+    $fileFilterPattern = "$($literalBaseName)*" # Broad filter to catch all related files, including .pinned
 
     & $LocalWriteLog -Message "   - RetentionManager/Scanner: Scanning for files with filter pattern: '$fileFilterPattern' in '$DestinationDirectory'" -Level "DEBUG"
     $allMatchingFiles = Get-ChildItem -Path $DestinationDirectory -Filter $fileFilterPattern -File -ErrorAction SilentlyContinue
@@ -75,6 +75,11 @@ function Find-BackupArchiveInstance {
     }
 
     foreach ($fileInfo in $allMatchingFiles) {
+        # Skip .pinned files in this initial loop; they will be associated later.
+        if ($fileInfo.Extension -eq ".pinned") {
+            continue
+        }
+
         $instanceIdentifier = ""
         $isFirstVolumePart = $false
         $fileIsPartOfSplitSet = $false
@@ -96,7 +101,10 @@ function Find-BackupArchiveInstance {
             } elseif ($ArchiveExtension -ne $fileInfo.Extension -and $fileInfo.Name -like ($ArchiveBaseFileName + "*") -and $fileInfo.Extension -eq ".exe") { # Handles SFX like "MyJob [Date].7z.exe"
                 $instanceIdentifier = $fileInfo.Name
             } else {
-                & $LocalWriteLog -Message "   - RetentionManager/Scanner: File '$($fileInfo.Name)' does not match expected single or split volume pattern for base '$ArchiveBaseFileName' and ext '$ArchiveExtension'. Skipping." -Level "DEBUG"
+                # This could be a manifest file, which we'll associate later.
+                if ($fileInfo.Name -notlike "*.manifest.*") {
+                    & $LocalWriteLog -Message "   - RetentionManager/Scanner: File '$($fileInfo.Name)' does not match expected single or split volume pattern for base '$ArchiveBaseFileName' and ext '$ArchiveExtension'. Skipping for now." -Level "DEBUG"
+                }
                 continue
             }
         }
@@ -105,6 +113,7 @@ function Find-BackupArchiveInstance {
             $backupInstances[$instanceIdentifier] = @{
                 SortTime = if ($isFirstVolumePart) { $fileInfo.CreationTime } else { [datetime]::MaxValue }
                 Files    = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+                Pinned   = $false # Initialize Pinned status
             }
         }
         $backupInstances[$instanceIdentifier].Files.Add($fileInfo)
@@ -119,7 +128,7 @@ function Find-BackupArchiveInstance {
     }
 
     # Refine SortTime for split sets that might have been processed out of order or missing .001 initially
-    # And now, also look for associated manifest files for each identified instance.
+    # And now, also look for associated manifest and pinned files for each identified instance.
     foreach ($instanceKeyToRefine in $backupInstances.Keys) {
         if ($backupInstances[$instanceKeyToRefine].SortTime -eq [datetime]::MaxValue) {
             if ($backupInstances[$instanceKeyToRefine].Files.Count -gt 0) {
@@ -137,7 +146,7 @@ function Find-BackupArchiveInstance {
         # $instanceKeyToRefine is "JobName [DateStamp].<PrimaryExtension>" e.g. "MyJob [2025-06-01].7z"
         # Manifest pattern: "JobName [DateStamp].<PrimaryExtension>.manifest.*"
         $manifestPattern = [regex]::Escape($instanceKeyToRefine) + ".manifest.*"
-        $manifestFile = Get-ChildItem -Path $DestinationDirectory -File -ErrorAction SilentlyContinue |
+        $manifestFile = $allMatchingFiles |
                         Where-Object { $_.Name -match $manifestPattern } |
                         Sort-Object CreationTime -Descending | # Get newest if multiple (should not happen)
                         Select-Object -First 1
@@ -148,9 +157,16 @@ function Find-BackupArchiveInstance {
         } else {
             & $LocalWriteLog -Message "   - RetentionManager/Scanner: No manifest file found matching pattern '$manifestPattern' for instance '$instanceKeyToRefine'." -Level "DEBUG"
         }
+
+        # Look for a .pinned file associated with this instance
+        $pinFilePath = Join-Path -Path $DestinationDirectory -ChildPath "$instanceKeyToRefine.pinned"
+        if (Test-Path -LiteralPath $pinFilePath -PathType Leaf) {
+            & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found PINNED marker for instance '$instanceKeyToRefine'." -Level "INFO"
+            $backupInstances[$instanceKeyToRefine].Pinned = $true
+        }
     }
 
-    & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found $($backupInstances.Count) logical backup instance(s) after processing and manifest scan." -Level "DEBUG"
+    & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found $($backupInstances.Count) logical backup instance(s) after processing and manifest/pin scan." -Level "DEBUG"
     return $backupInstances
 }
 #endregion

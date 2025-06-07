@@ -300,7 +300,13 @@ param (
     [switch]$Version,
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. Suppresses all non-essential console output.")]
-    [switch]$Quiet
+    [switch]$Quiet,
+
+    [Parameter(Mandatory=$false, ParameterSetName='Pinning', HelpMessage="Pin a backup archive to exclude it from retention policies. Provide the full path to the archive file.")]
+    [string]$PinBackup,
+
+    [Parameter(Mandatory=$false, ParameterSetName='Pinning', HelpMessage="Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.")]
+    [string]$UnpinBackup
 )
 #endregion
 

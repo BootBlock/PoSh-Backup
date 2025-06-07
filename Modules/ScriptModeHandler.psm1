@@ -2,38 +2,48 @@
 <#
 .SYNOPSIS
     Handles informational script modes for PoSh-Backup, such as listing backup locations,
-    listing backup sets, testing the configuration, checking for updates, or displaying the version.
+    listing backup sets, testing the configuration, checking for updates, displaying the version,
+    or managing backup archive pins.
 .DESCRIPTION
     This module provides a function, Invoke-PoShBackupScriptMode, which checks if PoSh-Backup
-    was invoked with parameters like -ListBackupLocations, -ListBackupSets, -TestConfig,
-    -CheckForUpdate, or -Version.
+    was invoked with parameters like -ListBackupLocations, -TestConfig, -Version, -PinBackup,
+    or -UnpinBackup.
     If one of these modes is active, this module takes over, performs the requested action
-    (e.g., printing the list, configuration summary, update status, or version),
-    and then exits the script.
-    For -CheckForUpdate, it lazy-loads 'Modules\Utilities\Update.psm1'.
+    (e.g., printing a list, testing config, pinning an archive), and then exits the script.
     This keeps the main PoSh-Backup.ps1 script cleaner by offloading this mode-specific logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Added -Version switch handling.
+    Version:        1.3.0 # Added Pin/Unpin backup archive handling.
     DateCreated:    24-May-2025
     LastModified:   06-Jun-2025
     Purpose:        To handle informational script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
-                    For update checking, Modules\Utilities\Update.psm1 must exist.
+                    Requires PinManager.psm1 for pinning functionality.
 #>
+
+#region --- Module Dependencies ---
+# $PSScriptRoot here is Modules\
+try {
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\PinManager.psm1") -Force -ErrorAction Stop
+}
+catch {
+    # Don't throw here, as PinManager is only needed for specific modes.
+    # The check within the mode logic will handle the missing functions.
+    Write-Warning "ScriptModeHandler.psm1: Could not import PinManager.psm1. Pinning/unpinning functionality will be unavailable. Error: $($_.Exception.Message)"
+}
+#endregion
 
 #region --- Exported Function: Invoke-PoShBackupScriptMode ---
 function Invoke-PoShBackupScriptMode {
     [CmdletBinding()]
     <#
     .SYNOPSIS
-        Checks for and handles informational script modes (-ListBackupLocations, -ListBackupSets, -TestConfig, -CheckForUpdate, -Version).
+        Checks for and handles informational script modes.
     .DESCRIPTION
         If one of the specified informational CLI switches is present, this function executes
-        the corresponding logic (listing items, testing configuration, checking for updates, or displaying version)
-        and then exits the script. If no such mode is active, it returns a value indicating
-        that the main script should continue.
+        the corresponding logic and then exits the script. If no such mode is active, it returns
+        a value indicating that the main script should continue.
     .PARAMETER ListBackupLocationsSwitch
         The $ListBackupLocations.IsPresent switch value from the main script.
     .PARAMETER ListBackupSetsSwitch
@@ -44,6 +54,10 @@ function Invoke-PoShBackupScriptMode {
         The $CheckForUpdate.IsPresent switch value from the main script.
     .PARAMETER VersionSwitch
         The $Version.IsPresent switch value from the main script.
+    .PARAMETER PinBackupPath
+        The path provided to the -PinBackup parameter.
+    .PARAMETER UnpinBackupPath
+        The path provided to the -UnpinBackup parameter.
     .PARAMETER Configuration
         The loaded PoSh-Backup configuration hashtable.
     .PARAMETER ActualConfigFile
@@ -55,13 +69,11 @@ function Invoke-PoShBackupScriptMode {
     .PARAMETER PSScriptRootForUpdateCheck
         The $PSScriptRoot of the main PoSh-Backup.ps1 script, needed for resolving paths if -CheckForUpdate or -Version is used.
     .PARAMETER PSCmdletForUpdateCheck
-        The $PSCmdlet automatic variable from the main PoSh-Backup.ps1 script, for ShouldProcess in update check.
+        The $PSCmdlet automatic variable from the main PoSh-Backup.ps1 script, for ShouldProcess support.
     .OUTPUTS
         System.Boolean
         Returns $true if an informational mode was handled (and the script will exit within this function).
         Returns $false if no informational mode was active, indicating the main script should proceed.
-        (Note: In practice, if a mode is handled, this function calls 'exit 0', so the return value
-         might not be processed by the caller in that specific path.)
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -78,6 +90,12 @@ function Invoke-PoShBackupScriptMode {
 
         [Parameter(Mandatory = $true)]
         [bool]$VersionSwitch,
+
+        [Parameter(Mandatory = $false)]
+        [string]$PinBackupPath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$UnpinBackupPath,
 
         [Parameter(Mandatory = $true)]
         [hashtable]$Configuration,
@@ -108,6 +126,26 @@ function Invoke-PoShBackupScriptMode {
         } else {
             & $Logger -Message $Message -Level $Level
         }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($PinBackupPath)) {
+        & $LocalWriteLog -Message "`n--- Pin Backup Archive Mode ---" -Level "HEADING"
+        if (Get-Command Add-PoShBackupPin -ErrorAction SilentlyContinue) {
+            Add-PoShBackupPin -Path $PinBackupPath -Logger $Logger
+        } else {
+            & $LocalWriteLog -Message "FATAL: Could not find the Add-PoShBackupPin command. Ensure 'Modules\Managers\PinManager.psm1' is present and loaded correctly." -Level "ERROR"
+        }
+        exit 0
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($UnpinBackupPath)) {
+        & $LocalWriteLog -Message "`n--- Unpin Backup Archive Mode ---" -Level "HEADING"
+        if (Get-Command Remove-PoShBackupPin -ErrorAction SilentlyContinue) {
+            Remove-PoShBackupPin -Path $UnpinBackupPath -Logger $Logger
+        } else {
+            & $LocalWriteLog -Message "FATAL: Could not find the Remove-PoShBackupPin command. Ensure 'Modules\Managers\PinManager.psm1' is present and loaded correctly." -Level "ERROR"
+        }
+        exit 0
     }
 
     if ($VersionSwitch) {
