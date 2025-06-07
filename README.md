@@ -44,7 +44,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   **Other Formats:** CSV, JSON, XML (CliXml), Plain Text (TXT), and Markdown (MD) also supported for data export and integration, updated to include target transfer and checksum details where appropriate.
 *   **Comprehensive Logging:** Get detailed, colour-coded console output and optional per-job text file logs for easy monitoring and troubleshooting of both local operations and remote transfers.
 *   **Log File Retention:** Automatically manage the number of log files kept per job. Configurable globally, per job, or per backup set, with a CLI override. A setting of `0` means infinite retention. This prevents the `Logs/` directory from growing indefinitely.
-*   **Pin Backups:** Protect specific backup archives from automatic deletion by retention policies. By creating a simple `.pinned` marker file next to an archive, you can ensure that critical or milestone backups are preserved indefinitely, regardless of the configured retention count. Management of pins is handled via new `-PinBackup` and `-UnpinBackup` command-line switches.
+*   **Pin Backups:** Protect specific backup archives from automatic deletion by retention policies. This can be done proactively when an archive is created (via the `-Pin` switch or a job setting) or retroactively on any existing archive (via the `-PinBackup <path>` management utility).
 *   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention (archive and log files), **post-run system actions**, and **checksum operations** without making any actual changes.
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`). This includes basic validation of Backup Target definitions and **job dependency validation** (checking for circular references and dependencies on non-existent jobs). Optional advanced schema validation for the overall configuration structure is also available.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the `DestinationDir` before starting backups to prevent failures.
@@ -142,7 +142,7 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
         *   `DefaultSevenZipIncludeListFile` (string, default `""`): Optionally specify a path to a text file containing patterns for 7-Zip to include (one pattern per line). Used with 7-Zip's `-i@listfile` switch.
     *   **`DefaultSevenZipExcludeListFile` (Global Setting):**
         *   `DefaultSevenZipExcludeListFile` (string, default `""`): Optionally specify a path to a text file containing patterns for 7-Zip to exclude (one pattern per line). Used with 7-Zip's `-x@listfile` switch.
-    *   **`BackupTargets` (New Global Section):**
+    *   **`BackupTargets` (Global Section):**
         *   This is where you define your reusable, named remote target configurations.
         *   Each entry (a "target instance") specifies a `Type` (like "UNC", "Replicate") and `TargetSpecificSettings` for that type.
         *   Optionally, you can include `CredentialsSecretName` if the provider supports credentialed access via PowerShell SecretManagement, and `RemoteRetentionSettings` for provider-specific retention on the target (or per-destination for "Replicate" type).
@@ -180,7 +180,7 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
                     )
                 }
 
-                "MySecureFTPServer" = @{ # NEW SFTP Target Example
+                "MySecureFTPServer" = @{ # SFTP Target Example
                     Type = "SFTP" # Refers to Modules\Targets\SFTP.Target.psm1
                     TargetSpecificSettings = @{
                         SFTPServerAddress   = "sftp.yourdomain.com"    # Mandatory: SFTP server hostname or IP
@@ -230,7 +230,7 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
         *   Each job definition requires:
             *   `Path`: Source path(s) to back up (string or array of strings).
             *   `Name`: Base name for the archive file.
-        *   **`DependsOnJobs` (New Job-Level Setting):**
+        *   **`DependsOnJobs` (Job-Level Setting):**
             *   An array of job name strings that this job depends on. Example: `DependsOnJobs = @("DatabaseBackupJob", "LogArchiveJob")`
             *   The current job will only run if all jobs listed in `DependsOnJobs` complete successfully (success considers the prerequisite job's `TreatSevenZipWarningsAsSuccess` setting).
             *   The script will attempt to order jobs to satisfy these dependencies and will detect circular dependencies.
@@ -239,7 +239,7 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
             *   `DestinationDir`: Specifies the directory where this job's archive is created. If remote targets are used, this acts as a **local staging directory**. If no remote targets are used, this is the **final backup destination**. Overrides `DefaultDestinationDir`.
             *   `LocalRetentionCount`: (Renamed from `RetentionCount`) Defines how many archive versions to keep in the `DestinationDir`.
             *   `LogRetentionCount`: Defines how many log files to keep for this specific job. Overrides `DefaultLogRetentionCount`. A value of `0` means infinite retention for this job's logs.
-            *   `TargetNames` (New Setting): An array of strings. Each string must be a name of a target instance defined in the global `BackupTargets` section. If you specify target names here, the locally created archive will be transferred to each listed remote target. If `TargetNames` is omitted or empty, the backup is local-only to `DestinationDir`.
+            *   `TargetNames`: An array of strings. Each string must be a name of a target instance defined in the global `BackupTargets` section. If you specify target names here, the locally created archive will be transferred to each listed remote target. If `TargetNames` is omitted or empty, the backup is local-only to `DestinationDir`.
             *   `DeleteLocalArchiveAfterSuccessfulTransfer` (Job-Specific): Overrides the global setting for this job.
         *   **Checksum Settings (Job-Specific):**
             *   `GenerateArchiveChecksum` (boolean): Overrides `DefaultGenerateArchiveChecksum`.
@@ -288,9 +288,9 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
                 GenerateArchiveChecksum     = $true
                 ChecksumAlgorithm           = "SHA256"
                 VerifyArchiveChecksumOnTest = $true
-                VerifyLocalArchiveBeforeTransfer = $true # NEW: Ensure this archive is good before sending to MyMainUNCShare
+                VerifyLocalArchiveBeforeTransfer = $true # Ensure this archive is good before sending to MyMainUNCShare
                 SevenZipCpuAffinity         = "0,1"  # Restrict 7-Zip to CPU cores 0 and 1
-                SevenZipExcludeListFile     = "C:\PoShBackup\Config\MyDocsExcludes.txt" # NEW
+                SevenZipExcludeListFile     = "C:\PoShBackup\Config\MyDocsExcludes.txt"
             }
 
             # Inside BackupLocations in User.psd1 or Default.psd1
@@ -318,7 +318,7 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
                 JobNames     = @("WebAppBackup", "SQLBackup")
                 OnErrorInJob = "StopSet"
                 LogRetentionCount = 7 # Logs for WebAppBackup & SQLBackup will keep 7 files when run via this set.
-                SevenZipExcludeListFile = "C:\PoShBackup\Config\ServerMaintenanceExcludes.txt" # NEW: Exclude list for this set
+                SevenZipExcludeListFile = "C:\PoShBackup\Config\ServerMaintenanceExcludes.txt" # Exclude list for this set
                 PostRunAction = @{
                     Enabled         = $true
                     Action          = "Restart"
@@ -371,7 +371,7 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
                 JobNames     = @("WebAppBackup", "SQLBackup")
                 OnErrorInJob = "StopSet"
                 LogRetentionCount = 7 # Also applies log retention for jobs in this set
-                SevenZipExcludeListFile = "C:\PoShBackup\Config\ServerMaintenanceExcludes.txt" # NEW: Exclude list for this set
+                SevenZipExcludeListFile = "C:\PoShBackup\Config\ServerMaintenanceExcludes.txt" # Exclude list for this set
                 PostRunAction = @{
                     Enabled         = $true
                     Action          = "Restart"
@@ -448,6 +448,12 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     (This runs "MyVeryLargeBackup" and splits the archive into 10GB volumes, overriding any `SplitVolumeSize` or `CreateSFX` settings in the configuration for this job.)
     ```
 
+*   **Run a job and pin the resulting archive:**
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "MyPreUpgradeBackup" -Pin
+    ```
+    (This runs the "MyPreUpgradeBackup" job and automatically creates a `.pinned` file for the new archive, protecting it from retention.)
+
 *   **Run a backup set and suppress console output:**
     ```powershell
     .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -Quiet
@@ -481,6 +487,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-PostRunActionDelaySecondsCli <Seconds>`: Delay for the CLI-specified action. Defaults to 0 if `-PostRunActionCli` is used but this parameter is not.
 *   `-PostRunActionForceCli`: Switch to force Shutdown/Restart for the CLI-specified action.
 *   `-PostRunActionTriggerOnStatusCli <StatusArray>`: Status(es) to trigger CLI action. Defaults to `@("ANY")` if `-PostRunActionCli` is used but this parameter is not. Valid: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
+*   `-Pin`: Optional. A switch parameter. If present, the backup archive(s) created during this specific run will be automatically pinned, protecting them from retention policies.
 *   `-PinBackup <FilePath>`: Pins the backup archive specified by `<FilePath>`, protecting it from retention policies. This creates a `.pinned` marker file alongside the archive.
 *   `-UnpinBackup <FilePath>`: Unpins the backup archive specified by `<FilePath>`, making it subject to retention policies again. This removes the `.pinned` marker file.
 *   `-CheckForUpdate`: Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
@@ -490,24 +497,35 @@ These parameters allow you to override certain configuration settings for a spec
 PoSh-Backup includes a feature to "pin" a specific backup archive, which makes it immune to automatic deletion by local or remote retention policies. This is useful for preserving important milestone backups, such as the first backup of a new system, a backup from before a major upgrade, or a known-good full backup that you want to keep as a baseline.
 
 *   **How it Works:**
-    *   Pinning a backup is achieved by creating an empty "marker file" in the same directory as the archive. The marker file has the exact same name as the archive file but with `.pinned` appended.
+    *   Pinning a backup is achieved by creating a "marker file" in the same directory as the archive. The marker file has the exact same name as the archive file but with `.pinned` appended.
     *   For example, to pin the archive `MyJob [2025-06-06].7z`, a file named `MyJob [2025-06-06].7z.pinned` is created.
     *   When the retention policy runs, it scans for these `.pinned` files. Any backup instance associated with a `.pinned` file is completely ignored by the retention logic and will not be counted towards the `KeepCount`.
 
-*   **How to Pin/Unpin a Backup:**
-    *   You can easily manage pins using two new command-line parameters. You must provide the full path to the *archive file* you want to manage.
+There are two ways to pin a backup: during its creation, or after it already exists.
 
-    *   **To Pin a Backup:**
-        ```powershell
-        .\PoSh-Backup.ps1 -PinBackup "D:\Backups\MyJob [2025-06-06].7z"
-        ```
-        This command will create the `D:\Backups\MyJob [2025-06-06].7z.pinned` file.
+#### Pinning an Archive During Creation
+Use this method when you know in advance that the backup you are about to create needs to be preserved.
 
-    *   **To Unpin a Backup:**
-        ```powershell
-        .\PoSh-Backup.ps1 -UnpinBackup "D:\Backups\MyJob [2025-06-06].7z"
-        ```
-        This command will remove the `.pinned` marker file, making the archive subject to normal retention policies on the next run.
+*   **Via Command-Line:** The easiest way is to add the `-Pin` switch to your backup command.
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "MyPreUpgradeBackup" -Pin
+    ```
+*   **Via Configuration:** You can make this behaviour permanent for a specific job by setting `PinOnCreation = $true` in its configuration in `User.psd1`.
+
+#### Managing Pins on Existing Backups
+Use this method to manage pins on any archive that already exists in your backup destination.
+
+*   **To Pin an Existing Backup:**
+    ```powershell
+    .\PoSh-Backup.ps1 -PinBackup "D:\Backups\MyJob [2025-06-06].7z"
+    ```
+    This command will create the `D:\Backups\MyJob [2025-06-06].7z.pinned` file.
+
+*   **To Unpin an Existing Backup:**
+    ```powershell
+    .\PoSh-Backup.ps1 -UnpinBackup "D:\Backups\MyJob [2025-06-06].7z"
+    ```
+    This command will remove the `.pinned` marker file, making the archive subject to normal retention policies on the next run.
 
 *   **Important Notes on Pinned Backups:**
     *   Pinning applies to an entire backup instance. If you pin the first volume of a multi-volume set (e.g., `archive.7z.001`), the entire set (all `.00x` parts and any associated manifest) is considered pinned. The marker file should be named after the base archive, e.g., `archive.7z.pinned`. The `-PinBackup` command handles this correctly if you point it to the `.001` file.
