@@ -1368,12 +1368,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** Review all path handling. `Modules\Managers\7ZipManager\Discovery.psm1` might need to check for `7z.exe` relative to script root first.
     *   **Acceptance Criteria:** PoSh-Backup can run in a self-contained, portable manner.
 
-160. **Task: Dependency Checker for Required PowerShell Modules (e.g., Posh-SSH, SecretManagement)**
-    *   **Goal:** At script startup, check if required external PowerShell modules (like Posh-SSH for SFTP) are installed and optionally prompt the user to install them.
-    *   **Description:** Improves first-run experience and helps users meet prerequisites.
-    *   **Scope & Impact:** `PoSh-Backup.ps1` or `Modules\Managers\CoreSetupManager.psm1`. Use `Get-Module -ListAvailable`.
-    *   **Acceptance Criteria:** Script checks for and informs about missing required modules.
-
 ---
 
 **XL. Advanced Job Control & Scheduling**

@@ -6,14 +6,14 @@
 .DESCRIPTION
     This module provides a function to handle the main setup tasks after initial
     global variable setup and CLI override processing. It checks for required external
-    PowerShell modules (e.g., Posh-SSH) only if the configuration and the specific
-    jobs being run actually require them. It imports necessary PoSh-Backup modules,
-    loads and validates the application configuration, handles informational script modes,
+    PowerShell modules (e.g., Posh-SSH, SecretManagement) only if the configuration
+    and the specific jobs being run actually require them. It imports necessary PoSh-Backup
+    modules, loads and validates the application configuration, handles informational script modes,
     validates essential settings, initialises global logging parameters, and determines
     the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.2 # Dependency check is now context-aware of the jobs being run.
+    Version:        1.1.3 # Added conditional check for SecretManagement module.
     DateCreated:    01-Jun-2025
     LastModified:   06-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
@@ -79,17 +79,48 @@ function Test-RequiredModulesInternal {
                 }
                 return $false # Condition not met, skip check.
             }
+        },
+        @{
+            ModuleName  = 'Microsoft.PowerShell.SecretManagement'
+            RequiredFor = 'Archive Passwords or Target Credentials from a vault'
+            InstallHint = 'Install-Module Microsoft.PowerShell.SecretManagement -Scope CurrentUser'
+            Condition   = {
+                param($Config, $ActiveJobs)
+                if ($null -eq $ActiveJobs -or $ActiveJobs.Count -eq 0) { return $false }
+
+                foreach ($jobName in $ActiveJobs) {
+                    if (-not $Config.BackupLocations.ContainsKey($jobName)) { continue }
+                    $jobConf = $Config.BackupLocations[$jobName]
+
+                    # Condition 1: Job's archive password method is SecretManagement.
+                    if ($jobConf.ArchivePasswordMethod -eq 'SecretManagement') {
+                        return $true
+                    }
+
+                    # Condition 2: Job uses a target that has a CredentialsSecretName defined.
+                    if ($jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array]) {
+                        foreach ($targetName in $jobConf.TargetNames) {
+                            if ($Config.BackupTargets.ContainsKey($targetName)) {
+                                $targetDef = $Config.BackupTargets[$targetName]
+                                if ($targetDef -is [hashtable] -and $targetDef.ContainsKey('CredentialsSecretName') -and (-not [string]::IsNullOrWhiteSpace($targetDef.CredentialsSecretName))) {
+                                    return $true
+                                }
+                            }
+                        }
+                    }
+                }
+                return $false # No active job triggered the condition.
+            }
         }
         # Add other required modules here in the future with their own conditions.
-
         # --- HOW TO ADD A NEW DEPENDENCY ---
         # To add a check for another module (e.g., a hypothetical 'Az.Storage' for an Azure target),
         # simply add a new hashtable entry to the $requiredModules array above, following this pattern:
         #
         # @{
-        #     ModuleName  = 'Az.Storage'                                    # The exact name of the module on the PowerShell Gallery.
-        #     RequiredFor = 'Azure Blob Storage Target Provider'            # A user-friendly description of the feature.
-        #     InstallHint = 'Install-Module Az.Storage -Scope CurrentUser'  # The command to install the module.
+        #     ModuleName  = 'Az.Storage' # The exact name of the module on the PowerShell Gallery.
+        #     RequiredFor = 'Azure Blob Storage Target Provider' # A user-friendly description of the feature.
+        #     InstallHint = 'Install-Module Az.Storage -Scope CurrentUser' # The command to install the module.
         #     Condition   = {
         #         param($Config, $ActiveJobs)
         #         # This scriptblock MUST return $true if the dependency check is needed, otherwise $false.
@@ -124,8 +155,7 @@ function Test-RequiredModulesInternal {
             $moduleName = $moduleInfo.ModuleName
             & $LocalWriteLog -Message "  - Condition met for '$($moduleInfo.RequiredFor)'. Checking for module: '$moduleName'." -Level "DEBUG"
             if (-not (Get-Module -Name $moduleName -ListAvailable)) {
-                $installHint = $moduleInfo.InstallHint
-                $errorMessage = "Required PowerShell module '$moduleName' is not installed. This module is necessary for the '$($moduleInfo.RequiredFor)' functionality. Please install it by running: $installHint"
+                $errorMessage = "Required PowerShell module '$moduleName' is not installed. This module is necessary for the '$($moduleInfo.RequiredFor)' functionality. Please install it by running: $($moduleInfo.InstallHint)"
                 $missingModules.Add($errorMessage)
             }
         }
