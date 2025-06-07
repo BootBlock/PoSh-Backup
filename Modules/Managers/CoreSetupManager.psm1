@@ -5,14 +5,15 @@
     configuration loading, job resolution, and dependency ordering.
 .DESCRIPTION
     This module provides a function to handle the main setup tasks after initial
-    global variable setup and CLI override processing. It imports necessary PoSh-Backup
-    modules, loads and validates the application configuration, handles informational
-    script modes (like -TestConfig, -ListBackupLocations), validates essential
-    settings like the 7-Zip path, initialises global logging parameters based on
-    the configuration, and determines the final list and order of jobs to be processed.
+    global variable setup and CLI override processing. It checks for required external
+    PowerShell modules (e.g., Posh-SSH) only if the configuration and the specific
+    jobs being run actually require them. It imports necessary PoSh-Backup modules,
+    loads and validates the application configuration, handles informational script modes,
+    validates essential settings, initialises global logging parameters, and determines
+    the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.3 # Added -Version switch parameter pass-through.
+    Version:        1.1.2 # Dependency check is now context-aware of the jobs being run.
     DateCreated:    01-Jun-2025
     LastModified:   06-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
@@ -25,6 +26,121 @@
 # Utils.psm1 is assumed to be globally imported by InitialisationManager.psm1.
 # LoggerScriptBlock will be passed in.
 #endregion
+
+#region --- Private Helper Functions ---
+function Test-RequiredModulesInternal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Configuration,
+        [Parameter(Mandatory = $true)]
+        [System.Collections.Generic.List[string]]$JobsToRun
+    )
+
+    # PSSA Appeasement: Use the Logger parameter directly.
+    & $Logger -Message "CoreSetupManager/Test-RequiredModulesInternal: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        } else {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+
+    & $LocalWriteLog -Message "CoreSetupManager/Test-RequiredModulesInternal: Checking for required external PowerShell modules based on jobs to be run..." -Level "DEBUG"
+
+    # Define modules and the condition under which they are required.
+    $requiredModules = @(
+        @{
+            ModuleName  = 'Posh-SSH'
+            RequiredFor = 'SFTP Target Provider'
+            InstallHint = 'Install-Module Posh-SSH -Scope CurrentUser'
+            Condition   = {
+                param($Config, $ActiveJobs)
+                # This module is only required if a job that is *actually going to run* uses an SFTP target.
+                if ($Config.ContainsKey('BackupTargets') -and $Config.BackupTargets -is [hashtable]) {
+                    foreach ($jobName in $ActiveJobs) {
+                        $jobConf = $Config.BackupLocations[$jobName]
+                        if ($jobConf -and $jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array]) {
+                            foreach ($targetName in $jobConf.TargetNames) {
+                                if ($Config.BackupTargets.ContainsKey($targetName)) {
+                                    $targetDef = $Config.BackupTargets[$targetName]
+                                    if ($targetDef -is [hashtable] -and $targetDef.Type -eq 'SFTP') {
+                                        return $true # Condition met, check is required.
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return $false # Condition not met, skip check.
+            }
+        }
+        # Add other required modules here in the future with their own conditions.
+
+        # --- HOW TO ADD A NEW DEPENDENCY ---
+        # To add a check for another module (e.g., a hypothetical 'Az.Storage' for an Azure target),
+        # simply add a new hashtable entry to the $requiredModules array above, following this pattern:
+        #
+        # @{
+        #     ModuleName  = 'Az.Storage'                                    # The exact name of the module on the PowerShell Gallery.
+        #     RequiredFor = 'Azure Blob Storage Target Provider'            # A user-friendly description of the feature.
+        #     InstallHint = 'Install-Module Az.Storage -Scope CurrentUser'  # The command to install the module.
+        #     Condition   = {
+        #         param($Config, $ActiveJobs)
+        #         # This scriptblock MUST return $true if the dependency check is needed, otherwise $false.
+        #         # It should inspect the loaded $Config and the list of $ActiveJobs to make its decision.
+        #         #
+        #         # Example logic for an 'AzureBlob' target type:
+        #         if ($Config.ContainsKey('BackupTargets') -and $Config.BackupTargets -is [hashtable]) {
+        #             foreach ($jobName in $ActiveJobs) {
+        #                 $jobConf = $Config.BackupLocations[$jobName]
+        #                 if ($jobConf -and $jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array]) {
+        #                     foreach ($targetName in $jobConf.TargetNames) {
+        #                         if ($Config.BackupTargets.ContainsKey($targetName)) {
+        #                             $targetDef = $Config.BackupTargets[$targetName]
+        #                             if ($targetDef -is [hashtable] -and $targetDef.Type -eq 'AzureBlob') {
+        #                                 return $true # An active job uses an AzureBlob target, so the check is required.
+        #                             }
+        #                         }
+        #                     }
+        #                 }
+        #             }
+        #         }
+        #         return $false # No active job uses an AzureBlob target, so the check is skipped.
+        #     }
+        # }
+    )
+
+    $missingModules = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($moduleInfo in $requiredModules) {
+        # Evaluate the condition to see if we need to check for this module.
+        if (& $moduleInfo.Condition -Config $Configuration -ActiveJobs $JobsToRun) {
+            $moduleName = $moduleInfo.ModuleName
+            & $LocalWriteLog -Message "  - Condition met for '$($moduleInfo.RequiredFor)'. Checking for module: '$moduleName'." -Level "DEBUG"
+            if (-not (Get-Module -Name $moduleName -ListAvailable)) {
+                $installHint = $moduleInfo.InstallHint
+                $errorMessage = "Required PowerShell module '$moduleName' is not installed. This module is necessary for the '$($moduleInfo.RequiredFor)' functionality. Please install it by running: $installHint"
+                $missingModules.Add($errorMessage)
+            }
+        }
+    }
+
+    if ($missingModules.Count -gt 0) {
+        $fullErrorMessage = "FATAL: One or more required PowerShell modules are missing for the configured features. Please install them to ensure full functionality.`n"
+        $fullErrorMessage += ($missingModules -join "`n")
+        throw $fullErrorMessage
+    }
+
+    & $LocalWriteLog -Message "CoreSetupManager/Test-RequiredModulesInternal: All conditionally required external modules found." -Level "SUCCESS"
+}
+#endregion
+
 
 function Invoke-PoShBackupCoreSetup {
     [CmdletBinding()]
@@ -123,6 +239,27 @@ function Invoke-PoShBackupCoreSetup {
         throw "Configuration object is not a valid hashtable."
     }
 
+    # --- Job Resolution FIRST ---
+    $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
+    if (-not $jobResolutionResult.Success) {
+        & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
+        throw "Could not determine jobs to process."
+    }
+    $initialJobsToConsider = $jobResolutionResult.JobsToRun
+    $currentSetName = $jobResolutionResult.SetName
+    $stopSetOnError = $jobResolutionResult.StopSetOnErrorPolicy
+    $setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
+
+    # --- Check for External Dependencies AFTER config has been loaded AND jobs have been resolved ---
+    try {
+        Test-RequiredModulesInternal -Logger $LoggerScriptBlock -Configuration $Configuration -JobsToRun $initialJobsToConsider
+    }
+    catch {
+        & $LoggerScriptBlock -Message $_.Exception.Message -Level "ERROR"
+        throw # Re-throw to be handled by PoSh-Backup.ps1
+    }
+
+    # --- Handle Informational Modes ---
     Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
                                 -ListBackupSetsSwitch $ListBackupSets.IsPresent `
                                 -TestConfigSwitch $TestConfig.IsPresent `
@@ -135,6 +272,7 @@ function Invoke-PoShBackupCoreSetup {
                                 -PSScriptRootForUpdateCheck $PSScriptRoot `
                                 -PSCmdletForUpdateCheck $PSCmdlet
 
+    # --- Final Setup Steps ---
     $sevenZipPathFromFinalConfig = if ($Configuration.ContainsKey('SevenZipPath')) { $Configuration.SevenZipPath } else { $null }
     if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
         & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: 7-Zip executable path ('$sevenZipPathFromFinalConfig') is invalid or not found." -Level "ERROR"
@@ -158,16 +296,7 @@ function Invoke-PoShBackupCoreSetup {
         }
     }
 
-    $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
-    if (-not $jobResolutionResult.Success) {
-        & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
-        throw "Could not determine jobs to process."
-    }
-    $initialJobsToConsider = $jobResolutionResult.JobsToRun
-    $currentSetName = $jobResolutionResult.SetName
-    $stopSetOnError = $jobResolutionResult.StopSetOnErrorPolicy
-    $setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
-
+    # --- Build Final Execution Order ---
     $jobsToProcess = [System.Collections.Generic.List[string]]::new()
     if ($initialJobsToConsider.Count -gt 0) {
         & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: Building job execution order considering dependencies..." -Level "INFO"
