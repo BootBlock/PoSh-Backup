@@ -13,7 +13,7 @@
     the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.3 # Added conditional check for SecretManagement module.
+    Version:        1.1.4 # Corrected order of operations for informational/pinning modes.
     DateCreated:    01-Jun-2025
     LastModified:   06-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
@@ -269,7 +269,23 @@ function Invoke-PoShBackupCoreSetup {
         throw "Configuration object is not a valid hashtable."
     }
 
-    # --- Job Resolution FIRST ---
+    # --- Handle Informational Modes FIRST ---
+    # This includes Pinning/Unpinning, which must exit before job resolution is attempted.
+    Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
+                                -ListBackupSetsSwitch $ListBackupSets.IsPresent `
+                                -TestConfigSwitch $TestConfig.IsPresent `
+                                -CheckForUpdateSwitch $false `
+                                -VersionSwitch $Version.IsPresent `
+                                -PinBackupPath $CliOverrideSettings.PinBackup `
+                                -UnpinBackupPath $CliOverrideSettings.UnpinBackup `
+                                -Configuration $Configuration `
+                                -ActualConfigFile $ActualConfigFile `
+                                -ConfigLoadResult $configResult `
+                                -Logger $LoggerScriptBlock `
+                                -PSScriptRootForUpdateCheck $PSScriptRoot `
+                                -PSCmdletForUpdateCheck $PSCmdlet
+
+    # --- Job Resolution ---
     $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
     if (-not $jobResolutionResult.Success) {
         & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
@@ -288,19 +304,6 @@ function Invoke-PoShBackupCoreSetup {
         & $LoggerScriptBlock -Message $_.Exception.Message -Level "ERROR"
         throw # Re-throw to be handled by PoSh-Backup.ps1
     }
-
-    # --- Handle Informational Modes ---
-    Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
-                                -ListBackupSetsSwitch $ListBackupSets.IsPresent `
-                                -TestConfigSwitch $TestConfig.IsPresent `
-                                -CheckForUpdateSwitch $false `
-                                -VersionSwitch $Version.IsPresent `
-                                -Configuration $Configuration `
-                                -ActualConfigFile $ActualConfigFile `
-                                -ConfigLoadResult $configResult `
-                                -Logger $LoggerScriptBlock `
-                                -PSScriptRootForUpdateCheck $PSScriptRoot `
-                                -PSCmdletForUpdateCheck $PSCmdlet
 
     # --- Final Setup Steps ---
     $sevenZipPathFromFinalConfig = if ($Configuration.ContainsKey('SevenZipPath')) { $Configuration.SevenZipPath } else { $null }

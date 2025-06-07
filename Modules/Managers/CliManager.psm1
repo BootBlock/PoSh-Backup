@@ -8,7 +8,7 @@
     This helps to decouple CLI argument handling from the main script's core logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2 # Added PinBackup and UnpinBackup switches.
+    Version:        1.0.3 # Added PinOnCreationCLI switch.
     DateCreated:    01-Jun-2025
     LastModified:   06-Jun-2025
     Purpose:        To centralise CLI parameter processing.
@@ -28,31 +28,33 @@ function Get-PoShBackupCliOverride {
     $cliOverrideSettings = @{}
 
     # Switch parameters: Value will be $true if present, $null otherwise.
-    $cliOverrideSettings.UseVSS                             = if ($BoundParameters.ContainsKey('UseVSS')) { $true } else { $null }
-    $cliOverrideSettings.SkipVSS                            = if ($BoundParameters.ContainsKey('SkipVSS')) { $true } else { $null }
-    $cliOverrideSettings.EnableRetries                      = if ($BoundParameters.ContainsKey('EnableRetriesCLI')) { $true } else { $null }
-    $cliOverrideSettings.SkipRetries                        = if ($BoundParameters.ContainsKey('SkipRetriesCLI')) { $true } else { $null }
-    $cliOverrideSettings.TestArchive                        = if ($BoundParameters.ContainsKey('TestArchive')) { $true } else { $null }
+    $cliOverrideSettings.UseVSS                              = if ($BoundParameters.ContainsKey('UseVSS')) { $true } else { $null }
+    $cliOverrideSettings.SkipVSS                             = if ($BoundParameters.ContainsKey('SkipVSS')) { $true } else { $null }
+    $cliOverrideSettings.EnableRetries                       = if ($BoundParameters.ContainsKey('EnableRetriesCLI')) { $true } else { $null }
+    $cliOverrideSettings.SkipRetries                         = if ($BoundParameters.ContainsKey('SkipRetriesCLI')) { $true } else { $null }
+    $cliOverrideSettings.TestArchive                         = if ($BoundParameters.ContainsKey('TestArchive')) { $true } else { $null }
     $cliOverrideSettings.VerifyLocalArchiveBeforeTransferCLI = if ($BoundParameters.ContainsKey('VerifyLocalArchiveBeforeTransferCLI')) { $true } else { $null }
-    $cliOverrideSettings.GenerateHtmlReport                 = if ($BoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $true } else { $null }
-    $cliOverrideSettings.TreatSevenZipWarningsAsSuccess     = if ($BoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $true } else { $null }
-    $cliOverrideSettings.PostRunActionForceCli              = if ($BoundParameters.ContainsKey('PostRunActionForceCli')) { $true } else { $null }
+    $cliOverrideSettings.GenerateHtmlReport                  = if ($BoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $true } else { $null }
+    $cliOverrideSettings.TreatSevenZipWarningsAsSuccess      = if ($BoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $true } else { $null }
+    $cliOverrideSettings.PostRunActionForceCli               = if ($BoundParameters.ContainsKey('PostRunActionForceCli')) { $true } else { $null }
 
     # Parameters that take arguments: Value will be the argument, or $null if not present.
     # Default values for these are handled by the param block in the main PoSh-Backup.ps1 script.
-    $cliOverrideSettings.SevenZipPriority                   = if ($BoundParameters.ContainsKey('SevenZipPriorityCLI')) { $BoundParameters['SevenZipPriorityCLI'] } else { $null }
-    $cliOverrideSettings.SevenZipCpuAffinity                = if ($BoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $BoundParameters['SevenZipCpuAffinityCLI'] } else { $null }
-    $cliOverrideSettings.SevenZipIncludeListFile            = if ($BoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $BoundParameters['SevenZipIncludeListFileCLI'] } else { $null }
-    $cliOverrideSettings.SevenZipExcludeListFile            = if ($BoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $BoundParameters['SevenZipExcludeListFileCLI'] } else { $null }
-    $cliOverrideSettings.SplitVolumeSizeCLI                 = if ($BoundParameters.ContainsKey('SplitVolumeSizeCLI')) { $BoundParameters['SplitVolumeSizeCLI'] } else { $null }
-    $cliOverrideSettings.LogRetentionCountCLI               = if ($BoundParameters.ContainsKey('LogRetentionCountCLI')) { $BoundParameters['LogRetentionCountCLI'] } else { $null }
-    $cliOverrideSettings.PauseBehaviour                     = if ($BoundParameters.ContainsKey('PauseBehaviourCLI')) { $BoundParameters['PauseBehaviourCLI'] } else { $null }
-    $cliOverrideSettings.PostRunActionCli                   = if ($BoundParameters.ContainsKey('PostRunActionCli')) { $BoundParameters['PostRunActionCli'] } else { $null }
-    $cliOverrideSettings.PostRunActionDelaySecondsCli       = if ($BoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $BoundParameters['PostRunActionDelaySecondsCli'] } else { $null }
-    $cliOverrideSettings.PostRunActionTriggerOnStatusCli    = if ($BoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $BoundParameters['PostRunActionTriggerOnStatusCli'] } else { $null }
+    $cliOverrideSettings.SevenZipPriority                    = if ($BoundParameters.ContainsKey('SevenZipPriorityCLI')) { $BoundParameters['SevenZipPriorityCLI'] } else { $null }
+    $cliOverrideSettings.SevenZipCpuAffinity                 = if ($BoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $BoundParameters['SevenZipCpuAffinityCLI'] } else { $null }
+    $cliOverrideSettings.SevenZipIncludeListFile             = if ($BoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $BoundParameters['SevenZipIncludeListFileCLI'] } else { $null }
+    $cliOverrideSettings.SevenZipExcludeListFile             = if ($BoundParameters.ContainsKey('SevenZipExcludeListFileCLI')) { $BoundParameters['SevenZipExcludeListFileCLI'] } else { $null }
+    $cliOverrideSettings.SplitVolumeSizeCLI                  = if ($BoundParameters.ContainsKey('SplitVolumeSizeCLI')) { $BoundParameters['SplitVolumeSizeCLI'] } else { $null }
+    $cliOverrideSettings.LogRetentionCountCLI                = if ($BoundParameters.ContainsKey('LogRetentionCountCLI')) { $BoundParameters['LogRetentionCountCLI'] } else { $null }
+    $cliOverrideSettings.PauseBehaviour                      = if ($BoundParameters.ContainsKey('PauseBehaviourCLI')) { $BoundParameters['PauseBehaviourCLI'] } else { $null }
+    $cliOverrideSettings.PostRunActionCli                    = if ($BoundParameters.ContainsKey('PostRunActionCli')) { $BoundParameters['PostRunActionCli'] } else { $null }
+    $cliOverrideSettings.PostRunActionDelaySecondsCli        = if ($BoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $BoundParameters['PostRunActionDelaySecondsCli'] } else { $null }
+    $cliOverrideSettings.PostRunActionTriggerOnStatusCli     = if ($BoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $BoundParameters['PostRunActionTriggerOnStatusCli'] } else { $null }
 
-    $cliOverrideSettings.PinBackup                        = if ($BoundParameters.ContainsKey('PinBackup')) { $BoundParameters['PinBackup'] } else { $null }
-    $cliOverrideSettings.UnpinBackup                      = if ($BoundParameters.ContainsKey('UnpinBackup')) { $BoundParameters['UnpinBackup'] } else { $null }
+    $cliOverrideSettings.PinBackup                           = if ($BoundParameters.ContainsKey('PinBackup')) { $BoundParameters['PinBackup'] } else { $null }
+    $cliOverrideSettings.UnpinBackup                         = if ($BoundParameters.ContainsKey('UnpinBackup')) { $BoundParameters['UnpinBackup'] } else { $null }
+
+    $cliOverrideSettings.PinOnCreationCLI                    = if ($BoundParameters.ContainsKey('Pin')) { $true } else { $null }
 
     return $cliOverrideSettings
 }

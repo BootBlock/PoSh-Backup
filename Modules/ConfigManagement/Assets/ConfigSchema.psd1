@@ -4,7 +4,7 @@
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
-# Version: (Implicit) Updated 05-Jun-2025 (Added WebDAV target type schema)
+# Version: (Implicit) Updated 06-Jun-2025 (Added PinOnCreation job setting)
 
 @{
     # Top-level global settings
@@ -138,6 +138,7 @@
                 Name                                      = @{ Type = 'string'; Required = $true }
                 DestinationDir                            = @{ Type = 'string'; Required = $false }
                 Enabled                                   = @{ Type = 'boolean'; Required = $false }
+                PinOnCreation                             = @{ Type = 'boolean'; Required = $false } # NEW
                 LocalRetentionCount                       = @{ Type = 'int'; Required = $false; Min = 0 }
                 LogRetentionCount                         = @{ Type = 'int'; Required = $false; Min = 0 }
                 TargetNames                               = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } }

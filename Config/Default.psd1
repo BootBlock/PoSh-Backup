@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.4.8: Added WebDAV target type example and settings.
+# Version 1.4.9: Added PinOnCreation setting to job definitions.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -367,6 +367,7 @@
             Name                    = "Projects"                      # Base name for the archive file (date stamp and extension will be appended).
             DestinationDir          = "D:\Backups"                    # Specific directory for this job. If remote targets are specified, this acts as a LOCAL STAGING area.
             Enabled                 = $true                           # Set to $false to disable this job without deleting its configuration.
+            PinOnCreation           = $false                          # Set to $true to automatically pin the archive created by this job, protecting it from retention.
             #TargetNames             = @("ExampleUNCShare")           # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
                                                                       # If no remote targets, this is the FINAL BACKUP DESTINATION.
                                                                       # If empty or not present, this job is local-only to DestinationDir.
@@ -420,6 +421,7 @@
             Name                       = "MyImportantDocuments"
             DestinationDir             = "D:\Backups\LocalStage"      # LOCAL STAGING directory, as TargetNames are specified below. Archive is created here first.
             Enabled                    = $true                        # Set to $false to disable this job without deleting its configuration.
+            PinOnCreation              = $false                       # Set to $true to automatically pin the archive created by this job.
 
             TargetNames                = @("ExampleUNCShare")         # Archive will be sent to "ExampleUNCShare" (defined in BackupTargets) after local creation.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Delete from local staging after successful transfer to ALL targets.
@@ -460,8 +462,9 @@
             Name                       = "UserDocs_MultiCopy"         # Example: base name for the archive
             DestinationDir             = "C:\BackupStaging\UserDocs"  # Local staging directory before replication (as TargetNames are specified).
             Enabled                    = $false                       # Set to $false to disable this job without deleting its configuration.
+            PinOnCreation              = $true                        # Example: This backup will be pinned automatically.
 
-            TargetNames                = @("ExampleReplicatedStorage") # Reference the "Replicate" target instance defined in BackupTargets
+            TargetNames                = @("ExampleReplicatedStorage") # Reference the "Replicate" target instance in BackupTargets
 
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
 
@@ -493,6 +496,7 @@
             Path                    = "E:\CriticalApplication\Data"
             Name                    = "AppCriticalData_SFTP"
             DestinationDir          = "D:\BackupStaging\SFTP_Stage"
+            PinOnCreation           = $false
 
             TargetNames             = @("ExampleSFTPServer")
 
@@ -532,6 +536,7 @@
             Name                       = "UserCriticalDocs_WebDAV"
             DestinationDir             = "D:\BackupStaging\WebDAV_Stage" # Local staging
             TargetNames                = @("ExampleWebDAVServer")
+            PinOnCreation              = $false
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
             LocalRetentionCount        = 2
             ArchivePasswordMethod      = "SecretManagement"
@@ -550,6 +555,7 @@
             Name                    = "WebApp_Production"
             DestinationDir          = "\\BACKUPSERVER\Share\WebApps\LocalStage_WebApp"
             Enabled                 = $true                                    # Set to $false to disable this job without deleting its configuration.
+            PinOnCreation           = $true                                    # This important backup will be pinned.
 
             LocalRetentionCount                       = 1
             LogRetentionCount                         = 15                     # Example: Keep 15 logs for this specific job
@@ -611,7 +617,6 @@
             HtmlReportLogoPath            = "\\SHARE\Branding\WebAppLogo.png"
             HtmlReportFaviconPath         = "\\SHARE\Branding\WebAppFavicon.ico"
             HtmlReportCustomCssPath       = "\\SHARE\Branding\WebAppReportOverrides.css"
-            HtmlReportCompanyName         = "Production Services Ltd."
             HtmlReportOverrideCssVariables = @{
                 "--accent-colour"        = "darkred";
                 "--header-border-colour" = "black";

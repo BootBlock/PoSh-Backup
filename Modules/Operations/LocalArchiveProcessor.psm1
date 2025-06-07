@@ -3,31 +3,30 @@
 .SYNOPSIS
     Handles local backup archive creation, checksum generation (including multi-volume manifests),
     and integrity verification. Supports standard archives, Self-Extracting Archives (SFX),
-    and mandatory local archive verification before remote transfers if configured.
+    automatic pinning on creation, and mandatory local archive verification before remote
+    transfers if configured.
 .DESCRIPTION
     This module is a sub-component of the main Operations module for PoSh-Backup.
     It encapsulates the specific steps involved in:
     - Checking destination free space for the local archive.
     - Generating the 7-Zip command arguments (including for SFX if configured).
-    - Executing 7-Zip to create the local archive (which might be an .exe if SFX is enabled),
-      now supporting CPU affinity.
+    - Executing 7-Zip to create the local archive.
     - Optionally generating a checksum file for single archives or a manifest file for
-      multi-volume split archives. The manifest contains checksums for each volume.
-    - Optionally testing the integrity of the local archive. For multi-volume archives with
-      a manifest, this involves verifying each volume against the manifest.
-      This test is also triggered if the 'VerifyLocalArchiveBeforeTransfer' setting is true,
-      and its outcome will influence whether remote transfers proceed.
+      multi-volume split archives.
+    - Optionally testing the integrity of the local archive.
+    - Optionally pinning the newly created archive by creating a '.pinned' marker file if
+      the 'PinOnCreation' setting is active for the job.
     - Updating the job report data with outcomes of these local operations.
 
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.8 # Removed detailed pre-call logging for Get-PoShBackup7ZipArgument.
+    Version:        1.2.1 # Corrected logic to properly call PinManager.
     DateCreated:    24-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   06-Jun-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
-                    Depends on Utils.psm1 and 7ZipManager.psm1 from the parent 'Modules' directory.
+                    Depends on Utils.psm1, 7ZipManager.psm1, and PinManager.psm1.
 #>
 
 # Explicitly import dependent modules from the parent 'Modules' directory.
@@ -35,8 +34,9 @@
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\PinManager.psm1") -Force -ErrorAction Stop
 } catch {
-    Write-Error "LocalArchiveProcessor.psm1 FATAL: Could not import dependent modules (Utils.psm1 or Managers\7ZipManager.psm1). Error: $($_.Exception.Message)"
+    Write-Error "LocalArchiveProcessor.psm1 FATAL: Could not import dependent modules. Error: $($_.Exception.Message)"
     throw
 }
 
@@ -81,6 +81,7 @@ function Invoke-LocalArchiveOperation {
 
     $reportData.VerifyLocalArchiveBeforeTransfer = $EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer
     $reportData.GenerateSplitArchiveManifest = $EffectiveJobConfig.GenerateSplitArchiveManifest
+    $reportData.PinOnCreation = $EffectiveJobConfig.PinOnCreation # Add to report data
 
     try {
         $destinationDirTerm = if ($EffectiveJobConfig.ResolvedTargetInstances.Count -eq 0) { "Final Destination Directory" } else { "Local Staging Directory" }
@@ -334,7 +335,7 @@ function Invoke-LocalArchiveOperation {
 
             if ($testResult.ExitCode -eq 0) {
                 $reportData.ArchiveTestResult = "PASSED (7z t on first volume/archive)"
-            } elseif ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatWarningsAsSuccess) {
+            } elseif ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess) {
                 $reportData.ArchiveTestResult = "PASSED (7z t Warning on first volume/archive, treated as success)"
             } else {
                 $reportData.ArchiveTestResult = "FAILED (7z t on first volume/archive Exit Code: $($testResult.ExitCode))"
@@ -345,7 +346,7 @@ function Invoke-LocalArchiveOperation {
             if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize) -and `
                 $EffectiveJobConfig.GenerateSplitArchiveManifest -and `
                 $EffectiveJobConfig.VerifyArchiveChecksumOnTest -and `
-                ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatWarningsAsSuccess))) {
+                ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess))) {
                 
                 & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Verifying archive volumes using manifest '$($reportData.ArchiveChecksumFile)'..." -Level "INFO"
                 $reportData.ArchiveChecksumVerificationStatus = "Verification Attempted (Manifest)"
@@ -410,7 +411,7 @@ function Invoke-LocalArchiveOperation {
                 }
             }
             elseif ($EffectiveJobConfig.VerifyArchiveChecksumOnTest -and $EffectiveJobConfig.GenerateArchiveChecksum -and `
-                    ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatWarningsAsSuccess))) {
+                    ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess))) {
                 & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Verifying single archive checksum for '$finalArchivePathForReturn'..." -Level "INFO"
                 $checksumFileExtensionForVerify = $EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
                 $checksumFilePathForVerify = "$($finalArchivePathForReturn).$checksumFileExtensionForVerify" 
@@ -465,6 +466,41 @@ function Invoke-LocalArchiveOperation {
             $reportData.ArchiveTestResult = "Not Configured"
             $reportData.ArchiveChecksumVerificationStatus = "Skipped (Archive test not configured)"
         }
+
+        # --- NEW: Pinning Logic ---
+        if ($EffectiveJobConfig.PinOnCreation -and $currentLocalArchiveStatus -ne "FAILURE") {
+            & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: PinOnCreation is enabled for this job. Pinning newly created archive..." -Level "INFO"
+            
+            # The path to pin is the base archive name, not a specific volume part.
+            $pathToPin = $finalArchivePathFor7ZipCommand # e.g., "D:\Backups\MyJob [Date].7z"
+
+            if ($IsSimulateMode.IsPresent) {
+                & $LocalWriteLog -Message "SIMULATE: LocalArchiveProcessor: Would pin archive by creating marker file for '$pathToPin'." -Level "SIMULATE"
+                $reportData.ArchivePinned = "Simulated"
+            } elseif (Test-Path -LiteralPath $finalArchivePathForReturn -PathType Leaf) { # Check that at least the first part exists
+                if ($PSCmdlet.ShouldProcess($pathToPin, "Pin Archive")) {
+                    try {
+                        # Add-PoShBackupPin expects the path to the main archive file, not the .pinned file itself.
+                        Add-PoShBackupPin -Path $pathToPin -Logger $Logger
+                        $reportData.ArchivePinned = "Yes"
+                    } catch {
+                        $pinError = "Failed to pin archive '$pathToPin'. Error: $($_.Exception.Message)"
+                        & $LocalWriteLog -Message "[ERROR] LocalArchiveProcessor: $pinError" -Level "ERROR"
+                        $reportData.ArchivePinned = "Failed"
+                        if ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                    }
+                } else {
+                    & $LocalWriteLog -Message "[INFO] LocalArchiveProcessor: Pinning of archive '$pathToPin' skipped by user (ShouldProcess)." -Level "INFO"
+                    $reportData.ArchivePinned = "No (Skipped by user)"
+                }
+            } else {
+                & $LocalWriteLog -Message "[WARNING] LocalArchiveProcessor: Cannot pin archive because the primary archive file was not found at '$finalArchivePathForReturn'." -Level "WARNING"
+                $reportData.ArchivePinned = "Skipped (Archive Not Found)"
+            }
+        } else {
+            $reportData.ArchivePinned = "No"
+        }
+        # --- END NEW: Pinning Logic ---
 
     } catch {
         & $LocalWriteLog -Message "[ERROR] LocalArchiveProcessor: Error during local archive operations for job '$($EffectiveJobConfig.JobName)': $($_.Exception.ToString())" -Level ERROR

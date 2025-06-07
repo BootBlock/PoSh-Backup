@@ -10,10 +10,10 @@
     archive ('MyBackup.7z') should be exempt from any automated deletion.
 
     This module is intended to be called by the ScriptModeHandler when a user
-    invokes the -Pin-Backup or -Unpin-Backup command-line parameters.
+    invokes the -PinBackup or -UnpinBackup command-line parameters.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Made file creation more robust and added descriptive content to pin file.
     DateCreated:    06-Jun-2025
     LastModified:   06-Jun-2025
     Purpose:        To manage the lifecycle of backup archive pins.
@@ -60,13 +60,30 @@ function Add-PoShBackupPin {
     }
 
     try {
-        $pinContent = @{
-            PinnedDate = (Get-Date -Format 'o') # ISO 8601 format
-            PinnedBy   = "$($env:USERDOMAIN)\$($env:USERNAME)"
-            PinnedOn   = $env:COMPUTERNAME
-            Version    = "1.0"
-        }
-        $pinContent | ConvertTo-Json | Set-Content -Path $pinFilePath -Encoding UTF8 -Force -ErrorAction Stop
+        # Create descriptive content for the pin file.
+        $pinContent = @"
+# PoSh-Backup Pinned Archive Marker File
+#
+# This file's presence prevents the associated backup archive from being automatically
+# deleted by retention policies. The archive and its related parts (volumes, manifests)
+# will be ignored during retention scans.
+#
+# Associated Archive: $($Path)
+#
+# To unpin the archive and make it subject to retention again, either delete this
+# .pinned file manually, or use the -UnpinBackup command:
+#
+#   .\\PoSh-Backup.ps1 -UnpinBackup "$Path"
+#
+# ---
+# Pinned Date : $(Get-Date -Format 'o')
+# Pinned By   : $($env:USERDOMAIN)\$($env:USERNAME)
+# Pinned On   : $($env:COMPUTERNAME)
+"@
+
+        # Use New-Item to explicitly create the file first, which is a more robust approach.
+        New-Item -Path $pinFilePath -ItemType File -Value $pinContent -Force -ErrorAction Stop | Out-Null
+        
         & $LocalWriteLog -Message "PinManager/Add-PoShBackupPin: Successfully pinned backup archive. Marker created at '$pinFilePath'." -Level "SUCCESS"
     }
     catch {

@@ -5,11 +5,11 @@
 .DESCRIPTION
     This sub-module for EffectiveConfigBuilder.psm1 determines effective settings
     for VSS, retries, password management, log retention, 7-Zip output visibility,
-    free space checks, archive testing, pre/post backup script paths, and
-    post-run system actions.
+    free space checks, archive testing, pre/post backup script paths, post-run
+    system actions, and the PinOnCreation flag.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Added logic for -SkipVSS and -SkipRetriesCLI overrides.
+    Version:        1.1.0 # Added PinOnCreation setting resolution.
     DateCreated:    30-May-2025
     LastModified:   06-Jun-2025
     Purpose:        Operational settings resolution.
@@ -110,6 +110,17 @@ function Resolve-OperationalConfiguration {
         $CliOverrides.SevenZipPriority
     } else {
         Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipProcessPriority' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipProcessPriority' -DefaultValue "Normal")
+    }
+
+    # PinOnCreation (CLI > Job > Default false)
+    if ($CliOverrides.PinOnCreationCLI) {
+        $resolvedSettings.PinOnCreation = $true
+        & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: PinOnCreation set to TRUE by -Pin CLI switch." -Level "DEBUG"
+    } else {
+        $resolvedSettings.PinOnCreation = Get-ConfigValue -ConfigObject $JobConfig -Key 'PinOnCreation' -DefaultValue $false
+        if ($resolvedSettings.PinOnCreation) {
+            & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: PinOnCreation set to TRUE by job configuration." -Level "DEBUG"
+        }
     }
 
     # Archive Testing

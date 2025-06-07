@@ -1,3 +1,4 @@
+# PoSh-Backup.ps1
 <#
 .SYNOPSIS
     A highly comprehensive PowerShell script for directory and file backups using 7-Zip.
@@ -9,7 +10,8 @@
     optional 7-Zip CPU core affinity (with CLI override), optional verification of local
     archives before remote transfer, configurable log file retention, support for
     7-Zip include/exclude list files, backup job chaining/dependencies, multi-volume
-    (split) archive creation (with CLI override), and an update checking mechanism.
+    (split) archive creation (with CLI override), an update checking mechanism, and the
+    ability to pin backups to prevent retention policy deletion.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -23,7 +25,7 @@
 
     Key Features:
     - Modular Design, External Configuration, Local and Remote Backups, Granular Job Control.
-    - Backup Sets, Extensible Backup Target Providers (UNC, Replicate, SFTP).
+    - Backup Sets, Extensible Backup Target Providers (UNC, Replicate, SFTP, WebDAV).
     - Configurable Local and Remote Retention Policies.
     - VSS, Advanced 7-Zip Integration, Secure Password Protection, Customisable Archive Naming.
     - Automatic Retry Mechanism, CPU Priority Control, Extensible Script Hooks.
@@ -51,7 +53,10 @@
       Circular dependencies are detected.
     - Multi-Volume (Split) Archives: Optionally split large archives into smaller volumes
       (e.g., "100m", "4g"), configurable per job or via CLI. This will override SFX creation if both are set.
-    - Update Checking (New): Manually check for new versions of PoSh-Backup.
+    - Update Checking: Manually check for new versions of PoSh-Backup.
+    - Pin Backups: Protect specific backup archives from automatic deletion by retention policies.
+      This can be done by pinning an existing archive via `-PinBackup <path>` or by pinning the
+      result of the current run via the `-Pin` switch.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -60,6 +65,10 @@
 .PARAMETER RunSet
     Optional. The name of a Backup Set to process. Jobs within the set will be ordered
     based on any defined dependencies.
+
+.PARAMETER Pin
+    Optional. A switch parameter. If present, the backup archive(s) created during this
+    specific run will be automatically pinned, protecting them from retention policies.
 
 .PARAMETER ConfigFile
     Optional. Specifies the full path to a PoSh-Backup '.psd1' configuration file.
@@ -159,16 +168,19 @@
     Optional. A switch parameter. If present, suppresses all non-essential console output.
     Critical errors will still be displayed.
 
-.EXAMPLE
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -SevenZipExcludeListFileCLI "C:\Config\MyGlobalExcludes.txt"
-    Runs the "MyDocs_To_UNC" job and uses the specified file for 7-Zip exclusion rules, overriding any
-    include/exclude list files defined in the configuration for this job or globally. If "MyDocs_To_UNC"
-    has dependencies, they will run first.
+.PARAMETER PinBackup
+    Pin a backup archive to exclude it from retention policies. Provide the full path to the archive file.
+
+.PARAMETER UnpinBackup
+    Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.
 
 .EXAMPLE
-    .\PoSh-Backup.ps1 -BackupLocationName "MyLargeBackup" -SplitVolumeSizeCLI "4g"
-    Runs the "MyLargeBackup" job and splits the archive into 4GB volumes, overriding any
-    SplitVolumeSize or SFX settings in the configuration for this job.
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -Pin
+    Runs the "MyDocs_To_UNC" job and automatically pins the resulting archive, protecting it from retention.
+
+.EXAMPLE
+    .\PoSh-Backup.ps1 -PinBackup "D:\Backups\MyDocs_To_UNC [2025-06-06].7z"
+    Pins an existing backup archive, protecting it from future retention runs.
 
 .EXAMPLE
     .\PoSh-Backup.ps1 -CheckForUpdate
@@ -184,8 +196,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.21.0 # Added -SkipVSS and -SkipRetriesCLI switches.
-    Date:           01-Jun-2025
+    Version:        1.22.0 # Added -Pin switch and explicit parameter sets.
+    Date:           06-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -195,12 +207,16 @@
 #>
 
 #region --- Script Parameters ---
+[CmdletBinding(DefaultParameterSetName = 'Execution')]
 param (
-    [Parameter(Position=0, Mandatory=$false, HelpMessage="Optional. Name of a single backup location to process.")]
+    [Parameter(ParameterSetName='Execution', Position=0, Mandatory=$false, HelpMessage="Optional. Name of a single backup location to process.")]
     [string]$BackupLocationName,
 
-    [Parameter(Mandatory=$false, HelpMessage="Optional. Name of a Backup Set (defined in config) to process.")]
+    [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Optional. Name of a Backup Set (defined in config) to process.")]
     [string]$RunSet,
+
+    [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Pin the backup archive(s) created during this specific run, protecting them from retention policies.")]
+    [switch]$Pin,
 
     [Parameter(Mandatory=$false, HelpMessage="Optional. Path to the .psd1 configuration file. Defaults to '.\\Config\\Default.psd1' (and merges .\\Config\\User.psd1).")]
     [string]$ConfigFile,

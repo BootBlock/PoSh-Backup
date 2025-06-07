@@ -487,7 +487,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.
 
 ### Pinning Backups to Prevent Deletion
-PoSh-Backup now includes a feature to "pin" a specific backup archive, which makes it immune to automatic deletion by local or remote retention policies. This is useful for preserving important milestone backups, such as the first backup of a new system, a backup from before a major upgrade, or a known-good full backup that you want to keep as a baseline.
+PoSh-Backup includes a feature to "pin" a specific backup archive, which makes it immune to automatic deletion by local or remote retention policies. This is useful for preserving important milestone backups, such as the first backup of a new system, a backup from before a major upgrade, or a known-good full backup that you want to keep as a baseline.
 
 *   **How it Works:**
     *   Pinning a backup is achieved by creating an empty "marker file" in the same directory as the archive. The marker file has the exact same name as the archive file but with `.pinned` appended.

@@ -131,18 +131,31 @@
     "    - `Modules\\PoShBackupValidator.psm1`: No direct code changes needed due to dynamic validation (WebDAV validation function was added previously).",
     "    - `README.md`: Updated to reflect that WebDAV remote retention is now implemented.",
     "    - User reported syntax errors in `WebDAV.Target.psm1` v0.2.0 (around line 146 in `Initialize-WebDAVRemotePathInternal` for logging PROPFIND status/error) which were manually corrected by the user."
-    "--- Feature: Conditional Dependency Checker (Current Session Segment) ---",
+    "--- Feature: Conditional Dependency Checker (Completed in Previous Session Segment) ---",
     "    - **Goal:** Prevent the script from failing if an optional external module (like `Posh-SSH`) is missing but the feature requiring it (like an SFTP target) is not being used in the current run.",
     "    - **Attempt 1 (Unconditional):** A dependency check was added to `CoreSetupManager.psm1` that checked for all potential dependencies at startup. This failed for users who did not have `Posh-SSH` installed, regardless of their configuration.",
     "    - **Attempt 2 (Config-Aware):** The checker was modified to only look for dependencies if a corresponding feature (e.g., a target of type 'SFTP') was defined anywhere in the configuration. This was still too aggressive, as the default config file includes an SFTP example, forcing new users to edit the file to run the script.",
     "    - **Final Implementation (Context-Aware):** The dependency check in `CoreSetupManager.psm1` (v1.1.2) was moved to run *after* the configuration is loaded and the specific jobs for the current run are resolved. The check is now passed the list of active jobs and only validates dependencies that are actually required by those jobs.",
     "    - **Documentation:** Added detailed comments within `CoreSetupManager.psm1` explaining the new pattern and how to add future conditional dependency checks.",
     "    - **Status:** The feature is now working as intended, providing a robust and user-friendly dependency validation experience.",
+    "--- Feature: Pin Backup on Creation (Current Session Segment) ---",
+    "    - **Goal:** Allow a user to pin a backup at creation time, either via a CLI switch or a per-job configuration setting.",
+    "    - **Configuration:**",
+    "        - `Config\Default.psd1`: Added `PinOnCreation = $false` (boolean) to the example job definitions.",
+    "        - `Modules\ConfigManagement\Assets\ConfigSchema.psd1`: Updated the job schema to include the optional `PinOnCreation` boolean key.",
+    "    - **CLI Parameters & Logic:**",
+    "        - `PoSh-Backup.ps1`: Added a new `-Pin` switch. Defined `Execution` and `Pinning` Parameter Sets to resolve ambiguity between running a job and managing an existing pin.",
+    "        - `Modules\Managers\CliManager.psm1`: Updated to recognise the new `-Pin` switch.",
+    "        - `Modules\ConfigManagement\EffectiveConfigBuilder\OperationalSettings.psm1`: Updated to resolve the final `PinOnCreation` setting, giving the `-Pin` CLI switch precedence over the job configuration.",
+    "    - **Core Implementation:**",
+    "        - `Modules\Operations\LocalArchiveProcessor.psm1`: After a successful archive creation, it now checks the effective `PinOnCreation` flag. If true, it calls `Add-PoShBackupPin` to create the `.pinned` marker file.",
+    "        - `Modules\Managers\PinManager.psm1`: The `Add-PoShBackupPin` function was made more robust to handle file creation errors and now writes descriptive, human-readable content to the `.pinned` file.",
+    "    - **Bug Fix:** Resolved an issue where using `-PinBackup` or `-UnpinBackup` would fail because the script was trying to resolve a backup job to run. Corrected the order of operations in `CoreSetupManager.psm1` to handle these informational/management modes before attempting job resolution.",
     "--- PROJECT STATUS ---",
-    "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. Update checking and self-application framework implemented. WebDAV target provider (v0.2.0) now has remote retention. 'Disable Job' flag feature added. PSSA warnings: 1 known for ArgumentBuilder.psm1, several for unused parameters in target providers, 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
+    "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. A comprehensive Backup Pinning feature (for existing archives and on-creation) is now implemented. The dependency checker is now context-aware, improving startup robustness. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.21.0 # Added -SkipVSS and -SkipRetriesCLI switches."
+  main_script_poSh_backup_version = "1.22.0 # Added -Pin switch and explicit parameter sets."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
