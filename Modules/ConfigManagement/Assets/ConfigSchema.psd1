@@ -4,7 +4,7 @@
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
-# Version: (Implicit) Updated 06-Jun-2025 (Added PinOnCreation job setting)
+# Version: (Implicit) Updated 08-Jun-2025 (Added Schedule hashtable schema)
 
 @{
     # Top-level global settings
@@ -138,7 +138,7 @@
                 Name                                      = @{ Type = 'string'; Required = $true }
                 DestinationDir                            = @{ Type = 'string'; Required = $false }
                 Enabled                                   = @{ Type = 'boolean'; Required = $false }
-                PinOnCreation                             = @{ Type = 'boolean'; Required = $false } # NEW
+                PinOnCreation                             = @{ Type = 'boolean'; Required = $false }
                 LocalRetentionCount                       = @{ Type = 'int'; Required = $false; Min = 0 }
                 LogRetentionCount                         = @{ Type = 'int'; Required = $false; Min = 0 }
                 TargetNames                               = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } }
@@ -212,6 +212,25 @@
                         DelaySeconds    = @{ Type = 'int'; Required = $false; Min = 0 }
                         TriggerOnStatus = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string'; AllowedValues = @("SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY") } }
                         ForceAction     = @{ Type = 'boolean'; Required = $false }
+                    }
+                }
+                Schedule                                  = @{ # NEW
+                    Type     = 'hashtable'
+                    Required = $false
+                    Schema   = @{
+                        Enabled                 = @{ Type = 'boolean'; Required = $false }
+                        Type                    = @{ Type = 'string'; Required = $false; AllowedValues = @("Daily", "Weekly", "Monthly", "Once", "OnLogon", "OnStartup") }
+                        Time                    = @{ Type = 'string'; Required = $false; Pattern = '^\d{2}:\d{2}$' }
+                        DaysOfWeek              = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string'; AllowedValues = @("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday") } }
+                        DaysOfMonth             = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'int'; Min = 1; Max = 31 } }
+                        MonthsOfYear            = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string'; AllowedValues = @("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December") } }
+                        RandomDelay             = @{ Type = 'string'; Required = $false; Pattern = '^\d+[smh]$' }
+                        RunAsUser               = @{ Type = 'string'; Required = $false; AllowedValues = @("SYSTEM", "Author") }
+                        HighestPrivileges       = @{ Type = 'boolean'; Required = $false }
+                        WakeToRun               = @{ Type = 'boolean'; Required = $false }
+                        AllowStartIfOnBatteries = @{ Type = 'boolean'; Required = $false }
+                        StopIfGoingOnBatteries  = @{ Type = 'boolean'; Required = $false }
+                        AdditionalArguments     = @{ Type = 'string'; Required = $false }
                     }
                 }
             }

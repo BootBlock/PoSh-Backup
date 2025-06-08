@@ -7,6 +7,14 @@
     "CRITICAL (AI): VERIFY LINE COUNTS AND COMMENT INTEGRITY. EXTREME VIGILANCE REQUIRED.",
     "CRITICAL (AI): Ensure no extraneous trailing whitespace.",
     "CRITICAL (AI): When modifying existing files, EXPLICITLY CONFIRM THE BASELINE VERSION/CONTENT. If errors persist, switch to diffs/patches or manual user changes.",
+    "CRITICAL (AI STRATEGY): When a fix causes a regression or a similar error, STOP. Perform a deeper root cause analysis instead of iterative, surface-level fixes. The scheduling feature is a key example of this failure.",
+    "CRITICAL (SYNTAX - ScheduledTasks): The `ScheduledTasks` module was BUGGY and has specific requirements:",
+    "  - **RandomDelay:** The `-RandomDelay` parameter on `New-ScheduledTaskTrigger` is broken. The ONLY reliable method is to create the task definition *without* the delay, use `Export-ScheduledTask` to get the XML, manually inject the ISO 8601 string (e.g., `<RandomDelay>PT15M</RandomDelay>`), and then register the task using `Register-ScheduledTask -Xml`.",
+    "  - **Finding Tasks:** `Get-ScheduledTask -TaskName 'MyTask' -TaskPath '\MyFolder'` is UNRELIABLE. The correct method is to get all tasks in the folder using a wildcard (`Get-ScheduledTask -TaskPath '\MyFolder\*'`) and then filter the results in PowerShell.",
+    "  - **Deleting Tasks:** `Unregister-ScheduledTask` is also unreliable with `-TaskName` and `-TaskPath`. The correct method is to pass the task object directly using `-InputObject`.",
+    "  - **Folder Existence:** `Get-ScheduledTaskFolder` is not universally available. The correct, compatible way to check for/create a folder is to use the `Schedule.Service` COM object.",
+    "CRITICAL (SYNTAX): PowerShell does not have a ternary operator (`condition ? true : false`). Use `if/else` statements or hashtable lookups.",
+    "CRITICAL (SYNTAX): PowerShell logical AND is `-and`, not `&&`.",
     "CRITICAL (SYNTAX): PowerShell strings for Markdown triple backticks: use single quotes externally, e.g., ''''''.",
     "CRITICAL (SYNTAX): Escaping in PowerShell here-strings for JavaScript (e.g., `$`, `${}`) requires care.",
     "CRITICAL (SYNTAX): `-replace` operator replacement strings with special chars need single quotes.",
@@ -26,7 +34,7 @@
     "    1. Top-level of `.Tests.ps1`: Define dummy functions and local copies of functions under test.",
     "    2. `BeforeAll`: Dot-source self, mock dependencies, get `$script:` references to local test functions.",
     "    3. `It` blocks: Call local functions via `$script:` reference. Local functions call mocked dependencies directly. Assert mock calls (`Should -Invoke`). For external cmdlets like `Get-FileHash`, make them injectable `[scriptblock]` parameters in local test functions.",
-    "  - **General Pester 5 Notes for This Environment:** `Import-Module` + `Get-Command` + `$script:`-scoped data is key for Pattern A. `$MyInvocation.MyCommand.ScriptBlock.File` for self dot-sourcing. `(`$result.GetType().IsArray) | Should -Be `$true` for array assertion. Clear shared mock log arrays in `BeforeEach` if used. PSSA `PSUseDeclaredVarsMoreThanAssignments` and `$var = `$null` interaction.",
+    "  - **General Pester 5 Notes for This Environment:** `Import-Module` + `Get-Command` + `$script:`-scoped data is key for Pattern A. `$MyInvocation.MyCommand.ScriptBlock.File` for self dot-sourcing. `(`$result.GetType().IsArray) | Should -Be `$true` for array assertion. Clear shared mock log arrays in `ForEach` if used. PSSA `PSUseDeclaredVarsMoreThanAssignments` and `$var = `$null` interaction.",
     "MODULE_SCOPE (IMPORTANT): Functions from modules imported by a 'manager' or 'orchestrator' module are not automatically available to other modules called by that manager/orchestrator, nor to the script that called the manager. The module needing the function must typically import the provider of that function directly, or the calling script must import modules whose functions it will call directly after the manager/orchestrator returns. Using `-Global` on imports is a workaround but generally less desirable."
   )
 
@@ -100,15 +108,30 @@
     "            - Calls `Invoke-PoShBackupFinalisation` at the end.",
     "            - Removed the corresponding finalisation logic.",
     "        - Addressed syntax error in `PoSh-Backup.ps1` call to `Invoke-PoShBackupFinalisation` for the `-JobNameForLog` parameter (missing `$()` for subexpression).",
-    "--- PREVIOUS MAJOR FEATURES (Summary from prior state) ---", # Ensure this is above the new section if it exists
+    "--- PREVIOUS MAJOR FEATURES (Summary from prior state) ---",
     "  - Update Checking and Self-Application Framework (Meta\\Version.psd1, Utilities\\Update.psm1, Meta\\apply_update.ps1, Meta\\Package-PoShBackupRelease.ps1).",
     "  - Pester Testing - Phase 1: Utilities (ConfigUtils.Tests.ps1, FileUtils.Tests.ps1 established patterns; SystemUtils.Tests.ps1 was next).",
     "  - Multi-Volume (Split) Archives, Job Chaining/Dependencies, 7-Zip Password Handling (-p switch), Include/Exclude List Files, CPU Affinity.",
     "  - Core Refactorings (Operations, Logging, Managers, Utils facade, PoSh-Backup.ps1 main loop to JobOrchestrator, ScriptModeHandler).",
     "  - SFX Archives, Checksums, Post-Run Actions, Expanded Backup Targets (UNC, Replicate, SFTP), Log File Retention.",
+    "--- Feature: Integrated Backup Job Scheduling (Current Session Segment) ---",
+    "    - **Goal:** Allow users to define backup schedules in the config file and synchronise them with Windows Task Scheduler.",
+    "    - **Configuration:**",
+    "        - `Config\Default.psd1`: Added a new, richly commented `Schedule` hashtable to each job definition.",
+    "        - `Modules\ConfigManagement\Assets\ConfigSchema.psd1`: Updated the schema to validate all new `Schedule` options.",
+    "    - **Core Logic:**",
+    "        - **New Module:** `Modules\Managers\ScheduleManager.psm1` created to contain all logic for interacting with the Windows Task Scheduler.",
+    "        - `PoSh-Backup.ps1`: Added a new `-UpdateSchedules` switch and a `Scheduling` parameter set to invoke the new functionality.",
+    "        - `Modules\Managers\CoreSetupManager.psm1`: Updated to recognise the `-UpdateSchedules` switch and call the `ScheduleManager`.",
+    "    - **Bug Fixes & Refinements (Critical):**",
+    "        - **`RandomDelay` Bug:** Discovered a bug in PowerShell's `ScheduledTasks` module where it incorrectly handles the `RandomDelay` property. The **only** reliable solution, implemented after multiple failures, is to generate the task's XML using `Export-ScheduledTask`, manually inject the correctly formatted ISO 8601 string (e.g., `<RandomDelay>PT15M</RandomDelay>`), and then register the task from the modified XML using `Register-ScheduledTask -Xml`.",
+    "        - **Task Discovery Bug:** Corrected the logic for finding existing tasks. The `-TaskName` parameter on `Get-ScheduledTask` is unreliable. The fix was to get all tasks in the target folder (`-TaskPath '\PoSh-Backup\*'`) and then filter the results in PowerShell.",
+    "        - **Task Removal Bug:** Corrected the logic for removing tasks when a schedule is disabled or removed from the config. The fix involved using an explicit `if/elseif` structure and passing the found task object directly to `Unregister-ScheduledTask -InputObject`.",
+    "        - **Syntax Errors:** Fixed a `&&` vs `-and` error in `UNC.Target.psm1` and a ternary operator (`? :`) error in `ReportingHtml.psm1`.",
+    "    - **Status:** The feature is now working as intended after a significant and difficult debugging process.",
     "--- Feature: Disable Job Flag (Completed in Previous Session Segment) ---",
-    "    - Goal: Allow individual jobs to be disabled via an 'Enabled = $false' flag in configuration.",
-    "    - `Config\\Default.psd1`: Added `Enabled = $true` (boolean) to example job definitions.",
+    "    - Goal: Allow individual jobs to be disabled via an 'Enabled = `$false' flag in configuration.",
+    "    - `Config\\Default.psd1`: Added `Enabled = `$true` (boolean) to example job definitions.",
     "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Added `Enabled` key (boolean, optional) to the job schema.",
     "    - `Modules\\ConfigManagement\\JobResolver.psm1`: Modified `Get-JobsToProcess` to filter out jobs where `Enabled` is `$false` during job/set resolution.",
     "    - `Modules\\Managers\\JobDependencyManager.psm1`:",
@@ -138,7 +161,7 @@
     "    - **Final Implementation (Context-Aware):** The dependency check in `CoreSetupManager.psm1` (v1.1.2) was moved to run *after* the configuration is loaded and the specific jobs for the current run are resolved. The check is now passed the list of active jobs and only validates dependencies that are actually required by those jobs.",
     "    - **Documentation:** Added detailed comments within `CoreSetupManager.psm1` explaining the new pattern and how to add future conditional dependency checks.",
     "    - **Status:** The feature is now working as intended, providing a robust and user-friendly dependency validation experience.",
-    "--- Feature: Pin Backup on Creation (Current Session Segment) ---",
+    "--- Feature: Pin Backup on Creation (Completed in Previous Session Segment) ---",
     "    - **Goal:** Allow a user to pin a backup at creation time, either via a CLI switch or a per-job configuration setting.",
     "    - **Configuration:**",
     "        - `Config\Default.psd1`: Added `PinOnCreation = `$false` (boolean) to the example job definitions.",
@@ -151,7 +174,7 @@
     "        - `Modules\Operations\LocalArchiveProcessor.psm1`: After a successful archive creation, it now checks the effective `PinOnCreation` flag. If true, it calls `Add-PoShBackupPin` to create the `.pinned` marker file.",
     "        - `Modules\Managers\PinManager.psm1`: The `Add-PoShBackupPin` function was made more robust to handle file creation errors and now writes descriptive, human-readable content to the `.pinned` file.",
     "    - **Bug Fix:** Resolved an issue where using `-PinBackup` or `-UnpinBackup` would fail because the script was trying to resolve a backup job to run. Corrected the order of operations in `CoreSetupManager.psm1` to handle these informational/management modes before attempting job resolution.",
-    "--- Feature: Archive Inspection & Restore Utilities (Current Session Segment) ---",
+    "--- Feature: Archive Inspection & Restore Utilities (Completed in Previous Session Segment) ---",
     "    - **Goal:** Implement non-destructive archive inspection and robust file extraction capabilities directly from the command line.",
     "    - **New Modules:**",
     "        - `Modules\\Managers\\7ZipManager\\Lister.psm1`: Created to handle `7z l -slt` and parse the detailed output.",
@@ -170,7 +193,7 @@
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, and robust parameter set handling for different operational modes. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.22.0 # Added utility parameter sets for Pinning and Restore."
+  main_script_poSh_backup_version = "1.24.0 # Added integrated scheduling via -UpdateSchedules."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
@@ -197,6 +220,7 @@
     "Modules\\Managers\\InitialisationManager.psm1" = "Manages the initial setup of global variables and console display for PoSh-Backup."
     "Modules\\Managers\\CoreSetupManager.psm1" = "Manages the core setup phase of PoSh-Backup, including module imports, configuration loading, job resolution, and dependency ordering."
     "Modules\\Managers\\FinalisationManager.psm1" = "Manages the finalisation tasks for the PoSh-Backup script, including summary display, post-run action invocation, pause behaviour, and exit code."
+    "Modules\Managers\ScheduleManager.psm1" = "Manages the creation, update, and deletion of Windows Scheduled Tasks for PoSh-Backup jobs."
     "Modules\\Targets\\WebDAV.Target.psm1" = "PoSh-Backup Target Provider for WebDAV (Web Distributed Authoring and Versioning). Handles transferring backup archives to WebDAV servers, managing remote retention (PROPFIND/DELETE), and supporting credential-based authentication via PowerShell SecretManagement."
   }
 

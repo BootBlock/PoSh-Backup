@@ -133,7 +133,7 @@ function Test-PoShBackupJobDependencyGraph {
     }
 }
 
-function Build-JobExecutionOrder {
+function Get-JobExecutionOrder {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -289,4 +289,4 @@ function Build-JobExecutionOrder {
 
 #endregion
 
-Export-ModuleMember -Function Test-PoShBackupJobDependencyGraph, Build-JobExecutionOrder
+Export-ModuleMember -Function Test-PoShBackupJobDependencyGraph, Get-JobExecutionOrder

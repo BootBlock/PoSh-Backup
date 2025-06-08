@@ -126,7 +126,15 @@ function Invoke-HtmlReport {
     
     $headerTitleText = "$($reportTitlePrefix) - $(ConvertTo-SafeHtml $JobName)"; if ($reportThemeName.ToLowerInvariant() -eq "retroterminal") { $headerTitleText += "<span class='blinking-cursor'></span>" }
     
-    $simulationBannerHtml = ""; $isSim = $ReportData.IsSimulationReport -is [System.Management.Automation.SwitchParameter] ? $ReportData.IsSimulationReport.IsPresent : ($ReportData.IsSimulationReport -eq $true); if ($isSim) { $simulationBannerHtml = "<div class='simulation-banner'><strong>*** SIMULATION MODE RUN ***</strong> This report reflects a simulated backup. No actual files were changed or archives created.</div>" }
+    $simulationBannerHtml = "";
+
+    $isSim = $false
+    if ($ReportData.IsSimulationReport -is [System.Management.Automation.SwitchParameter]) {
+        $isSim = $ReportData.IsSimulationReport.IsPresent
+    } elseif ($null -ne $ReportData.IsSimulationReport) {
+        $isSim = ($ReportData.IsSimulationReport -eq $true)
+    }
+    if ($isSim) { $simulationBannerHtml = "<div class='simulation-banner'><strong>*** SIMULATION MODE RUN ***</strong> This report reflects a simulated backup. No actual files were changed or archives created.</div>" }
 
     $summaryTableRowsHtml = "";
     if ($reportShowSummary -and $ReportData.ContainsKey('OverallStatus')) {

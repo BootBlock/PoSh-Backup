@@ -13,9 +13,9 @@
     the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.6 # Corrected order of operations for all informational/utility modes.
+    Version:        1.2.1 # Corrected -SyncSchedules parameter to be optional.
     DateCreated:    01-Jun-2025
-    LastModified:   06-Jun-2025
+    LastModified:   08-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
     Prerequisites:  PowerShell 5.1+.
                     Relies on InitialisationManager.psm1 and CliManager.psm1 having been run.
@@ -195,6 +195,8 @@ function Invoke-PoShBackupCoreSetup {
         [switch]$ListBackupLocations,
         [Parameter(Mandatory = $true)]
         [switch]$ListBackupSets,
+        [Parameter(Mandatory = $false)] # CORRECTED: Removed Mandatory=$true
+        [switch]$SyncSchedules,
         [Parameter(Mandatory = $true)]
         [switch]$SkipUserConfigCreation,
         [Parameter(Mandatory = $true)]
@@ -226,7 +228,7 @@ function Invoke-PoShBackupCoreSetup {
     # --- Configuration Loading and Validation ---
     $configLoadParams = @{
         UserSpecifiedPath           = $ConfigFile
-        IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent))
+        IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent) -or ($SyncSchedules.IsPresent))
         MainScriptPSScriptRoot      = $PSScriptRoot
         Logger                      = $LoggerScriptBlock
         SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
@@ -259,7 +261,18 @@ function Invoke-PoShBackupCoreSetup {
         throw "Configuration object is not a valid hashtable."
     }
 
-        # --- Handle Informational/Utility Modes FIRST ---
+    # --- Handle -SyncSchedules Mode ---
+    if ($SyncSchedules.IsPresent) {
+        try {
+            Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\ScheduleManager.psm1") -Force -ErrorAction Stop
+            Sync-PoShBackupSchedule -Configuration $Configuration -PSScriptRoot $PSScriptRoot -Logger $LoggerScriptBlock -PSCmdlet $PSCmdlet
+        } catch {
+            & $LoggerScriptBlock -Message "[FATAL] CoreSetupManager: Error during -SyncSchedules mode. Error: $($_.Exception.Message)" -Level "ERROR"
+        }
+        exit 0 # Exit after updating schedules
+    }
+
+    # --- Handle Informational/Utility Modes FIRST ---
     Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
                                 -ListBackupSetsSwitch $ListBackupSets.IsPresent `
                                 -TestConfigSwitch $TestConfig.IsPresent `
@@ -328,7 +341,7 @@ function Invoke-PoShBackupCoreSetup {
     $jobsToProcess = [System.Collections.Generic.List[string]]::new()
     if ($initialJobsToConsider.Count -gt 0) {
         & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: Building job execution order considering dependencies..." -Level "INFO"
-        $executionOrderResult = Build-JobExecutionOrder -InitialJobsToConsider $initialJobsToConsider `
+        $executionOrderResult = Get-JobExecutionOrder -InitialJobsToConsider $initialJobsToConsider `
                                                         -AllBackupLocations $Configuration.BackupLocations `
                                                         -Logger $LoggerScriptBlock
         if (-not $executionOrderResult.Success) {

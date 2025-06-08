@@ -10,8 +10,9 @@
     optional 7-Zip CPU core affinity (with CLI override), optional verification of local
     archives before remote transfer, configurable log file retention, support for
     7-Zip include/exclude list files, backup job chaining/dependencies, multi-volume
-    (split) archive creation (with CLI override), an update checking mechanism, and the
-    ability to pin backups to prevent retention policy deletion.
+    (split) archive creation (with CLI override), an update checking mechanism, the
+    ability to pin backups to prevent retention policy deletion, and integrated backup
+    job scheduling via Windows Task Scheduler.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -57,6 +58,9 @@
     - Pin Backups: Protect specific backup archives from automatic deletion by retention policies.
       This can be done by pinning an existing archive via `-PinBackup <path>` or by pinning the
       result of the current run via the `-Pin` switch.
+    - Integrated Scheduling: Define backup schedules directly in the configuration file. A simple
+      `-SyncSchedules` command synchronises these schedules with the Windows Task Scheduler,
+      creating, updating, or removing tasks as needed for fully automated "set and forget" backups.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -134,6 +138,11 @@
 .PARAMETER ListBackupSets
     Optional. A switch parameter. If present, lists defined Backup Sets and exits.
 
+.PARAMETER SyncSchedules
+    Optional. A switch parameter. If present, synchronises job schedules from the configuration
+    file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits.
+    Requires Administrator privileges.
+
 .PARAMETER SkipUserConfigCreation
     Optional. A switch parameter. If present, bypasses the prompt to create 'User.psd1'.
 
@@ -175,6 +184,11 @@
     Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.
 
 .EXAMPLE
+    .\PoSh-Backup.ps1 -SyncSchedules
+    Reads the 'Schedule' settings for all jobs in the config and creates/updates/removes
+    tasks in the Windows Task Scheduler to match. Requires Administrator privileges.
+
+.EXAMPLE
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -Pin
     Runs the "MyDocs_To_UNC" job and automatically pins the resulting archive, protecting it from retention.
 
@@ -196,9 +210,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.22.0 # Added -Pin switch and explicit parameter sets.
-    Date:           06-Jun-2025
-    Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS and some system actions.
+    Version:        1.24.0 # Fixed -SyncSchedules parameter passing.
+    Date:           08-Jun-2025
+    Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
                     Optional: 'PoShBackupValidator.psm1'.
@@ -242,6 +256,10 @@ param (
 
     [Parameter(ParameterSetName='Extraction', Mandatory=$false, HelpMessage="A switch. If present, overwrites existing files in the destination without prompting.")]
     [switch]$ForceExtract,
+
+    # Scheduling Parameter Set
+    [Parameter(ParameterSetName='Scheduling', Mandatory=$true, HelpMessage="Switch. Synchronises job schedules from config with Windows Task Scheduler and exits.")]
+    [switch]$SyncSchedules,
 
     # Parameters available to multiple utility sets (Listing, Extraction)
     [Parameter(ParameterSetName='Listing', Mandatory=$false)]
@@ -441,6 +459,7 @@ try {
                                                 -TestConfig:$TestConfig.IsPresent `
                                                 -ListBackupLocations:$ListBackupLocations.IsPresent `
                                                 -ListBackupSets:$ListBackupSets.IsPresent `
+                                                -SyncSchedules:$SyncSchedules.IsPresent `
                                                 -SkipUserConfigCreation:$SkipUserConfigCreation.IsPresent `
                                                 -Version:$Version.IsPresent `
                                                 -PSCmdlet $PSCmdlet
@@ -453,7 +472,7 @@ try {
     $setSpecificPostRunAction = $coreSetupResult.SetSpecificPostRunAction
 
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\JobOrchestrator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\FinalisationManager.psm1") -Force -ErrorAction Stop # Import new FinalisationManager
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\FinalisationManager.psm1") -Force -ErrorAction Stop
 
 } catch {
     if ($null -ne $LoggerScriptBlock) {

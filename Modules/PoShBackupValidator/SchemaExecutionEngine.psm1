@@ -8,9 +8,9 @@
     provided schema definition.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Fixed type check for integer arrays (int vs Int32).
     DateCreated:    29-May-2025
-    LastModified:   29-May-2025
+    LastModified:   08-Jun-2025
     Purpose:        Core recursive schema validation logic for PoShBackupValidator.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -120,7 +120,12 @@ function Test-SchemaRecursiveInternal {
                 $itemExpectedType = $itemSchemaDef.Type.ToLowerInvariant()
                 $itemTypeMatch = $false
                 switch ($itemExpectedType) {
-                    "string" { if ($arrayItem -is [string] -and -not ([string]::IsNullOrWhiteSpace($arrayItem)) ) { $itemTypeMatch = $true } }
+                    "string" {
+                        if ($arrayItem -is [string] -and -not ([string]::IsNullOrWhiteSpace($arrayItem)) ) { $itemTypeMatch = $true }
+                    }
+                    "int" { # BUG FIX: Added this case to handle integer arrays.
+                        if ($arrayItem -is [int]) { $itemTypeMatch = $true }
+                    }
                 }
                 if (-not $itemTypeMatch) {
                     $ValidationMessages.Value.Add("Type mismatch for an item in array '$fullKeyPath'. Expected item type '$($itemSchemaDef.Type)', but found '$($arrayItem.GetType().Name)' or item is empty/whitespace.")

@@ -157,7 +157,7 @@ function Group-RemoteUNCBackupInstancesInternal {
                 $sortTime = $_.CreationTime
                 if ($_.Name -match "$literalExt\.001$") { # If it's the first volume part
                     $sortTime = $_.CreationTime
-                } elseif ($instances.ContainsKey($instanceKey) && $instances[$instanceKey].SortTime -ne $_.CreationTime) {
+                } elseif ($instances.ContainsKey($instanceKey) -and $instances[$instanceKey].SortTime -ne $_.CreationTime) {
                     # If instance already exists, and this isn't the first part, keep existing sort time unless this is earlier
                     # This logic might need refinement if .001 isn't always the first found/oldest.
                     # For simplicity, we'll use the CreationTime of the first file encountered that forms the instanceKey,

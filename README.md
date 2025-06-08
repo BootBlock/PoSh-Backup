@@ -6,6 +6,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 ## Features
 *   **Enterprise-Grade PowerShell Solution:** Robust, modular design built with dedicated PowerShell modules for reliability, maintainability, and clarity.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
+*   **Integrated Backup Scheduling:** Define backup schedules directly within your job configurations. A simple command (`-SyncSchedules`) synchronises these settings with the Windows Task Scheduler, creating, updating, or removing tasks as needed for a true "set and forget" experience.
 *   **Local and Remote Backups:**
     *   Archives are initially created directly in the directory specified by the effective `DestinationDir` setting for the job.
     *   If remote targets (e.g., UNC shares, SFTP servers) are configured for the job, this `DestinationDir` acts as a **local staging area** before the archive is transferred.
@@ -466,6 +467,50 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     ```
     (This will connect to the internet to check for a newer version of the script and inform you of the result. It will not perform any backup operations.)
 
+    ### Integrated Backup Scheduling
+    PoSh-Backup now includes a powerful feature to manage scheduled backups directly from your configuration file, providing a true "set and forget" capability. This works by translating schedule settings in your `User.psd1` into tasks within the native Windows Task Scheduler.
+
+    **How it Works:**
+    1.  **Configure:** You define a `Schedule` block within any backup job in your `User.psd1` file.
+    2.  **Synchronise:** You run a new command, `.\PoSh-Backup.ps1 -SyncSchedules`, from an **Administrator** PowerShell prompt.
+    3.  **Execute:** The script reads your configuration and creates, updates, or removes tasks in the Windows Task Scheduler to match your settings. The Task Scheduler then takes over and runs your backup jobs automatically according to the defined triggers.
+
+    **Configuration Example:**
+
+    Here is an example of a `Schedule` block you can add inside a job definition in `User.psd1`:
+
+    ```powershell
+    "MyDocumentsBackup" = @{
+        Path = "C:\Users\MyUser\Documents"
+        Name = "MyDocuments"
+        # ... other job settings ...
+
+        # --- Integrated Scheduling Settings ---
+        Schedule = @{
+            # Master switch for this job's schedule.
+            Enabled = $true
+
+            # Type of schedule: 'Daily', 'Weekly', 'OnLogon', 'OnStartup'
+            Type = 'Weekly'
+
+            # Time to run (24-hour format). Required for Daily/Weekly.
+            Time = '20:30'
+
+            # Days for a 'Weekly' schedule.
+            DaysOfWeek = @('Tuesday', 'Friday')
+
+            # User to run the task as: 'SYSTEM' or 'Author' (the user who runs -SyncSchedules).
+            # 'SYSTEM' is powerful but may lack network permissions. 'Author' is often safer.
+            RunAsUser = 'Author'
+
+            # Set to $true if the job requires VSS or other admin rights.
+            HighestPrivileges = $true
+
+            # If $true, will try to wake the computer from sleep to run the backup.
+            WakeToRun = $true
+        }
+    }
+
 ### 5. Key Operational Command-Line Parameters
 These parameters allow you to override certain configuration settings for a specific run:
 
@@ -497,6 +542,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-ExtractToDirectory <DirectoryPath>`: The destination directory where files will be extracted.
 *   `-ItemsToExtract <String[]>`: Optional. An array of specific file or folder paths inside the archive to extract. If omitted, the entire archive is extracted.
 *   `-ForceExtract`: Optional. A switch. If present, extraction will overwrite existing files in the destination directory without prompting.
+*   `-SyncSchedules`: Synchronises job schedules from the configuration file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits. Requires Administrator privileges.
 *   `-CheckForUpdate`: Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.
 

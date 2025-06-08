@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.4.9: Added PinOnCreation setting to job definitions.
+# Version 1.5.0: Added Schedule hashtable to job definitions for integrated task scheduling.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -407,7 +407,6 @@
             ChecksumAlgorithm           = "SHA256"                    # Use SHA256
             VerifyArchiveChecksumOnTest = $true                       # Verify checksum if TestArchiveAfterCreation is also true
 
-            # Job-specific PostRunAction settings. Overrides PostRunActionDefaults.
             # PostRunAction = @{
             #     Enabled         = $true
             #     Action          = "Shutdown"
@@ -415,6 +414,68 @@
             #     TriggerOnStatus = @("SUCCESS", "WARNINGS")
             #     ForceAction     = $false
             # }
+
+            # --- NEW: Integrated Scheduling Settings ---
+            # This entire 'Schedule' block is optional. If it's missing or Enabled = $false,
+            # the job will not be scheduled by the -SyncSchedules command.
+            Schedule = @{
+                # Master switch for this job's schedule. Set to $true to have PoSh-Backup manage this
+                # job in the Windows Task Scheduler when you run `PoSh-Backup.ps1 -SyncSchedules`.
+                Enabled = $false
+
+                # The type of trigger for the schedule.
+                # Allowed values: 'Daily', 'Weekly', 'Monthly', 'Once', 'OnLogon', 'OnStartup'.
+                Type = 'Daily'
+
+                # The time of day to start the backup, in HH:mm format (24-hour clock).
+                # Required for 'Daily', 'Weekly', 'Monthly', and 'Once' types.
+                Time = '23:00'
+
+                # For 'Weekly' schedules. An array of day names.
+                # Allowed values: 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'.
+                DaysOfWeek = @('Monday', 'Wednesday', 'Friday')
+
+                # For 'Monthly' schedules. An array of days of the month (1-31).
+                # The task will run on these days of the specified months.
+                DaysOfMonth = @(1, 15)
+
+                # For 'Monthly' schedules. An array of month names.
+                # If omitted for a monthly schedule, it will apply to all months.
+                # Allowed values: 'January', 'February', 'March', 'April', 'May', 'June', 'July',
+                # 'August', 'September', 'October', 'November', 'December'.
+                MonthsOfYear = @('January', 'April', 'July', 'October')
+
+                # A random delay added to the start time to prevent multiple tasks from starting
+                # at the exact same moment. Format is a string with a number and a unit:
+                # 's' for seconds, 'm' for minutes, 'h' for hours. E.g., '30m', '1h', '90s'.
+                # Set to '0s' or empty string for no random delay.
+                RandomDelay = '15m'
+
+                # The user account to run the scheduled task as.
+                # 'SYSTEM': Runs as the local SYSTEM account. Very powerful, can run even if no user is
+                #           logged on, but may have different network permissions than a user account.
+                # 'Author': (Default) Runs as the user who executed the `-SyncSchedules` command.
+                #           This is generally safer for accessing user-specific network shares.
+                RunAsUser = 'Author'
+
+                # If $true, the task is set to "Run with highest privileges".
+                # This is essential for jobs that require VSS.
+                HighestPrivileges = $true
+
+                # If $true, the task will attempt to wake the computer from sleep to run.
+                WakeToRun = $true
+
+                # If $true, the task will start even if the computer is on battery power.
+                AllowStartIfOnBatteries = $false
+
+                # If $true, the task will stop if the computer switches to battery power.
+                StopIfGoingOnBatteries = $true
+
+                # A string of any additional command-line arguments to add to the scheduled task's action.
+                # Use with caution. The scheduler automatically adds `-BackupLocationName "JobName"` and `-Quiet`.
+                # Example: "-TreatSevenZipWarningsAsSuccessCLI -LogRetentionCountCLI 5"
+                AdditionalArguments = ""
+            }
         }
         "AnExample_WithRemoteTarget" = @{
             Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
@@ -456,6 +517,7 @@
             # VerifyArchiveChecksumOnTest = $false
 
             # PostRunAction = @{ Enabled = $false }                   # Example: Explicitly disable for this job
+            Schedule = @{ Enabled = $false } # Placeholder for this job
         }
         "Docs_Replicated_Example" = @{
             Path                       = @("C:\Users\YourUser\Documents\Reports", "C:\Users\YourUser\Pictures\Screenshots")
@@ -491,6 +553,7 @@
             SevenZipExcludeListFile    = ""
 
             # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
+            Schedule = @{ Enabled = $false } # Placeholder for this job
         }
         "CriticalData_To_SFTP_Example" = @{
             Path                    = "E:\CriticalApplication\Data"
@@ -529,6 +592,7 @@
                 Action          = "Lock"
                 TriggerOnStatus = @("SUCCESS")
             }
+            Schedule = @{ Enabled = $false } # Placeholder for this job
         }
 
         "Docs_To_WebDAV_Example" = @{ # Example Job using WebDAV
@@ -543,6 +607,7 @@
             ArchivePasswordSecretName  = "MyArchiveEncryptionPassword"
             SplitVolumeSize            = "500m" # Example: Split into 500MB volumes
             GenerateSplitArchiveManifest = $true
+            Schedule = @{ Enabled = $false } # Placeholder for this job
         }
 
         #region --- Comprehensive Example (Commented Out for Reference) ---
@@ -633,6 +698,7 @@
             #     DelaySeconds    = 300
             #     TriggerOnStatus = @("ANY")
             # }
+            Schedule = @{ Enabled = $false } # Placeholder for this job
         }
         "ComprehensiveExample_Database" = @{ # Example of a prerequisite job
             Path                    = "D:\SQL_Backups\MyWebAppDB.bak"
@@ -643,6 +709,7 @@
             SplitVolumeSize         = ""  # No split
             # GenerateSplitArchiveManifest = $false
             # ... other settings ...
+            Schedule = @{ Enabled = $false } # Placeholder for this job
         }
         #>
         #endregion
