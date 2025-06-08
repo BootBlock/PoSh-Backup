@@ -1,26 +1,24 @@
 # Modules\ScriptModeHandler.psm1
 <#
 .SYNOPSIS
-    Handles informational script modes for PoSh-Backup, such as listing backup locations,
-    listing backup sets, testing the configuration, checking for updates, displaying the version,
-    or managing backup archive pins, or listing archive contents.
+    Handles informational and utility script modes for PoSh-Backup, such as listing
+    or extracting archive contents, managing pins, or testing the configuration.
 .DESCRIPTION
     This module provides a function, Invoke-PoShBackupScriptMode, which checks if PoSh-Backup
-    was invoked with parameters like -ListBackupLocations, -TestConfig, -Version, -PinBackup,
-    -UnpinBackup, or -ListArchiveContents.
-    If one of these modes is active, this module takes over, performs the requested action
-    (e.g., printing a list, testing config, pinning an archive, listing archive contents),
-    and then exits the script.
-    This keeps the main PoSh-Backup.ps1 script cleaner by offloading this mode-specific logic.
+    was invoked with a non-backup parameter like -ListArchiveContents, -ExtractFromArchive,
+    -PinBackup, or -TestConfig.
+    If one of these modes is active, this module takes over, performs the requested action,
+    and then exits the script. This keeps the main PoSh-Backup.ps1 script cleaner by
+    offloading this mode-specific logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.1 # Added explicit import for 7ZipManager.
+    Version:        1.5.0 # Added ExtractFromArchive mode.
     DateCreated:    24-May-2025
     LastModified:   06-Jun-2025
-    Purpose:        To handle informational script execution modes for PoSh-Backup.
+    Purpose:        To handle informational and utility script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
-                    Requires PinManager.psm1, PasswordManager.psm1, and 7ZipManager.psm1 for specific modes.
+                    Requires PinManager, PasswordManager, and 7ZipManager for specific modes.
 #>
 
 #region --- Module Dependencies ---
@@ -42,18 +40,16 @@ function Invoke-PoShBackupScriptMode {
     [CmdletBinding()]
     <#
     .SYNOPSIS
-        Checks for and handles informational script modes.
+        Checks for and handles informational and utility script modes.
     .DESCRIPTION
-        If one of the specified informational CLI switches is present, this function executes
+        If one of the specified informational or utility CLI switches is present, this function executes
         the corresponding logic and then exits the script. If no such mode is active, it returns
         a value indicating that the main script should continue.
-    .PARAMETER ListArchiveContentsPath
-        The path provided to the -ListArchiveContents parameter.
-    .PARAMETER ArchivePasswordSecretName
-        The secret name for the archive's password, for use with -ListArchiveContents.
+    .PARAMETER ExtractFromArchivePath
+        The path provided to the -ExtractFromArchive parameter.
     #... (other params) ...
     #>
-    param(
+        param(
         [Parameter(Mandatory = $true)]
         [bool]$ListBackupLocationsSwitch,
 
@@ -81,6 +77,18 @@ function Invoke-PoShBackupScriptMode {
         [Parameter(Mandatory = $false)]
         [string]$ArchivePasswordSecretName,
 
+        [Parameter(Mandatory = $false)]
+        [string]$ExtractFromArchivePath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ExtractToDirectoryPath,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$ItemsToExtract,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$ForceExtract,
+
         [Parameter(Mandatory = $true)]
         [hashtable]$Configuration,
 
@@ -93,10 +101,10 @@ function Invoke-PoShBackupScriptMode {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
 
-        [Parameter(Mandatory = $false)] # Only needed if CheckForUpdateSwitch or VersionSwitch is true
+        [Parameter(Mandatory = $false)]
         [string]$PSScriptRootForUpdateCheck,
 
-        [Parameter(Mandatory = $false)] # Only needed if CheckForUpdateSwitch is true
+        [Parameter(Mandatory = $false)]
         [System.Management.Automation.PSCmdlet]$PSCmdletForUpdateCheck
     )
 
@@ -112,10 +120,56 @@ function Invoke-PoShBackupScriptMode {
         }
     }
 
+    if (-not [string]::IsNullOrWhiteSpace($ExtractFromArchivePath)) {
+        & $LocalWriteLog -Message "`n--- Extract Archive Contents Mode ---" -Level "HEADING"
+        if (-not (Get-Command Invoke-7ZipExtraction -ErrorAction SilentlyContinue)) {
+            & $LocalWriteLog -Message "FATAL: Could not find the Invoke-7ZipExtraction command. Ensure 'Modules\Managers\7ZipManager\Extractor.psm1' is present and loaded correctly." -Level "ERROR"
+            exit 15
+        }
+        if ([string]::IsNullOrWhiteSpace($ExtractToDirectoryPath)) {
+            & $LocalWriteLog -Message "FATAL: The -ExtractToDirectory parameter is required when using -ExtractFromArchive." -Level "ERROR"
+            exit 16
+        }
+
+        $plainTextPasswordForExtract = $null
+        if (-not [string]::IsNullOrWhiteSpace($ArchivePasswordSecretName)) {
+            if (-not (Get-Command Get-PoShBackupArchivePassword -ErrorAction SilentlyContinue)) {
+                & $LocalWriteLog -Message "FATAL: Could not find Get-PoShBackupArchivePassword command. Cannot retrieve password for encrypted archive." -Level "ERROR"
+                exit 15
+            }
+            $passwordConfig = @{ ArchivePasswordMethod = 'SecretManagement'; ArchivePasswordSecretName = $ArchivePasswordSecretName }
+            $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $passwordConfig -JobName "Archive Extraction" -Logger $Logger
+            $plainTextPasswordForExtract = $passwordResult.PlainTextPassword
+        }
+
+        $sevenZipPath = $Configuration.SevenZipPath
+        $extractParams = @{
+            SevenZipPathExe  = $sevenZipPath
+            ArchivePath      = $ExtractFromArchivePath
+            OutputDirectory  = $ExtractToDirectoryPath
+            PlainTextPassword = $plainTextPasswordForExtract
+            Force            = [bool]$ForceExtract
+            Logger           = $Logger
+            PSCmdlet         = $PSCmdletForUpdateCheck # Re-use the passed PSCmdlet for ShouldProcess
+        }
+        if ($null -ne $ItemsToExtract -and $ItemsToExtract.Count -gt 0) {
+            $extractParams.FilesToExtract = $ItemsToExtract
+        }
+
+        $success = Invoke-7ZipExtraction @extractParams
+        
+        if ($success) {
+            & $LocalWriteLog -Message "Successfully extracted archive '$ExtractFromArchivePath' to '$ExtractToDirectoryPath'." -Level "SUCCESS"
+        } else {
+            & $LocalWriteLog -Message "Failed to extract archive '$ExtractFromArchivePath'. Check previous errors." -Level "ERROR"
+        }
+        exit 0
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($ListArchiveContentsPath)) {
         & $LocalWriteLog -Message "`n--- List Archive Contents Mode ---" -Level "HEADING"
         if (-not (Get-Command Get-7ZipArchiveListing -ErrorAction SilentlyContinue)) {
-            & $LocalWriteLog -Message "FATAL: Could not find the Get-7ZipArchiveListing command. Ensure 'Modules\Managers\7ZipManager.psm1' and its sub-modules are present and loaded correctly." -Level "ERROR"
+            & $LocalWriteLog -Message "FATAL: Could not find the Get-7ZipArchiveListing command. Ensure 'Modules\Managers\7ZipManager\Lister.psm1' is present and loaded correctly." -Level "ERROR"
             exit 15
         }
 
@@ -125,10 +179,7 @@ function Invoke-PoShBackupScriptMode {
                 & $LocalWriteLog -Message "FATAL: Could not find Get-PoShBackupArchivePassword command. Cannot retrieve password for encrypted archive." -Level "ERROR"
                 exit 15
             }
-            $passwordConfig = @{
-                ArchivePasswordMethod     = 'SecretManagement'
-                ArchivePasswordSecretName = $ArchivePasswordSecretName
-            }
+            $passwordConfig = @{ ArchivePasswordMethod = 'SecretManagement'; ArchivePasswordSecretName = $ArchivePasswordSecretName }
             $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $passwordConfig -JobName "Archive Listing" -Logger $Logger
             $plainTextPasswordForList = $passwordResult.PlainTextPassword
         }
@@ -190,7 +241,6 @@ function Invoke-PoShBackupScriptMode {
         }
         try {
             Import-Module -Name $updateModulePath -Force -ErrorAction Stop
-            # Invoke-PoShBackupUpdateCheckAndApply is now available
             $updateCheckParams = @{
                 Logger                 = $Logger
                 PSScriptRootForPaths   = $PSScriptRootForUpdateCheck

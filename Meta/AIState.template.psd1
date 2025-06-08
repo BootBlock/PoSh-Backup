@@ -141,7 +141,7 @@
     "--- Feature: Pin Backup on Creation (Current Session Segment) ---",
     "    - **Goal:** Allow a user to pin a backup at creation time, either via a CLI switch or a per-job configuration setting.",
     "    - **Configuration:**",
-    "        - `Config\Default.psd1`: Added `PinOnCreation = $false` (boolean) to the example job definitions.",
+    "        - `Config\Default.psd1`: Added `PinOnCreation = `$false` (boolean) to the example job definitions.",
     "        - `Modules\ConfigManagement\Assets\ConfigSchema.psd1`: Updated the job schema to include the optional `PinOnCreation` boolean key.",
     "    - **CLI Parameters & Logic:**",
     "        - `PoSh-Backup.ps1`: Added a new `-Pin` switch. Defined `Execution` and `Pinning` Parameter Sets to resolve ambiguity between running a job and managing an existing pin.",
@@ -151,11 +151,26 @@
     "        - `Modules\Operations\LocalArchiveProcessor.psm1`: After a successful archive creation, it now checks the effective `PinOnCreation` flag. If true, it calls `Add-PoShBackupPin` to create the `.pinned` marker file.",
     "        - `Modules\Managers\PinManager.psm1`: The `Add-PoShBackupPin` function was made more robust to handle file creation errors and now writes descriptive, human-readable content to the `.pinned` file.",
     "    - **Bug Fix:** Resolved an issue where using `-PinBackup` or `-UnpinBackup` would fail because the script was trying to resolve a backup job to run. Corrected the order of operations in `CoreSetupManager.psm1` to handle these informational/management modes before attempting job resolution.",
+    "--- Feature: Archive Inspection & Restore Utilities (Current Session Segment) ---",
+    "    - **Goal:** Implement non-destructive archive inspection and robust file extraction capabilities directly from the command line.",
+    "    - **New Modules:**",
+    "        - `Modules\\Managers\\7ZipManager\\Lister.psm1`: Created to handle `7z l -slt` and parse the detailed output.",
+    "        - `Modules\\Managers\\7ZipManager\\Extractor.psm1`: Created to handle `7z x` for restoring files.",
+    "    - **Facade Updates:** `7ZipManager.psm1` updated to import and export the new functions.",
+    "    - **Core Logic:**",
+    "        - `ScriptModeHandler.psm1` updated to orchestrate the new `-ListArchiveContents` and `-ExtractFromArchive` modes.",
+    "        - The new modes support encrypted archives via the `-ArchivePasswordSecretName` parameter, which leverages the existing `PasswordManager`.",
+    "        - The extraction logic correctly handles overwriting files via a `-ForceExtract` switch.",
+    "    - **Bug Fixes & Refinements:**",
+    "        - **Parameter Sets:** Resolved multiple `A parameter cannot be found...` and `Parameter set cannot be resolved...` errors by completely restructuring the `param()` block in `PoSh-Backup.ps1`. Created distinct, mutually exclusive parameter sets (`Execution`, `Pinning`, `Listing`, `Extraction`) and made other parameters common to all sets. This was the key fix for the utility modes.",
+    "        - **Order of Operations:** Corrected the logic in `CoreSetupManager.psm1` to ensure it checks for and handles any utility/informational modes *before* it attempts to resolve jobs for a backup run.",
+    "        - **7-Zip Parser:** After a lengthy debugging process, a fully robust parser for the `7z l -slt` output was implemented in `Lister.psm1`, correctly handling the record separators.",
+    "        - Addressed all associated PSScriptAnalyzer warnings.",
     "--- PROJECT STATUS ---",
-    "Overall: PoSh-Backup.ps1 significantly modularised. Core local/remote backup stable. A comprehensive Backup Pinning feature (for existing archives and on-creation) is now implemented. The dependency checker is now context-aware, improving startup robustness. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
+    "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, and robust parameter set handling for different operational modes. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.22.0 # Added -Pin switch and explicit parameter sets."
+  main_script_poSh_backup_version = "1.22.0 # Added utility parameter sets for Pinning and Restore."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

@@ -220,16 +220,32 @@ param (
     [switch]$Pin,
 
     # Pinning/Utility Parameter Set: For managing existing archives
-    [Parameter(ParameterSetName='Pinning', Mandatory=$false, HelpMessage="Pin a backup archive to exclude it from retention policies. Provide the full path to the archive file.")]
+    [Parameter(ParameterSetName='Pinning', Mandatory=$true, HelpMessage="Pin a backup archive to exclude it from retention policies. Provide the full path to the archive file.")]
     [string]$PinBackup,
 
-    [Parameter(ParameterSetName='Pinning', Mandatory=$false, HelpMessage="Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.")]
+    [Parameter(ParameterSetName='Pinning', Mandatory=$true, HelpMessage="Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.")]
     [string]$UnpinBackup,
 
-    [Parameter(ParameterSetName='Utility', Mandatory=$false, HelpMessage="List the contents of the specified backup archive file.")]
+    # Parameter Set for listing archive contents
+    [Parameter(ParameterSetName='Listing', Mandatory=$true, HelpMessage="List the contents of the specified backup archive file.")]
     [string]$ListArchiveContents,
 
-    [Parameter(ParameterSetName='Utility', Mandatory=$false, HelpMessage="Specifies the SecretManagement secret name for the password of an encrypted archive for utility operations.")]
+    # Parameter Set for extracting from an archive
+    [Parameter(ParameterSetName='Extraction', Mandatory=$true, HelpMessage="Extracts specific files or folders from an archive. Provide the full path to the archive file.")]
+    [string]$ExtractFromArchive,
+
+    [Parameter(ParameterSetName='Extraction', Mandatory=$true, HelpMessage="The destination directory for extracted files.")]
+    [string]$ExtractToDirectory,
+
+    [Parameter(ParameterSetName='Extraction', Mandatory=$false, HelpMessage="An array of specific file or folder paths inside the archive to extract.")]
+    [string[]]$ItemsToExtract,
+
+    [Parameter(ParameterSetName='Extraction', Mandatory=$false, HelpMessage="A switch. If present, overwrites existing files in the destination without prompting.")]
+    [switch]$ForceExtract,
+
+    # Parameters available to multiple utility sets (Listing, Extraction)
+    [Parameter(ParameterSetName='Listing', Mandatory=$false)]
+    [Parameter(ParameterSetName='Extraction', Mandatory=$false, HelpMessage="Specifies the SecretManagement secret name for the password of an encrypted archive for utility operations.")]
     [string]$ArchivePasswordSecretName,
 
     # Common Parameters (available to all sets)

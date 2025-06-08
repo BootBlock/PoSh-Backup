@@ -13,7 +13,7 @@
     the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.5 # Corrected order of operations for all informational/utility modes.
+    Version:        1.1.6 # Corrected order of operations for all informational/utility modes.
     DateCreated:    01-Jun-2025
     LastModified:   06-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
@@ -178,7 +178,7 @@ function Invoke-PoShBackupCoreSetup {
         [Parameter(Mandatory = $true)]
         [scriptblock]$LoggerScriptBlock,
         [Parameter(Mandatory = $true)]
-        [string]$PSScriptRoot, # This is the PSScriptRoot of PoSh-Backup.ps1
+        [string]$PSScriptRoot,
         [Parameter(Mandatory = $true)]
         [hashtable]$CliOverrideSettings,
         [Parameter(Mandatory = $false)]
@@ -204,7 +204,6 @@ function Invoke-PoShBackupCoreSetup {
     )
 
     # --- Import Core and Manager Modules ---
-    # Use the passed $PSScriptRoot (from PoSh-Backup.ps1) as the base for all module paths.
     try {
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\Operations.psm1") -Force -ErrorAction Stop
@@ -218,26 +217,17 @@ function Invoke-PoShBackupCoreSetup {
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\SystemStateManager.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
-        # CliManager and InitialisationManager are loaded by PoSh-Backup.ps1 directly
-
-        $cmdInfo = Get-Command Build-JobExecutionOrder -ErrorAction SilentlyContinue
-        if (-not $cmdInfo) {
-            & $LoggerScriptBlock -Message "[FATAL] CoreSetupManager: Build-JobExecutionOrder from JobDependencyManager is NOT available after import!" -Level "ERROR"
-            throw "Build-JobExecutionOrder function not found."
-        }
-
         & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: Core modules loaded." -Level "INFO"
     } catch {
-        & $LoggerScriptBlock -Message "[FATAL] CoreSetupManager: Failed to import one or more required script modules." -Level "ERROR"
-        & $LoggerScriptBlock -Message "Error details: $($_.Exception.Message)" -Level "ERROR"
-        throw # Re-throw to be handled by PoSh-Backup.ps1
+        & $LoggerScriptBlock -Message "[FATAL] CoreSetupManager: Failed to import one or more required script modules. Error: $($_.Exception.Message)" -Level "ERROR"
+        throw
     }
 
     # --- Configuration Loading and Validation ---
     $configLoadParams = @{
         UserSpecifiedPath           = $ConfigFile
         IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent))
-        MainScriptPSScriptRoot      = $PSScriptRoot # Pass the main script's PSScriptRoot
+        MainScriptPSScriptRoot      = $PSScriptRoot
         Logger                      = $LoggerScriptBlock
         SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
         IsSimulateModeSwitch        = [bool]$Simulate.IsPresent
@@ -258,19 +248,18 @@ function Invoke-PoShBackupCoreSetup {
         if ($configResult.UserConfigLoaded) {
             & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: User override configuration from '$($configResult.UserConfigPath)' was successfully loaded and merged." -Level "INFO"
         } elseif (($null -ne $configResult.UserConfigPath) -and (-not $configResult.UserConfigLoaded) -and (Test-Path -LiteralPath $configResult.UserConfigPath -PathType Leaf)) {
-            & $LoggerScriptBlock -Message "[WARNING] CoreSetupManager: User override configuration '$($configResult.UserConfigPath)' was found but an issue occurred during its loading/merging. Effective configuration may not include user overrides." -Level "WARNING"
+            & $LoggerScriptBlock -Message "[WARNING] CoreSetupManager: User override configuration '$($configResult.UserConfigPath)' was found but an issue occurred during its loading/merging." -Level "WARNING"
         }
     }
 
     if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
-        $Configuration['_PoShBackup_PSScriptRoot'] = $PSScriptRoot # Use the main script's PSScriptRoot
+        $Configuration['_PoShBackup_PSScriptRoot'] = $PSScriptRoot
     } else {
-        & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: Configuration object is not a valid hashtable after loading. Cannot inject PSScriptRoot." -Level "ERROR"
+        & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: Configuration object is not a valid hashtable after loading." -Level "ERROR"
         throw "Configuration object is not a valid hashtable."
     }
 
-    # --- Handle Informational Modes FIRST ---
-    # This includes Pinning, Listing, etc., which must exit before job resolution is attempted for a backup run.
+        # --- Handle Informational/Utility Modes FIRST ---
     Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
                                 -ListBackupSetsSwitch $ListBackupSets.IsPresent `
                                 -TestConfigSwitch $TestConfig.IsPresent `
@@ -280,6 +269,10 @@ function Invoke-PoShBackupCoreSetup {
                                 -UnpinBackupPath $CliOverrideSettings.UnpinBackup `
                                 -ListArchiveContentsPath $CliOverrideSettings.ListArchiveContents `
                                 -ArchivePasswordSecretName $CliOverrideSettings.ArchivePasswordSecretName `
+                                -ExtractFromArchivePath $CliOverrideSettings.ExtractFromArchive `
+                                -ExtractToDirectoryPath $CliOverrideSettings.ExtractToDirectory `
+                                -ItemsToExtract $CliOverrideSettings.ItemsToExtract `
+                                -ForceExtract ([bool]$CliOverrideSettings.ForceExtract) `
                                 -Configuration $Configuration `
                                 -ActualConfigFile $ActualConfigFile `
                                 -ConfigLoadResult $configResult `
@@ -287,7 +280,7 @@ function Invoke-PoShBackupCoreSetup {
                                 -PSScriptRootForUpdateCheck $PSScriptRoot `
                                 -PSCmdletForUpdateCheck $PSCmdlet
 
-    # --- Job Resolution ---
+    # --- Job Resolution (only if not in an informational mode that exits) ---
     $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
     if (-not $jobResolutionResult.Success) {
         & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
@@ -298,13 +291,13 @@ function Invoke-PoShBackupCoreSetup {
     $stopSetOnError = $jobResolutionResult.StopSetOnErrorPolicy
     $setSpecificPostRunAction = $jobResolutionResult.SetPostRunAction
 
-    # --- Check for External Dependencies AFTER config has been loaded AND jobs have been resolved ---
+    # --- Context-Aware Dependency Check ---
     try {
         Test-RequiredModulesInternal -Logger $LoggerScriptBlock -Configuration $Configuration -JobsToRun $initialJobsToConsider
     }
     catch {
         & $LoggerScriptBlock -Message $_.Exception.Message -Level "ERROR"
-        throw # Re-throw to be handled by PoSh-Backup.ps1
+        throw
     }
 
     # --- Final Setup Steps ---
@@ -319,7 +312,7 @@ function Invoke-PoShBackupCoreSetup {
     $Global:GlobalEnableFileLogging = if ($Configuration.ContainsKey('EnableFileLogging')) { $Configuration.EnableFileLogging } else { $false }
     if ($Global:GlobalEnableFileLogging) {
         $logDirConfig = if ($Configuration.ContainsKey('LogDirectory')) { $Configuration.LogDirectory } else { "Logs" }
-        $Global:GlobalLogDirectory = if ([System.IO.Path]::IsPathRooted($logDirConfig)) { $logDirConfig } else { Join-Path -Path $PSScriptRoot -ChildPath $logDirConfig } # Use main PSScriptRoot
+        $Global:GlobalLogDirectory = if ([System.IO.Path]::IsPathRooted($logDirConfig)) { $logDirConfig } else { Join-Path -Path $PSScriptRoot -ChildPath $logDirConfig }
         if (-not (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
             try {
                 New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null

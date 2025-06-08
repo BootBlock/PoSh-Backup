@@ -8,7 +8,7 @@
     This helps to decouple CLI argument handling from the main script's core logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.3 # Added PinOnCreationCLI switch.
+    Version:        1.1.0 # Added extraction and all other utility parameters.
     DateCreated:    01-Jun-2025
     LastModified:   06-Jun-2025
     Purpose:        To centralise CLI parameter processing.
@@ -37,6 +37,8 @@ function Get-PoShBackupCliOverride {
     $cliOverrideSettings.GenerateHtmlReport                  = if ($BoundParameters.ContainsKey('GenerateHtmlReportCLI')) { $true } else { $null }
     $cliOverrideSettings.TreatSevenZipWarningsAsSuccess      = if ($BoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $true } else { $null }
     $cliOverrideSettings.PostRunActionForceCli               = if ($BoundParameters.ContainsKey('PostRunActionForceCli')) { $true } else { $null }
+    $cliOverrideSettings.PinOnCreationCLI                    = if ($BoundParameters.ContainsKey('Pin')) { $true } else { $null }
+    $cliOverrideSettings.ForceExtract                        = if ($BoundParameters.ContainsKey('ForceExtract')) { $true } else { $null }
 
     # Parameters that take arguments: Value will be the argument, or $null if not present.
     # Default values for these are handled by the param block in the main PoSh-Backup.ps1 script.
@@ -51,13 +53,14 @@ function Get-PoShBackupCliOverride {
     $cliOverrideSettings.PostRunActionDelaySecondsCli        = if ($BoundParameters.ContainsKey('PostRunActionDelaySecondsCli')) { $BoundParameters['PostRunActionDelaySecondsCli'] } else { $null }
     $cliOverrideSettings.PostRunActionTriggerOnStatusCli     = if ($BoundParameters.ContainsKey('PostRunActionTriggerOnStatusCli')) { $BoundParameters['PostRunActionTriggerOnStatusCli'] } else { $null }
 
+    # Utility Mode Parameters
     $cliOverrideSettings.PinBackup                           = if ($BoundParameters.ContainsKey('PinBackup')) { $BoundParameters['PinBackup'] } else { $null }
     $cliOverrideSettings.UnpinBackup                         = if ($BoundParameters.ContainsKey('UnpinBackup')) { $BoundParameters['UnpinBackup'] } else { $null }
-
-    $cliOverrideSettings.PinOnCreationCLI                    = if ($BoundParameters.ContainsKey('Pin')) { $true } else { $null }
-
     $cliOverrideSettings.ListArchiveContents                 = if ($BoundParameters.ContainsKey('ListArchiveContents')) { $BoundParameters['ListArchiveContents'] } else { $null }
     $cliOverrideSettings.ArchivePasswordSecretName           = if ($BoundParameters.ContainsKey('ArchivePasswordSecretName')) { $BoundParameters['ArchivePasswordSecretName'] } else { $null }
+    $cliOverrideSettings.ExtractFromArchive                  = if ($BoundParameters.ContainsKey('ExtractFromArchive')) { $BoundParameters['ExtractFromArchive'] } else { $null }
+    $cliOverrideSettings.ExtractToDirectory                  = if ($BoundParameters.ContainsKey('ExtractToDirectory')) { $BoundParameters['ExtractToDirectory'] } else { $null }
+    $cliOverrideSettings.ItemsToExtract                      = if ($BoundParameters.ContainsKey('ItemsToExtract')) { $BoundParameters['ItemsToExtract'] } else { $null }
 
     return $cliOverrideSettings
 }

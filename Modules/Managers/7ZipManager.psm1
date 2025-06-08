@@ -11,13 +11,14 @@
     - 'Executor.psm1': Executes 7-Zip for archiving and testing, supporting
       retries, process priority, and CPU affinity.
     - 'Lister.psm1': Lists and parses the contents of an archive file.
+    - 'Extractor.psm1': Extracts files from an archive.
 
     This facade approach allows other parts of PoSh-Backup to interact with a single
     '7ZipManager.psm1' for all 7-Zip related needs, while the underlying logic is
     organised into more focused sub-modules within the '7ZipManager' subdirectory.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Added Lister sub-module for archive content listing.
+    Version:        1.4.0 # Added Extractor sub-module for archive restoration.
     DateCreated:    17-May-2025
     LastModified:   06-Jun-2025
     Purpose:        Facade for centralised 7-Zip interaction logic for PoSh-Backup.
@@ -45,6 +46,7 @@ try {
     Import-Module -Name (Join-Path -Path $subModulesPath -ChildPath "ArgumentBuilder.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $subModulesPath -ChildPath "Executor.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $subModulesPath -ChildPath "Lister.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $subModulesPath -ChildPath "Extractor.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "7ZipManager.psm1 (Facade) FATAL: Could not import one or more required sub-modules from '$subModulesPath'. Error: $($_.Exception.Message)"
@@ -54,5 +56,5 @@ catch {
 
 #region --- Exported Functions ---
 # Re-export all public functions from the imported sub-modules.
-Export-ModuleMember -Function Find-SevenZipExecutable, Get-PoShBackup7ZipArgument, Invoke-7ZipOperation, Test-7ZipArchive, Get-7ZipArchiveListing
+Export-ModuleMember -Function Find-SevenZipExecutable, Get-PoShBackup7ZipArgument, Invoke-7ZipOperation, Test-7ZipArchive, Get-7ZipArchiveListing, Invoke-7ZipExtraction
 #endregion

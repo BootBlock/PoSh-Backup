@@ -47,7 +47,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Pin Backups:** Protect specific backup archives from automatic deletion by retention policies. This can be done proactively when an archive is created (via the `-Pin` switch or a job setting) or retroactively on any existing archive (via the `-PinBackup <path>` management utility).
 *   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention (archive and log files), **post-run system actions**, and **checksum operations** without making any actual changes.
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`). This includes basic validation of Backup Target definitions and **job dependency validation** (checking for circular references and dependencies on non-existent jobs). Optional advanced schema validation for the overall configuration structure is also available.
-*   **Archive Inspection Utilities (New):** List the contents of any local backup archive directly from the command line using the `-ListArchiveContents` parameter, with support for encrypted archives.
+*   **Archive Inspection & Restore Utilities:** Inspect or restore files directly from the command line. Use `-ListArchiveContents` to see what's inside an archive, and `-ExtractFromArchive` to restore the entire archive or specific files/folders from it. Both utilities fully support encrypted archives.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the `DestinationDir` before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives using `7z t`.
 *   **Archive Checksum Generation & Verification:** Optionally generate a checksum file (e.g., SHA256, MD5) for the local archive. If archive testing is enabled, this checksum can also be verified against the archive content for an additional layer of integrity validation.
@@ -493,6 +493,10 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-UnpinBackup <FilePath>`: Unpins the backup archive specified by `<FilePath>`, making it subject to retention policies again. This removes the `.pinned` marker file.
 *   `-ListArchiveContents <FilePath>`: Lists the contents of the backup archive specified by `<FilePath>`. This is a utility mode and does not run a backup.
 *   `-ArchivePasswordSecretName <SecretName>`: For use with utility modes like `-ListArchiveContents`. Specifies the name of the secret in PowerShell SecretManagement that holds the password for an encrypted archive.
+*   `-ExtractFromArchive <FilePath>`: Extracts files from the backup archive specified by `<FilePath>`. Must be used with `-ExtractToDirectory`.
+*   `-ExtractToDirectory <DirectoryPath>`: The destination directory where files will be extracted.
+*   `-ItemsToExtract <String[]>`: Optional. An array of specific file or folder paths inside the archive to extract. If omitted, the entire archive is extracted.
+*   `-ForceExtract`: Optional. A switch. If present, extraction will overwrite existing files in the destination directory without prompting.
 *   `-CheckForUpdate`: Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.
 
@@ -535,32 +539,51 @@ Use this method to manage pins on any archive that already exists in your backup
     *   Pinned backups are *not* counted in the retention number. If you have `KeepCount = 5` and 2 backups are pinned, the retention policy will still keep the 5 most recent *unpinned* backups, in addition to the 2 pinned ones.
 
 ### Archive Management Utilities
-PoSh-Backup includes command-line utilities for inspecting and managing existing backup archives without performing a full backup run.
+PoSh-Backup includes command-line utilities for inspecting and restoring from existing backup archives without performing a full backup run.
 
 #### Listing Archive Contents
-You can list the contents of any archive file to see what files and folders it contains. This is useful for quickly verifying an archive or finding a specific file.
+You can list the contents of any archive file to see what files and folders it contains. This is useful for quickly verifying an archive or finding a specific file before you restore it.
 
 *   **Command:**
     ```powershell
-    .\PoSh-Backup.ps1 -ListArchiveContents <path_to_archive_file>
+    .\PoSh-Backup.ps1 -ListArchiveContents "D:\Backups\MyJob [2025-06-06].7z"
     ```
 
 *   **For Encrypted Archives:** If the archive is password-protected, you must also provide the name of the secret where the password is stored in PowerShell SecretManagement.
     ```powershell
-    .\PoSh-Backup.ps1 -ListArchiveContents <path_to_archive_file> -ArchivePasswordSecretName "MyBackupPasswordSecret"
+    .\PoSh-Backup.ps1 -ListArchiveContents "D:\EncryptedBackups\SecureJob [2025-06-06].7z" -ArchivePasswordSecretName "MyBackupPasswordSecret"
     ```
 
-*   **Example Output:**
+#### Extracting from an Archive (Restore)
+You can restore the entire contents of an archive, or just specific files and folders, to a directory of your choice.
+
+*   **To Restore an Entire Archive:**
+    Provide the path to the archive and a destination directory. The original folder structure will be preserved.
+    ```powershell
+    .\PoSh-Backup.ps1 -ExtractFromArchive "D:\Backups\MyJob [2025-06-06].7z" -ExtractToDirectory "C:\Temp\Restore"
     ```
-    --- List Archive Contents Mode ---
-    Contents of archive: D:\Backups\Projects [2025-Jun-06].7z
 
-    Path                                     Size   PackedSize Modified             Attributes
-    ----                                     ----   ---------- --------             ----------
-    MyFile1.txt                              1024          150 2025-06-01 10:00:00  A
-    MySubFolder\AnotherFile.log             15360         2400 2025-06-02 11:30:00  A
+*   **To Restore Specific Files or Folders:**
+    You can specify one or more items to extract. The paths must match what is shown in the `-ListArchiveContents` output.
+    ```powershell
+    # Restore a single file and an entire folder
+    .\PoSh-Backup.ps1 -ExtractFromArchive "D:\Backups\MyJob [2025-06-06].7z" `
+                      -ExtractToDirectory "C:\Temp\SpecificRestore" `
+                      -ItemsToExtract "Path\To\MyDocument.txt", "Path\To\MyFolder"
+    ```
 
-    Found 2 files/folders.
+*   **For Encrypted Archives:** Use the `-ArchivePasswordSecretName` parameter, just like with listing.
+    ```powershell
+    .\PoSh-Backup.ps1 -ExtractFromArchive "D:\EncryptedBackups\SecureJob [2025-06-06].7z" `
+                      -ExtractToDirectory "C:\Temp\Restore" `
+                      -ArchivePasswordSecretName "MyBackupPasswordSecret"
+    ```
+
+*   **Handling Existing Files (Overwrite Behaviour):**
+    *   By default, if a file already exists in the destination, 7-Zip will **skip** extracting it to prevent accidental data loss.
+    *   To force the extraction to overwrite any existing files, add the `-ForceExtract` switch.
+    ```powershell
+    .\PoSh-Backup.ps1 -ExtractFromArchive "D:\Backups\MyJob [2025-06-06].7z" -ExtractToDirectory "C:\Temp\Restore" -ForceExtract
     ```
 
 ### Update Checking
