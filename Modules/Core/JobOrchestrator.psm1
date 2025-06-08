@@ -22,9 +22,9 @@
     - Applies log file retention policy for the completed job.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.5 # Added import for ConfigManager.psm1.
+    Version:        1.1.8 # Significantly enriched log file header with detailed context.
     DateCreated:    25-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   08-Jun-2025
     Purpose:        To centralise the main job/set processing loop from PoSh-Backup.ps1.
     Prerequisites:  PowerShell 5.1+.
                     Depends on ConfigManager.psm1, Operations.psm1, Reporting.psm1, and Utils.psm1.
@@ -103,7 +103,7 @@ function Invoke-PoShBackupRun {
             $currentJobReportData.ScriptEndTime = Get-Date
             $currentJobReportData.TotalDuration = $currentJobReportData.ScriptEndTime - $currentJobReportData.ScriptStartTime
             $currentJobReportData.TotalDurationSeconds = ($currentJobReportData.ScriptEndTime - $currentJobReportData.ScriptStartTime).TotalSeconds
-            
+
             # Minimal report generation for disabled/skipped job
             $_jobSpecificReportTypesSettingSkipped = Get-ConfigValue -ConfigObject $jobConfigForEnableCheck -Key 'ReportGeneratorType' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'ReportGeneratorType' -DefaultValue "HTML")
 
@@ -166,19 +166,6 @@ function Invoke-PoShBackupRun {
         $currentJobReportData = [ordered]@{ JobName = $currentJobName }
         $currentJobReportData['ScriptStartTime'] = Get-Date
 
-        $Global:GlobalLogFile = $null
-        if ($Global:GlobalEnableFileLogging) {
-            $logDate = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-            $safeJobNameForFile = $currentJobName -replace '[^a-zA-Z0-9_-]', '_'
-            if (-not [string]::IsNullOrWhiteSpace($Global:GlobalLogDirectory) -and (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
-                $Global:GlobalLogFile = Join-Path -Path $Global:GlobalLogDirectory -ChildPath "$($safeJobNameForFile)_$($logDate).log"
-                & $LocalWriteLog -Message "[INFO] Logging for job '$currentJobName' to file: $($Global:GlobalLogFile)" -Level "INFO"
-            }
-            else {
-                & $LocalWriteLog -Message "[WARNING] Log directory is not valid. File logging for job '$currentJobName' will be skipped." -Level "WARNING"
-            }
-        }
-
         $jobConfigFromMainConfig = $Configuration.BackupLocations[$currentJobName]
         $effectiveJobConfigForThisJob = $null
         $currentJobIndividualStatus = "FAILURE" # Default to failure, will be updated if skipped or succeeds
@@ -186,6 +173,7 @@ function Invoke-PoShBackupRun {
         $dependencyFailureReason = ""
 
         try {
+            # --- Get Effective Config FIRST ---
             $setSevenZipIncludeListFileForEffConfig = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName) -and $Configuration.BackupSets.ContainsKey($CurrentSetName) -and $Configuration.BackupSets[$CurrentSetName].ContainsKey('SevenZipIncludeListFile')) { $Configuration.BackupSets[$CurrentSetName].SevenZipIncludeListFile } else { $null }
             $setSevenZipExcludeListFileForEffConfig = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName) -and $Configuration.BackupSets.ContainsKey($CurrentSetName) -and $Configuration.BackupSets[$CurrentSetName].ContainsKey('SevenZipExcludeListFile')) { $Configuration.BackupSets[$CurrentSetName].SevenZipExcludeListFile } else { $null }
 
@@ -198,9 +186,73 @@ function Invoke-PoShBackupRun {
                 SetSevenZipIncludeListFile = $setSevenZipIncludeListFileForEffConfig
                 SetSevenZipExcludeListFile = $setSevenZipExcludeListFileForEffConfig
             }
-            # This is the call that was failing:
             $effectiveJobConfigForThisJob = Get-PoShBackupJobEffectiveConfiguration @effectiveConfigParams
 
+            # --- Initialize Log File with Enriched Header ---
+            $Global:GlobalLogFile = $null
+            if ($Global:GlobalEnableFileLogging) {
+                $logDate = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+                $safeJobNameForFile = $currentJobName -replace '[^a-zA-Z0-9_-]', '_'
+                if (-not [string]::IsNullOrWhiteSpace($Global:GlobalLogDirectory) -and (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
+                    $Global:GlobalLogFile = Join-Path -Path $Global:GlobalLogDirectory -ChildPath "$($safeJobNameForFile)_$($logDate).log"
+                    try {
+                        $mainScriptPath = Join-Path -Path $PSScriptRootForPaths -ChildPath "PoSh-Backup.ps1"
+                        $mainScriptContent = Get-Content -LiteralPath $mainScriptPath -Raw -ErrorAction SilentlyContinue
+                        $scriptVersion = Get-ScriptVersionFromContent -ScriptContent $mainScriptContent -ScriptNameForWarning "PoSh-Backup.ps1"
+                        $osInfo = (Get-CimInstance -ClassName Win32_OperatingSystem).Caption
+                        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+                        $isAdmin = Test-AdminPrivilege -Logger $Logger
+
+                        # TODO: Each iterated item needs to be proceeded by a # character.
+                        $cliOverridesForLog = $CliOverrideSettings.GetEnumerator() | Where-Object { $null -ne $_.Value } | ForEach-Object { "    - $($_.Name) = $($_.Value)" }
+                        if ($cliOverridesForLog.Count -eq 0) { $cliOverridesForLog = "#    (None)" }
+
+                        $cliOverridesString = $cliOverridesForLog -join [Environment]::NewLine
+                        $dependenciesForLog = if ($effectiveJobConfigForThisJob.DependsOnJobs.Count -gt 0) { $effectiveJobConfigForThisJob.DependsOnJobs -join ', ' } else { '(None)' }
+                        $targetsForLog = if ($effectiveJobConfigForThisJob.TargetNames.Count -gt 0) { $effectiveJobConfigForThisJob.TargetNames -join ', ' } else { '(Local Only)' }
+
+                        $logHeader = @"
+#==============================================================================
+# PoSh-Backup Log File
+#
+# -- Run Context --
+#   Job Name     : $currentJobName
+#   Run As Set   : $(if ([string]::IsNullOrWhiteSpace($CurrentSetName)) { '(Standalone Job)' } else { $CurrentSetName })
+#   Started      : $(Get-Date -Format 'o')
+#   Simulate Mode: $($IsSimulateMode.IsPresent)
+#
+# -- System Context --
+#   Computer     : $($env:COMPUTERNAME)
+#   User Context : $currentUser
+#   Admin Rights : $isAdmin
+#   OS Version   : $osInfo
+#   PS Version   : $($PSVersionTable.PSVersion)
+#   Process ID   : $PID
+#
+# -- Script Context --
+#   Version      : $scriptVersion
+#   Script Path  : $PSScriptRootForPaths
+#   Config File  : $ActualConfigFile
+#
+# -- Key Job Settings --
+#   Dependencies : $dependenciesForLog
+#   VSS Enabled  : $($effectiveJobConfigForThisJob.JobEnableVSS)
+#   Password Mode: $($effectiveJobConfigForThisJob.ArchivePasswordMethod)
+#   Remote Targets: $targetsForLog
+#
+# -- Command-Line Overrides --
+$cliOverridesString
+#
+#==============================================================================
+
+"@
+                        Set-Content -Path $Global:GlobalLogFile -Value $logHeader -Encoding UTF8 -Force
+                    } catch { & $LocalWriteLog -Message "[WARNING] Failed to write header to log file '$($Global:GlobalLogFile)'. Error: $($_.Exception.Message)" -Level "WARNING" }
+                    & $LocalWriteLog -Message "[INFO] Logging for job '$currentJobName' to file: $($Global:GlobalLogFile)" -Level "INFO"
+                } else { & $LocalWriteLog -Message "[WARNING] Log directory is not valid. File logging for job '$currentJobName' will be skipped." -Level "WARNING" }
+            }
+
+            # --- Dependency Check ---
             if ($effectiveJobConfigForThisJob.ContainsKey('DependsOnJobs') -and $effectiveJobConfigForThisJob.DependsOnJobs -is [array] -and $effectiveJobConfigForThisJob.DependsOnJobs.Count -gt 0) {
                 & $LocalWriteLog -Message "  - Job '$currentJobName' has dependencies: $($effectiveJobConfigForThisJob.DependsOnJobs -join ', ')" -Level "INFO"
                 foreach ($dependencyName in $effectiveJobConfigForThisJob.DependsOnJobs) {

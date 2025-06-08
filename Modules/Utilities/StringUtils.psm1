@@ -7,9 +7,9 @@
     version information from script or data file content.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Refined regex to strip comments from version string.
     DateCreated:    29-May-2025
-    LastModified:   29-May-2025
+    LastModified:   08-Jun-2025
     Purpose:        String manipulation utilities for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -28,14 +28,11 @@ function Get-ScriptVersionFromContent {
             return "N/A (Empty Content)"
         }
         # Regexes in order of preference / commonness
-        # 1. Standard Version line (e.g., Version: 1.2.3 or Version: 1.2.3 # Comment)
-        $regexV2 = '(?im)^\s*Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:\.[0-9]+)?.*?)(?:\s*\(|\s*#\s*Comment|$|\r?\n)'
-        # 2. Commented Version line (e.g., # Version: 1.2.3 or # Version 1.4.6: Added feature)
-        $regexV4 = '(?im)^\s*#\s*Version\s*:?\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?.*?)(?:\r?\n|$)'
-        # 3. .NOTES section in comment-based help
-        $regexV1 = '(?s)\.NOTES(?:.|\s)*?Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:\.[0-9]+)?.*?)(?:\r?\n|\s*\(|<#)'
-        # 4. Script Version line (e.g., Script Version: v1.2.3)
-        $regexV3 = '(?im)Script Version:\s*v?([0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?.*?)\b'
+        # Use word boundary \b to stop matching after the version number and avoid capturing comments.
+        $regexV2 = '(?im)^\s*Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:\.[0-9]+)?)\b'
+        $regexV4 = '(?im)^\s*#\s*Version\s*:?\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b'
+        $regexV1 = '(?s)\.NOTES(?:.|\s)*?Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:\.[0-9]+)?)\b'
+        $regexV3 = '(?im)Script Version:\s*v?([0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?)\b'
 
 
         $match = [regex]::Match($ScriptContent, $regexV2) # Try standard Version: first
