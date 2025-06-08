@@ -12,9 +12,9 @@
     offloading this mode-specific logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.0 # Added ExtractFromArchive mode.
+    Version:        1.5.2 # Fixed Get-ConfigValue not found error by importing Utils.psm1.
     DateCreated:    24-May-2025
-    LastModified:   06-Jun-2025
+    LastModified:   08-Jun-2025
     Purpose:        To handle informational and utility script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
@@ -24,6 +24,7 @@
 #region --- Module Dependencies ---
 # $PSScriptRoot here is Modules\
 try {
+    Import-Module -Name (Join-Path $PSScriptRoot "Utils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\PinManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\PasswordManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\7ZipManager.psm1") -Force -ErrorAction Stop
@@ -263,16 +264,68 @@ function Invoke-PoShBackupScriptMode {
         }
         if ($Configuration.BackupLocations -is [hashtable] -and $Configuration.BackupLocations.Count -gt 0) {
             $Configuration.BackupLocations.GetEnumerator() | Sort-Object Name | ForEach-Object {
-                & $LocalWriteLog -Message ("`n  Job Name      : " + $_.Name) -Level "NONE"
-                $sourcePaths = if ($_.Value.Path -is [array]) { ($_.Value.Path | ForEach-Object { "                  `"$_`"" }) -join [Environment]::NewLine } else { "                  `"$($_.Value.Path)`"" }
-                & $LocalWriteLog -Message ("  Source Path(s):`n" + $sourcePaths) -Level "NONE"
-                $archiveNameDisplay = if ($_.Value.ContainsKey('Name')) { $_.Value.Name } else { 'N/A (Uses Job Name)' }
-                & $LocalWriteLog -Message ("  Archive Name  : " + $archiveNameDisplay) -Level "NONE"
-                $destDirDisplay = if ($_.Value.ContainsKey('DestinationDir')) { $_.Value.DestinationDir } elseif ($Configuration.ContainsKey('DefaultDestinationDir')) { $Configuration.DefaultDestinationDir } else { 'N/A' }
-                & $LocalWriteLog -Message ("  Destination   : " + $destDirDisplay) -Level "NONE"
-                if ($_.Value.ContainsKey('TargetNames') -and $_.Value.TargetNames -is [array] -and $_.Value.TargetNames.Count -gt 0) {
-                    & $LocalWriteLog -Message ("  Remote Targets: " + ($_.Value.TargetNames -join ", ")) -Level "NONE"
+                $jobConf = $_.Value
+                $jobName = $_.Name
+# --- NEW CODE ---
+# Determine the job's enabled status first to select a color
+$isEnabled = Get-ConfigValue -ConfigObject $jobConf -Key 'Enabled' -DefaultValue $true
+$jobNameColor = if ($isEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
+
+# Print the job name using the selected color
+& $LocalWriteLog -Message ("`n  Job Name      : " + $jobName) -Level "NONE" -ForegroundColour $jobNameColor
+
+# Print the enabled status (no color change needed here)
+& $LocalWriteLog -Message ("  Enabled       : " + $isEnabled) -Level "NONE"
+
+                if ($jobConf.Path -is [array]) {
+                    if ($jobConf.Path.Count -gt 0) {
+                        # Print the label and the FIRST path on the same line
+                        & $LocalWriteLog -Message ('  Source Path(s): "{0}"' -f $jobConf.Path[0]) -Level "NONE"
+                        # Loop through the REST of the paths and print them indented on new lines
+                        if ($jobConf.Path.Count -gt 1) {
+                            $jobConf.Path | Select-Object -Skip 1 | ForEach-Object {
+                                & $LocalWriteLog -Message ('                  "{0}"' -f $_) -Level "NONE"
+                            }
+                        }
+                    } else {
+                        # Handle the case of an empty array
+                        & $LocalWriteLog -Message ("  Source Path   : <none specified>") -Level "NONE"
+                    }
+                } else {
+                    & $LocalWriteLog -Message ('  Source Path   : "{0}"' -f $jobConf.Path) -Level "NONE"
                 }
+
+                $archiveNameDisplay = Get-ConfigValue -ConfigObject $jobConf -Key 'Name' -DefaultValue 'N/A (Uses Job Name)'
+                & $LocalWriteLog -Message ("  Archive Name  : " + $archiveNameDisplay) -Level "NONE"
+                
+                $destDirDisplay = Get-ConfigValue -ConfigObject $jobConf -Key 'DestinationDir' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'DefaultDestinationDir' -DefaultValue 'N/A')
+                & $LocalWriteLog -Message ("  Destination   : " + $destDirDisplay) -Level "NONE"
+                
+                $targetNames = @(Get-ConfigValue -ConfigObject $jobConf -Key 'TargetNames' -DefaultValue @())
+                if ($targetNames.Count -gt 0) {
+                    & $LocalWriteLog -Message ("  Remote Targets: " + ($targetNames -join ", ")) -Level "NONE"
+                }
+
+                $dependsOn = @(Get-ConfigValue -ConfigObject $jobConf -Key 'DependsOnJobs' -DefaultValue @())
+                if ($dependsOn.Count -gt 0) {
+                    & $LocalWriteLog -Message ("  Depends On    : " + ($dependsOn -join ", ")) -Level "NONE"
+                }
+
+                $scheduleConf = Get-ConfigValue -ConfigObject $jobConf -Key 'Schedule' -DefaultValue $null
+                $scheduleDisplay = "Disabled"
+                if ($null -ne $scheduleConf -and $scheduleConf -is [hashtable]) {
+                    $scheduleEnabled = Get-ConfigValue -ConfigObject $scheduleConf -Key 'Enabled' -DefaultValue $false
+                    if ($scheduleEnabled) {
+                        $scheduleType = Get-ConfigValue -ConfigObject $scheduleConf -Key 'Type' -DefaultValue "N/A"
+                        $scheduleTime = Get-ConfigValue -ConfigObject $scheduleConf -Key 'Time' -DefaultValue ""
+                        $scheduleDisplay = "Enabled ($scheduleType"
+                        if (-not [string]::IsNullOrWhiteSpace($scheduleTime)) {
+                            $scheduleDisplay += " at $scheduleTime"
+                        }
+                        $scheduleDisplay += ")"
+                    }
+                }
+                & $LocalWriteLog -Message ("  Schedule      : " + $scheduleDisplay) -Level "NONE"
             }
         } else {
             & $LocalWriteLog -Message "No Backup Locations are defined in the configuration." -Level "WARNING"

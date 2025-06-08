@@ -18,9 +18,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Write-LogMessage now respects $Global:IsQuietMode.
+    Version:        1.2.2 # Corrected color override logic for -Level "NONE" to use host default.
     DateCreated:    27-May-2025
-    LastModified:   06-Jun-2025
+    LastModified:   08-Jun-2025
     Purpose:        Log file retention management and core message logging utility for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function and PSCmdlet instance to be passed to Invoke-LogFileRetention.
@@ -32,7 +32,7 @@ function Write-LogMessage {
     [CmdletBinding()]
     param (
         [string]$Message,
-        [string]$ForegroundColour = $Global:ColourInfo, # Default colour if not determined by Level
+        [string]$ForegroundColour, # Default value removed to allow checking if it was explicitly passed
         [switch]$NoNewLine,
         [string]$Level = "INFO", # Default log level
         [switch]$NoTimestampToLogFile = $false
@@ -41,26 +41,26 @@ function Write-LogMessage {
     $consoleMessage = $Message
     $logMessage = if ($NoTimestampToLogFile) { $Message } else { "$timestamp [$Level] $Message" }
 
-    $effectiveConsoleColour = $ForegroundColour
+    # --- NEW, MORE ROBUST COLOR LOGIC ---
+    $effectiveConsoleColour = $null
 
-    # Attempt to map Level to a specific colour
-    if ($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
+    # Priority 1: An explicitly passed color.
+    if ($PSBoundParameters.ContainsKey('ForegroundColour')) {
+        $effectiveConsoleColour = $ForegroundColour
+    }
+    # Priority 2: A color mapped to the Level.
+    elseif ($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
         $effectiveConsoleColour = $Global:StatusToColourMap[$Level.ToUpperInvariant()]
     }
-    elseif ($Level.ToUpperInvariant() -eq 'NONE') {
-        # For 'NONE' level, use the host's current foreground colour (no change)
+
+    # Priority 3: Fallback to the host's current color if no other color was determined.
+    if ($null -eq $effectiveConsoleColour) {
         $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
     }
+    # --- END NEW LOGIC ---
 
-    # Safety check: If $effectiveConsoleColour somehow became an empty string or null (and is not 'NONE' level), default it.
-    if (($effectiveConsoleColour -is [string] -and [string]::IsNullOrWhiteSpace($effectiveConsoleColour)) -or `
-        ($null -eq $effectiveConsoleColour -and $Level.ToUpperInvariant() -ne 'NONE')) {
-
-        # This block is for diagnostics if colour resolution fails unexpectedly.
-        Write-Warning "Write-LogMessage (SAFETY CHECK TRIGGERED): Colour resolution issue."
-        Write-Warning "  -> Original Level: '$Level', ForegroundColour Param: '$ForegroundColour'"
-        Write-Warning "  -> effectiveConsoleColour before safety default: '$effectiveConsoleColour'"
-        Write-Warning "  -> Message: '$Message'. Defaulting to Host's current colour."
+    # Safety check: If $effectiveConsoleColour somehow became an empty string, default it.
+    if (($effectiveConsoleColour -is [string] -and [string]::IsNullOrWhiteSpace($effectiveConsoleColour))) {
         $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
     }
 

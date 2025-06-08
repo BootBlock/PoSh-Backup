@@ -832,12 +832,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** Background agent/service or scheduled task that monitors for drive connections (e.g., WMI events). Logic to match drive (e.g., by volume label or serial) to a job.
     *   **Acceptance Criteria:** Connecting a specific external drive automatically starts the associated backup job.
 
-80. **Feature: "Set and Forget" Scheduling for Home Users (Simplified)**
-    *   **Goal:** Easy way for home users to schedule regular backups without directly using Task Scheduler.
-    *   **Description:** A simple CLI command or config option (e.g., `ScheduleJob "MyDocs" -Frequency Daily -Time "20:00"`) that creates/manages a basic scheduled task.
-    *   **Scope & Impact:** New utility function/module to interact with Task Scheduler (`Register-ScheduledTask`).
-    *   **Acceptance Criteria:** Users can easily set up a recurring backup schedule.
-
 **XIII. Advanced Data Management & Integrity (Continued)**
 
 81. **Feature: End-to-End Encryption (Client-Side Encryption Before Transfer)**
@@ -1032,7 +1026,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 **XXII. AI & Intelligent Operations**
 
 109. **Feature: AI-Powered Anomaly Detection in Backup Patterns**
-    *   **Goal:** Use AI/ML to detect unusual backup behavior that might indicate ransomware activity (e.g., sudden large change rates, unusual file types being backed up, encryption of source files before backup) or failing hardware.
+    *   **Goal:** Use AI/ML to detect unusual backup behaviour that might indicate ransomware activity (e.g., sudden large change rates, unusual file types being backed up, encryption of source files before backup) or failing hardware.
     *   **Description:** Proactive threat detection and early warning based on deviations from established backup norms.
     *   **Scope & Impact:** Requires data collection, ML model training (potentially cloud-based ML services or local models), integration with alerting.
     *   **Acceptance Criteria:** System flags anomalous backup jobs with potential risk indicators.
@@ -1296,7 +1290,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** `PoSh-Backup.ps1` (check flag at start), `Config\Default.psd1` (global `MaintenanceModeEnabled = $true`), potentially a way to set/clear this flag via CLI without editing config.
     *   **Acceptance Criteria:** No new jobs start when maintenance mode is active.
 
-149. **Feature: Configurable Behavior for "Archive Already Exists" (Non-Date-Stamped Archives)**
+149. **Feature: Configurable behaviour for "Archive Already Exists" (Non-Date-Stamped Archives)**
     *   **Goal:** For jobs that *don't* use date stamps in archive names (e.g., for sync/update modes), define what to do if the target archive file already exists.
     *   **Description:** Options: "Overwrite" (current implicit default), "FailJob", "SkipJob", "AppendSuffix" (e.g., `archive.bak.7z`, `archive.bak1.7z`).
     *   **Scope & Impact:** `Config\Default.psd1` (job-level `OnArchiveExists`), `Modules\Operations\LocalArchiveProcessor.psm1`.
@@ -1773,19 +1767,18 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **LV. CLI & Operational Enhancements**
 
-223. **Enhancement: `-Quiet` and `-Verbose` CLI Switch Consistency**
-    *   **Goal:** Ensure consistent and intuitive behavior for PowerShell common parameters `-Quiet` and `-Verbose`.
+223. **Enhancement: `-Verbose` CLI Switch Consistency**
+    *   **Goal:** Ensure consistent and intuitive behaviour for PowerShell common parameter `-Verbose`.
     *   **Description:**
-        *   `-Quiet`: Suppress all non-essential console output. Critical errors and necessary interactive prompts (like password entry if configured) should still appear.
         *   `-Verbose`: Consistently enable more detailed operational logging to the console for all relevant operations, complementing file logging.
     *   **Scope & Impact:** `PoSh-Backup.ps1` (parameter handling), review and adjust `Write-LogMessage` calls and other console output throughout all modules to respect these flags.
-    *   **Acceptance Criteria:** `-Quiet` significantly reduces console noise; `-Verbose` provides detailed console operational logs, aligning with standard PowerShell behavior.
+    *   **Acceptance Criteria:** `-Verbose` provides detailed console operational logs, aligning with standard PowerShell behaviour.
 
 **LVI. Documentation & Developer Guidance**
 
 224. **Task: Document Current Exit Codes in README**
     *   **Goal:** Provide immediate clarity for users and automation scripts on the meaning of existing exit codes.
-    *   **Description:** Even before implementing more granular exit codes (Item XXXVIII.157), document the current behavior (e.g., 0 for success, 1 for warnings, 2 for failures) in a dedicated section in `README.md`.
+    *   **Description:** Even before implementing more granular exit codes (Item XXXVIII.157), document the current behaviour (e.g., 0 for success, 1 for warnings, 2 for failures) in a dedicated section in `README.md`.
     *   **Scope & Impact:** `README.md`.
     *   **Acceptance Criteria:** Current exit codes and their meanings are clearly documented.
 
