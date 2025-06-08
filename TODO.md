@@ -1568,12 +1568,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** `PoSh-Backup.ps1` (new switch), logic to find the latest archive for a job, `Modules\7ZipManager.psm1` (extraction).
     *   **Acceptance Criteria:** User can quickly restore the latest backup of a job.
 
-193. **Enhancement: Color-Coded `-ListBackupLocations` and `-ListBackupSets`**
-    *   **Goal:** Use colours in the output of list commands to highlight key information (e.g., job name, if VSS enabled, if remote targets configured).
-    *   **Description:** Makes the list output easier to scan visually.
-    *   **Scope & Impact:** `Modules\ScriptModeHandler.psm1`.
-    *   **Acceptance Criteria:** List outputs use colour for better readability.
-
 194. **Feature: "Create Desktop Shortcut" for Specific Jobs/Sets**
     *   **Goal:** A utility command to create a desktop shortcut that runs a specific PoSh-Backup job or set with predefined parameters.
     *   **Description:** For users who prefer to launch backups by clicking an icon.

@@ -12,7 +12,7 @@
     offloading this mode-specific logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.2 # Fixed Get-ConfigValue not found error by importing Utils.psm1.
+    Version:        1.5.4 # Corrected newline formatting for -ListBackupSets.
     DateCreated:    24-May-2025
     LastModified:   08-Jun-2025
     Purpose:        To handle informational and utility script execution modes for PoSh-Backup.
@@ -266,35 +266,28 @@ function Invoke-PoShBackupScriptMode {
             $Configuration.BackupLocations.GetEnumerator() | Sort-Object Name | ForEach-Object {
                 $jobConf = $_.Value
                 $jobName = $_.Name
-# --- NEW CODE ---
-# Determine the job's enabled status first to select a color
-$isEnabled = Get-ConfigValue -ConfigObject $jobConf -Key 'Enabled' -DefaultValue $true
-$jobNameColor = if ($isEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
-
-# Print the job name using the selected color
-& $LocalWriteLog -Message ("`n  Job Name      : " + $jobName) -Level "NONE" -ForegroundColour $jobNameColor
-
-# Print the enabled status (no color change needed here)
-& $LocalWriteLog -Message ("  Enabled       : " + $isEnabled) -Level "NONE"
+                
+                $isEnabled = Get-ConfigValue -ConfigObject $jobConf -Key 'Enabled' -DefaultValue $true
+                $jobNameColor = if ($isEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
+                & $LocalWriteLog -Message ("`n  Job Name      : " + $jobName) -Level "NONE" -ForegroundColour $jobNameColor
+                
+                & $LocalWriteLog -Message ("  Enabled       : " + $isEnabled) -Level "NONE"
 
                 if ($jobConf.Path -is [array]) {
                     if ($jobConf.Path.Count -gt 0) {
-                        # Print the label and the FIRST path on the same line
                         & $LocalWriteLog -Message ('  Source Path(s): "{0}"' -f $jobConf.Path[0]) -Level "NONE"
-                        # Loop through the REST of the paths and print them indented on new lines
                         if ($jobConf.Path.Count -gt 1) {
                             $jobConf.Path | Select-Object -Skip 1 | ForEach-Object {
                                 & $LocalWriteLog -Message ('                  "{0}"' -f $_) -Level "NONE"
                             }
                         }
                     } else {
-                        # Handle the case of an empty array
-                        & $LocalWriteLog -Message ("  Source Path   : <none specified>") -Level "NONE"
+                        & $LocalWriteLog -Message ("  Source Path(s): (None specified)") -Level "NONE"
                     }
                 } else {
-                    & $LocalWriteLog -Message ('  Source Path   : "{0}"' -f $jobConf.Path) -Level "NONE"
+                    & $LocalWriteLog -Message ('  Source Path(s): "{0}"' -f $jobConf.Path) -Level "NONE"
                 }
-
+                
                 $archiveNameDisplay = Get-ConfigValue -ConfigObject $jobConf -Key 'Name' -DefaultValue 'N/A (Uses Job Name)'
                 & $LocalWriteLog -Message ("  Archive Name  : " + $archiveNameDisplay) -Level "NONE"
                 
@@ -341,11 +334,47 @@ $jobNameColor = if ($isEnabled) { $Global:ColourSuccess } else { $Global:ColourE
         }
         if ($Configuration.BackupSets -is [hashtable] -and $Configuration.BackupSets.Count -gt 0) {
             $Configuration.BackupSets.GetEnumerator() | Sort-Object Name | ForEach-Object {
-                & $LocalWriteLog -Message ("`n  Set Name     : " + $_.Name) -Level "NONE"
-                $jobsInSet = if ($_.Value.JobNames -is [array]) { ($_.Value.JobNames | ForEach-Object { "                 $_" }) -join [Environment]::NewLine } else { "                 None listed" }
-                & $LocalWriteLog -Message ("  Jobs in Set  :`n" + $jobsInSet) -Level "NONE"
-                $onErrorDisplay = if ($_.Value.ContainsKey('OnErrorInJob')) { $_.Value.OnErrorInJob } else { 'StopSet' }
+                $setConf = $_.Value
+                $setName = $_.Name
+                & $LocalWriteLog -Message ("`n  Set Name     : " + $setName) -Level "NONE"
+                
+                $onErrorDisplay = Get-ConfigValue -ConfigObject $setConf -Key 'OnErrorInJob' -DefaultValue 'StopSet'
                 & $LocalWriteLog -Message ("  On Error     : " + $onErrorDisplay) -Level "NONE"
+
+                $jobsInSet = @(Get-ConfigValue -ConfigObject $setConf -Key 'JobNames' -DefaultValue @())
+                if ($jobsInSet.Count -gt 0) {
+                    $firstJobName = $jobsInSet[0]
+                    $firstJobColor = $Global:ColourInfo # Default color
+                    $firstJobDisplayName = $firstJobName
+                    if ($Configuration.BackupLocations.ContainsKey($firstJobName)) {
+                        $firstJobConf = $Configuration.BackupLocations[$firstJobName]
+                        $isFirstJobEnabled = Get-ConfigValue -ConfigObject $firstJobConf -Key 'Enabled' -DefaultValue $true
+                        $firstJobColor = if ($isFirstJobEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
+                    } else {
+                        $firstJobDisplayName += " (Not Found)"
+                        $firstJobColor = $Global:ColourWarning
+                    }
+                    & $LocalWriteLog -Message ("  Jobs in Set  : " + $firstJobDisplayName) -Level "NONE" -ForegroundColour $firstJobColor
+
+                    if ($jobsInSet.Count -gt 1) {
+                        $jobsInSet | Select-Object -Skip 1 | ForEach-Object {
+                            $jobNameInSet = $_
+                            $jobColor = $Global:ColourInfo # Default
+                            $jobDisplayName = $jobNameInSet
+                            if ($Configuration.BackupLocations.ContainsKey($jobNameInSet)) {
+                                $jobConfInSet = $Configuration.BackupLocations[$jobNameInSet]
+                                $isJobEnabled = Get-ConfigValue -ConfigObject $jobConfInSet -Key 'Enabled' -DefaultValue $true
+                                $jobColor = if ($isJobEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
+                            } else {
+                                $jobDisplayName += " (Not Found)"
+                                $jobColor = $Global:ColourWarning
+                            }
+                            & $LocalWriteLog -Message ("                 " + $jobDisplayName) -Level "NONE" -ForegroundColour $jobColor
+                        }
+                    }
+                } else {
+                    & $LocalWriteLog -Message ("  Jobs in Set  : (None listed)") -Level "NONE"
+                }
             }
         } else {
             & $LocalWriteLog -Message "No Backup Sets are defined in the configuration." -Level "WARNING"
