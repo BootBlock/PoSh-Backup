@@ -13,9 +13,9 @@
     the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.1 # Corrected -SyncSchedules parameter to be optional.
+    Version:        1.3.0 # Added email notification check to SecretManagement dependency validation.
     DateCreated:    01-Jun-2025
-    LastModified:   08-Jun-2025
+    LastModified:   09-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
     Prerequisites:  PowerShell 5.1+.
                     Relies on InitialisationManager.psm1 and CliManager.psm1 having been run.
@@ -82,7 +82,7 @@ function Test-RequiredModulesInternal {
         },
         @{
             ModuleName  = 'Microsoft.PowerShell.SecretManagement'
-            RequiredFor = 'Archive Passwords or Target Credentials from a vault'
+            RequiredFor = 'Archive Passwords or Target/Email Credentials from a vault'
             InstallHint = 'Install-Module Microsoft.PowerShell.SecretManagement -Scope CurrentUser'
             Condition   = {
                 param($Config, $ActiveJobs)
@@ -93,9 +93,7 @@ function Test-RequiredModulesInternal {
                     $jobConf = $Config.BackupLocations[$jobName]
 
                     # Condition 1: Job's archive password method is SecretManagement.
-                    if ($jobConf.ArchivePasswordMethod -eq 'SecretManagement') {
-                        return $true
-                    }
+                    if ($jobConf.ArchivePasswordMethod -eq 'SecretManagement') { return $true }
 
                     # Condition 2: Job uses a target that has a CredentialsSecretName defined.
                     if ($jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array]) {
@@ -105,6 +103,18 @@ function Test-RequiredModulesInternal {
                                 if ($targetDef -is [hashtable] -and $targetDef.ContainsKey('CredentialsSecretName') -and (-not [string]::IsNullOrWhiteSpace($targetDef.CredentialsSecretName))) {
                                     return $true
                                 }
+                            }
+                        }
+                    }
+                    
+                    # Condition 3: Job uses an email notification profile that has a CredentialSecretName defined.
+                    $emailSettings = $jobConf.EmailNotification
+                    if ($emailSettings -is [hashtable] -and $emailSettings.Enabled -eq $true -and -not [string]::IsNullOrWhiteSpace($emailSettings.ProfileName)) {
+                        $profileName = $emailSettings.ProfileName
+                        if ($Config.EmailProfiles.ContainsKey($profileName)) {
+                            $emailProfile = $Config.EmailProfiles[$profileName]
+                            if ($emailProfile -is [hashtable] -and $emailProfile.ContainsKey('CredentialSecretName') -and (-not [string]::IsNullOrWhiteSpace($emailProfile.CredentialSecretName))) {
+                                return $true
                             }
                         }
                     }

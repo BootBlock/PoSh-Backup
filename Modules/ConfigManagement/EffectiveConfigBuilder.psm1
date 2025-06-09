@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Acts as a facade to calculate the final, effective configuration settings for a
-    single PoSh-Backup job by delegating to specialized sub-modules.
+    single PoSh-Backup job by delegating to specialised sub-modules.
 .DESCRIPTION
     This module orchestrates the calculation of a job's effective configuration.
     It imports and calls functions from sub-modules located in the
@@ -10,16 +10,16 @@
     - DestinationSettings.psm1: Resolves destination and remote target settings.
     - ArchiveSettings.psm1: Resolves archive type, naming, SFX, split, and checksum settings.
     - SevenZipSettings.psm1: Resolves 7-Zip specific parameters like compression, affinity, and list files.
-    - OperationalSettings.psm1: Resolves VSS, retries, password, logging, and post-run action settings.
+    - OperationalSettings.psm1: Resolves VSS, retries, password, logging, email, and post-run action settings.
 
     The main function, Get-PoShBackupJobEffectiveConfiguration, calls these sub-modules
     in sequence, aggregates their results, and populates the job report data with
     key effective settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Refactored into a facade with sub-modules.
+    Version:        1.2.0 # Added SetSpecificConfig parameter for email notification hierarchy.
     DateCreated:    24-May-2025
-    LastModified:   30-May-2025
+    LastModified:   09-Jun-2025
     Purpose:        Facade for effective job configuration building.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -64,7 +64,9 @@ function Get-PoShBackupJobEffectiveConfiguration {
         [Parameter(Mandatory = $false)]
         [string]$SetSevenZipIncludeListFile = $null,
         [Parameter(Mandatory = $false)]
-        [string]$SetSevenZipExcludeListFile = $null
+        [string]$SetSevenZipExcludeListFile = $null,
+        [Parameter(Mandatory = $false)]
+        [hashtable]$SetSpecificConfig = $null
     )
 
     $LocalWriteLog = {
@@ -84,7 +86,7 @@ function Get-PoShBackupJobEffectiveConfiguration {
     $destinationSettings = Resolve-DestinationConfiguration -JobConfig $JobConfig -GlobalConfig $GlobalConfig -CliOverrides $CliOverrides -Logger $Logger
     $archiveSettings = Resolve-ArchiveConfiguration -JobConfig $JobConfig -GlobalConfig $GlobalConfig -CliOverrides $CliOverrides -Logger $Logger -JobReportDataRef $JobReportDataRef
     $sevenZipSettings = Resolve-SevenZipConfiguration -JobConfig $JobConfig -GlobalConfig $GlobalConfig -CliOverrides $CliOverrides -Logger $Logger -SetSevenZipIncludeListFile $SetSevenZipIncludeListFile -SetSevenZipExcludeListFile $SetSevenZipExcludeListFile
-    $operationalSettings = Resolve-OperationalConfiguration -JobConfig $JobConfig -GlobalConfig $GlobalConfig -CliOverrides $CliOverrides -Logger $Logger
+    $operationalSettings = Resolve-OperationalConfiguration -JobConfig $JobConfig -GlobalConfig $GlobalConfig -CliOverrides $CliOverrides -Logger $Logger -SetSpecificConfig $SetSpecificConfig
 
     # Merge results from sub-modules into the main effectiveConfig hashtable
     # Order of merging doesn't strictly matter here as sub-modules handle distinct setting groups.

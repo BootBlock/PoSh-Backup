@@ -7,6 +7,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Enterprise-Grade PowerShell Solution:** Robust, modular design built with dedicated PowerShell modules for reliability, maintainability, and clarity.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
 *   **Integrated Backup Scheduling:** Define backup schedules directly within your job configurations. A simple command (`-SyncSchedules`) synchronises these settings with the Windows Task Scheduler, creating, updating, or removing tasks as needed for a true "set and forget" experience.
+*   **Email Notifications:** Automatically send email notifications upon job or set completion. Configure multiple SMTP server profiles and specify on a per-job or per-set basis which events (e.g., Success, Failure, Warnings) should trigger an alert.
 *   **Local and Remote Backups:**
     *   Archives are initially created directly in the directory specified by the effective `DestinationDir` setting for the job.
     *   If remote targets (e.g., UNC shares, SFTP servers) are configured for the job, this `DestinationDir` acts as a **local staging area** before the archive is transferred.
@@ -45,7 +46,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   **Other Formats:** CSV, JSON, XML (CliXml), Plain Text (TXT), and Markdown (MD) also supported for data export and integration, updated to include target transfer and checksum details where appropriate.
 *   **Comprehensive Logging:** Get detailed, colour-coded console output and optional per-job text file logs for easy monitoring and troubleshooting of both local operations and remote transfers.
 *   **Log File Retention:** Automatically manage the number of log files kept per job. Configurable globally, per job, or per backup set, with a CLI override. A setting of `0` means infinite retention. This prevents the `Logs/` directory from growing indefinitely.
-*   **Pin Backups:** Protect specific backup archives from automatic deletion by retention policies. This can be done proactively when an archive is created (via the `-Pin` switch or a job setting) or retroactively on any existing archive (via the `-PinBackup <path>` management utility).
+*   **Pin Backups:** Protect specific backup archives from automatic deletion by retention policies. This can be done by pinning an existing archive via `-PinBackup <path>` or by pinning the result of the current run via the `-Pin` switch.
 *   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention (archive and log files), **post-run system actions**, and **checksum operations** without making any actual changes.
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`). This includes basic validation of Backup Target definitions and **job dependency validation** (checking for circular references and dependencies on non-existent jobs). Optional advanced schema validation for the overall configuration structure is also available.
 *   **Archive Inspection & Restore Utilities:** Inspect or restore files directly from the command line. Use `-ListArchiveContents` to see what's inside an archive, and `-ExtractFromArchive` to restore the entire archive or specific files/folders from it. Both utilities fully support encrypted archives.
@@ -226,6 +227,30 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
                 }       # Add other targets, e.g., for FTP, S3, etc. as providers become available.
             }
             ```
+    *   **Email Notification Settings (Global):**
+        *   **`EmailProfiles`**: This is where you define reusable email server configurations.
+            ```powershell
+            EmailProfiles = @{
+                "Office365" = @{
+                    SMTPServer           = "smtp.office365.com"
+                    SMTPPort             = 587
+                    EnableSsl            = $true
+                    FromAddress          = "backup-alerts@your-domain.com"
+                    # Name of the secret in PowerShell SecretManagement storing the PSCredential object.
+                    CredentialSecretName = "Office365BackupUserCredentials"
+                }
+            }
+            ```
+        *   **`DefaultEmailNotification`**: These are the default notification settings for all jobs/sets.
+            ```powershell
+            DefaultEmailNotification = @{
+                Enabled         = $false # Master switch, must be $true in a job/set to send emails.
+                ProfileName     = ""     # Must be set in job/set, e.g., "Office365".
+                ToAddress       = @()    # E.g., @("admin@your-domain.com")
+                Subject         = "PoSh-Backup Report for Job: {JobName} - Status: {Status}"
+                TriggerOnStatus = @("FAILURE", "WARNINGS") # Send emails only on failure or warnings.
+            }
+            ```
     *   **`BackupLocations` (Job Definitions):**
         *   This is the most important section for defining what to back up. It's a hashtable where each entry is a backup job.
         *   `User.psd1` (copied from `Default.psd1`) will contain example job definitions. Modify or replace these.
@@ -266,6 +291,16 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
         *   **7-Zip Include/Exclude List Files (Job-Specific):**
             *   `SevenZipIncludeListFile` (string, default from global `DefaultSevenZipIncludeListFile`): Path to a text file for 7-Zip include patterns for this job.
             *   `SevenZipExcludeListFile` (string, default from global `DefaultSevenZipExcludeListFile`): Path to a text file for 7-Zip exclude patterns for this job.
+        *   **Email Notification Settings (Job-Specific):**
+            *   `EmailNotification`: A hashtable to override the `DefaultEmailNotification` settings for this specific job.
+                ```powershell
+                EmailNotification = @{
+                    Enabled         = $true
+                    ProfileName     = "Office365" # Must match a name in EmailProfiles
+                    ToAddress       = @("job-owner@example.com")
+                    TriggerOnStatus = @("FAILURE") # Only email on failure for this job
+                }
+                ```
         *   Example job definition that creates a local archive, sends it to a remote target, includes checksum settings, creates an SFX, sets CPU affinity, specifies log retention, and uses an exclude list file:
             ```powershell
             # Inside BackupLocations in User.psd1 or Default.psd1
@@ -314,6 +349,8 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
         *   **7-Zip Include/Exclude List Files (Set-Specific):**
             *   `SevenZipIncludeListFile` (string, default from global `DefaultSevenZipIncludeListFile`): Path to a text file for 7-Zip include patterns for all jobs in this set. Overrides job-level and global settings.
             *   `SevenZipExcludeListFile` (string, default from global `DefaultSevenZipExcludeListFile`): Path to a text file for 7-Zip exclude patterns for all jobs in this set. Overrides job-level and global settings.
+        *   **Email Notification Settings (Set-Specific):**
+            *   `EmailNotification`: A hashtable to override the `DefaultEmailNotification` settings for the entire set. An email is sent *after the entire set completes*, based on the set's overall status. This overrides any email settings on individual jobs within the set.
         *   Example for a set:
             ```powershell
             "NightlyServerMaintenance" = @{
@@ -321,6 +358,13 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
                 OnErrorInJob = "StopSet"
                 LogRetentionCount = 7 # Logs for WebAppBackup & SQLBackup will keep 7 files when run via this set.
                 SevenZipExcludeListFile = "C:\PoShBackup\Config\ServerMaintenanceExcludes.txt" # Exclude list for this set
+                EmailNotification = @{
+                    Enabled         = $true
+                    ProfileName     = "Office365"
+                    ToAddress       = @("it-admins@example.com")
+                    Subject         = "Nightly Server Maintenance Report - Status: {Status}"
+                    TriggerOnStatus = @("FAILURE", "WARNINGS")
+                }
                 PostRunAction = @{
                     Enabled         = $true
                     Action          = "Restart"

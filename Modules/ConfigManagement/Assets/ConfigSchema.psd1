@@ -1,10 +1,10 @@
-# Modules\ConfigManagement\Assets\ConfigSchema.psd1
+# Modules/ConfigManagement/Assets/ConfigSchema.psd1
 # PoSh-Backup Configuration Schema
-# File: Modules\ConfigManagement\Assets\ConfigSchema.psd1
+# File: Modules/ConfigManagement/Assets/ConfigSchema.psd1
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
-# Version: (Implicit) Updated 08-Jun-2025 (Added Schedule hashtable schema)
+# Version: (Implicit) Updated 08-Jun-2025 (Added EmailProfiles and EmailNotification schema)
 
 @{
     # Top-level global settings
@@ -39,6 +39,34 @@
     HtmlReportShowConfiguration               = @{ Type = 'boolean'; Required = $false }
     HtmlReportShowHooks                       = @{ Type = 'boolean'; Required = $false }
     HtmlReportShowLogEntries                  = @{ Type = 'boolean'; Required = $false }
+
+    EmailProfiles                             = @{
+        Type             = 'hashtable'
+        Required         = $false
+        DynamicKeySchema = @{ # Schema for each named email profile (e.g., "Office365", "InternalRelay")
+            Type     = "hashtable"
+            Required = $true
+            Schema   = @{
+                SMTPServer           = @{ Type = 'string'; Required = $true }
+                SMTPPort             = @{ Type = 'int'; Required = $false; Min = 1; Max = 65535 }
+                EnableSsl            = @{ Type = 'boolean'; Required = $false }
+                FromAddress          = @{ Type = 'string'; Required = $true; Pattern = '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$' }
+                CredentialSecretName = @{ Type = 'string'; Required = $true }
+                CredentialVaultName  = @{ Type = 'string'; Required = $false }
+            }
+        }
+    }
+    DefaultEmailNotification                  = @{
+        Type     = 'hashtable'
+        Required = $false
+        Schema   = @{
+            Enabled         = @{ Type = 'boolean'; Required = $false }
+            ProfileName     = @{ Type = 'string'; Required = $false }
+            ToAddress       = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string'; Pattern = '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$' } }
+            Subject         = @{ Type = 'string'; Required = $false }
+            TriggerOnStatus = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string'; AllowedValues = @("SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY") } }
+        }
+    }
 
     EnableVSS                                 = @{ Type = 'boolean'; Required = $false }
     DefaultVSSContextOption                   = @{ Type = 'string'; Required = $false; AllowedValues = @("Persistent", "Persistent NoWriters", "Volatile NoWriters") }
@@ -204,6 +232,17 @@
                 PostBackupScriptOnSuccessPath             = @{ Type = 'string'; Required = $false }
                 PostBackupScriptOnFailurePath             = @{ Type = 'string'; Required = $false }
                 PostBackupScriptAlwaysPath                = @{ Type = 'string'; Required = $false }
+                EmailNotification                         = @{
+                    Type     = 'hashtable'
+                    Required = $false
+                    Schema   = @{
+                        Enabled         = @{ Type = 'boolean'; Required = $false }
+                        ProfileName     = @{ Type = 'string'; Required = $false }
+                        ToAddress       = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string'; Pattern = '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$' } }
+                        Subject         = @{ Type = 'string'; Required = $false }
+                        TriggerOnStatus = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string'; AllowedValues = @("SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY") } }
+                    }
+                }
                 PostRunAction                             = @{
                     Type = 'hashtable'; Required = $false
                     Schema = @{
@@ -247,6 +286,17 @@
                 LogRetentionCount       = @{ Type = 'int'; Required = $false; Min = 0 }
                 SevenZipIncludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
                 SevenZipExcludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
+                EmailNotification       = @{
+                    Type     = 'hashtable'
+                    Required = $false
+                    Schema   = @{
+                        Enabled         = @{ Type = 'boolean'; Required = $false }
+                        ProfileName     = @{ Type = 'string'; Required = $false }
+                        ToAddress       = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string'; Pattern = '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$' } }
+                        Subject         = @{ Type = 'string'; Required = $false }
+                        TriggerOnStatus = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string'; AllowedValues = @("SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY") } }
+                    }
+                }
                 PostRunAction           = @{
                     Type = 'hashtable'; Required = $false
                     Schema = @{

@@ -17,14 +17,15 @@
     - Records the effective success status of the executed job for subsequent dependency checks.
     - Manages the overall status of a set if multiple jobs are run.
     - Triggers report generation for each job (including skipped jobs).
+    - Triggers email notification for each job if configured.
     - Implements the "stop set on error" policy, considering both operational failures
       and jobs skipped due to failed dependencies if the policy is to stop.
     - Applies log file retention policy for the completed job.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.8 # Significantly enriched log file header with detailed context.
+    Version:        1.2.1 # Fixed PowerShell 5.1 incompatible inline 'if' statement.
     DateCreated:    25-May-2025
-    LastModified:   08-Jun-2025
+    LastModified:   09-Jun-2025
     Purpose:        To centralise the main job/set processing loop from PoSh-Backup.ps1.
     Prerequisites:  PowerShell 5.1+.
                     Depends on ConfigManager.psm1, Operations.psm1, Reporting.psm1, and Utils.psm1.
@@ -35,9 +36,10 @@
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\LogManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "ConfigManager.psm1") -Force -ErrorAction Stop # ADDED
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Operations.psm1") -Force -ErrorAction Stop # Already present but ensure it's here
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Reporting.psm1") -Force -ErrorAction Stop # Already present but ensure it's here
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "ConfigManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Operations.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Reporting.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\NotificationManager.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "JobOrchestrator.psm1 FATAL: Could not import required dependent modules. Error: $($_.Exception.Message)"
@@ -174,8 +176,9 @@ function Invoke-PoShBackupRun {
 
         try {
             # --- Get Effective Config FIRST ---
-            $setSevenZipIncludeListFileForEffConfig = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName) -and $Configuration.BackupSets.ContainsKey($CurrentSetName) -and $Configuration.BackupSets[$CurrentSetName].ContainsKey('SevenZipIncludeListFile')) { $Configuration.BackupSets[$CurrentSetName].SevenZipIncludeListFile } else { $null }
-            $setSevenZipExcludeListFileForEffConfig = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName) -and $Configuration.BackupSets.ContainsKey($CurrentSetName) -and $Configuration.BackupSets[$CurrentSetName].ContainsKey('SevenZipExcludeListFile')) { $Configuration.BackupSets[$CurrentSetName].SevenZipExcludeListFile } else { $null }
+            $setConfForEffConfig = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName)) { Get-ConfigValue -ConfigObject $Configuration.BackupSets -Key $CurrentSetName -DefaultValue @{} } else { $null }
+            $setSevenZipIncludeListFileForEffConfig = if ($null -ne $setConfForEffConfig) { Get-ConfigValue -ConfigObject $setConfForEffConfig -Key 'SevenZipIncludeListFile' -DefaultValue $null } else { $null }
+            $setSevenZipExcludeListFileForEffConfig = if ($null -ne $setConfForEffConfig) { Get-ConfigValue -ConfigObject $setConfForEffConfig -Key 'SevenZipExcludeListFile' -DefaultValue $null } else { $null }
 
             $effectiveConfigParams = @{
                 JobConfig                  = $jobConfigFromMainConfig
@@ -185,6 +188,7 @@ function Invoke-PoShBackupRun {
                 Logger                     = $Logger
                 SetSevenZipIncludeListFile = $setSevenZipIncludeListFileForEffConfig
                 SetSevenZipExcludeListFile = $setSevenZipExcludeListFileForEffConfig
+                SetSpecificConfig          = $setConfForEffConfig
             }
             $effectiveJobConfigForThisJob = Get-PoShBackupJobEffectiveConfiguration @effectiveConfigParams
 
@@ -392,6 +396,36 @@ $cliOverridesString
                 -JobConfig $jobConfigFromMainConfig `
                 -Logger $Logger
         }
+
+        # --- NEW: Email Notification Logic ---
+        if (Get-Command Send-PoShBackupEmailNotification -ErrorAction SilentlyContinue) {
+            $defaultEmailSettings = Get-ConfigValue -ConfigObject $Configuration -Key 'DefaultEmailNotification' -DefaultValue @{}
+            $jobEmailSettings = Get-ConfigValue -ConfigObject $jobConfigFromMainConfig -Key 'EmailNotification' -DefaultValue @{}
+            
+            $setConf = $null
+            if (-not [string]::IsNullOrWhiteSpace($CurrentSetName)) {
+                $setConf = Get-ConfigValue -ConfigObject $Configuration.BackupSets -Key $CurrentSetName -DefaultValue @{}
+            } else {
+                $setConf = @{}
+            }
+            $setEmailSettings = Get-ConfigValue -ConfigObject $setConf -Key 'EmailNotification' -DefaultValue @{}
+
+            # Build effective settings: Job > Set > Global
+            $effectiveEmailSettings = $defaultEmailSettings.Clone()
+            $setEmailSettings.GetEnumerator() | ForEach-Object { $effectiveEmailSettings[$_.Name] = $_.Value }
+            $jobEmailSettings.GetEnumerator() | ForEach-Object { $effectiveEmailSettings[$_.Name] = $_.Value }
+
+            if ($effectiveEmailSettings.Enabled -eq $true) {
+                Send-PoShBackupEmailNotification -EffectiveEmailSettings $effectiveEmailSettings `
+                    -GlobalConfig $Configuration `
+                    -JobReportData $currentJobReportData `
+                    -Logger $Logger `
+                    -IsSimulateMode:$IsSimulateMode `
+                    -PSCmdlet $PSCmdlet `
+                    -CurrentSetName $CurrentSetName
+            }
+        }
+        # --- END NEW: Email Notification Logic ---
 
         if ($Global:GlobalEnableFileLogging -and (-not [string]::IsNullOrWhiteSpace($Global:GlobalLogDirectory))) {
             $finalLogRetentionCountForJob = $null

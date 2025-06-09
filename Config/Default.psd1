@@ -1,10 +1,10 @@
-# Config\Default.psd1
+# Config/Default.psd1
 # PowerShell Data File for PoSh Backup Script Configuration (Default).
 # --> THIS WILL GET OVERWRITTEN ON UPGRADE if you do not use a User.psd1 file for your customisations! <--
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.5.0: Added Schedule hashtable to job definitions for integrated task scheduling.
+# Version 1.6.0: Added EmailProfiles and EmailNotification sections for email alerts.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -134,6 +134,47 @@
     HtmlReportShowConfiguration     = $true                           # $true to include the job configuration details (as used for the backup) in the HTML report.
     HtmlReportShowHooks             = $true                           # $true to include details of any executed hook scripts (pre/post backup) and their status/output.
     HtmlReportShowLogEntries        = $true                           # $true to include the detailed log messages from the script execution in the HTML report.
+    #endregion
+
+    #region --- Email Notification Settings (Global) ---
+    # Define reusable email server profiles here. Jobs and sets can then reference these by name.
+    EmailProfiles = @{
+        # Example profile for a generic SMTP server.
+        # You can create multiple profiles, e.g., "Office365", "Gmail", "InternalRelay".
+        "ExampleSmtpProfile" = @{
+            SMTPServer           = "smtp.example.com" # The hostname or IP address of your SMTP server.
+            SMTPPort             = 587                # Common ports are 25 (unencrypted), 587 (TLS/STARTTLS), 465 (SSL).
+            EnableSsl            = $true              # Set to $true to use SSL/TLS. This corresponds to the -UseSsl switch on Send-MailMessage.
+            FromAddress          = "posh-backup@example.com" # The email address that will appear in the 'From' field.
+
+            # (RECOMMENDED) The name of the secret in PowerShell SecretManagement that stores the
+            # PSCredential object for SMTP authentication.
+            # To create this secret:
+            #   $cred = Get-Credential -UserName "your_smtp_username" -Message "Enter SMTP Password"
+            #   Set-Secret -Name "MySmtpCredentials" -Secret $cred
+            CredentialSecretName = "MySmtpCredentials"
+
+            # (Optional) The name of the SecretManagement vault where the credential secret is stored.
+            # If omitted, the default registered vault is used.
+            # CredentialVaultName  = "MySpecificVault"
+        }
+    }
+
+    # Define the default behaviour for email notifications.
+    # These settings can be overridden at the job or set level.
+    DefaultEmailNotification = @{
+        Enabled         = $false # Master switch. Set to $true in a job/set to enable notifications for it.
+        ProfileName     = ""     # The name of the profile (from EmailProfiles above) to use for sending. MUST be specified in job/set if Enabled is $true.
+        ToAddress       = @()    # An array of recipient email addresses. E.g., @("admin@example.com", "user@example.com")
+        
+        # The subject line for the notification email. Placeholders will be replaced.
+        # Available placeholders: {JobName}, {SetName}, {Status}, {Date}, {Time}, {ComputerName}
+        Subject         = "PoSh-Backup Report for Job: {JobName} - Status: {Status}"
+
+        # An array of job/set statuses that will trigger an email to be sent.
+        # Valid: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
+        TriggerOnStatus = @("FAILURE", "WARNINGS")
+    }
     #endregion
 
     #region --- Volume Shadow Copy Service (VSS) Settings (Global Defaults) ---
@@ -407,6 +448,16 @@
             ChecksumAlgorithm           = "SHA256"                    # Use SHA256
             VerifyArchiveChecksumOnTest = $true                       # Verify checksum if TestArchiveAfterCreation is also true
 
+            # --- Email Notification Settings for this Job ---
+            # These settings override the DefaultEmailNotification settings.
+            EmailNotification = @{
+                Enabled         = $true # Set to $true to enable email alerts for this specific job.
+                ProfileName     = "ExampleSmtpProfile" # Which profile from EmailProfiles to use.
+                ToAddress       = @("joscox79@gmail.com")
+                Subject         = "Project Backup Report: {JobName} - {Status}" # Custom subject for this job.
+                TriggerOnStatus = @("SUCCESS") # Only email if this specific job fails.
+            }
+
             # PostRunAction = @{
             #     Enabled         = $true
             #     Action          = "Shutdown"
@@ -415,65 +466,20 @@
             #     ForceAction     = $false
             # }
 
-            # --- NEW: Integrated Scheduling Settings ---
-            # This entire 'Schedule' block is optional. If it's missing or Enabled = $false,
-            # the job will not be scheduled by the -SyncSchedules command.
+            # --- Integrated Scheduling Settings ---
             Schedule = @{
-                # Master switch for this job's schedule. Set to $true to have PoSh-Backup manage this
-                # job in the Windows Task Scheduler when you run `PoSh-Backup.ps1 -SyncSchedules`.
                 Enabled = $false
-
-                # The type of trigger for the schedule.
-                # Allowed values: 'Daily', 'Weekly', 'Monthly', 'Once', 'OnLogon', 'OnStartup'.
                 Type = 'Daily'
-
-                # The time of day to start the backup, in HH:mm format (24-hour clock).
-                # Required for 'Daily', 'Weekly', 'Monthly', and 'Once' types.
                 Time = '23:00'
-
-                # For 'Weekly' schedules. An array of day names.
-                # Allowed values: 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'.
                 DaysOfWeek = @('Monday', 'Wednesday', 'Friday')
-
-                # For 'Monthly' schedules. An array of days of the month (1-31).
-                # The task will run on these days of the specified months.
                 DaysOfMonth = @(1, 15)
-
-                # For 'Monthly' schedules. An array of month names.
-                # If omitted for a monthly schedule, it will apply to all months.
-                # Allowed values: 'January', 'February', 'March', 'April', 'May', 'June', 'July',
-                # 'August', 'September', 'October', 'November', 'December'.
                 MonthsOfYear = @('January', 'April', 'July', 'October')
-
-                # A random delay added to the start time to prevent multiple tasks from starting
-                # at the exact same moment. Format is a string with a number and a unit:
-                # 's' for seconds, 'm' for minutes, 'h' for hours. E.g., '30m', '1h', '90s'.
-                # Set to '0s' or empty string for no random delay.
                 RandomDelay = '15m'
-
-                # The user account to run the scheduled task as.
-                # 'SYSTEM': Runs as the local SYSTEM account. Very powerful, can run even if no user is
-                #           logged on, but may have different network permissions than a user account.
-                # 'Author': (Default) Runs as the user who executed the `-SyncSchedules` command.
-                #           This is generally safer for accessing user-specific network shares.
                 RunAsUser = 'Author'
-
-                # If $true, the task is set to "Run with highest privileges".
-                # This is essential for jobs that require VSS.
                 HighestPrivileges = $true
-
-                # If $true, the task will attempt to wake the computer from sleep to run.
                 WakeToRun = $true
-
-                # If $true, the task will start even if the computer is on battery power.
                 AllowStartIfOnBatteries = $false
-
-                # If $true, the task will stop if the computer switches to battery power.
                 StopIfGoingOnBatteries = $true
-
-                # A string of any additional command-line arguments to add to the scheduled task's action.
-                # Use with caution. The scheduler automatically adds `-BackupLocationName "JobName"` and `-Quiet`.
-                # Example: "-TreatSevenZipWarningsAsSuccessCLI -LogRetentionCountCLI 5"
                 AdditionalArguments = ""
             }
         }
@@ -516,6 +522,9 @@
             # GenerateArchiveChecksum     = $false # This would be ignored if GenerateSplitArchiveManifest is true for a split archive.
             # VerifyArchiveChecksumOnTest = $false
 
+            EmailNotification = @{
+                Enabled         = $false
+            }
             # PostRunAction = @{ Enabled = $false }                   # Example: Explicitly disable for this job
             Schedule = @{ Enabled = $false } # Placeholder for this job
         }
@@ -552,6 +561,9 @@
             SevenZipIncludeListFile    = ""
             SevenZipExcludeListFile    = ""
 
+            EmailNotification = @{
+                Enabled         = $false
+            }
             # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
             Schedule = @{ Enabled = $false } # Placeholder for this job
         }
@@ -587,6 +599,12 @@
             SevenZipIncludeListFile    = ""
             SevenZipExcludeListFile    = ""
 
+            EmailNotification = @{
+                Enabled         = $true
+                ProfileName     = "ExampleSmtpProfile"
+                ToAddress       = @("db-admins@example.com", "backup-alerts@example.com")
+                TriggerOnStatus = @("FAILURE")
+            }
             PostRunAction = @{
                 Enabled         = $true
                 Action          = "Lock"
@@ -607,6 +625,9 @@
             ArchivePasswordSecretName  = "MyArchiveEncryptionPassword"
             SplitVolumeSize            = "500m" # Example: Split into 500MB volumes
             GenerateSplitArchiveManifest = $true
+            EmailNotification = @{
+                Enabled         = $false
+            }
             Schedule = @{ Enabled = $false } # Placeholder for this job
         }
 
@@ -692,6 +713,12 @@
             PostBackupScriptOnFailurePath = "C:\Scripts\BackupPrep\WebApp_PostFailure_Alert.ps1"
             PostBackupScriptAlwaysPath    = "C:\Scripts\BackupPrep\WebApp_PostAlways_Cleanup.ps1"
 
+            EmailNotification = @{
+                Enabled         = $true
+                ProfileName     = "ExampleSmtpProfile"
+                ToAddress       = @("webapp-alerts@example.com")
+                TriggerOnStatus = @("FAILURE", "WARNINGS")
+            }
             # PostRunAction = @{
             #     Enabled         = $true
             #     Action          = "LogOff"
@@ -709,6 +736,9 @@
             SplitVolumeSize         = ""  # No split
             # GenerateSplitArchiveManifest = $false
             # ... other settings ...
+            EmailNotification = @{
+                Enabled         = $false
+            }
             Schedule = @{ Enabled = $false } # Placeholder for this job
         }
         #>
@@ -733,6 +763,17 @@
             SevenZipIncludeListFile = "C:\BackupConfig\Set_DailyCritical_Includes.txt"
             SevenZipExcludeListFile = "C:\BackupConfig\Set_DailyCritical_Excludes.txt"
 
+            # Email notifications for a set are sent *after the entire set completes*.
+            # The status used for TriggerOnStatus will be the overall status of the set.
+            # This overrides any EmailNotification settings on individual jobs within the set.
+            EmailNotification = @{
+                Enabled         = $true
+                ProfileName     = "ExampleSmtpProfile"
+                ToAddress       = @("it-team@example.com")
+                Subject         = "PoSh-Backup Set Report: {SetName} - Overall Status: {Status}"
+                TriggerOnStatus = @("FAILURE", "WARNINGS")
+            }
+
             # PostRunAction = @{
             #     Enabled         = $true
             #     Action          = "Restart"
@@ -751,6 +792,9 @@
             SevenZipIncludeListFile = ""
             SevenZipExcludeListFile = ""
             # PostRunAction = @{ Enabled = $false }
+            EmailNotification = @{
+                Enabled         = $false
+            }
         }
         "Nightly_Full_System_Simulate" = @{
             JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example", "CriticalData_To_SFTP_Example")

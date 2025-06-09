@@ -6,12 +6,12 @@
     This sub-module for EffectiveConfigBuilder.psm1 determines effective settings
     for VSS, retries, password management, log retention, 7-Zip output visibility,
     free space checks, archive testing, pre/post backup script paths, post-run
-    system actions, and the PinOnCreation flag.
+    system actions, the PinOnCreation flag, and email notifications.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added PinOnCreation setting resolution.
+    Version:        1.2.0 # Added EmailNotification setting resolution.
     DateCreated:    30-May-2025
-    LastModified:   06-Jun-2025
+    LastModified:   09-Jun-2025
     Purpose:        Operational settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -33,7 +33,9 @@ function Resolve-OperationalConfiguration {
         [Parameter(Mandatory)] [hashtable]$JobConfig,
         [Parameter(Mandatory)] [hashtable]$GlobalConfig,
         [Parameter(Mandatory)] [hashtable]$CliOverrides,
-        [Parameter(Mandatory)] [scriptblock]$Logger
+        [Parameter(Mandatory)] [scriptblock]$Logger,
+        [Parameter(Mandatory = $false)]
+        [hashtable]$SetSpecificConfig = $null
     )
 
     # PSSA: Directly use Logger for initial debug message
@@ -171,6 +173,17 @@ function Resolve-OperationalConfiguration {
         if ($jobPostRunActionConfig.ContainsKey('ForceAction') -and $jobPostRunActionConfig.ForceAction -is [boolean]) { $effectivePostRunAction.ForceAction = $jobPostRunActionConfig.ForceAction }
     }
     $resolvedSettings.PostRunAction = $effectivePostRunAction
+
+    # --- NEW: Email Notification Settings (Job > Set > Global) ---
+    $defaultEmailSettings = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultEmailNotification' -DefaultValue @{}
+    $jobEmailSettings = Get-ConfigValue -ConfigObject $JobConfig -Key 'EmailNotification' -DefaultValue @{}
+    $setEmailSettings = if ($null -ne $SetSpecificConfig) { Get-ConfigValue -ConfigObject $SetSpecificConfig -Key 'EmailNotification' -DefaultValue @{} } else { @{} }
+
+    $effectiveEmailSettings = $defaultEmailSettings.Clone()
+    $setEmailSettings.GetEnumerator() | ForEach-Object { $effectiveEmailSettings[$_.Name] = $_.Value }
+    $jobEmailSettings.GetEnumerator() | ForEach-Object { $effectiveEmailSettings[$_.Name] = $_.Value }
+    $resolvedSettings.EmailNotification = $effectiveEmailSettings
+    # --- END NEW ---
 
     # Store a reference to the global config for any direct lookups needed later (e.g., DefaultScriptExcludeRecycleBin)
     $resolvedSettings.GlobalConfigRef = $GlobalConfig

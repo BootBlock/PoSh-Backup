@@ -13,6 +13,7 @@
     "  - **Finding Tasks:** `Get-ScheduledTask -TaskName 'MyTask' -TaskPath '\MyFolder'` is UNRELIABLE. The correct method is to get all tasks in the folder using a wildcard (`Get-ScheduledTask -TaskPath '\MyFolder\*'`) and then filter the results in PowerShell.",
     "  - **Deleting Tasks:** `Unregister-ScheduledTask` is also unreliable with `-TaskName` and `-TaskPath`. The correct method is to pass the task object directly using `-InputObject`.",
     "  - **Folder Existence:** `Get-ScheduledTaskFolder` is not universally available. The correct, compatible way to check for/create a folder is to use the `Schedule.Service` COM object.",
+    "CRITICAL (SYNTAX): PowerShell 5.1 does not support inline if-statements like `$var = if (`$condition) { 'true' } else { 'false' }`. Use a standard multi-line if/else block to assign the variable before using it, especially inside here-strings or complex command arguments.",
     "CRITICAL (SYNTAX): PowerShell does not have a ternary operator (`condition ? true : false`). Use `if/else` statements or hashtable lookups.",
     "CRITICAL (SYNTAX): PowerShell logical AND is `-and`, not `&&`.",
     "CRITICAL (SYNTAX): PowerShell strings for Markdown triple backticks: use single quotes externally, e.g., ''''''.",
@@ -114,7 +115,7 @@
     "  - Multi-Volume (Split) Archives, Job Chaining/Dependencies, 7-Zip Password Handling (-p switch), Include/Exclude List Files, CPU Affinity.",
     "  - Core Refactorings (Operations, Logging, Managers, Utils facade, PoSh-Backup.ps1 main loop to JobOrchestrator, ScriptModeHandler).",
     "  - SFX Archives, Checksums, Post-Run Actions, Expanded Backup Targets (UNC, Replicate, SFTP), Log File Retention.",
-    "--- Feature: Integrated Backup Job Scheduling (Current Session Segment) ---",
+    "--- Feature: Integrated Backup Job Scheduling (Completed in Previous Session Segment) ---",
     "    - **Goal:** Allow users to define backup schedules in the config file and synchronise them with Windows Task Scheduler.",
     "    - **Configuration:**",
     "        - `Config\Default.psd1`: Added a new, richly commented `Schedule` hashtable to each job definition.",
@@ -189,11 +190,27 @@
     "        - **Order of Operations:** Corrected the logic in `CoreSetupManager.psm1` to ensure it checks for and handles any utility/informational modes *before* it attempts to resolve jobs for a backup run.",
     "        - **7-Zip Parser:** After a lengthy debugging process, a fully robust parser for the `7z l -slt` output was implemented in `Lister.psm1`, correctly handling the record separators.",
     "        - Addressed all associated PSScriptAnalyzer warnings.",
+    "--- Feature: Email Notifications (Current Session Segment) ---",
+    "    - **Goal:** Send email alerts upon job or set completion based on status.",
+    "    - **Configuration (`Config\\Default.psd1`):**",
+    "        - Added a new global `EmailProfiles` section to define reusable SMTP server configurations (server, port, SSL, credentials).",
+    "        - Added a new global `DefaultEmailNotification` section for default alert settings.",
+    "        - Added an `EmailNotification` hashtable to job and set definitions to enable/configure alerts on a per-item basis (ProfileName, ToAddress, Subject, TriggerOnStatus).",
+    "    - **Schema (`Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`):** Updated to validate all new `EmailProfiles` and `EmailNotification` settings.",
+    "    - **Core Logic (New Module: `Modules\\Managers\\NotificationManager.psm1`):**",
+    "        - Created to handle all email sending logic using `Send-MailMessage`.",
+    "        - Securely retrieves SMTP credentials from PowerShell SecretManagement.",
+    "        - Constructs email subject and body with placeholders for job/set details.",
+    "    - **Integration:**",
+    "        - `Modules\\Core\\JobOrchestrator.psm1`: Updated to call the `NotificationManager` after each job completes, respecting the effective notification settings.",
+    "        - `Modules\\Managers\\CoreSetupManager.psm1`: Updated the `SecretManagement` dependency check to include email profiles that require credentials.",
+    "        - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` and `OperationalSettings.psm1`: Updated to correctly resolve the `EmailNotification` settings hierarchy (Job > Set > Global).",
+    "    - **Bug Fixes:** Corrected multiple PowerShell 7-only inline `if` syntax errors in `NotificationManager.psm1` that were incompatible with the target PowerShell 5.1 environment.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, and robust parameter set handling for different operational modes. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.24.0 # Added integrated scheduling via -UpdateSchedules."
+  main_script_poSh_backup_version = "1.25.0 # Added email notifications for job/set completion."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
@@ -220,6 +237,7 @@
     "Modules\\Managers\\InitialisationManager.psm1" = "Manages the initial setup of global variables and console display for PoSh-Backup."
     "Modules\\Managers\\CoreSetupManager.psm1" = "Manages the core setup phase of PoSh-Backup, including module imports, configuration loading, job resolution, and dependency ordering."
     "Modules\\Managers\\FinalisationManager.psm1" = "Manages the finalisation tasks for the PoSh-Backup script, including summary display, post-run action invocation, pause behaviour, and exit code."
+    "Modules\\Managers\\NotificationManager.psm1" = "Manages the sending of email notifications for PoSh-Backup jobs and sets based on completion status and configured SMTP profiles."
     "Modules\Managers\ScheduleManager.psm1" = "Manages the creation, update, and deletion of Windows Scheduled Tasks for PoSh-Backup jobs."
     "Modules\\Targets\\WebDAV.Target.psm1" = "PoSh-Backup Target Provider for WebDAV (Web Distributed Authoring and Versioning). Handles transferring backup archives to WebDAV servers, managing remote retention (PROPFIND/DELETE), and supporting credential-based authentication via PowerShell SecretManagement."
   }
