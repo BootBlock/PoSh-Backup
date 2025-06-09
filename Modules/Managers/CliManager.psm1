@@ -8,9 +8,9 @@
     This helps to decouple CLI argument handling from the main script's core logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added extraction and all other utility parameters.
+    Version:        1.2.0 # Added NotificationProfileNameCLI parameter.
     DateCreated:    01-Jun-2025
-    LastModified:   06-Jun-2025
+    LastModified:   09-Jun-2025
     Purpose:        To centralise CLI parameter processing.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -42,6 +42,7 @@ function Get-PoShBackupCliOverride {
 
     # Parameters that take arguments: Value will be the argument, or $null if not present.
     # Default values for these are handled by the param block in the main PoSh-Backup.ps1 script.
+    $cliOverrideSettings.NotificationProfileNameCLI          = if ($BoundParameters.ContainsKey('NotificationProfileNameCLI')) { $BoundParameters['NotificationProfileNameCLI'] } else { $null }
     $cliOverrideSettings.SevenZipPriority                    = if ($BoundParameters.ContainsKey('SevenZipPriorityCLI')) { $BoundParameters['SevenZipPriorityCLI'] } else { $null }
     $cliOverrideSettings.SevenZipCpuAffinity                 = if ($BoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $BoundParameters['SevenZipCpuAffinityCLI'] } else { $null }
     $cliOverrideSettings.SevenZipIncludeListFile             = if ($BoundParameters.ContainsKey('SevenZipIncludeListFileCLI')) { $BoundParameters['SevenZipIncludeListFileCLI'] } else { $null }

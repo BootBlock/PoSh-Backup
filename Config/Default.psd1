@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.6.0: Added EmailProfiles and EmailNotification sections for email alerts.
+# Version 1.7.0: Generalised Email Notifications to a provider-based Notification system (Email, Webhook).
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -136,42 +136,77 @@
     HtmlReportShowLogEntries        = $true                           # $true to include the detailed log messages from the script execution in the HTML report.
     #endregion
 
-    #region --- Email Notification Settings (Global) ---
-    # Define reusable email server profiles here. Jobs and sets can then reference these by name.
-    EmailProfiles = @{
-        # Example profile for a generic SMTP server.
-        # You can create multiple profiles, e.g., "Office365", "Gmail", "InternalRelay".
-        "ExampleSmtpProfile" = @{
-            SMTPServer           = "smtp.example.com" # The hostname or IP address of your SMTP server.
-            SMTPPort             = 587                # Common ports are 25 (unencrypted), 587 (TLS/STARTTLS), 465 (SSL).
-            EnableSsl            = $true              # Set to $true to use SSL/TLS. This corresponds to the -UseSsl switch on Send-MailMessage.
-            FromAddress          = "posh-backup@example.com" # The email address that will appear in the 'From' field.
+    #region --- Notification Settings (Global) ---
+    # Define reusable notification provider profiles here. Jobs and sets can then reference these by name.
+    NotificationProfiles = @{
+        # Example profile for the "Email" provider.
+        "Office365" = @{
+            Type             = "Email" # Specifies to use the email notification provider.
+            ProviderSettings = @{
+                SMTPServer           = "smtp.office365.com"
+                SMTPPort             = 587
+                EnableSsl            = $true
+                FromAddress          = "backup-alerts@your-domain.com"
+                # Name of the secret in PowerShell SecretManagement storing the PSCredential object.
+                CredentialSecretName = "Office365BackupUserCredentials"
+                # CredentialVaultName  = "MySpecificVault" # Optional
+            }
+        }
 
-            # (RECOMMENDED) The name of the secret in PowerShell SecretManagement that stores the
-            # PSCredential object for SMTP authentication.
-            # To create this secret:
-            #   $cred = Get-Credential -UserName "your_smtp_username" -Message "Enter SMTP Password"
-            #   Set-Secret -Name "MySmtpCredentials" -Secret $cred
-            CredentialSecretName = "MySmtpCredentials"
+        # Example profile for the generic "Webhook" provider (e.g., for Microsoft Teams or Slack).
+        "TeamsAlertsChannel" = @{
+            Type             = "Webhook" # Specifies to use the webhook notification provider.
+            ProviderSettings = @{
+                # Name of the secret in PowerShell SecretManagement storing the full webhook URL.
+                WebhookUrlSecretName = "TeamsAlertsWebhookUrl"
+                # WebhookUrlVaultName  = "MySpecificVault" # Optional
 
-            # (Optional) The name of the SecretManagement vault where the credential secret is stored.
-            # If omitted, the default registered vault is used.
-            # CredentialVaultName  = "MySpecificVault"
+                # The HTTP method to use. "POST" is most common for webhooks.
+                Method = "POST"
+
+                # Optional: A hashtable of custom headers to send with the request.
+                Headers = @{
+                    # Example: "Authorization" = "Bearer MyToken"
+                }
+
+                # The request body template. Placeholders like {JobName}, {Status}, etc., will be replaced.
+                # This example is a simple JSON payload suitable for many services.
+                # For Microsoft Teams, you would use a more complex "Adaptive Card" JSON structure here.
+                BodyTemplate = @'
+{
+    "text": "PoSh-Backup Job ''{JobName}'' finished with status: **{Status}**",
+    "summary": "Backup for {JobName} finished.",
+    "sections": [{
+        "activityTitle": "PoSh-Backup Report",
+        "activitySubtitle": "Job: {JobName} on {ComputerName}",
+        "facts": [
+            { "name": "Status", "value": "{Status}" },
+            { "name": "Start Time", "value": "{StartTime}" },
+            { "name": "Duration", "value": "{Duration}" },
+            { "name": "Archive Path", "value": "{ArchivePath}" },
+            { "name": "Archive Size", "value": "{ArchiveSize}" },
+            { "name": "Error Message", "value": "{ErrorMessage}" }
+        ],
+        "markdown": true
+    }]
+}
+'@
+            }
         }
     }
 
-    # Define the default behaviour for email notifications.
+    # Define the default behaviour for notifications.
     # These settings can be overridden at the job or set level.
-    DefaultEmailNotification = @{
+    DefaultNotificationSettings = @{
         Enabled         = $false # Master switch. Set to $true in a job/set to enable notifications for it.
-        ProfileName     = ""     # The name of the profile (from EmailProfiles above) to use for sending. MUST be specified in job/set if Enabled is $true.
-        ToAddress       = @()    # An array of recipient email addresses. E.g., @("admin@example.com", "user@example.com")
+        ProfileName     = ""     # The name of the profile (from NotificationProfiles above) to use. MUST be specified in job/set if Enabled is $true.
+        ToAddress       = @()    # For "Email" provider: An array of recipient email addresses. E.g., @("admin@example.com"). Ignored by "Webhook" provider.
         
-        # The subject line for the notification email. Placeholders will be replaced.
+        # The subject line for "Email" provider notifications. Placeholders will be replaced. Ignored by "Webhook" provider.
         # Available placeholders: {JobName}, {SetName}, {Status}, {Date}, {Time}, {ComputerName}
         Subject         = "PoSh-Backup Report for Job: {JobName} - Status: {Status}"
 
-        # An array of job/set statuses that will trigger an email to be sent.
+        # An array of job/set statuses that will trigger a notification to be sent.
         # Valid: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
         TriggerOnStatus = @("FAILURE", "WARNINGS")
     }
@@ -448,14 +483,13 @@
             ChecksumAlgorithm           = "SHA256"                    # Use SHA256
             VerifyArchiveChecksumOnTest = $true                       # Verify checksum if TestArchiveAfterCreation is also true
 
-            # --- Email Notification Settings for this Job ---
-            # These settings override the DefaultEmailNotification settings.
-            EmailNotification = @{
-                Enabled         = $true # Set to $true to enable email alerts for this specific job.
-                ProfileName     = "ExampleSmtpProfile" # Which profile from EmailProfiles to use.
-                ToAddress       = @("joscox79@gmail.com")
-                Subject         = "Project Backup Report: {JobName} - {Status}" # Custom subject for this job.
-                TriggerOnStatus = @("SUCCESS") # Only email if this specific job fails.
+            # --- Notification Settings for this Job ---
+            # These settings override the DefaultNotificationSettings.
+            NotificationSettings = @{
+                Enabled         = $false                              # Set to $true to enable alerts for this specific job.
+                ProfileName     = "Office365"                         # Which profile from NotificationProfiles to use.
+                #ToAddress       = @("your_email@example.com")        # For Email provider
+                TriggerOnStatus = @("ALL")                            # Notify regardless of whether this job succeeds, warns, or fails.
             }
 
             # PostRunAction = @{
@@ -522,7 +556,7 @@
             # GenerateArchiveChecksum     = $false # This would be ignored if GenerateSplitArchiveManifest is true for a split archive.
             # VerifyArchiveChecksumOnTest = $false
 
-            EmailNotification = @{
+            NotificationSettings = @{
                 Enabled         = $false
             }
             # PostRunAction = @{ Enabled = $false }                   # Example: Explicitly disable for this job
@@ -561,7 +595,7 @@
             SevenZipIncludeListFile    = ""
             SevenZipExcludeListFile    = ""
 
-            EmailNotification = @{
+            NotificationSettings = @{
                 Enabled         = $false
             }
             # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
@@ -599,10 +633,9 @@
             SevenZipIncludeListFile    = ""
             SevenZipExcludeListFile    = ""
 
-            EmailNotification = @{
+            NotificationSettings = @{
                 Enabled         = $true
-                ProfileName     = "ExampleSmtpProfile"
-                ToAddress       = @("db-admins@example.com", "backup-alerts@example.com")
+                ProfileName     = "TeamsAlertsChannel" # Use the Webhook profile
                 TriggerOnStatus = @("FAILURE")
             }
             PostRunAction = @{
@@ -625,7 +658,7 @@
             ArchivePasswordSecretName  = "MyArchiveEncryptionPassword"
             SplitVolumeSize            = "500m" # Example: Split into 500MB volumes
             GenerateSplitArchiveManifest = $true
-            EmailNotification = @{
+            NotificationSettings = @{
                 Enabled         = $false
             }
             Schedule = @{ Enabled = $false } # Placeholder for this job
@@ -713,9 +746,9 @@
             PostBackupScriptOnFailurePath = "C:\Scripts\BackupPrep\WebApp_PostFailure_Alert.ps1"
             PostBackupScriptAlwaysPath    = "C:\Scripts\BackupPrep\WebApp_PostAlways_Cleanup.ps1"
 
-            EmailNotification = @{
+            NotificationSettings = @{
                 Enabled         = $true
-                ProfileName     = "ExampleSmtpProfile"
+                ProfileName     = "Office365"
                 ToAddress       = @("webapp-alerts@example.com")
                 TriggerOnStatus = @("FAILURE", "WARNINGS")
             }
@@ -736,7 +769,7 @@
             SplitVolumeSize         = ""  # No split
             # GenerateSplitArchiveManifest = $false
             # ... other settings ...
-            EmailNotification = @{
+            NotificationSettings = @{
                 Enabled         = $false
             }
             Schedule = @{ Enabled = $false } # Placeholder for this job
@@ -763,12 +796,12 @@
             SevenZipIncludeListFile = "C:\BackupConfig\Set_DailyCritical_Includes.txt"
             SevenZipExcludeListFile = "C:\BackupConfig\Set_DailyCritical_Excludes.txt"
 
-            # Email notifications for a set are sent *after the entire set completes*.
+            # Notification settings for a set are sent *after the entire set completes*.
             # The status used for TriggerOnStatus will be the overall status of the set.
-            # This overrides any EmailNotification settings on individual jobs within the set.
-            EmailNotification = @{
+            # This overrides any NotificationSettings on individual jobs within the set.
+            NotificationSettings = @{
                 Enabled         = $true
-                ProfileName     = "ExampleSmtpProfile"
+                ProfileName     = "Office365"
                 ToAddress       = @("it-team@example.com")
                 Subject         = "PoSh-Backup Set Report: {SetName} - Overall Status: {Status}"
                 TriggerOnStatus = @("FAILURE", "WARNINGS")
@@ -792,7 +825,7 @@
             SevenZipIncludeListFile = ""
             SevenZipExcludeListFile = ""
             # PostRunAction = @{ Enabled = $false }
-            EmailNotification = @{
+            NotificationSettings = @{
                 Enabled         = $false
             }
         }

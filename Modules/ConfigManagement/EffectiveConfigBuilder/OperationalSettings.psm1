@@ -6,10 +6,10 @@
     This sub-module for EffectiveConfigBuilder.psm1 determines effective settings
     for VSS, retries, password management, log retention, 7-Zip output visibility,
     free space checks, archive testing, pre/post backup script paths, post-run
-    system actions, the PinOnCreation flag, and email notifications.
+    system actions, the PinOnCreation flag, and notification settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Added EmailNotification setting resolution.
+    Version:        1.3.0 # Updated to resolve generic NotificationSettings and handle CLI override.
     DateCreated:    30-May-2025
     LastModified:   09-Jun-2025
     Purpose:        Operational settings resolution.
@@ -174,16 +174,24 @@ function Resolve-OperationalConfiguration {
     }
     $resolvedSettings.PostRunAction = $effectivePostRunAction
 
-    # --- NEW: Email Notification Settings (Job > Set > Global) ---
-    $defaultEmailSettings = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultEmailNotification' -DefaultValue @{}
-    $jobEmailSettings = Get-ConfigValue -ConfigObject $JobConfig -Key 'EmailNotification' -DefaultValue @{}
-    $setEmailSettings = if ($null -ne $SetSpecificConfig) { Get-ConfigValue -ConfigObject $SetSpecificConfig -Key 'EmailNotification' -DefaultValue @{} } else { @{} }
+    # --- Notification Settings (CLI > Job > Set > Global) ---
+    $defaultNotificationSettings = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultNotificationSettings' -DefaultValue @{}
+    $jobNotificationSettings = Get-ConfigValue -ConfigObject $JobConfig -Key 'NotificationSettings' -DefaultValue @{}
+    $setNotificationSettings = if ($null -ne $SetSpecificConfig) { Get-ConfigValue -ConfigObject $SetSpecificConfig -Key 'NotificationSettings' -DefaultValue @{} } else { @{} }
 
-    $effectiveEmailSettings = $defaultEmailSettings.Clone()
-    $setEmailSettings.GetEnumerator() | ForEach-Object { $effectiveEmailSettings[$_.Name] = $_.Value }
-    $jobEmailSettings.GetEnumerator() | ForEach-Object { $effectiveEmailSettings[$_.Name] = $_.Value }
-    $resolvedSettings.EmailNotification = $effectiveEmailSettings
-    # --- END NEW ---
+    # Build the effective settings by layering them in the correct order of precedence
+    $effectiveNotificationSettings = $defaultNotificationSettings.Clone()
+    $setNotificationSettings.GetEnumerator() | ForEach-Object { $effectiveNotificationSettings[$_.Name] = $_.Value }
+    $jobNotificationSettings.GetEnumerator() | ForEach-Object { $effectiveNotificationSettings[$_.Name] = $_.Value }
+
+    # Apply the CLI override last, as it has the highest precedence
+    if ($CliOverrides.ContainsKey('NotificationProfileNameCLI') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.NotificationProfileNameCLI)) {
+        $effectiveNotificationSettings.ProfileName = $CliOverrides.NotificationProfileNameCLI
+        $effectiveNotificationSettings.Enabled = $true # Using the CLI override implies the user wants the notification enabled for this run.
+        & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Notification Profile overridden by CLI to '$($CliOverrides.NotificationProfileNameCLI)' and forced Enabled=true." -Level "DEBUG"
+    }
+    $resolvedSettings.NotificationSettings = $effectiveNotificationSettings
+    # --- END Notification Settings ---
 
     # Store a reference to the global config for any direct lookups needed later (e.g., DefaultScriptExcludeRecycleBin)
     $resolvedSettings.GlobalConfigRef = $GlobalConfig

@@ -385,16 +385,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         
     - **Acceptance Criteria:** Users can copy configuration key-value pairs.
         
-31. **Feature: Support for Custom Notification Providers (e.g., Teams, Slack, Pushbullet)**
-    
-    - **Goal:** Extend notifications beyond email.
-        
-    - **Description:** Allow sending notifications to various messaging platforms.
-        
-    - **Scope & Impact:** New NotificationManager.psm1 (or extend existing email logic). Provider-specific functions. Config settings for webhook URLs, API keys (via SecretManagement).
-        
-    - **Acceptance Criteria:** Notifications sent to configured custom providers.
-        
 32. **Enhancement: HTML Report - Visual Diff for Configuration Changes (Advanced)**
     
     - **Goal:** If a job's configuration changes between runs, highlight these changes in the HTML report's configuration section.

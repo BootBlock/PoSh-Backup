@@ -119,7 +119,8 @@ function Invoke-PoShBackupRun {
                 $_jobReportGeneratorTypesListSkipped.Add($_jobSpecificReportTypesSettingSkipped.ToString().ToUpperInvariant())
             }
             # Apply CLI override for HTML report if present
-            if ($CliOverrideSettings.GenerateHtmlReport -eq $true) { # Assuming CliOverrideSettings is available in this scope
+            if ($CliOverrideSettings.GenerateHtmlReport -eq $true) {
+                # Assuming CliOverrideSettings is available in this scope
                 if ("HTML" -notin $_jobReportGeneratorTypesListSkipped) { $_jobReportGeneratorTypesListSkipped.Add("HTML") }
                 if ($_jobReportGeneratorTypesListSkipped.Contains("NONE") -and $_jobReportGeneratorTypesListSkipped.Count -gt 1) { $_jobReportGeneratorTypesListSkipped.Remove("NONE") }
                 elseif ($_jobReportGeneratorTypesListSkipped.Count -eq 1 -and $_jobReportGeneratorTypesListSkipped[0] -eq "NONE") { $_jobReportGeneratorTypesListSkipped = [System.Collections.Generic.List[string]]@("HTML") }
@@ -134,7 +135,8 @@ function Invoke-PoShBackupRun {
                     try {
                         New-Item -Path $defaultJobReportsDirSkipped -ItemType Directory -Force -ErrorAction Stop | Out-Null
                         & $LocalWriteLog -Message "[INFO] JobOrchestrator: Default reports directory '$defaultJobReportsDirSkipped' created for skipped job report." -Level "INFO"
-                    } catch {
+                    }
+                    catch {
                         & $LocalWriteLog -Message "[WARNING] JobOrchestrator: Failed to create reports directory '$defaultJobReportsDirSkipped' for skipped job. Report generation may fail. Error: $($_.Exception.Message)" -Level "WARNING"
                     }
                 }
@@ -148,6 +150,21 @@ function Invoke-PoShBackupRun {
                 }
             }
 
+            # --- Notification Logic for Skipped Job ---
+            # We need to get the effective notification settings even for a skipped job
+            $setConfForSkipped = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName)) { Get-ConfigValue -ConfigObject $Configuration.BackupSets -Key $CurrentSetName -DefaultValue @{} } else { $null }
+            $effNotifySettingsSkipped = (Get-PoShBackupJobEffectiveConfiguration -JobConfig $jobConfigForEnableCheck -GlobalConfig $Configuration -CliOverrides $CliOverrideSettings -JobReportDataRef ([ref]$currentJobReportData) -Logger $Logger -SetSpecificConfig $setConfForSkipped).NotificationSettings
+            
+            if (Get-Command Invoke-PoShBackupNotification -ErrorAction SilentlyContinue) {
+                Invoke-PoShBackupNotification -EffectiveNotificationSettings $effNotifySettingsSkipped `
+                    -GlobalConfig $Configuration `
+                    -JobReportData $currentJobReportData `
+                    -Logger $Logger `
+                    -IsSimulateMode:$IsSimulateMode `
+                    -PSCmdlet $PSCmdlet `
+                    -CurrentSetName $CurrentSetName
+            }
+
             $jobEffectiveSuccessState[$currentJobName] = $false # A disabled job did not "succeed" for dependency purposes
             if ($CurrentSetName -and $StopSetOnErrorPolicy) {
                 & $LocalWriteLog -Message "[WARNING] Job '$currentJobName' in set '$CurrentSetName' was disabled. Stopping set as 'OnErrorInJob' policy is 'StopSet' (treating disabled as a non-success)." -Level "WARNING"
@@ -158,9 +175,9 @@ function Invoke-PoShBackupRun {
         }
 
         Write-ConsoleBanner -NameText "Processing Job:" `
-                            -ValueText $currentJobName `
-                            -CenterText `
-                            -PrependNewLine
+            -ValueText $currentJobName `
+            -CenterText `
+            -PrependNewLine
 
         $Global:GlobalJobLogEntries = [System.Collections.Generic.List[object]]::new()
         $Global:GlobalJobHookScriptData = [System.Collections.Generic.List[object]]::new()
@@ -251,9 +268,11 @@ $cliOverridesString
 
 "@
                         Set-Content -Path $Global:GlobalLogFile -Value $logHeader -Encoding UTF8 -Force
-                    } catch { & $LocalWriteLog -Message "[WARNING] Failed to write header to log file '$($Global:GlobalLogFile)'. Error: $($_.Exception.Message)" -Level "WARNING" }
+                    }
+                    catch { & $LocalWriteLog -Message "[WARNING] Failed to write header to log file '$($Global:GlobalLogFile)'. Error: $($_.Exception.Message)" -Level "WARNING" }
                     & $LocalWriteLog -Message "[INFO] Logging for job '$currentJobName' to file: $($Global:GlobalLogFile)" -Level "INFO"
-                } else { & $LocalWriteLog -Message "[WARNING] Log directory is not valid. File logging for job '$currentJobName' will be skipped." -Level "WARNING" }
+                }
+                else { & $LocalWriteLog -Message "[WARNING] Log directory is not valid. File logging for job '$currentJobName' will be skipped." -Level "WARNING" }
             }
 
             # --- Dependency Check ---
@@ -395,6 +414,17 @@ $cliOverridesString
                 -GlobalConfig $Configuration `
                 -JobConfig $jobConfigFromMainConfig `
                 -Logger $Logger
+
+            # --- Notification Logic ---
+            if (Get-Command Invoke-PoShBackupNotification -ErrorAction SilentlyContinue) {
+                Invoke-PoShBackupNotification -EffectiveNotificationSettings $effectiveJobConfigForThisJob.NotificationSettings `
+                    -GlobalConfig $Configuration `
+                    -JobReportData $currentJobReportData `
+                    -Logger $Logger `
+                    -IsSimulateMode:$IsSimulateMode `
+                    -PSCmdlet $PSCmdlet `
+                    -CurrentSetName $CurrentSetName
+            }
         }
 
         # --- NEW: Email Notification Logic ---
@@ -405,7 +435,8 @@ $cliOverridesString
             $setConf = $null
             if (-not [string]::IsNullOrWhiteSpace($CurrentSetName)) {
                 $setConf = Get-ConfigValue -ConfigObject $Configuration.BackupSets -Key $CurrentSetName -DefaultValue @{}
-            } else {
+            }
+            else {
                 $setConf = @{}
             }
             $setEmailSettings = Get-ConfigValue -ConfigObject $setConf -Key 'EmailNotification' -DefaultValue @{}

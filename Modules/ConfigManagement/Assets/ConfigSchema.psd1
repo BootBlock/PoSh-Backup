@@ -4,7 +4,7 @@
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
-# Version: (Implicit) Updated 08-Jun-2025 (Added EmailProfiles and EmailNotification schema)
+# Version: (Implicit) Updated 09-Jun-2025 (Generalised EmailNotifications to NotificationSettings/Profiles)
 
 @{
     # Top-level global settings
@@ -40,23 +40,19 @@
     HtmlReportShowHooks                       = @{ Type = 'boolean'; Required = $false }
     HtmlReportShowLogEntries                  = @{ Type = 'boolean'; Required = $false }
 
-    EmailProfiles                             = @{
+    NotificationProfiles                      = @{
         Type             = 'hashtable'
         Required         = $false
-        DynamicKeySchema = @{ # Schema for each named email profile (e.g., "Office365", "InternalRelay")
+        DynamicKeySchema = @{ # Schema for each named notification profile (e.g., "Office365", "TeamsAlertsChannel")
             Type     = "hashtable"
             Required = $true
             Schema   = @{
-                SMTPServer           = @{ Type = 'string'; Required = $true }
-                SMTPPort             = @{ Type = 'int'; Required = $false; Min = 1; Max = 65535 }
-                EnableSsl            = @{ Type = 'boolean'; Required = $false }
-                FromAddress          = @{ Type = 'string'; Required = $true; Pattern = '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$' }
-                CredentialSecretName = @{ Type = 'string'; Required = $true }
-                CredentialVaultName  = @{ Type = 'string'; Required = $false }
+                Type             = @{ Type = 'string'; Required = $true; AllowedValues = @("Email", "Webhook") }
+                ProviderSettings = @{ Type = 'hashtable'; Required = $true } # Specific validation will be handled by the provider itself.
             }
         }
     }
-    DefaultEmailNotification                  = @{
+    DefaultNotificationSettings               = @{
         Type     = 'hashtable'
         Required = $false
         Schema   = @{
@@ -232,7 +228,7 @@
                 PostBackupScriptOnSuccessPath             = @{ Type = 'string'; Required = $false }
                 PostBackupScriptOnFailurePath             = @{ Type = 'string'; Required = $false }
                 PostBackupScriptAlwaysPath                = @{ Type = 'string'; Required = $false }
-                EmailNotification                         = @{
+                NotificationSettings                      = @{
                     Type     = 'hashtable'
                     Required = $false
                     Schema   = @{
@@ -286,7 +282,7 @@
                 LogRetentionCount       = @{ Type = 'int'; Required = $false; Min = 0 }
                 SevenZipIncludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
                 SevenZipExcludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
-                EmailNotification       = @{
+                NotificationSettings    = @{
                     Type     = 'hashtable'
                     Required = $false
                     Schema   = @{

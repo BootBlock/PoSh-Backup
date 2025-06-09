@@ -111,6 +111,9 @@
     Optional. A switch parameter. If present, this forces 7-Zip exit code 1 (Warning) to be treated as a success for the job status.
     Overrides the 'TreatSevenZipWarningsAsSuccess' setting in the configuration file.
 
+.PARAMETER NotificationProfileNameCLI
+    Optional. CLI Override: The name of a notification profile (defined in NotificationProfiles) to use for this run, overriding any configured profile.
+
 .PARAMETER SevenZipPriorityCLI
     Optional. Allows specifying the 7-Zip process priority.
     Valid values: "Idle", "BelowNormal", "Normal", "AboveNormal", "High".
@@ -193,6 +196,11 @@
     Runs the "MyDocs_To_UNC" job and automatically pins the resulting archive, protecting it from retention.
 
 .EXAMPLE
+    .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -NotificationProfileNameCLI "TeamsAlertsChannel"
+    Runs the "DailyCriticalBackups" set and forces all notifications for this run to use the
+    "TeamsAlertsChannel" profile, regardless of what is configured in the set's definition.
+
+.EXAMPLE
     .\PoSh-Backup.ps1 -PinBackup "D:\Backups\MyDocs_To_UNC [2025-06-06].7z"
     Pins an existing backup archive, protecting it from future retention runs.
 
@@ -210,8 +218,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.24.0 # Fixed -SyncSchedules parameter passing.
-    Date:           08-Jun-2025
+    Version:        1.25.0 # Added generic notification provider system (Email, Webhook) and CLI override.
+    Date:           09-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -296,6 +304,9 @@ param (
 
     [Parameter(Mandatory=$false, HelpMessage="Switch. If present, forces 7-Zip exit code 1 (Warning) to be treated as success for job status.")]
     [switch]$TreatSevenZipWarningsAsSuccessCLI,
+
+    [Parameter(Mandatory=$false, HelpMessage="CLI Override: The name of a notification profile to use for this run, overriding any configured profile.")]
+    [string]$NotificationProfileNameCLI,
 
     [Parameter(Mandatory=$false, HelpMessage="Optional. Set 7-Zip process priority (Idle, BelowNormal, Normal, AboveNormal, High).")]
     [ValidateSet("Idle", "BelowNormal", "Normal", "AboveNormal", "High")]

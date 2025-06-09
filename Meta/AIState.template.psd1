@@ -190,27 +190,29 @@
     "        - **Order of Operations:** Corrected the logic in `CoreSetupManager.psm1` to ensure it checks for and handles any utility/informational modes *before* it attempts to resolve jobs for a backup run.",
     "        - **7-Zip Parser:** After a lengthy debugging process, a fully robust parser for the `7z l -slt` output was implemented in `Lister.psm1`, correctly handling the record separators.",
     "        - Addressed all associated PSScriptAnalyzer warnings.",
-    "--- Feature: Email Notifications (Current Session Segment) ---",
-    "    - **Goal:** Send email alerts upon job or set completion based on status.",
+    "--- Feature: Flexible Notification System (Current Session Segment) ---",
+    "    - **Goal:** Generalise the notification system to support multiple providers (Email, Webhooks) and allow CLI overrides.",
     "    - **Configuration (`Config\\Default.psd1`):**",
-    "        - Added a new global `EmailProfiles` section to define reusable SMTP server configurations (server, port, SSL, credentials).",
-    "        - Added a new global `DefaultEmailNotification` section for default alert settings.",
-    "        - Added an `EmailNotification` hashtable to job and set definitions to enable/configure alerts on a per-item basis (ProfileName, ToAddress, Subject, TriggerOnStatus).",
-    "    - **Schema (`Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`):** Updated to validate all new `EmailProfiles` and `EmailNotification` settings.",
-    "    - **Core Logic (New Module: `Modules\\Managers\\NotificationManager.psm1`):**",
-    "        - Created to handle all email sending logic using `Send-MailMessage`.",
-    "        - Securely retrieves SMTP credentials from PowerShell SecretManagement.",
-    "        - Constructs email subject and body with placeholders for job/set details.",
+    "        - Renamed `EmailProfiles` to `NotificationProfiles` and `EmailNotification` to `NotificationSettings`.",
+    "        - Each profile now has a `Type` key (e.g., 'Email', 'Webhook') and nests provider-specific settings under a `ProviderSettings` key.",
+    "        - Added a new `ExampleWebhook` profile with a flexible `BodyTemplate` for sending JSON payloads to services like Teams or Slack.",
+    "    - **CLI:**",
+    "        - `PoSh-Backup.ps1`: Added a new `-NotificationProfileNameCLI <string>` parameter to override the configured notification profile for a run.",
+    "        - `Modules\\Managers\\CliManager.psm1`: Updated to recognise the new parameter.",
+    "    - **Schema (`Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`):** Updated to validate the new generic `NotificationProfiles` and `NotificationSettings` structure.",
+    "    - **Core Logic (`Modules\\Managers\\NotificationManager.psm1`):**",
+    "        - Refactored into a provider-based dispatcher.",
+    "        - `Invoke-PoShBackupNotification` now reads the profile `Type` and calls an appropriate internal function (`Send-EmailNotificationInternal` or `Send-WebhookNotificationInternal`).",
+    "        - The webhook provider populates the `BodyTemplate` with job data and sends it via `Invoke-WebRequest`.",
     "    - **Integration:**",
-    "        - `Modules\\Core\\JobOrchestrator.psm1`: Updated to call the `NotificationManager` after each job completes, respecting the effective notification settings.",
-    "        - `Modules\\Managers\\CoreSetupManager.psm1`: Updated the `SecretManagement` dependency check to include email profiles that require credentials.",
-    "        - `Modules\\ConfigManagement\\EffectiveConfigBuilder.psm1` and `OperationalSettings.psm1`: Updated to correctly resolve the `EmailNotification` settings hierarchy (Job > Set > Global).",
-    "    - **Bug Fixes:** Corrected multiple PowerShell 7-only inline `if` syntax errors in `NotificationManager.psm1` that were incompatible with the target PowerShell 5.1 environment.",
+    "        - `Modules\\Core\\JobOrchestrator.psm1`: Updated to call the new generic `Invoke-PoShBackupNotification` function after job completion (for both successful and skipped jobs).",
+    "        - `Modules\\ConfigManagement\\EffectiveConfigBuilder\\OperationalSettings.psm1`: Logic updated to resolve the `NotificationSettings` hierarchy, giving the CLI override top priority.",
+    "    - **Bug Fix:** Corrected an omission where the call to the notification manager was missing from `JobOrchestrator.psm1` after the initial refactoring.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, and robust parameter set handling for different operational modes. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.25.0 # Added email notifications for job/set completion."
+  main_script_poSh_backup_version = "1.25.0 # Added generic notification provider system (Email, Webhook) and CLI override."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
@@ -231,15 +233,15 @@
   }
 
   module_descriptions             = @{
-    "__MODULE_DESCRIPTIONS_PLACEHOLDER__" = "This is a placeholder entry." # Dynamically populated
+    "__MODULE_DESCRIPTIONS_PLACEHOLDER__"           = "This is a placeholder entry." # Dynamically populated
     # Descriptions for new modules will be added here by the bundler based on their synopsis
-    "Modules\\Managers\\CliManager.psm1" = "Manages Command-Line Interface (CLI) parameter processing for PoSh-Backup."
+    "Modules\\Managers\\CliManager.psm1"            = "Manages Command-Line Interface (CLI) parameter processing for PoSh-Backup."
     "Modules\\Managers\\InitialisationManager.psm1" = "Manages the initial setup of global variables and console display for PoSh-Backup."
-    "Modules\\Managers\\CoreSetupManager.psm1" = "Manages the core setup phase of PoSh-Backup, including module imports, configuration loading, job resolution, and dependency ordering."
-    "Modules\\Managers\\FinalisationManager.psm1" = "Manages the finalisation tasks for the PoSh-Backup script, including summary display, post-run action invocation, pause behaviour, and exit code."
-    "Modules\\Managers\\NotificationManager.psm1" = "Manages the sending of email notifications for PoSh-Backup jobs and sets based on completion status and configured SMTP profiles."
-    "Modules\Managers\ScheduleManager.psm1" = "Manages the creation, update, and deletion of Windows Scheduled Tasks for PoSh-Backup jobs."
-    "Modules\\Targets\\WebDAV.Target.psm1" = "PoSh-Backup Target Provider for WebDAV (Web Distributed Authoring and Versioning). Handles transferring backup archives to WebDAV servers, managing remote retention (PROPFIND/DELETE), and supporting credential-based authentication via PowerShell SecretManagement."
+    "Modules\\Managers\\CoreSetupManager.psm1"      = "Manages the core setup phase of PoSh-Backup, including module imports, configuration loading, job resolution, and dependency ordering."
+    "Modules\\Managers\\FinalisationManager.psm1"   = "Manages the finalisation tasks for the PoSh-Backup script, including summary display, post-run action invocation, pause behaviour, and exit code."
+    "Modules\\Managers\\NotificationManager.psm1" = "Manages sending notifications via multiple providers (e.g., Email, Webhook) for PoSh-Backup jobs and sets based on completion status and configured profiles."
+    "Modules\Managers\ScheduleManager.psm1"         = "Manages the creation, update, and deletion of Windows Scheduled Tasks for PoSh-Backup jobs."
+    "Modules\\Targets\\WebDAV.Target.psm1"          = "PoSh-Backup Target Provider for WebDAV (Web Distributed Authoring and Versioning). Handles transferring backup archives to WebDAV servers, managing remote retention (PROPFIND/DELETE), and supporting credential-based authentication via PowerShell SecretManagement."
   }
 
   project_root_folder_name        = "__PROJECT_ROOT_NAME_PLACEHOLDER__"
