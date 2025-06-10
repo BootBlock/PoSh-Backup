@@ -1,11 +1,12 @@
 # PoSh-Backup
-A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, optional 7-Zip CPU core affinity (with validation and CLI override), optional verification of local archives before remote transfer, configurable log file retention, support for 7-Zip include/exclude list files, backup job chaining/dependencies, and multi-volume (split) archive creation (with CLI override).
+A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, optional 7-Zip CPU core affinity (with validation and CLI override), optional verification of local archives before remote transfer, configurable log file retention, support for 7-Zip include/exclude list files, backup job chaining/dependencies, multi-volume (split) archive creation (with CLI override), and a global maintenance mode.
 
 > **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
 ## Features
 *   **Enterprise-Grade PowerShell Solution:** Robust, modular design built with dedicated PowerShell modules for reliability, maintainability, and clarity.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
+*   **Maintenance Mode:** A global flag (either in the configuration file or via a simple on-disk `.maintenance` file) can prevent any new backup jobs from starting. This is ideal for performing system maintenance without generating failed job reports. The mode can be easily toggled via a command-line switch (`-Maintenance $true/$false`) and bypassed for a specific run if needed (`-ForceRunInMaintenanceMode`).
 *   **Integrated Backup Scheduling:** Define backup schedules directly within your job configurations. A simple command (`-SyncSchedules`) synchronises these settings with the Windows Task Scheduler, creating, updating, or removing tasks as needed for a true "set and forget" experience.
 *   **Flexible Notifications (Email & Webhooks):** Automatically send notifications upon job or set completion. Configure multiple notification profiles, choosing between providers like "Email" (for standard SMTP alerts) or "Webhook" (for sending formatted messages to platforms like Microsoft Teams, Slack, or Discord).
 *   **Local and Remote Backups:**
@@ -105,6 +106,9 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
 ### 3. Configuration
 1.  **Edit `Config\User.psd1`:** (or `Config\Default.psd1` if not using a user config for testing).
 2.  **Key Settings to Review/Modify Initially:**
+    *   **`MaintenanceModeEnabled` and `MaintenanceModeFilePath`**:
+        *   `MaintenanceModeEnabled = $false`: Set this to `$true` in your `User.psd1` to halt all backups via configuration.
+        *   `MaintenanceModeFilePath = ".\.maintenance"`: If a file exists at this path (relative to the script root by default), maintenance mode will be active regardless of the config setting. This is the recommended way to toggle the mode. Use `.\PoSh-Backup.ps1 -Maintenance $true` or `$false` to manage this file automatically.
     *   **`SevenZipPath`**:
         *   By default, this is empty (`""`), and the script tries to auto-detect `7z.exe`.
         *   If auto-detection fails, or you have multiple 7-Zip versions and want to specify one, set the full path here. Example: `'C:\Program Files\7-Zip\7z.exe'`.
@@ -379,7 +383,7 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
                     Enabled         = $true
                     ProfileName     = "Office365"
                     ToAddress       = @("it-admins@example.com")
-                    Subject         = "Nightly Server Maintenance Report - Status: {Status}"
+                    Subject         = "PoSh-Backup Set Report: {SetName} - Overall Status: {Status}"
                     TriggerOnStatus = @("FAILURE", "WARNINGS")
                 }
                 PostRunAction = @{
@@ -449,6 +453,21 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
 
 ### 4. Basic Usage Examples
 Once your `Config\User.psd1` is configured with at least one backup job, you can run PoSh-Backup from a PowerShell console located in the script's root directory:
+
+*   **Enable Maintenance Mode (prevents jobs from running):**
+    ```powershell
+    .\PoSh-Backup.ps1 -Maintenance $true
+    ```
+
+*   **Disable Maintenance Mode:**
+    ```powershell
+    .\PoSh-Backup.ps1 -Maintenance $false
+    ```
+
+*   **Force a job to run even if Maintenance Mode is active:**
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -ForceRunInMaintenanceMode
+    ```
 
 *   **Run a specific backup job, ensure it's verified before any remote transfer, and keep only the last 5 log files for this job:**
     ```powershell
@@ -575,6 +594,8 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
 ### 5. Key Operational Command-Line Parameters
 These parameters allow you to override certain configuration settings for a specific run:
 
+*   `-Maintenance <boolean>`: A utility parameter to enable (`$true`) or disable (`$false`) maintenance mode by creating or deleting the on-disk flag file. This does not run a backup.
+*   `-ForceRunInMaintenanceMode`: Forces a backup job or set to run even if maintenance mode is active.
 *   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges). Overridden by `-SkipVSS`.
 *   `-SkipVSS`: Forces the script to NOT use VSS, overriding any configuration or the `-UseVSS` switch. Useful for troubleshooting.
 *   `-EnableRetriesCLI`: Forces the enabling of the 7-Zip retry mechanism for local archiving. Overridden by `-SkipRetriesCLI`.

@@ -9,6 +9,9 @@
 @{
     # Top-level global settings
     SevenZipPath                              = @{ Type = 'string'; Required = $true; ValidateScript = { Test-Path -LiteralPath $_ -PathType Leaf } }
+    MaintenanceModeEnabled                    = @{ Type = 'boolean'; Required = $false }
+    MaintenanceModeFilePath                   = @{ Type = 'string'; Required = $false }
+    MaintenanceModeMessage                    = @{ Type = 'string'; Required = $false }
     DefaultDestinationDir                     = @{ Type = 'string'; Required = $false }
     DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false }
     HideSevenZipOutput                        = @{ Type = 'boolean'; Required = $false }

@@ -8,7 +8,7 @@
     This helps to decouple CLI argument handling from the main script's core logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Added NotificationProfileNameCLI parameter.
+    Version:        1.2.0 # Added Maintenance and ForceRunInMaintenanceMode parameters.
     DateCreated:    01-Jun-2025
     LastModified:   09-Jun-2025
     Purpose:        To centralise CLI parameter processing.
@@ -38,6 +38,8 @@ function Get-PoShBackupCliOverride {
     $cliOverrideSettings.TreatSevenZipWarningsAsSuccess      = if ($BoundParameters.ContainsKey('TreatSevenZipWarningsAsSuccessCLI')) { $true } else { $null }
     $cliOverrideSettings.PostRunActionForceCli               = if ($BoundParameters.ContainsKey('PostRunActionForceCli')) { $true } else { $null }
     $cliOverrideSettings.PinOnCreationCLI                    = if ($BoundParameters.ContainsKey('Pin')) { $true } else { $null }
+    $cliOverrideSettings.Maintenance                         = if ($BoundParameters.ContainsKey('Maintenance')) { $BoundParameters['Maintenance'] } else { $null }
+    $cliOverrideSettings.ForceRunInMaintenanceMode           = if ($BoundParameters.ContainsKey('ForceRunInMaintenanceMode')) { $true } else { $null }
     $cliOverrideSettings.ForceExtract                        = if ($BoundParameters.ContainsKey('ForceExtract')) { $true } else { $null }
 
     # Parameters that take arguments: Value will be the argument, or $null if not present.

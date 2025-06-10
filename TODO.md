@@ -1268,12 +1268,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XXXVI. Operational Refinements & Edge Cases**
 
-148. **Feature: "Maintenance Mode" for PoSh-Backup**
-    *   **Goal:** A global flag or mode to temporarily prevent any new backup jobs from starting.
-    *   **Description:** Useful during system maintenance (e.g., patching the backup server, storage maintenance) to avoid job failures or interference. Running jobs might be allowed to complete or be gracefully cancelled.
-    *   **Scope & Impact:** `PoSh-Backup.ps1` (check flag at start), `Config\Default.psd1` (global `MaintenanceModeEnabled = $true`), potentially a way to set/clear this flag via CLI without editing config.
-    *   **Acceptance Criteria:** No new jobs start when maintenance mode is active.
-
 149. **Feature: Configurable behaviour for "Archive Already Exists" (Non-Date-Stamped Archives)**
     *   **Goal:** For jobs that *don't* use date stamps in archive names (e.g., for sync/update modes), define what to do if the target archive file already exists.
     *   **Description:** Options: "Overwrite" (current implicit default), "FailJob", "SkipJob", "AppendSuffix" (e.g., `archive.bak.7z`, `archive.bak1.7z`).

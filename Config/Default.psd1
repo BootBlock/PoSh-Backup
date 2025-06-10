@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.7.0: Generalised Email Notifications to a provider-based Notification system (Email, Webhook).
+# Version 1.8.0: Added Maintenance Mode settings.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -44,6 +44,13 @@
     #endregion
 
     #region --- General Global Settings ---
+    MaintenanceModeEnabled          = $false                          # Global switch. If $true, PoSh-Backup will not start any new backup jobs and will exit immediately with a message.
+                                                                      # This is one of two ways to enable maintenance mode.
+    MaintenanceModeFilePath         = ".\.maintenance"                # Path to an on-disk flag file. If this file exists, PoSh-Backup will enter maintenance mode.
+                                                                      # This allows enabling/disabling maintenance mode without editing config files.
+                                                                      # Use a relative path (like '.\.maintenance') for a file in the script root, or an absolute path.
+    MaintenanceModeMessage          = "PoSh-Backup is currently in maintenance mode.`n      New backup jobs will not be started." # The message to display when exiting due to maintenance mode.
+
     SevenZipPath                    = ""                              # Full path to 7z.exe (e.g., 'C:\Program Files\7-Zip\7z.exe').
                                                                       # Leave empty ("") to allow the script to attempt auto-detection from common installation locations and the system PATH.
                                                                       # If auto-detection fails and this path is empty or invalid, the script will error.

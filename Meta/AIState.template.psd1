@@ -36,7 +36,9 @@
     "    2. `BeforeAll`: Dot-source self, mock dependencies, get `$script:` references to local test functions.",
     "    3. `It` blocks: Call local functions via `$script:` reference. Local functions call mocked dependencies directly. Assert mock calls (`Should -Invoke`). For external cmdlets like `Get-FileHash`, make them injectable `[scriptblock]` parameters in local test functions.",
     "  - **General Pester 5 Notes for This Environment:** `Import-Module` + `Get-Command` + `$script:`-scoped data is key for Pattern A. `$MyInvocation.MyCommand.ScriptBlock.File` for self dot-sourcing. `(`$result.GetType().IsArray) | Should -Be `$true` for array assertion. Clear shared mock log arrays in `ForEach` if used. PSSA `PSUseDeclaredVarsMoreThanAssignments` and `$var = `$null` interaction.",
-    "MODULE_SCOPE (IMPORTANT): Functions from modules imported by a 'manager' or 'orchestrator' module are not automatically available to other modules called by that manager/orchestrator, nor to the script that called the manager. The module needing the function must typically import the provider of that function directly, or the calling script must import modules whose functions it will call directly after the manager/orchestrator returns. Using `-Global` on imports is a workaround but generally less desirable."
+    "MODULE_SCOPE (IMPORTANT): Functions from modules imported by a 'manager' or 'orchestrator' module are not automatically available to other modules called by that manager/orchestrator, nor to the script that called the manager. The module needing the function must typically import the provider of that function directly, or the calling script must import modules whose functions it will call directly after the manager/orchestrator returns. Using `-Global` on imports is a workaround but generally less desirable.",
+    "AI STRATEGY (ORDER OF OPERATIONS): When adding a script-halting check (like Maintenance Mode), ensure it runs *after* any utility modes that are meant to configure that check (e.g., `-Maintenance `$false` must run before the script halts due to the maintenance file existing).",
+    "AI STRATEGY (PARAMETER PASSING): When a parameter type error occurs (e.g., `Cannot process argument transformation`), check the `param()` block of the *entire call stack* for that parameter, not just the entry point script. The type mismatch may be in a downstream function."
   )
 
   conversation_summary            = @(
@@ -190,7 +192,7 @@
     "        - **Order of Operations:** Corrected the logic in `CoreSetupManager.psm1` to ensure it checks for and handles any utility/informational modes *before* it attempts to resolve jobs for a backup run.",
     "        - **7-Zip Parser:** After a lengthy debugging process, a fully robust parser for the `7z l -slt` output was implemented in `Lister.psm1`, correctly handling the record separators.",
     "        - Addressed all associated PSScriptAnalyzer warnings.",
-    "--- Feature: Flexible Notification System (Current Session Segment) ---",
+    "--- Feature: Flexible Notification System (Completed in Previous Session Segment) ---",
     "    - **Goal:** Generalise the notification system to support multiple providers (Email, Webhooks) and allow CLI overrides.",
     "    - **Configuration (`Config\\Default.psd1`):**",
     "        - Renamed `EmailProfiles` to `NotificationProfiles` and `EmailNotification` to `NotificationSettings`.",
@@ -208,11 +210,23 @@
     "        - `Modules\\Core\\JobOrchestrator.psm1`: Updated to call the new generic `Invoke-PoShBackupNotification` function after job completion (for both successful and skipped jobs).",
     "        - `Modules\\ConfigManagement\\EffectiveConfigBuilder\\OperationalSettings.psm1`: Logic updated to resolve the `NotificationSettings` hierarchy, giving the CLI override top priority.",
     "    - **Bug Fix:** Corrected an omission where the call to the notification manager was missing from `JobOrchestrator.psm1` after the initial refactoring.",
+    "--- Feature: Maintenance Mode (Current Session Segment) ---",
+    "    - **Goal:** A global flag (in config or on-disk) to prevent new backup jobs from starting.",
+    "    - `Config\\Default.psd1`: Added `MaintenanceModeEnabled`, `MaintenanceModeMessage`, and `MaintenanceModeFilePath` global settings.",
+    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated schema for new maintenance settings.",
+    "    - `PoSh-Backup.ps1`: Added `-Maintenance <boolean>` utility parameter set and a `-ForceRunInMaintenanceMode` switch for execution.",
+    "    - `Modules\\Managers\\CliManager.psm1`: Updated to recognize the new CLI parameters.",
+    "    - `Modules\\ScriptModeHandler.psm1`: Implemented logic to handle the `-Maintenance` switch, creating/deleting the on-disk flag file and exiting.",
+    "    - `Modules\\Managers\\CoreSetupManager.psm1`: Implemented the core check for maintenance mode. This required several fixes:",
+    "        - **Bug Fix 1:** Corrected the parameter type for `-Maintenance` from `[PSReference]` to `[Nullable[bool]]` in `PoSh-Backup.ps1` and all downstream modules (`CoreSetupManager`, `ScriptModeHandler`) to resolve `Cannot process argument transformation` error.",
+    "        - **Bug Fix 2:** Corrected the order of operations. The maintenance mode check was moved to run *after* the `ScriptModeHandler` to allow the `-Maintenance `$false` command to successfully disable the mode before the script halts.",
+    "        - **Bug Fix 3:** Corrected path resolution for the on-disk flag file to use the reliable `_PoShBackup_PSScriptRoot` key from the configuration object.",
+    "    - `README.md`: Updated to document the new feature and its CLI controls.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, and robust parameter set handling for different operational modes. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.25.0 # Added generic notification provider system (Email, Webhook) and CLI override."
+  main_script_poSh_backup_version = "1.26.2 # Added Maintenance Mode feature."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
@@ -233,15 +247,7 @@
   }
 
   module_descriptions             = @{
-    "__MODULE_DESCRIPTIONS_PLACEHOLDER__"           = "This is a placeholder entry." # Dynamically populated
-    # Descriptions for new modules will be added here by the bundler based on their synopsis
-    "Modules\\Managers\\CliManager.psm1"            = "Manages Command-Line Interface (CLI) parameter processing for PoSh-Backup."
-    "Modules\\Managers\\InitialisationManager.psm1" = "Manages the initial setup of global variables and console display for PoSh-Backup."
-    "Modules\\Managers\\CoreSetupManager.psm1"      = "Manages the core setup phase of PoSh-Backup, including module imports, configuration loading, job resolution, and dependency ordering."
-    "Modules\\Managers\\FinalisationManager.psm1"   = "Manages the finalisation tasks for the PoSh-Backup script, including summary display, post-run action invocation, pause behaviour, and exit code."
-    "Modules\\Managers\\NotificationManager.psm1" = "Manages sending notifications via multiple providers (e.g., Email, Webhook) for PoSh-Backup jobs and sets based on completion status and configured profiles."
-    "Modules\Managers\ScheduleManager.psm1"         = "Manages the creation, update, and deletion of Windows Scheduled Tasks for PoSh-Backup jobs."
-    "Modules\\Targets\\WebDAV.Target.psm1"          = "PoSh-Backup Target Provider for WebDAV (Web Distributed Authoring and Versioning). Handles transferring backup archives to WebDAV servers, managing remote retention (PROPFIND/DELETE), and supporting credential-based authentication via PowerShell SecretManagement."
+    "__MODULE_DESCRIPTIONS_PLACEHOLDER__" = "This is a placeholder entry that is dynamically populated by the bundler script based on the synopsis of each project file."
   }
 
   project_root_folder_name        = "__PROJECT_ROOT_NAME_PLACEHOLDER__"

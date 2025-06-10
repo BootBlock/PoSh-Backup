@@ -11,8 +11,8 @@
     archives before remote transfer, configurable log file retention, support for
     7-Zip include/exclude list files, backup job chaining/dependencies, multi-volume
     (split) archive creation (with CLI override), an update checking mechanism, the
-    ability to pin backups to prevent retention policy deletion, and integrated backup
-    job scheduling via Windows Task Scheduler.
+    ability to pin backups to prevent retention policy deletion, integrated backup
+    job scheduling via Windows Task Scheduler, and a global maintenance mode.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -61,6 +61,8 @@
     - Integrated Scheduling: Define backup schedules directly in the configuration file. A simple
       `-SyncSchedules` command synchronises these schedules with the Windows Task Scheduler,
       creating, updating, or removing tasks as needed for fully automated "set and forget" backups.
+    - Maintenance Mode: A global flag (in config or via an on-disk file) can prevent any new
+      backup jobs from starting, useful for system maintenance.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -73,6 +75,10 @@
 .PARAMETER Pin
     Optional. A switch parameter. If present, the backup archive(s) created during this
     specific run will be automatically pinned, protecting them from retention policies.
+
+.PARAMETER ForceRunInMaintenanceMode
+    Optional. A switch parameter. If present, forces the backup job/set to run even if
+    PoSh-Backup is in maintenance mode (either via config or on-disk flag file).
 
 .PARAMETER ConfigFile
     Optional. Specifies the full path to a PoSh-Backup '.psd1' configuration file.
@@ -146,6 +152,10 @@
     file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits.
     Requires Administrator privileges.
 
+.PARAMETER Maintenance
+    Utility switch. Enables or disables maintenance mode by creating or deleting the on-disk
+    flag file (defined by 'MaintenanceModeFilePath' in config). Use `$true` to enable, `$false` to disable.
+
 .PARAMETER SkipUserConfigCreation
     Optional. A switch parameter. If present, bypasses the prompt to create 'User.psd1'.
 
@@ -187,39 +197,21 @@
     Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.
 
 .EXAMPLE
-    .\PoSh-Backup.ps1 -SyncSchedules
-    Reads the 'Schedule' settings for all jobs in the config and creates/updates/removes
-    tasks in the Windows Task Scheduler to match. Requires Administrator privileges.
+    .\PoSh-Backup.ps1 -Maintenance $true
+    Enables maintenance mode by creating the '.maintenance' flag file in the script root.
 
 .EXAMPLE
-    .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -Pin
-    Runs the "MyDocs_To_UNC" job and automatically pins the resulting archive, protecting it from retention.
+    .\PoSh-Backup.ps1 -Maintenance $false
+    Disables maintenance mode by deleting the '.maintenance' flag file.
 
 .EXAMPLE
-    .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -NotificationProfileNameCLI "TeamsAlertsChannel"
-    Runs the "DailyCriticalBackups" set and forces all notifications for this run to use the
-    "TeamsAlertsChannel" profile, regardless of what is configured in the set's definition.
-
-.EXAMPLE
-    .\PoSh-Backup.ps1 -PinBackup "D:\Backups\MyDocs_To_UNC [2025-06-06].7z"
-    Pins an existing backup archive, protecting it from future retention runs.
-
-.EXAMPLE
-    .\PoSh-Backup.ps1 -CheckForUpdate
-    Checks if a new version of PoSh-Backup is available online and displays the information.
-
-.EXAMPLE
-    .\PoSh-Backup.ps1 -Version
-    Displays the current version of the PoSh-Backup script and exits.
-
-.EXAMPLE
-    .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -Quiet
-    Runs the specified backup set and suppresses all non-error console output.
+    .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -ForceRunInMaintenanceMode
+    Runs the specified backup set even if maintenance mode is currently active.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.25.0 # Added generic notification provider system (Email, Webhook) and CLI override.
-    Date:           09-Jun-2025
+    Version:        1.26.1 # Corrected -Maintenance parameter type to [Nullable[bool]].
+    Date:           10-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -240,6 +232,9 @@ param (
 
     [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Pin the backup archive(s) created during this specific run, protecting them from retention policies.")]
     [switch]$Pin,
+
+    [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Forces the backup to run even if maintenance mode is active.")]
+    [switch]$ForceRunInMaintenanceMode,
 
     # Pinning/Utility Parameter Set: For managing existing archives
     [Parameter(ParameterSetName='Pinning', Mandatory=$true, HelpMessage="Pin a backup archive to exclude it from retention policies. Provide the full path to the archive file.")]
@@ -268,6 +263,10 @@ param (
     # Scheduling Parameter Set
     [Parameter(ParameterSetName='Scheduling', Mandatory=$true, HelpMessage="Switch. Synchronises job schedules from config with Windows Task Scheduler and exits.")]
     [switch]$SyncSchedules,
+
+    # Maintenance Mode Parameter Set
+    [Parameter(ParameterSetName='Maintenance', Mandatory=$true, HelpMessage="Utility to enable/disable maintenance mode via the on-disk flag file.")]
+    [Nullable[bool]]$Maintenance,
 
     # Parameters available to multiple utility sets (Listing, Extraction)
     [Parameter(ParameterSetName='Listing', Mandatory=$false)]
@@ -473,8 +472,10 @@ try {
                                                 -SyncSchedules:$SyncSchedules.IsPresent `
                                                 -SkipUserConfigCreation:$SkipUserConfigCreation.IsPresent `
                                                 -Version:$Version.IsPresent `
-                                                -PSCmdlet $PSCmdlet
-    
+                                                -PSCmdlet $PSCmdlet `
+                                                -ForceRunInMaintenanceMode:$ForceRunInMaintenanceMode.IsPresent `
+                                                -Maintenance:$Maintenance
+
     $Configuration = $coreSetupResult.Configuration
     $ActualConfigFile = $coreSetupResult.ActualConfigFile
     $jobsToProcess = $coreSetupResult.JobsToProcess

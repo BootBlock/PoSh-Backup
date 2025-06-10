@@ -2,19 +2,20 @@
 <#
 .SYNOPSIS
     Handles informational and utility script modes for PoSh-Backup, such as listing
-    or extracting archive contents, managing pins, or testing the configuration.
+    or extracting archive contents, managing pins, testing the configuration, or
+    managing the maintenance mode flag file.
 .DESCRIPTION
     This module provides a function, Invoke-PoShBackupScriptMode, which checks if PoSh-Backup
     was invoked with a non-backup parameter like -ListArchiveContents, -ExtractFromArchive,
-    -PinBackup, or -TestConfig.
+    -PinBackup, -TestConfig, or -Maintenance.
     If one of these modes is active, this module takes over, performs the requested action,
     and then exits the script. This keeps the main PoSh-Backup.ps1 script cleaner by
     offloading this mode-specific logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.4 # Corrected newline formatting for -ListBackupSets.
+    Version:        1.6.4 # Removed unused PSScriptRootForUpdateCheck parameter.
     DateCreated:    24-May-2025
-    LastModified:   08-Jun-2025
+    LastModified:   10-Jun-2025
     Purpose:        To handle informational and utility script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
@@ -46,8 +47,8 @@ function Invoke-PoShBackupScriptMode {
         If one of the specified informational or utility CLI switches is present, this function executes
         the corresponding logic and then exits the script. If no such mode is active, it returns
         a value indicating that the main script should continue.
-    .PARAMETER ExtractFromArchivePath
-        The path provided to the -ExtractFromArchive parameter.
+    .PARAMETER MaintenanceSwitchValue
+        The boolean value provided to the -Maintenance parameter.
     #... (other params) ...
     #>
         param(
@@ -65,6 +66,9 @@ function Invoke-PoShBackupScriptMode {
 
         [Parameter(Mandatory = $true)]
         [bool]$VersionSwitch,
+
+        [Parameter(Mandatory = $false)]
+        [Nullable[bool]]$MaintenanceSwitchValue,
 
         [Parameter(Mandatory = $false)]
         [string]$PinBackupPath,
@@ -103,9 +107,6 @@ function Invoke-PoShBackupScriptMode {
         [scriptblock]$Logger,
 
         [Parameter(Mandatory = $false)]
-        [string]$PSScriptRootForUpdateCheck,
-
-        [Parameter(Mandatory = $false)]
         [System.Management.Automation.PSCmdlet]$PSCmdletForUpdateCheck
     )
 
@@ -119,6 +120,64 @@ function Invoke-PoShBackupScriptMode {
         } else {
             & $Logger -Message $Message -Level $Level
         }
+    }
+
+    if ($PSBoundParameters.ContainsKey('MaintenanceSwitchValue')) {
+        & $LocalWriteLog -Message "`n--- Maintenance Mode Management ---" -Level "HEADING"
+        $maintenanceFilePathFromConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'MaintenanceModeFilePath' -DefaultValue '.\.maintenance'
+        $maintenanceFileFullPath = $maintenanceFilePathFromConfig
+        $scriptRootPath = $Configuration['_PoShBackup_PSScriptRoot']
+
+        if (-not [System.IO.Path]::IsPathRooted($maintenanceFilePathFromConfig)) {
+            if ([string]::IsNullOrWhiteSpace($scriptRootPath)) {
+                & $LocalWriteLog -Message "  - FAILED to resolve maintenance file path. Script root path is unknown." -Level "ERROR"
+                exit 1
+            }
+            $maintenanceFileFullPath = Join-Path -Path $scriptRootPath -ChildPath $maintenanceFilePathFromConfig
+        }
+        
+        if ($MaintenanceSwitchValue -eq $true) {
+            & $LocalWriteLog -Message "ScriptModeHandler: Enabling maintenance mode by creating flag file: '$maintenanceFileFullPath'" -Level "INFO"
+            if (Test-Path -LiteralPath $maintenanceFileFullPath -PathType Leaf) {
+                & $LocalWriteLog -Message "  - Maintenance mode is already enabled (flag file exists)." -Level "INFO"
+            } else {
+                try {
+                    $maintenanceFileContent = @"
+#
+# PoSh-Backup Maintenance Mode Flag File
+#
+# This file's existence  places  PoSh-Backup into maintenance mode.
+# While this file exists, no new backup jobs will be started unless
+# forced to via the '-ForceRunInMaintenanceMode' switch.
+#
+# To disable maintenance mode,  either  delete  this  file manually,
+# or run:
+#          .\PoSh-Backup.ps1 -Maintenance `$false
+#
+# Enabled On: $(Get-Date -Format 'o')
+# Enabled By: $($env:USERDOMAIN)\$($env:USERNAME) on $($env:COMPUTERNAME)
+#
+"@
+                    Set-Content -Path $maintenanceFileFullPath -Value $maintenanceFileContent -Encoding UTF8 -Force -ErrorAction Stop
+                    & $LocalWriteLog -Message "  - Maintenance mode has been ENABLED." -Level "SUCCESS"
+                } catch {
+                    & $LocalWriteLog -Message "  - FAILED to create maintenance flag file. Error: $($_.Exception.Message)" -Level "ERROR"
+                }
+            }
+        } else { # -Maintenance $false
+            & $LocalWriteLog -Message "ScriptModeHandler: Disabling maintenance mode by removing flag file: '$maintenanceFileFullPath'" -Level "INFO"
+            if (Test-Path -LiteralPath $maintenanceFileFullPath -PathType Leaf) {
+                try {
+                    Remove-Item -LiteralPath $maintenanceFileFullPath -Force -ErrorAction Stop
+                    & $LocalWriteLog -Message "  - Maintenance mode has been DISABLED." -Level "SUCCESS"
+                } catch {
+                    & $LocalWriteLog -Message "  - FAILED to remove maintenance flag file. Error: $($_.Exception.Message)" -Level "ERROR"
+                }
+            } else {
+                & $LocalWriteLog -Message "  - Maintenance mode is already disabled (flag file does not exist)." -Level "INFO"
+            }
+        }
+        exit 0
     }
 
     if (-not [string]::IsNullOrWhiteSpace($ExtractFromArchivePath)) {
@@ -219,7 +278,7 @@ function Invoke-PoShBackupScriptMode {
     }
 
     if ($VersionSwitch) {
-        $mainScriptPathForVersion = Join-Path -Path $PSScriptRootForUpdateCheck -ChildPath "PoSh-Backup.ps1"
+        $mainScriptPathForVersion = Join-Path -Path $Configuration['_PoShBackup_PSScriptRoot'] -ChildPath "PoSh-Backup.ps1"
         $scriptVersion = "N/A"
         if (Test-Path -LiteralPath $mainScriptPathForVersion -PathType Leaf) {
             $mainScriptContent = Get-Content -LiteralPath $mainScriptPathForVersion -Raw -ErrorAction SilentlyContinue
@@ -244,7 +303,7 @@ function Invoke-PoShBackupScriptMode {
             Import-Module -Name $updateModulePath -Force -ErrorAction Stop
             $updateCheckParams = @{
                 Logger                 = $Logger
-                PSScriptRootForPaths   = $PSScriptRootForUpdateCheck
+                PSScriptRootForPaths   = $Configuration['_PoShBackup_PSScriptRoot']
                 PSCmdletInstance       = $PSCmdletForUpdateCheck
             }
             Invoke-PoShBackupUpdateCheckAndApply @updateCheckParams

@@ -2,20 +2,21 @@
 <#
 .SYNOPSIS
     Manages the core setup phase of PoSh-Backup, including module imports,
-    configuration loading, job resolution, and dependency ordering.
+    configuration loading, job resolution, dependency ordering, and the
+    maintenance mode check.
 .DESCRIPTION
     This module provides a function to handle the main setup tasks after initial
     global variable setup and CLI override processing. It checks for required external
     PowerShell modules (e.g., Posh-SSH, SecretManagement) only if the configuration
     and the specific jobs being run actually require them. It imports necessary PoSh-Backup
-    modules, loads and validates the application configuration, handles informational script modes,
-    validates essential settings, initialises global logging parameters, and determines
-    the final list and order of jobs to be processed.
+    modules, loads and validates the application configuration, checks for maintenance mode,
+    handles informational script modes, validates essential settings, initialises global
+    logging parameters, and determines the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Added email notification check to SecretManagement dependency validation.
+    Version:        1.4.9 # Corrected order of operations for Maintenance Mode check.
     DateCreated:    01-Jun-2025
-    LastModified:   09-Jun-2025
+    LastModified:   10-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
     Prerequisites:  PowerShell 5.1+.
                     Relies on InitialisationManager.psm1 and CliManager.psm1 having been run.
@@ -23,8 +24,14 @@
 #>
 
 #region --- Module Dependencies ---
-# Utils.psm1 is assumed to be globally imported by InitialisationManager.psm1.
-# LoggerScriptBlock will be passed in.
+# $PSScriptRoot here is Modules\Managers
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+}
+catch {
+    Write-Error "CoreSetupManager.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw # Critical dependency
+}
 #endregion
 
 #region --- Private Helper Functions ---
@@ -205,14 +212,18 @@ function Invoke-PoShBackupCoreSetup {
         [switch]$ListBackupLocations,
         [Parameter(Mandatory = $true)]
         [switch]$ListBackupSets,
-        [Parameter(Mandatory = $false)] # CORRECTED: Removed Mandatory=$true
+        [Parameter(Mandatory = $false)]
         [switch]$SyncSchedules,
         [Parameter(Mandatory = $true)]
         [switch]$SkipUserConfigCreation,
         [Parameter(Mandatory = $true)]
         [switch]$Version,
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet
+        [System.Management.Automation.PSCmdlet]$PSCmdlet,
+        [Parameter(Mandatory = $false)]
+        [switch]$ForceRunInMaintenanceMode,
+        [Parameter(Mandatory = $false)]
+        [Nullable[bool]]$Maintenance
     )
 
     # --- Import Core and Manager Modules ---
@@ -283,25 +294,61 @@ function Invoke-PoShBackupCoreSetup {
     }
 
     # --- Handle Informational/Utility Modes FIRST ---
-    Invoke-PoShBackupScriptMode -ListBackupLocationsSwitch $ListBackupLocations.IsPresent `
-                                -ListBackupSetsSwitch $ListBackupSets.IsPresent `
-                                -TestConfigSwitch $TestConfig.IsPresent `
-                                -CheckForUpdateSwitch $false `
-                                -VersionSwitch $Version.IsPresent `
-                                -PinBackupPath $CliOverrideSettings.PinBackup `
-                                -UnpinBackupPath $CliOverrideSettings.UnpinBackup `
-                                -ListArchiveContentsPath $CliOverrideSettings.ListArchiveContents `
-                                -ArchivePasswordSecretName $CliOverrideSettings.ArchivePasswordSecretName `
-                                -ExtractFromArchivePath $CliOverrideSettings.ExtractFromArchive `
-                                -ExtractToDirectoryPath $CliOverrideSettings.ExtractToDirectory `
-                                -ItemsToExtract $CliOverrideSettings.ItemsToExtract `
-                                -ForceExtract ([bool]$CliOverrideSettings.ForceExtract) `
-                                -Configuration $Configuration `
-                                -ActualConfigFile $ActualConfigFile `
-                                -ConfigLoadResult $configResult `
-                                -Logger $LoggerScriptBlock `
-                                -PSScriptRootForUpdateCheck $PSScriptRoot `
-                                -PSCmdletForUpdateCheck $PSCmdlet
+    $scriptModeParams = @{
+        ListBackupLocationsSwitch = $ListBackupLocations.IsPresent
+        ListBackupSetsSwitch      = $ListBackupSets.IsPresent
+        TestConfigSwitch          = $TestConfig.IsPresent
+        CheckForUpdateSwitch      = $false
+        VersionSwitch             = $Version.IsPresent
+        PinBackupPath             = $CliOverrideSettings.PinBackup
+        UnpinBackupPath           = $CliOverrideSettings.UnpinBackup
+        ListArchiveContentsPath   = $CliOverrideSettings.ListArchiveContents
+        ArchivePasswordSecretName = $CliOverrideSettings.ArchivePasswordSecretName
+        ExtractFromArchivePath    = $CliOverrideSettings.ExtractFromArchive
+        ExtractToDirectoryPath    = $CliOverrideSettings.ExtractToDirectory
+        ItemsToExtract            = $CliOverrideSettings.ItemsToExtract
+        ForceExtract              = ([bool]$CliOverrideSettings.ForceExtract)
+        Configuration             = $Configuration
+        ActualConfigFile          = $ActualConfigFile
+        ConfigLoadResult          = $configResult
+        Logger                    = $LoggerScriptBlock
+        PSCmdletForUpdateCheck    = $PSCmdlet
+    }
+    if ($PSBoundParameters.ContainsKey('Maintenance') -and $null -ne $Maintenance) {
+        $scriptModeParams.MaintenanceSwitchValue = $Maintenance
+    }
+    $null = Invoke-PoShBackupScriptMode @scriptModeParams
+
+    # --- Check for Maintenance Mode ---
+    # This check runs AFTER utility modes have had a chance to run and exit.
+    if (-not $Maintenance.HasValue) {
+        $forceRun = $ForceRunInMaintenanceMode.IsPresent
+        $maintModeEnabledByConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'MaintenanceModeEnabled' -DefaultValue $false
+        $maintModeFilePath = Get-ConfigValue -ConfigObject $Configuration -Key 'MaintenanceModeFilePath' -DefaultValue '.\.maintenance'
+        
+        $maintModeFileFullPath = $maintModeFilePath
+        if (-not [System.IO.Path]::IsPathRooted($maintModeFilePath)) {
+            $maintModeFileFullPath = Join-Path -Path $Configuration['_PoShBackup_PSScriptRoot'] -ChildPath $maintModeFilePath
+        }
+        
+        & $LoggerScriptBlock -Message "CoreSetupManager: Checking for maintenance file at resolved path: '$maintModeFileFullPath'" -Level "DEBUG"
+        $maintModeEnabledByFile = Test-Path -LiteralPath $maintModeFileFullPath -PathType Leaf -ErrorAction SilentlyContinue
+
+        if (($maintModeEnabledByConfig -or $maintModeEnabledByFile) -and -not $forceRun) {
+            $maintModeMessage = Get-ConfigValue -ConfigObject $Configuration -Key 'MaintenanceModeMessage' -DefaultValue "PoSh-Backup is currently in maintenance mode.`n      New backup jobs will not be started."
+            $reason = if ($maintModeEnabledByConfig) { "configuration setting 'MaintenanceModeEnabled' is true" } else { "flag file exists at '$maintModeFileFullPath'" }
+            
+            Write-ConsoleBanner -NameText "Maintenance Mode Active" -ValueText "Execution Halted" -NameForegroundColor "Yellow" -BorderForegroundColor "Yellow"
+            & $LoggerScriptBlock -Message "`n  $maintModeMessage" -Level "WARNING"
+            & $LoggerScriptBlock -Message "`nReason: $reason." -Level "INFO"
+            & $LoggerScriptBlock -Message "To run backups, disable maintenance mode or use the -ForceRunInMaintenanceMode switch." -Level "INFO"
+            exit 0
+        }
+        elseif ($forceRun) {
+            & $LoggerScriptBlock -Message "[WARNING] The -ForceRunInMaintenanceMode switch was used. Bypassing maintenance mode check." -Level "WARNING"
+        }
+    }
+    # --- END: Check for Maintenance Mode ---
 
     # --- Job Resolution (only if not in an informational mode that exits) ---
     $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
