@@ -1218,12 +1218,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XXXIII. Usability & Convenience (Practical)**
 
-139. **Feature: "Disable Job" Flag in Configuration**
-    *   **Goal:** Allow a job to be temporarily disabled in the configuration without deleting its entire definition.
-    *   **Description:** A simple boolean flag like `Enabled = $false` at the job level.
-    *   **Scope & Impact:** `Config\Default.psd1`, `Modules\ConfigManagement\JobResolver.psm1` (to filter out disabled jobs), `Modules\ConfigManagement\Assets\ConfigSchema.psd1`.
-    *   **Acceptance Criteria:** Jobs with `Enabled = $false` are skipped.
-
 140. **Enhancement: `-TestConfig` to Validate a Single Job Definition**
     *   **Goal:** Allow `-TestConfig -BackupLocationName "MyJob"` to validate only the specified job and its direct dependencies/settings.
     *   **Description:** Faster and more focused validation when working on a specific job.
