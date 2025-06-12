@@ -6,19 +6,19 @@
 .DESCRIPTION
     This module provides the 'Invoke-PoShBackupLocalBackupExecution' function.
     It is responsible for:
-    1. Calling 'Invoke-PoShBackupJobPreProcessing' to handle VSS, password retrieval,
+    1. Calling 'Invoke-PoShBackupJobPreProcessing' to handle snapshotting, VSS, password retrieval,
        destination checks, and pre-backup hooks.
     2. If pre-processing is successful, it calls 'Invoke-LocalArchiveOperation' to
        create the local archive, generate checksums, and perform local tests.
     3. It determines if remote transfers should be skipped based on local archive
        verification failures if the 'VerifyLocalArchiveBeforeTransfer' option is enabled.
     The function returns a hashtable containing the outcome of these local operations,
-    paths, and any necessary data for subsequent steps like VSS cleanup or password clearing.
+    paths, and any necessary data for subsequent steps like snapshot/VSS cleanup or password clearing.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Added SnapshotSession handling.
     DateCreated:    30-May-2025
-    LastModified:   30-May-2025
+    LastModified:   10-Jun-2025
     Purpose:        To modularise the main local backup sequence from JobExecutor.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Modules\Operations\JobPreProcessor.psm1 and
@@ -74,6 +74,7 @@ function Invoke-PoShBackupLocalBackupExecution {
     $finalLocalArchivePathFromOps = $null
     $archiveFileNameOnlyFromOps = $null
     $vssPathsToCleanUpFromOps = $null
+    $snapshotSessionFromOps = $null # NEW
     $plainTextPasswordToClearFromOps = $null
     $skipRemoteTransfersDueToLocalVerification = $false
 
@@ -81,6 +82,7 @@ function Invoke-PoShBackupLocalBackupExecution {
     $preProcessingParams = @{
         JobName            = $JobName
         EffectiveJobConfig = $EffectiveJobConfig
+        GlobalConfig       = $GlobalConfig
         IsSimulateMode     = $IsSimulateMode.IsPresent
         Logger             = $Logger
         PSCmdlet           = $PSCmdlet
@@ -100,6 +102,7 @@ function Invoke-PoShBackupLocalBackupExecution {
         $currentJobSourcePathFor7Zip = $preProcessingResult.CurrentJobSourcePathFor7Zip
         $actualPlainTextPasswordFromPreProcessing = $preProcessingResult.ActualPlainTextPassword
         $vssPathsToCleanUpFromOps = $preProcessingResult.VSSPathsInUse
+        $snapshotSessionFromOps = $preProcessingResult.SnapshotSession # NEW: Capture the session object
         $plainTextPasswordToClearFromOps = $preProcessingResult.PlainTextPasswordToClear
 
         # --- Call Local Archive Processor ---
@@ -133,10 +136,9 @@ function Invoke-PoShBackupLocalBackupExecution {
         FinalLocalArchivePath                       = $finalLocalArchivePathFromOps
         ArchiveFileNameOnly                         = $archiveFileNameOnlyFromOps
         VSSPathsToCleanUp                           = $vssPathsToCleanUpFromOps
+        SnapshotSession                             = $snapshotSessionFromOps # NEW: Return the session object
         PlainTextPasswordToClear                    = $plainTextPasswordToClearFromOps
-        SkipRemoteTransfersDueToLocalVerification = $skipRemoteTransfersDueToLocalVerification
-        # CurrentJobSourcePathFor7Zip is not needed by the caller (JobExecutor) after this point
-        # ActualPlainTextPassword is also not needed by the caller, only PlainTextPasswordToClear
+        SkipRemoteTransfersDueToLocalVerification   = $skipRemoteTransfersDueToLocalVerification
     }
 }
 

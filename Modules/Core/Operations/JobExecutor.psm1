@@ -3,9 +3,9 @@
 .SYNOPSIS
     Executes the core backup operations for a single PoSh-Backup job.
     This module is a sub-component of the Core Operations facade.
-    It now delegates pre-processing, local archiving, post-job hook execution,
-    local retention policy execution, remote transfer orchestration, VSS cleanup,
-    and report data finalisation to respective sub-modules.
+    It now delegates pre-processing (including snapshot orchestration), local archiving,
+    post-job hook execution, local retention policy execution, remote transfer orchestration,
+    snapshot/VSS cleanup, and report data finalisation to respective sub-modules.
 
 .DESCRIPTION
     The JobExecutor module orchestrates the lifecycle of processing a single backup job.
@@ -13,28 +13,29 @@
 
     The primary exported function, Invoke-PoShBackupJob, performs the following sequence:
     1.  Receives the effective configuration.
-    2.  Calls 'Invoke-PoShBackupLocalBackupExecution' (from Modules\Core\Operations\JobExecutor.LocalBackupOrchestrator.psm1)
-        to handle pre-processing and local archive creation/testing.
+    2.  Calls 'Invoke-PoShBackupLocalBackupExecution' to handle pre-processing (including
+        infrastructure snapshots via SnapshotManager), and local archive creation/testing.
     3.  Calls 'Invoke-PoShBackupLocalRetentionExecution'.
     4.  If local operations were successful and remote targets are defined (and not skipped),
         calls 'Invoke-PoShBackupRemoteTransferExecution'.
     5.  In the 'finally' block:
-        a.  Calls 'Invoke-PoShBackupVssCleanup'.
-        b.  Clears any in-memory plain text password.
-        c.  Calls 'Invoke-PoShBackupJobFinalisation'.
-        d.  Calls 'Invoke-PoShBackupPostJobHook'.
+        a.  Calls 'Invoke-PoShBackupSnapshotCleanup' to remove any infrastructure snapshots.
+        b.  Calls 'Invoke-PoShBackupVssCleanup' to remove any OS-level shadow copies.
+        c.  Clears any in-memory plain text password.
+        d.  Calls 'Invoke-PoShBackupJobFinalisation'.
+        e.  Calls 'Invoke-PoShBackupPostJobHook'.
     6.  Returns overall job status.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.6.1 # Corrected ContainsKey usage for ordered dictionary $reportData.
+    Version:        1.7.0 # Added Snapshot orchestration and cleanup.
     DateCreated:    30-May-2025
-    LastModified:   30-May-2025
+    LastModified:   10-Jun-2025
     Purpose:        Handles the execution logic for individual backup jobs.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules and target provider modules.
                     All JobExecutor.*.psm1 sub-modules.
-                    Administrator privileges for VSS.
+                    Administrator privileges for VSS and potentially for snapshot providers.
 #>
 
 # Explicitly import Utils.psm1 and other direct dependencies.
@@ -46,6 +47,7 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalRetentionHandler.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.RemoteTransferHandler.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.VssCleanupHandler.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.SnapshotCleanupHandler.psm1") -Force -ErrorAction Stop # NEW
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.FinalisationHandler.psm1") -Force -ErrorAction Stop
 }
 catch {
@@ -92,6 +94,7 @@ function Invoke-PoShBackupJob {
     $finalLocalArchivePath = $null
     $archiveFileNameOnly = $null
     $VSSPathsToCleanUp = $null
+    $snapshotSessionToCleanUp = $null # NEW
     $reportData = $JobReportDataRef.Value
     $reportData.IsSimulationReport = $IsSimulateMode.IsPresent
     $reportData.TargetTransfers = [System.Collections.Generic.List[object]]::new()
@@ -128,6 +131,7 @@ function Invoke-PoShBackupJob {
         $finalLocalArchivePath = $localBackupResult.FinalLocalArchivePath
         $archiveFileNameOnly = $localBackupResult.ArchiveFileNameOnly
         $VSSPathsToCleanUp = $localBackupResult.VSSPathsToCleanUp
+        $snapshotSessionToCleanUp = $localBackupResult.SnapshotSession # NEW: Capture the session for cleanup
         $plainTextPasswordToClearAfterJob = $localBackupResult.PlainTextPasswordToClear
         $skipRemoteTransfersDueToLocalVerificationFailure = $localBackupResult.SkipRemoteTransfersDueToLocalVerification
 
@@ -135,7 +139,7 @@ function Invoke-PoShBackupJob {
             # Use $reportData.PSObject.Properties.Name for ordered dictionaries
             $resolvedSourcePathForLog = if ($reportData.PSObject.Properties.Name -contains 'EffectiveSourcePath') { $reportData.EffectiveSourcePath } else { $effectiveJobConfig.OriginalSourcePath }
             & $LocalWriteLog -Message " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
-            & $LocalWriteLog -Message "   - Effective Source Path(s) (after VSS if any): $(if ($resolvedSourcePathForLog -is [array]) {$resolvedSourcePathForLog -join '; '} else {$resolvedSourcePathForLog})"
+            & $LocalWriteLog -Message "   - Effective Source Path(s) (after VSS/Snapshot if any): $(if ($resolvedSourcePathForLog -is [array]) {$resolvedSourcePathForLog -join '; '} else {$resolvedSourcePathForLog})"
             & $LocalWriteLog -Message "   - Destination/Staging Dir: $($effectiveJobConfig.DestinationDir)"
             & $LocalWriteLog -Message "   - Archive Base Name      : $($effectiveJobConfig.BaseFileName)"
             & $LocalWriteLog -Message "   - Archive Password Method: $($effectiveJobConfig.ArchivePasswordMethod) (Source: $($reportData.PasswordSource))"
@@ -190,6 +194,12 @@ function Invoke-PoShBackupJob {
         Write-Error -Message $errorMessageText -Exception $_.Exception -ErrorAction Continue
     }
     finally {
+        # NEW: Snapshot cleanup (must run BEFORE VSS cleanup)
+        Invoke-PoShBackupSnapshotCleanup -SnapshotSession $snapshotSessionToCleanUp `
+            -JobName $JobName `
+            -Logger $Logger `
+            -PSCmdlet $PSCmdlet
+
         Invoke-PoShBackupVssCleanup -VSSPathsToCleanUp $VSSPathsToCleanUp `
             -JobName $JobName `
             -IsSimulateMode:$IsSimulateMode `

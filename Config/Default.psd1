@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.8.0: Added Maintenance Mode settings.
+# Version 1.9.1: Refined Snapshot job definition to allow specifying sub-paths within a VM.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -208,7 +208,7 @@
         Enabled         = $false # Master switch. Set to $true in a job/set to enable notifications for it.
         ProfileName     = ""     # The name of the profile (from NotificationProfiles above) to use. MUST be specified in job/set if Enabled is $true.
         ToAddress       = @()    # For "Email" provider: An array of recipient email addresses. E.g., @("admin@example.com"). Ignored by "Webhook" provider.
-        
+
         # The subject line for "Email" provider notifications. Placeholders will be replaced. Ignored by "Webhook" provider.
         # Available placeholders: {JobName}, {SetName}, {Status}, {Date}, {Time}, {ComputerName}
         Subject         = "PoSh-Backup Report for Job: {JobName} - Status: {Status}"
@@ -232,6 +232,38 @@
     VSSMetadataCachePath            = "%TEMP%\diskshadow_cache_poshbackup.cab" # Path for diskshadow's metadata cache file. The %TEMP% environment variable is expanded.
     VSSPollingTimeoutSeconds        = 120                             # Maximum time (in seconds) to wait for VSS shadow copies to become available and detectable via WMI.
     VSSPollingIntervalSeconds       = 5                               # How often (in seconds) to poll WMI while waiting for shadow copies to be ready.
+    #endregion
+
+    #region --- Snapshot Provider Settings (Global) ---
+    # Define named snapshot provider configurations here. These can be referenced by jobs in 'BackupLocations'.
+    # This feature allows PoSh-Backup to orchestrate infrastructure-level snapshots (e.g., Hyper-V, VMware, SAN)
+    # before performing a file-level backup from the snapshot. This is the gold standard for backing up active
+    # virtual machines and large databases with minimal performance impact on the live system.
+    SnapshotProviders = @{
+        # Example for a local Hyper-V host.
+        "LocalHyperV" = @{
+            Type = "HyperV" # Provider module 'Modules\SnapshotProviders\HyperV.Snapshot.psm1' will handle this.
+                            # Requires the Hyper-V PowerShell module to be installed on the machine running PoSh-Backup.
+            ProviderSpecificSettings = @{
+                # For local Hyper-V, no ComputerName is needed.
+                # For a remote Hyper-V host, you would specify it here:
+                # ComputerName = "MyHyperVHost01"
+            }
+            # Optional: If connecting to a remote Hyper-V host, specify credentials.
+            # The secret should store a PSCredential object with rights to manage Hyper-V on the remote host.
+            # CredentialsSecretName = "HyperVAdminCreds"
+        }
+
+        # Example for a VMware vCenter server (hypothetical future provider).
+        # "MyVCenter" = @{
+        #    Type = "VMware" # Would require Modules\SnapshotProviders\VMware.Snapshot.psm1
+        #                     # and the VMware PowerCLI module.
+        #    ProviderSpecificSettings = @{
+        #        Server = "vcenter.mydomain.local"
+        #    }
+        #    CredentialsSecretName = "VCenterBackupUserCreds"
+        # }
+    }
     #endregion
 
     #region --- Retry Mechanism Settings (Global Defaults) ---
@@ -314,6 +346,9 @@
                                                                       # VSS is generally a more robust method for backing up open/locked files if available.
     DefaultScriptExcludeRecycleBin  = '-x!$RECYCLE.BIN'               # Default 7-Zip exclusion pattern for Recycle Bin folders on all drives.
     DefaultScriptExcludeSysVolInfo  = '-x!System Volume Information'  # Default 7-Zip exclusion pattern for System Volume Information folders.
+    DefaultFollowSymbolicLinks      = $false                          # Global default. If $false (default), 7-Zip will NOT follow symbolic links/junctions (uses -snl switch).
+                                                                      # Set to $true to have 7-Zip follow links and archive their target content. This can sometimes cause
+                                                                      # "Access is denied" warnings on certain system-created junction points.
     #endregion
 
     #region --- Backup Target Definitions (Global) ---
@@ -478,6 +513,7 @@
             # SevenZipIncludeListFile = "D:\MyIncludes.txt"           # Job-specific include list file.
             # SevenZipExcludeListFile = "D:\MyExcludes.txt"           # Job-specific exclude list file.
             ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
+            FollowSymbolicLinks     = $false                          # Job-specific override for following symbolic links.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
 
             CreateSFX               = $false                          # Job-specific. $true to create a Self-Extracting Archive (.exe).
@@ -494,9 +530,9 @@
             # These settings override the DefaultNotificationSettings.
             NotificationSettings = @{
                 Enabled         = $false                              # Set to $true to enable alerts for this specific job.
-                ProfileName     = "Office365"                         # Which profile from NotificationProfiles to use.
+                ProfileName     = ""                                  # Which profile from NotificationProfiles to use.
                 #ToAddress       = @("your_email@example.com")        # For Email provider
-                TriggerOnStatus = @("ALL")                            # Notify regardless of whether this job succeeds, warns, or fails.
+                TriggerOnStatus = @("ANY")                            # Notify regardless of whether this job succeeds, warns, or fails.
             }
 
             # PostRunAction = @{
@@ -506,23 +542,7 @@
             #     TriggerOnStatus = @("SUCCESS", "WARNINGS")
             #     ForceAction     = $false
             # }
-
-            # --- Integrated Scheduling Settings ---
-            Schedule = @{
-                Enabled = $false
-                Type = 'Daily'
-                Time = '23:00'
-                DaysOfWeek = @('Monday', 'Wednesday', 'Friday')
-                DaysOfMonth = @(1, 15)
-                MonthsOfYear = @('January', 'April', 'July', 'October')
-                RandomDelay = '15m'
-                RunAsUser = 'Author'
-                HighestPrivileges = $true
-                WakeToRun = $true
-                AllowStartIfOnBatteries = $false
-                StopIfGoingOnBatteries = $true
-                AdditionalArguments = ""
-            }
+            Schedule = @{ Enabled = $false } # Placeholder for this job
         }
         "AnExample_WithRemoteTarget" = @{
             Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
@@ -546,7 +566,7 @@
 
             ArchiveType                = "-tzip"                      # Example: Use ZIP format for this job. Overrides DefaultArchiveType.
             ArchiveExtension           = ".zip"                       # Must match ArchiveType. Overrides DefaultArchiveExtension.
-                                                                      # If CreateSFX is true, this will be overridden to ".exe" for the final file.
+                                                                      # If CreateSFX is $true, this will be overridden to ".exe" for the final file.
             CreateSFX                  = $false                       # Example, not creating SFX here.
             SFXModule                  = "Console"                    # Default if CreateSFX is false, but good to show.
             SplitVolumeSize            = "700m"                       # NEW EXAMPLE: Split into 700MB volumes.
@@ -569,108 +589,47 @@
             # PostRunAction = @{ Enabled = $false }                   # Example: Explicitly disable for this job
             Schedule = @{ Enabled = $false } # Placeholder for this job
         }
-        "Docs_Replicated_Example" = @{
-            Path                       = @("C:\Users\YourUser\Documents\Reports", "C:\Users\YourUser\Pictures\Screenshots")
-            Name                       = "UserDocs_MultiCopy"         # Example: base name for the archive
-            DestinationDir             = "C:\BackupStaging\UserDocs"  # Local staging directory before replication (as TargetNames are specified).
-            Enabled                    = $false                       # Set to $false to disable this job without deleting its configuration.
-            PinOnCreation              = $true                        # Example: This backup will be pinned automatically.
+        "HyperV_VM_Backup_Example" = @{
+            # --- NEW: Snapshot Orchestration Example ---
+            # When using a SnapshotProvider with 'SourceIsVMName = $true', 'Path' becomes an array where:
+            # - Element 0 is the Name of the Virtual Machine to be snapshotted.
+            # - Subsequent elements (optional) are the specific paths *inside* the VM to back up.
+            #   If only the VM name is provided (e.g., Path = "MyVM"), the entire mounted VM disk will be backed up.
+            Path                    = @(
+                "Windows10",                                          # Element 0: The VM Name. <-- CHANGE THIS to your test VM name.
+                "C:\Users\Public"                                     # Element 1 (Optional): A specific folder to back up from the snapshot.
+                #"D:\Data\Important"                                  # Element 2 (Optional): Another folder from another drive in the VM.
+            )
+            SourceIsVMName          = $true                           # Tells PoSh-Backup to treat 'Path' as a VM name for the snapshot provider.
+            SnapshotProviderName    = "LocalHyperV"                   # Links this job to the 'LocalHyperV' provider defined in 'SnapshotProviders'.
 
-            TargetNames                = @("ExampleReplicatedStorage") # Reference the "Replicate" target instance in BackupTargets
-
+            Name                    = "Windows10"
+            DestinationDir          = "D:\Backups"                    # <-- CHANGE THIS to a valid path on your system.
+            Enabled                 = $true
+            LocalRetentionCount     = 5
+            #TargetNames             = @("ExampleUNCShare")
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
 
-            LocalRetentionCount        = 2
-            LogRetentionCount          = 0                            # Example: Keep all log files for this job (infinite retention).
+            # VSS is still relevant. The snapshot provider will trigger VSS *inside* the guest VM
+            # to ensure application-consistent snapshots. Requires Hyper-V Integration Services in the guest.
+            EnableVSS               = $true
 
-            DependsOnJobs              = @()
-
-            ArchivePasswordMethod      = "None"
-            EnableVSS                  = $true
-
-            CreateSFX                  = $true                        # Example, create an SFX for this job.
-            SFXModule                  = "GUI"                        # Use GUI SFX module to prompt for extraction path.
-                                                                      # ArchiveExtension will effectively be ".exe" for the output file.
-                                                                      # DefaultArchiveType (e.g., -t7z) will determine the internal SFX content.
-            SplitVolumeSize            = ""                           # No split for this SFX job.
-            # GenerateSplitArchiveManifest = $false                   # Not applicable if not splitting.
-
-            GenerateArchiveChecksum     = $true
-            ChecksumAlgorithm           = "MD5"
-            VerifyArchiveChecksumOnTest = $true
-            SevenZipCpuAffinity         = "0x1"                       # Example: Restrict 7-Zip to core 0 (bitmask) for this job.
-            SevenZipIncludeListFile    = ""
-            SevenZipExcludeListFile    = ""
-
+            # Other settings apply as normal to the resulting archive.
+            ArchivePasswordMethod   = "None" #"SecretManagement"
+            ArchivePasswordSecretName = "VMBackupPassword"
+            TreatSevenZipWarningsAsSuccess = $true
             NotificationSettings = @{
                 Enabled         = $false
-            }
-            # PostRunAction = @{ Action = "Hibernate"; TriggerOnStatus = @("ANY"); DelaySeconds = 10 } # Example
-            Schedule = @{ Enabled = $false } # Placeholder for this job
-        }
-        "CriticalData_To_SFTP_Example" = @{
-            Path                    = "E:\CriticalApplication\Data"
-            Name                    = "AppCriticalData_SFTP"
-            DestinationDir          = "D:\BackupStaging\SFTP_Stage"
-            PinOnCreation           = $false
-
-            TargetNames             = @("ExampleSFTPServer")
-
-            DeleteLocalArchiveAfterSuccessfulTransfer = $true
-            LocalRetentionCount     = 1
-            # LogRetentionCount will use DefaultLogRetentionCount
-
-            DependsOnJobs           = @()
-
-            ArchivePasswordMethod   = "SecretManagement"
-            ArchivePasswordSecretName = "MyArchiveEncryptionPassword"
-
-            EnableVSS               = $true
-            TestArchiveAfterCreation= $true
-
-            CreateSFX               = $false
-            SFXModule               = "Console"
-            SplitVolumeSize         = "1g"                            # NEW EXAMPLE: Split into 1GB volumes.
-            GenerateSplitArchiveManifest = $true                     # NEW EXAMPLE: Generate manifest for these split volumes.
-
-            GenerateArchiveChecksum     = $true # This would be ignored if GenerateSplitArchiveManifest is true.
-            ChecksumAlgorithm           = "SHA512"
-            VerifyArchiveChecksumOnTest = $true
-            # SevenZipCpuAffinity will use global default if not specified
-            SevenZipIncludeListFile    = ""
-            SevenZipExcludeListFile    = ""
-
-            NotificationSettings = @{
-                Enabled         = $true
-                ProfileName     = "TeamsAlertsChannel" # Use the Webhook profile
+                ProfileName     = "Office365"
+                ToAddress       = @("vm-admins@example.com")
                 TriggerOnStatus = @("FAILURE")
             }
-            PostRunAction = @{
-                Enabled         = $true
-                Action          = "Lock"
-                TriggerOnStatus = @("SUCCESS")
+            Schedule = @{
+                Enabled = $true
+                Type = 'Daily'
+                Time = '02:00'
             }
-            Schedule = @{ Enabled = $false } # Placeholder for this job
         }
-
-        "Docs_To_WebDAV_Example" = @{ # Example Job using WebDAV
-            Path                       = "C:\Users\YourUser\Documents\CriticalDocs"
-            Name                       = "UserCriticalDocs_WebDAV"
-            DestinationDir             = "D:\BackupStaging\WebDAV_Stage" # Local staging
-            TargetNames                = @("ExampleWebDAVServer")
-            PinOnCreation              = $false
-            DeleteLocalArchiveAfterSuccessfulTransfer = $true
-            LocalRetentionCount        = 2
-            ArchivePasswordMethod      = "SecretManagement"
-            ArchivePasswordSecretName  = "MyArchiveEncryptionPassword"
-            SplitVolumeSize            = "500m" # Example: Split into 500MB volumes
-            GenerateSplitArchiveManifest = $true
-            NotificationSettings = @{
-                Enabled         = $false
-            }
-            Schedule = @{ Enabled = $false } # Placeholder for this job
-        }
-
         #region --- Comprehensive Example (Commented Out for Reference) ---
         <#
         "ComprehensiveExample_WebApp" = @{
@@ -793,10 +752,7 @@
         "Daily_Critical_Backups" = @{
             JobNames     = @(
                 "Projects",
-                "AnExample_WithRemoteTarget",
-                "Docs_Replicated_Example",
-                "CriticalData_To_SFTP_Example",
-                "Docs_To_WebDAV_Example"
+                "HyperV_VM_Backup_Example"
             )
             OnErrorInJob = "StopSet"
             LogRetentionCount = 7 # Logs for jobs run as part of this set will keep only 7 files, overriding their individual or global settings.
@@ -824,8 +780,7 @@
         }
         "Weekly_User_Data"       = @{
             JobNames = @(
-                "AnExample_WithRemoteTarget",
-                "Docs_Replicated_Example"
+                "AnExample_WithRemoteTarget"
             )
             # OnErrorInJob defaults to "StopSet" if not specified for a set.
             # LogRetentionCount will be inherited from each job's config or global default.
@@ -837,7 +792,7 @@
             }
         }
         "Nightly_Full_System_Simulate" = @{
-            JobNames = @("Projects", "AnExample_WithRemoteTarget", "Docs_Replicated_Example", "CriticalData_To_SFTP_Example")
+            JobNames = @("Projects", "AnExample_WithRemoteTarget", "HyperV_VM_Backup_Example")
             OnErrorInJob = "ContinueSet"
             SevenZipIncludeListFile = ""
             SevenZipExcludeListFile = ""

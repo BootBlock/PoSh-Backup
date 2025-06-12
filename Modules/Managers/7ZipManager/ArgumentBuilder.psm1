@@ -8,9 +8,9 @@
     archive creation operation based on the effective job configuration.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.7 # Addressed PSSA warning for unused Logger.
+    Version:        1.0.8 # Added -l switch to prevent traversing symbolic links/junctions.
     DateCreated:    29-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   12-Jun-2025
     Purpose:        7-Zip argument construction logic for 7ZipManager.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 for Get-ConfigValue.
@@ -62,8 +62,6 @@ function Get-PoShBackup7ZipArgument {
             }
         }
     
-        # & $LocalWriteLog -Message "7ZipManager/ArgumentBuilder/Get-PoShBackup7ZipArgument: Logger active." -Level "DEBUG" # Covered by direct call above
-
         $sevenZipArgs = [System.Collections.Generic.List[string]]::new()
         $sevenZipArgs.Add("a") 
 
@@ -76,6 +74,11 @@ function Get-PoShBackup7ZipArgument {
         if ($EffectiveConfig.JobCompressOpenFiles) { $sevenZipArgs.Add("-ssw") } 
         if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.ThreadsSetting)) { $sevenZipArgs.Add($EffectiveConfig.ThreadsSetting) }
 
+        # Do not follow symbolic links/junctions if set within the config.
+        if ($EffectiveConfig.FollowSymbolicLinks -ne $true) {
+            $sevenZipArgs.Add("-snl")
+        }
+        
         if ($EffectiveConfig.ContainsKey('CreateSFX') -and $EffectiveConfig.CreateSFX -eq $true) {
             $sfxModuleSwitch = "-sfx" 
             if ($EffectiveConfig.ContainsKey('SFXModule')) {

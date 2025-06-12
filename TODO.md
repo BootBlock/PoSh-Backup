@@ -33,7 +33,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   [XXV. Ecosystem & Integrations (Continued)](#xxv-ecosystem--integrations-continued)
 *   [XXVI. Autonomous & Self-Healing Operations](#xxvi-autonomous--self-healing-operations)
 *   [XXVII. Quantum-Resistant Encryption & Future-Proofing](#xxvii-quantum-resistant-encryption--future-proofing)
-*   [XXVIII. Decentralised & Trustless Backup Paradigms](#xxviii-decentralized--trustless-backup-paradigms)
+*   [XXVIII. Decentralised & Trustless Backup Paradigms](#xxviii-decentralised--trustless-backup-paradigms)
 *   [XXIX. Hyper-Personalisation & Context-Awareness](#xxix-hyper-personalization--context-awareness)
 *   [XXX. Sustainability & Energy Efficiency](#xxx-sustainability--energy-efficiency)
 *   [XXXI. Core Functionality & Reliability Enhancements](#xxxi-core-functionality--reliability-enhancements)
@@ -296,22 +296,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         
     - **Acceptance Criteria:** User is prompted to select a job/set if none specified and multiple exist.
         
-3. **Feature: "Pin" Backup Instances (Prevent Retention Deletion)**
-    
-    - **Goal:** Allow marking specific backup instances (e.g., a known good full backup) as "pinned" to prevent automatic deletion by retention policies.
-        
-    - **Description:** Useful for keeping baseline backups or milestone archives indefinitely.
-        
-    - **Scope & Impact:**
-        
-        - Mechanism to mark/identify pinned archives (e.g., a manifest flag, a separate tracking file, or a naming convention).
-            
-        - Modules\Managers\RetentionManager.psm1 (and its sub-modules) to respect pinned status.
-            
-        - CLI/Utility function to pin/unpin archives.
-            
-    - **Acceptance Criteria:** Pinned archives are not deleted by retention policies.
-
 4. **Feature: List Archive Contents (CLI Utility)**
     *   **Goal:** CLI option to list contents of a PoSh-Backup archive.
     *   **Description:** Quick inspection without full extraction.
@@ -990,6 +974,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Description:** Could involve hypervisor API integration (vSphere, Hyper-V, Xen, KVM) or tools that can read these disk formats.
     *   **Scope & Impact:** New "VMDisk" source type. Complex hypervisor interactions.
     *   **Acceptance Criteria:** Virtual disk files can be backed up directly.
+    *   **Note:** Direct Hyper-V support is now implemented, which unfortunately isn't agnostic.
 
 106. **Feature: Cloud-to-Cloud Backup & Replication**
     *   **Goal:** Enable backing up data from one cloud provider/region to another.
@@ -1132,13 +1117,13 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** **High security and legal considerations.** Secure key escrow or multi-sig schemes.
     *   **Acceptance Criteria:** A secure and verifiable process exists for emergency data access by authorised individuals.
 
-**XXVIII. Decentralized & Trustless Backup Paradigms**
+**XXVIII. Decentralised & Trustless Backup Paradigms**
 
-126. **Feature: Fully Decentralized Backup Network (Blockchain-Assisted)**
-    *   **Goal:** Enable backups to be stored across a decentralized network of participating nodes (potentially incentivized via cryptocurrency), with integrity and ownership verified via blockchain.
+126. **Feature: Fully Decentralised Backup Network (Blockchain-Assisted)**
+    *   **Goal:** Enable backups to be stored across a decentralised network of participating nodes (potentially incentivized via cryptocurrency), with integrity and ownership verified via blockchain.
     *   **Description:** No central point of failure or control. Data is sharded, encrypted, and distributed.
     *   **Scope & Impact:** **Massive R&D.** Blockchain integration, peer-to-peer networking, advanced cryptography, tokenomics.
-    *   **Acceptance Criteria:** Backups are securely stored and retrievable from a decentralized network.
+    *   **Acceptance Criteria:** Backups are securely stored and retrievable from a decentralised network.
 
 127. **Feature: Zero-Knowledge Proofs for Backup Verification**
     *   **Goal:** Allow verification of backup integrity and completeness *without* the verifier needing access to the actual (decrypted) backup content.
@@ -1392,7 +1377,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 168. **Feature: Signed Hook Scripts & Configuration Files**
     *   **Goal:** Option to require that hook scripts and even configuration files are digitally signed, and PoSh-Backup verifies the signature before execution/loading.
-    *   **Description:** Prevents unauthorized modification of scripts or critical configuration.
+    *   **Description:** Prevents unauthorised modification of scripts or critical configuration.
     *   **Scope & Impact:** `Modules\Managers\HookManager.psm1`, `Modules\ConfigManagement\ConfigLoader.psm1`. Use `Get-AuthenticodeSignature`.
     *   **Acceptance Criteria:** Script can be configured to only load/run signed components.
 
@@ -1404,7 +1389,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XLIII. User Customization & Theming (Beyond HTML Reports)**
 
-170. **Feature: Customisable Console Output Themes (Beyond Individual Colors)**
+170. **Feature: Customisable Console Output Themes (Beyond Individual colours)**
     *   **Goal:** Allow users to define named themes for console output (e.g., "HighContrastConsole", "MinimalConsole") that set a collection of `$Global:Colour*` variables.
     *   **Description:** Similar to HTML report themes, but for the console.
     *   **Scope & Impact:** `Config\Default.psd1` (new section for console themes), `Modules\Managers\InitialisationManager.psm1` (to load selected theme).
@@ -1475,10 +1460,10 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 **XLVII. Practical Reporting & Feedback**
 
 182. **Enhancement: HTML Report - Visual Indication of Log Level in Filter Checkboxes**
-    *   **Goal:** Style the log level filter checkboxes/labels in the HTML report with their corresponding colors.
-    *   **Description:** Makes it easier to visually associate filter toggles with log entry colors. E.g., the "ERROR" checkbox label is red.
+    *   **Goal:** Style the log level filter checkboxes/labels in the HTML report with their corresponding colours.
+    *   **Description:** Makes it easier to visually associate filter toggles with log entry colours. E.g., the "ERROR" checkbox label is red.
     *   **Scope & Impact:** `Modules\Reporting\ReportingHtml.psm1` (to add classes/styles to labels), `Modules\Reporting\Assets\ReportingHtml.Client.js` (if dynamic styling needed).
-    *   **Acceptance Criteria:** Log level filter options are color-coded.
+    *   **Acceptance Criteria:** Log level filter options are colour-coded.
 
 183. **Feature: "Estimated Backup Size" in Pre-Flight Check / TestConfig**
     *   **Goal:** Provide an *estimate* of the total size of source files for a job during `-TestConfig` or a pre-flight check.
@@ -1687,7 +1672,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 214. **Enhancement: Visual Cues for Required vs. Optional Settings (e.g., in `-ShowExample`)**
     *   **Goal:** When displaying example configurations or help, visually distinguish between required and optional settings.
-    *   **Description:** Could use color, asterisks, or comments.
+    *   **Description:** Could use colour, asterisks, or comments.
     *   **Scope & Impact:** `Modules\ScriptModeHandler.psm1` or wherever examples are generated/displayed.
     *   **Acceptance Criteria:** Users can easily identify mandatory configuration settings.
 

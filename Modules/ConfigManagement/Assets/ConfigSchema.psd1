@@ -4,7 +4,7 @@
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
-# Version: (Implicit) Updated 09-Jun-2025 (Generalised EmailNotifications to NotificationSettings/Profiles)
+# Version: (Implicit) Updated 10-Jun-2025 (Added Snapshot Provider settings)
 
 @{
     # Top-level global settings
@@ -73,6 +73,20 @@
     VSSPollingTimeoutSeconds                  = @{ Type = 'int'; Required = $false; Min = 1; Max = 3600 }
     VSSPollingIntervalSeconds                 = @{ Type = 'int'; Required = $false; Min = 1; Max = 600 }
 
+    SnapshotProviders                         = @{
+        Type             = 'hashtable'
+        Required         = $false
+        DynamicKeySchema = @{ # Schema for each named snapshot provider (e.g., "LocalHyperV")
+            Type     = "hashtable"
+            Required = $true
+            Schema   = @{
+                Type                  = @{ Type = 'string'; Required = $true; AllowedValues = @("HyperV", "VMware") } # Add more as they are developed
+                ProviderSpecificSettings = @{ Type = 'hashtable'; Required = $true } # Specific validation handled by provider
+                CredentialsSecretName = @{ Type = 'string'; Required = $false }
+            }
+        }
+    }
+
     EnableRetries                             = @{ Type = 'boolean'; Required = $false }
     MaxRetryAttempts                          = @{ Type = 'int'; Required = $false; Min = 0 }
     RetryDelaySeconds                         = @{ Type = 'int'; Required = $false; Min = 0 }
@@ -109,6 +123,7 @@
     DefaultCompressOpenFiles                  = @{ Type = 'boolean'; Required = $false }
     DefaultScriptExcludeRecycleBin            = @{ Type = 'string'; Required = $false }
     DefaultScriptExcludeSysVolInfo            = @{ Type = 'string'; Required = $false }
+    DefaultFollowSymbolicLinks                = @{ Type = 'boolean'; Required = $false }
 
     _PoShBackup_PSScriptRoot                  = @{ Type = 'string'; Required = $false } # Internal use by PoSh-Backup.ps1
 
@@ -162,6 +177,8 @@
             Type = "hashtable"; Required = $true
             Schema = @{
                 Path                                      = @{ Type = 'string_or_array'; Required = $true }
+                SourceIsVMName                            = @{ Type = 'boolean'; Required = $false } # NEW
+                SnapshotProviderName                      = @{ Type = 'string'; Required = $false }  # NEW
                 Name                                      = @{ Type = 'string'; Required = $true }
                 DestinationDir                            = @{ Type = 'string'; Required = $false }
                 Enabled                                   = @{ Type = 'boolean'; Required = $false }
@@ -188,6 +205,7 @@
                 SevenZipExcludeListFile                   = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
                 ReportGeneratorType                       = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
                 TreatSevenZipWarningsAsSuccess            = @{ Type = 'boolean'; Required = $false }
+                FollowSymbolicLinks                       = @{ Type = 'boolean'; Required = $false }
                 HtmlReportDirectory                       = @{ Type = 'string'; Required = $false }
                 CsvReportDirectory                        = @{ Type = 'string'; Required = $false }
                 JsonReportDirectory                       = @{ Type = 'string'; Required = $false }

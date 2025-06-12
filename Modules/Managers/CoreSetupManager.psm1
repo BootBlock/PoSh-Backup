@@ -14,7 +14,7 @@
     logging parameters, and determines the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.9 # Corrected order of operations for Maintenance Mode check.
+    Version:        1.5.1 # Bugfix: Corrected SecretManagement dependency check to use NotificationSettings.
     DateCreated:    01-Jun-2025
     LastModified:   10-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
@@ -53,7 +53,8 @@ function Test-RequiredModulesInternal {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -114,13 +115,16 @@ function Test-RequiredModulesInternal {
                         }
                     }
                     
-                    # Condition 3: Job uses an email notification profile that has a CredentialSecretName defined.
-                    $emailSettings = $jobConf.EmailNotification
-                    if ($emailSettings -is [hashtable] -and $emailSettings.Enabled -eq $true -and -not [string]::IsNullOrWhiteSpace($emailSettings.ProfileName)) {
-                        $profileName = $emailSettings.ProfileName
-                        if ($Config.EmailProfiles.ContainsKey($profileName)) {
-                            $emailProfile = $Config.EmailProfiles[$profileName]
-                            if ($emailProfile -is [hashtable] -and $emailProfile.ContainsKey('CredentialSecretName') -and (-not [string]::IsNullOrWhiteSpace($emailProfile.CredentialSecretName))) {
+                    # Condition 3: Job uses a notification profile that has a CredentialSecretName defined.
+                    $notificationSettings = $jobConf.NotificationSettings
+                    if ($notificationSettings -is [hashtable] -and $notificationSettings.Enabled -eq $true -and -not [string]::IsNullOrWhiteSpace($notificationSettings.ProfileName)) {
+                        $profileName = $notificationSettings.ProfileName
+                        if ($Config.NotificationProfiles.ContainsKey($profileName)) {
+                            $notificationProfile = $Config.NotificationProfiles[$profileName]
+                            if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings.ContainsKey('CredentialSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.CredentialSecretName))) {
+                                return $true
+                            }
+                            if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings.ContainsKey('WebhookUrlSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.WebhookUrlSecretName))) {
                                 return $true
                             }
                         }
@@ -241,22 +245,23 @@ function Invoke-PoShBackupCoreSetup {
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
         & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: Core modules loaded." -Level "INFO"
-    } catch {
+    }
+    catch {
         & $LoggerScriptBlock -Message "[FATAL] CoreSetupManager: Failed to import one or more required script modules. Error: $($_.Exception.Message)" -Level "ERROR"
         throw
     }
 
     # --- Configuration Loading and Validation ---
     $configLoadParams = @{
-        UserSpecifiedPath           = $ConfigFile
-        IsTestConfigMode            = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent) -or ($SyncSchedules.IsPresent))
-        MainScriptPSScriptRoot      = $PSScriptRoot
-        Logger                      = $LoggerScriptBlock
+        UserSpecifiedPath            = $ConfigFile
+        IsTestConfigMode             = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent) -or ($SyncSchedules.IsPresent))
+        MainScriptPSScriptRoot       = $PSScriptRoot
+        Logger                       = $LoggerScriptBlock
         SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
-        IsSimulateModeSwitch        = [bool]$Simulate.IsPresent
-        ListBackupLocationsSwitch   = [bool]$ListBackupLocations.IsPresent
-        ListBackupSetsSwitch        = [bool]$ListBackupSets.IsPresent
-        CliOverrideSettings         = $CliOverrideSettings
+        IsSimulateModeSwitch         = [bool]$Simulate.IsPresent
+        ListBackupLocationsSwitch    = [bool]$ListBackupLocations.IsPresent
+        ListBackupSetsSwitch         = [bool]$ListBackupSets.IsPresent
+        CliOverrideSettings          = $CliOverrideSettings
     }
     $configResult = Import-AppConfiguration @configLoadParams
 
@@ -270,14 +275,16 @@ function Invoke-PoShBackupCoreSetup {
     if ($configResult.PSObject.Properties.Name -contains 'UserConfigLoaded') {
         if ($configResult.UserConfigLoaded) {
             & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: User override configuration from '$($configResult.UserConfigPath)' was successfully loaded and merged." -Level "INFO"
-        } elseif (($null -ne $configResult.UserConfigPath) -and (-not $configResult.UserConfigLoaded) -and (Test-Path -LiteralPath $configResult.UserConfigPath -PathType Leaf)) {
+        }
+        elseif (($null -ne $configResult.UserConfigPath) -and (-not $configResult.UserConfigLoaded) -and (Test-Path -LiteralPath $configResult.UserConfigPath -PathType Leaf)) {
             & $LoggerScriptBlock -Message "[WARNING] CoreSetupManager: User override configuration '$($configResult.UserConfigPath)' was found but an issue occurred during its loading/merging." -Level "WARNING"
         }
     }
 
     if ($null -ne $Configuration -and $Configuration -is [hashtable]) {
         $Configuration['_PoShBackup_PSScriptRoot'] = $PSScriptRoot
-    } else {
+    }
+    else {
         & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: Configuration object is not a valid hashtable after loading." -Level "ERROR"
         throw "Configuration object is not a valid hashtable."
     }
@@ -287,7 +294,8 @@ function Invoke-PoShBackupCoreSetup {
         try {
             Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\ScheduleManager.psm1") -Force -ErrorAction Stop
             Sync-PoShBackupSchedule -Configuration $Configuration -PSScriptRoot $PSScriptRoot -Logger $LoggerScriptBlock -PSCmdlet $PSCmdlet
-        } catch {
+        }
+        catch {
             & $LoggerScriptBlock -Message "[FATAL] CoreSetupManager: Error during -SyncSchedules mode. Error: $($_.Exception.Message)" -Level "ERROR"
         }
         exit 0 # Exit after updating schedules
@@ -375,7 +383,8 @@ function Invoke-PoShBackupCoreSetup {
     if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
         & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: 7-Zip executable path ('$sevenZipPathFromFinalConfig') is invalid or not found." -Level "ERROR"
         throw "7-Zip executable path is invalid or not found."
-    } else {
+    }
+    else {
         & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: Effective 7-Zip executable path confirmed: '$sevenZipPathFromFinalConfig'" -Level "INFO"
     }
 
@@ -387,7 +396,8 @@ function Invoke-PoShBackupCoreSetup {
             try {
                 New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
                 & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: Log directory '$Global:GlobalLogDirectory' created." -Level "INFO"
-            } catch {
+            }
+            catch {
                 & $LoggerScriptBlock -Message "[WARNING] CoreSetupManager: Failed to create log directory '$Global:GlobalLogDirectory'. File logging may be impacted. Error: $($_.Exception.Message)" -Level "WARNING"
                 $Global:GlobalEnableFileLogging = $false
             }
@@ -399,8 +409,8 @@ function Invoke-PoShBackupCoreSetup {
     if ($initialJobsToConsider.Count -gt 0) {
         & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: Building job execution order considering dependencies..." -Level "INFO"
         $executionOrderResult = Get-JobExecutionOrder -InitialJobsToConsider $initialJobsToConsider `
-                                                        -AllBackupLocations $Configuration.BackupLocations `
-                                                        -Logger $LoggerScriptBlock
+            -AllBackupLocations $Configuration.BackupLocations `
+            -Logger $LoggerScriptBlock
         if (-not $executionOrderResult.Success) {
             & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: Could not build job execution order. Error: $($executionOrderResult.ErrorMessage)" -Level "ERROR"
             throw "Could not build job execution order."

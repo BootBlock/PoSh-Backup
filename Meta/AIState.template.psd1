@@ -13,6 +13,8 @@
     "  - **Finding Tasks:** `Get-ScheduledTask -TaskName 'MyTask' -TaskPath '\MyFolder'` is UNRELIABLE. The correct method is to get all tasks in the folder using a wildcard (`Get-ScheduledTask -TaskPath '\MyFolder\*'`) and then filter the results in PowerShell.",
     "  - **Deleting Tasks:** `Unregister-ScheduledTask` is also unreliable with `-TaskName` and `-TaskPath`. The correct method is to pass the task object directly using `-InputObject`.",
     "  - **Folder Existence:** `Get-ScheduledTaskFolder` is not universally available. The correct, compatible way to check for/create a folder is to use the `Schedule.Service` COM object.",
+    "CRITICAL (SYNTAX - Hyper-V): The `Checkpoint-VM` cmdlet can be ambiguous. Use the `-VMName` parameter set (e.g., `Checkpoint-VM -VMName 'MyVM' -Name 'MyCheckpoint'`) for better compatibility instead of passing the full VM object (`-VM <object>`). The `-SnapshotMode` parameter does not exist.",
+    "CRITICAL (SYNTAX - Hyper-V): The `Mount-VHD` cmdlet may not have a `-LiteralPath` parameter on all systems. Use the standard `-Path` parameter for compatibility.",
     "CRITICAL (SYNTAX): PowerShell 5.1 does not support inline if-statements like `$var = if (`$condition) { 'true' } else { 'false' }`. Use a standard multi-line if/else block to assign the variable before using it, especially inside here-strings or complex command arguments.",
     "CRITICAL (SYNTAX): PowerShell does not have a ternary operator (`condition ? true : false`). Use `if/else` statements or hashtable lookups.",
     "CRITICAL (SYNTAX): PowerShell logical AND is `-and`, not `&&`.",
@@ -37,8 +39,11 @@
     "    3. `It` blocks: Call local functions via `$script:` reference. Local functions call mocked dependencies directly. Assert mock calls (`Should -Invoke`). For external cmdlets like `Get-FileHash`, make them injectable `[scriptblock]` parameters in local test functions.",
     "  - **General Pester 5 Notes for This Environment:** `Import-Module` + `Get-Command` + `$script:`-scoped data is key for Pattern A. `$MyInvocation.MyCommand.ScriptBlock.File` for self dot-sourcing. `(`$result.GetType().IsArray) | Should -Be `$true` for array assertion. Clear shared mock log arrays in `ForEach` if used. PSSA `PSUseDeclaredVarsMoreThanAssignments` and `$var = `$null` interaction.",
     "MODULE_SCOPE (IMPORTANT): Functions from modules imported by a 'manager' or 'orchestrator' module are not automatically available to other modules called by that manager/orchestrator, nor to the script that called the manager. The module needing the function must typically import the provider of that function directly, or the calling script must import modules whose functions it will call directly after the manager/orchestrator returns. Using `-Global` on imports is a workaround but generally less desirable.",
+    "CRITICAL (MODULE_STATE): Module-scoped variables (e.g., `$Script:MyVar`) are NOT shared across different imports of the same module within a single script run. If state must be maintained (like tracking active snapshot sessions), use a global variable (`$Global:MyVar`) and ensure its name is unique to the module's purpose.",
     "AI STRATEGY (ORDER OF OPERATIONS): When adding a script-halting check (like Maintenance Mode), ensure it runs *after* any utility modes that are meant to configure that check (e.g., `-Maintenance `$false` must run before the script halts due to the maintenance file existing).",
-    "AI STRATEGY (PARAMETER PASSING): When a parameter type error occurs (e.g., `Cannot process argument transformation`), check the `param()` block of the *entire call stack* for that parameter, not just the entry point script. The type mismatch may be in a downstream function."
+    "AI STRATEGY (PARAMETER PASSING): When a parameter type error occurs (e.g., `Cannot process argument transformation`), check the `param()` block of the *entire call stack* for that parameter, not just the entry point script. The type mismatch may be in a downstream function.",
+    "AI STRATEGY (PARAMETER_PASSING): When a function in a facade module (e.g., SnapshotManager) calls a function in a provider module (e.g., HyperV.Snapshot), ensure that all necessary parameters like `$Logger` and `$PSCmdlet` are passed through the entire call chain. A failure to do so will result in parameter binding errors.",
+    "SYNTAX (CMDLET BEHAVIOR): Cmdlets that create or modify objects (e.g., Checkpoint-VM, New-ScheduledTaskTrigger) may not return the object by default. Always check if a -Passthru switch is needed to capture the result in a variable."
   )
 
   conversation_summary            = @(
@@ -117,6 +122,29 @@
     "  - Multi-Volume (Split) Archives, Job Chaining/Dependencies, 7-Zip Password Handling (-p switch), Include/Exclude List Files, CPU Affinity.",
     "  - Core Refactorings (Operations, Logging, Managers, Utils facade, PoSh-Backup.ps1 main loop to JobOrchestrator, ScriptModeHandler).",
     "  - SFX Archives, Checksums, Post-Run Actions, Expanded Backup Targets (UNC, Replicate, SFTP), Log File Retention.",
+    "--- Feature: Snapshot Orchestration for Hyper-V (Current Session Segment) ---",
+    "    - **Goal:** Implement infrastructure-level snapshotting for application-consistent VM backups, starting with Hyper-V.",
+    "    - **Configuration (`Config\Default.psd1` v1.9.1):**",
+    "        - Added a new top-level `SnapshotProviders` hashtable to define snapshot engine connections (e.g., 'LocalHyperV').",
+    "        - Added job-level `SnapshotProviderName` (string) and `SourceIsVMName` (boolean) settings.",
+    "        - Updated the example `HyperV_VM_Backup_Example` job to accept an array for the `Path` key, where element 0 is the VM name and subsequent elements are optional sub-paths to back up from within the guest (e.g., `C:\\Users`).",
+    "    - **Schema (`ConfigSchema.psd1`):** Updated to validate all new snapshot-related configuration keys.",
+    "    - **New Modules:**",
+    "        - `Modules\Managers\SnapshotManager.psm1` (v1.0.4): Created as a facade to orchestrate snapshot operations (create, get paths, remove).",
+    "        - `Modules\SnapshotProviders\HyperV.Snapshot.psm1` (v1.0.9): The concrete implementation for Hyper-V. Uses `Checkpoint-VM`, `Mount-VHD`, and `Dismount-VHD` to manage the snapshot lifecycle.",
+    "        - `Modules\Core\Operations\JobExecutor.SnapshotCleanupHandler.psm1` (v1.0.0): New cleanup handler dedicated to calling the SnapshotManager for cleanup.",
+    "    - **Core Logic Integration (`JobPreProcessor.psm1` v1.1.6):**",
+    "        - The pre-processor now checks for a `SnapshotProviderName` on a job.",
+    "        - If found, it calls the `SnapshotManager` to create and mount the snapshot.",
+    "        - It intelligently translates guest sub-paths to the temporary host-mounted drive letter.",
+    "        - It correctly passes the created `$snapshotSession` object back up the call stack for cleanup.",
+    "    - **Bug Fixes & Debugging (Critical):**",
+    "        - Corrected multiple `PSScriptAnalyzer` issues related to unused parameters and cmdlet naming (`Get-PoShBackupSnapshotPath`).",
+    "        - Fixed a series of parameter binding errors by ensuring `$Logger` and `$PSCmdlet` objects were passed through the entire call chain from facades to providers.",
+    "        - Resolved a critical bug where the `SnapshotManager` was not persisting the loaded provider module across different function calls, leading to the cleanup function not being found. The fix involved storing the loaded module object in the session state.",
+    "        - Addressed `7-Zip` `Access is denied` warnings on junction points by making the `-snl` switch configurable via a new `FollowSymbolicLinks` setting.",
+    "        - Fixed a bug in the retention policy scanner that prevented it from correctly matching archive filenames with date stamps.",
+    "    - **Current Status:** The feature is fully implemented and working. The final remaining issue is a bug causing the mounted VHD from the snapshot to not be dismounted upon successful completion."
     "--- Feature: Integrated Backup Job Scheduling (Completed in Previous Session Segment) ---",
     "    - **Goal:** Allow users to define backup schedules in the config file and synchronise them with Windows Task Scheduler.",
     "    - **Configuration:**",
@@ -210,7 +238,7 @@
     "        - `Modules\\Core\\JobOrchestrator.psm1`: Updated to call the new generic `Invoke-PoShBackupNotification` function after job completion (for both successful and skipped jobs).",
     "        - `Modules\\ConfigManagement\\EffectiveConfigBuilder\\OperationalSettings.psm1`: Logic updated to resolve the `NotificationSettings` hierarchy, giving the CLI override top priority.",
     "    - **Bug Fix:** Corrected an omission where the call to the notification manager was missing from `JobOrchestrator.psm1` after the initial refactoring.",
-    "--- Feature: Maintenance Mode (Current Session Segment) ---",
+    "--- Feature: Maintenance Mode (Completed in Previous Session Segment) ---",
     "    - **Goal:** A global flag (in config or on-disk) to prevent new backup jobs from starting.",
     "    - `Config\\Default.psd1`: Added `MaintenanceModeEnabled`, `MaintenanceModeMessage`, and `MaintenanceModeFilePath` global settings.",
     "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated schema for new maintenance settings.",
@@ -226,7 +254,7 @@
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, and robust parameter set handling for different operational modes. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.26.2 # Added Maintenance Mode feature."
+  main_script_poSh_backup_version = "1.27.0 # Added Hyper-V Snapshot Orchestration feature."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

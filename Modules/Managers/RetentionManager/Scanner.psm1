@@ -63,7 +63,7 @@ function Find-BackupArchiveInstance {
     # Regex to match the base archive name and primary extension, capturing it for instance identification.
     # This pattern will match "archive.7z" or "archive.exe" and also "archive.7z.001", "archive.exe.001" etc.
     # It also tries to match SFX files that might have had their original extension embedded, e.g. "archive.7z.exe"
-    $literalBaseName = $ArchiveBaseFileName -replace '([\.\^\$\*\+\?\(\)\[\]\{\}\|\\])', '\$1'
+    $literalBaseName = ($ArchiveBaseFileName -replace '([\.\^\$\*\+\?\(\)\[\]\{\}\|\\])', '\$1') + " \[\d{4}-\w{3}-\d{2}\]"
     $fileFilterPattern = "$($literalBaseName)*" # Broad filter to catch all related files, including .pinned
 
     & $LocalWriteLog -Message "   - RetentionManager/Scanner: Scanning for files with filter pattern: '$fileFilterPattern' in '$DestinationDirectory'" -Level "DEBUG"

@@ -4,14 +4,15 @@
     Resolves operational configuration settings for a PoSh-Backup job.
 .DESCRIPTION
     This sub-module for EffectiveConfigBuilder.psm1 determines effective settings
-    for VSS, retries, password management, log retention, 7-Zip output visibility,
-    free space checks, archive testing, pre/post backup script paths, post-run
-    system actions, the PinOnCreation flag, and notification settings.
+    for VSS, infrastructure snapshots (via a provider), retries, password management,
+    log retention, 7-Zip output visibility, free space checks, archive testing,
+    pre/post backup script paths, post-run system actions, the PinOnCreation flag,
+    and notification settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Updated to resolve generic NotificationSettings and handle CLI override.
+    Version:        1.4.0 # Added SnapshotProviderName and SourceIsVMName resolution.
     DateCreated:    30-May-2025
-    LastModified:   09-Jun-2025
+    LastModified:   10-Jun-2025
     Purpose:        Operational settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -57,6 +58,10 @@ function Resolve-OperationalConfiguration {
     $resolvedSettings.OriginalSourcePath = $JobConfig.Path
     $resolvedSettings.BaseFileName = $JobConfig.Name
 
+    # Snapshot Provider Settings
+    $resolvedSettings.SnapshotProviderName = Get-ConfigValue -ConfigObject $JobConfig -Key 'SnapshotProviderName' -DefaultValue $null
+    $resolvedSettings.SourceIsVMName = Get-ConfigValue -ConfigObject $JobConfig -Key 'SourceIsVMName' -DefaultValue $false
+
     # Local Retention settings
     $resolvedSettings.LocalRetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'LocalRetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3)
     if ($resolvedSettings.LocalRetentionCount -lt 0) { $resolvedSettings.LocalRetentionCount = 0 }
@@ -75,12 +80,20 @@ function Resolve-OperationalConfiguration {
     # 7-Zip Output
     $resolvedSettings.HideSevenZipOutput = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'HideSevenZipOutput' -DefaultValue $true
 
-    # VSS Settings (Skip > Use > Config)
-    if ($CliOverrides.SkipVSS) {
-        $resolvedSettings.JobEnableVSS = $false
-    } elseif ($CliOverrides.UseVSS) {
+    # VSS Settings (Skip > Use > Config). This logic is now intertwined with Snapshot provider.
+    if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.SnapshotProviderName)) {
+        # If a snapshot provider is used, VSS is implicitly part of the process for consistency, managed by the provider.
+        # We set JobEnableVSS to true to reflect this, but the main VssManager won't run. JobPreProcessor will delegate to SnapshotManager.
         $resolvedSettings.JobEnableVSS = $true
-    } else {
+        & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Infrastructure Snapshot Provider is active. VSS is implicitly enabled and managed by the provider." -Level "DEBUG"
+    }
+    elseif ($CliOverrides.SkipVSS) {
+        $resolvedSettings.JobEnableVSS = $false
+    }
+    elseif ($CliOverrides.UseVSS) {
+        $resolvedSettings.JobEnableVSS = $true
+    }
+    else {
         $resolvedSettings.JobEnableVSS = Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableVSS' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableVSS' -DefaultValue $false)
     }
     $resolvedSettings.JobVSSContextOption = Get-ConfigValue -ConfigObject $JobConfig -Key 'VSSContextOption' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVSSContextOption' -DefaultValue "Persistent NoWriters")

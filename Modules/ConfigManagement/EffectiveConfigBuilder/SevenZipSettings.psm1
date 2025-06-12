@@ -63,6 +63,7 @@ function Resolve-SevenZipConfiguration {
     $resolvedSettings.JobSolidBlockSize = Get-ConfigValue -ConfigObject $JobConfig -Key 'SolidBlockSize' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSolidBlockSize' -DefaultValue "-ms=16g")
     $resolvedSettings.JobCompressOpenFiles = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressOpenFiles' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressOpenFiles' -DefaultValue $true)
     $resolvedSettings.JobAdditionalExclusions = @(Get-ConfigValue -ConfigObject $JobConfig -Key 'AdditionalExclusions' -DefaultValue @())
+    $resolvedSettings.FollowSymbolicLinks = Get-ConfigValue -ConfigObject $JobConfig -Key 'FollowSymbolicLinks' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultFollowSymbolicLinks' -DefaultValue $false)
 
     $_globalConfigThreads = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultThreadCount' -DefaultValue 0
     $_jobSpecificThreadsToUse = Get-ConfigValue -ConfigObject $JobConfig -Key 'ThreadsToUse' -DefaultValue 0
