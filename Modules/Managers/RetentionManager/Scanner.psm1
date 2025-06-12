@@ -63,8 +63,7 @@ function Find-BackupArchiveInstance {
     # Regex to match the base archive name and primary extension, capturing it for instance identification.
     # This pattern will match "archive.7z" or "archive.exe" and also "archive.7z.001", "archive.exe.001" etc.
     # It also tries to match SFX files that might have had their original extension embedded, e.g. "archive.7z.exe"
-    $literalBaseName = ($ArchiveBaseFileName -replace '([\.\^\$\*\+\?\(\)\[\]\{\}\|\\])', '\$1') + " \[\d{4}-\w{3}-\d{2}\]"
-    $fileFilterPattern = "$($literalBaseName)*" # Broad filter to catch all related files, including .pinned
+    $fileFilterPattern = "$($ArchiveBaseFileName)*"
 
     & $LocalWriteLog -Message "   - RetentionManager/Scanner: Scanning for files with filter pattern: '$fileFilterPattern' in '$DestinationDirectory'" -Level "DEBUG"
     $allMatchingFiles = Get-ChildItem -Path $DestinationDirectory -Filter $fileFilterPattern -File -ErrorAction SilentlyContinue
@@ -74,97 +73,50 @@ function Find-BackupArchiveInstance {
         return $backupInstances
     }
 
-    foreach ($fileInfo in $allMatchingFiles) {
-        # Skip .pinned files in this initial loop; they will be associated later.
-        if ($fileInfo.Extension -eq ".pinned") {
-            continue
-        }
+# This regex is designed to find the common "instance key" from any related file.
+# It captures the base name, the date stamp, and the primary extension.
+# e.g., for "MyJob [2025-06-12].7z.001", it will capture "MyJob [2025-06-12].7z"
+$baseNamePattern = [regex]::Escape($ArchiveBaseFileName)
+$dateStampPattern = "\[\d{4}-\w{3}-\d{2}\]" # Matches [yyyy-MMM-dd]
+$primaryExtPattern = [regex]::Escape($ArchiveExtension)
+$instanceKeyPattern = "^($baseNamePattern\s$dateStampPattern$primaryExtPattern)"
 
-        $instanceIdentifier = ""
-        $isFirstVolumePart = $false
-        $fileIsPartOfSplitSet = $false
+foreach ($fileInfo in $allMatchingFiles) {
+    if ($fileInfo.Extension -eq ".pinned") { continue }
 
-        # Pattern for split volumes: "BaseNameAndPrimaryExt.NNN" (e.g., "MyJob [Date].7z.001")
-        $splitVolumePattern = "^($([regex]::Escape($ArchiveBaseFileName + $ArchiveExtension)))\.(\d{3,})$"
-
-        if ($fileInfo.Name -match $splitVolumePattern) {
-            $instanceIdentifier = $Matches[1] # e.g., "MyJob [Date].7z"
-            $fileIsPartOfSplitSet = $true
-            if ($Matches[2] -eq "001") {
-                $isFirstVolumePart = $true
-            }
-        } else {
-            # For non-split files, or SFX files where ArchiveExtension might be .exe
-            # The instance identifier is the full filename.
-            if ($fileInfo.Name -eq ($ArchiveBaseFileName + $ArchiveExtension)) {
-                 $instanceIdentifier = $fileInfo.Name
-            } elseif ($ArchiveExtension -ne $fileInfo.Extension -and $fileInfo.Name -like ($ArchiveBaseFileName + "*") -and $fileInfo.Extension -eq ".exe") { # Handles SFX like "MyJob [Date].7z.exe"
-                $instanceIdentifier = $fileInfo.Name
-            } else {
-                # This could be a manifest file, which we'll associate later.
-                if ($fileInfo.Name -notlike "*.manifest.*") {
-                    & $LocalWriteLog -Message "   - RetentionManager/Scanner: File '$($fileInfo.Name)' does not match expected single or split volume pattern for base '$ArchiveBaseFileName' and ext '$ArchiveExtension'. Skipping for now." -Level "DEBUG"
-                }
-                continue
-            }
-        }
-
-        if (-not $backupInstances.ContainsKey($instanceIdentifier)) {
-            $backupInstances[$instanceIdentifier] = @{
-                SortTime = if ($isFirstVolumePart) { $fileInfo.CreationTime } else { [datetime]::MaxValue }
-                Files    = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
-                Pinned   = $false # Initialize Pinned status
-            }
-        }
-        $backupInstances[$instanceIdentifier].Files.Add($fileInfo)
-
-        if ($isFirstVolumePart) {
-            if ($fileInfo.CreationTime -lt $backupInstances[$instanceIdentifier].SortTime) {
-                $backupInstances[$instanceIdentifier].SortTime = $fileInfo.CreationTime
-            }
-        } elseif (-not $fileIsPartOfSplitSet) { # Single file archive
-             $backupInstances[$instanceIdentifier].SortTime = $fileInfo.CreationTime
-        }
+    $instanceIdentifier = $null
+    if ($fileInfo.Name -match $instanceKeyPattern) {
+        $instanceIdentifier = $Matches[1]
+    }
+    
+    if ([string]::IsNullOrWhiteSpace($instanceIdentifier)) {
+        & $LocalWriteLog -Message "   - RetentionManager/Scanner: File '$($fileInfo.Name)' does not match expected instance pattern. Skipping." -Level "DEBUG"
+        continue
     }
 
-    # Refine SortTime for split sets that might have been processed out of order or missing .001 initially
-    # And now, also look for associated manifest and pinned files for each identified instance.
-    foreach ($instanceKeyToRefine in $backupInstances.Keys) {
-        if ($backupInstances[$instanceKeyToRefine].SortTime -eq [datetime]::MaxValue) {
-            if ($backupInstances[$instanceKeyToRefine].Files.Count -gt 0) {
-                $earliestPartFoundTime = ($backupInstances[$instanceKeyToRefine].Files | Sort-Object CreationTime | Select-Object -First 1).CreationTime
-                $backupInstances[$instanceKeyToRefine].SortTime = $earliestPartFoundTime
-                & $LocalWriteLog -Message "[WARNING] RetentionManager/Scanner: Backup instance '$instanceKeyToRefine' appears to be missing its first volume part (e.g., .001) or was processed out of order. Using earliest found part's time for sorting. This might indicate an incomplete backup set." -Level "WARNING"
-            } else {
-                # Should not happen if files were added, but as a safeguard
-                $backupInstances.Remove($instanceKeyToRefine)
-                continue # Skip to next instance if this one is now empty
-            }
-        }
-
-        # Look for manifest file associated with this instance
-        # $instanceKeyToRefine is "JobName [DateStamp].<PrimaryExtension>" e.g. "MyJob [2025-06-01].7z"
-        # Manifest pattern: "JobName [DateStamp].<PrimaryExtension>.manifest.*"
-        $manifestPattern = [regex]::Escape($instanceKeyToRefine) + ".manifest.*"
-        $manifestFile = $allMatchingFiles |
-                        Where-Object { $_.Name -match $manifestPattern } |
-                        Sort-Object CreationTime -Descending | # Get newest if multiple (should not happen)
-                        Select-Object -First 1
-        
-        if ($null -ne $manifestFile) {
-            & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found associated manifest file '$($manifestFile.Name)' for instance '$instanceKeyToRefine'." -Level "DEBUG"
-            $backupInstances[$instanceKeyToRefine].Files.Add($manifestFile)
-        } else {
-            & $LocalWriteLog -Message "   - RetentionManager/Scanner: No manifest file found matching pattern '$manifestPattern' for instance '$instanceKeyToRefine'." -Level "DEBUG"
-        }
-
-        # Look for a .pinned file associated with this instance
-        $pinFilePath = Join-Path -Path $DestinationDirectory -ChildPath "$instanceKeyToRefine.pinned"
-        if (Test-Path -LiteralPath $pinFilePath -PathType Leaf) {
-            & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found PINNED marker for instance '$instanceKeyToRefine'." -Level "INFO"
-            $backupInstances[$instanceKeyToRefine].Pinned = $true
+    if (-not $backupInstances.ContainsKey($instanceIdentifier)) {
+        $backupInstances[$instanceIdentifier] = @{
+            SortTime = $fileInfo.CreationTime # Use first file's time as initial sort time
+            Files    = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+            Pinned   = $false
         }
     }
+    $backupInstances[$instanceIdentifier].Files.Add($fileInfo)
+
+    # Refine sort time - oldest creation time in the group is the most reliable.
+    if ($fileInfo.CreationTime -lt $backupInstances[$instanceIdentifier].SortTime) {
+        $backupInstances[$instanceIdentifier].SortTime = $fileInfo.CreationTime
+    }
+}
+
+# Final pass to associate .pinned files
+foreach ($instanceKey in $backupInstances.Keys) {
+    $pinFilePath = Join-Path -Path $DestinationDirectory -ChildPath "$instanceKey.pinned"
+    if (Test-Path -LiteralPath $pinFilePath -PathType Leaf) {
+        & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found PINNED marker for instance '$instanceKey'." -Level "INFO"
+        $backupInstances[$instanceKey].Pinned = $true
+    }
+}
 
     & $LocalWriteLog -Message "   - RetentionManager/Scanner: Found $($backupInstances.Count) logical backup instance(s) after processing and manifest/pin scan." -Level "DEBUG"
     return $backupInstances

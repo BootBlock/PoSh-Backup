@@ -18,7 +18,7 @@
     This facade approach allows PoSh-Backup to support various snapshot technologies in a pluggable manner.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.4 # Corrected session state to properly store and retrieve loaded provider module.
+    Version:        1.0.5 # Switched to Global scope for session tracking to fix cleanup.
     DateCreated:    10-Jun-2025
     LastModified:   12-Jun-2025
     Purpose:        Facade for infrastructure snapshot management.
@@ -30,7 +30,12 @@
 #region --- Module-Scoped Variables ---
 # This will track active snapshot sessions for the current run, keyed by a unique identifier.
 # The value will contain the session object returned by the provider AND the loaded provider module itself.
-$Script:SnapshotManager_ActiveSessions = @{}
+# Using Global scope is essential here because different modules (JobPreProcessor and SnapshotCleanupHandler)
+# will import this manager, creating different script scopes. A global variable ensures they all
+# access the SAME session hashtable for the entire PoSh-Backup run.
+if (-not $Global:PoShBackup_SnapshotManager_ActiveSessions) {
+    $Global:PoShBackup_SnapshotManager_ActiveSessions = @{}
+}
 #endregion
 
 #region --- Exported Functions ---
@@ -98,10 +103,10 @@ function New-PoShBackupSnapshot {
 
             if ($null -ne $snapshotSession -and $snapshotSession.Success) {
                 $sessionId = $snapshotSession.SessionId
-                # CORRECTED: Store the loaded module along with the session info
-                $Script:SnapshotManager_ActiveSessions[$sessionId] = @{
-                    SessionInfo    = $snapshotSession
-                    ProviderModule = $providerModule
+                $Global:PoShBackup_SnapshotManager_ActiveSessions[$sessionId] = @{
+                    SessionInfo        = $snapshotSession
+                    ProviderModuleName = $providerModule.Name
+                    ProviderModulePath = $providerModule.Path
                 }
                 & $LocalWriteLog -Message "SnapshotManager: Successfully created snapshot session '$sessionId' for job '$JobName'." -Level "SUCCESS"
                 return $snapshotSession
@@ -132,13 +137,12 @@ function Get-PoShBackupSnapshotPath {
         [scriptblock]$Logger
     )
     $sessionId = $SnapshotSession.SessionId
-    if (-not $Script:SnapshotManager_ActiveSessions.ContainsKey($sessionId)) {
+    if (-not $Global:PoShBackup_SnapshotManager_ActiveSessions.ContainsKey($sessionId)) {
         Write-Error "SnapshotManager: Cannot get snapshot paths. No active session found for ID '$sessionId'."
         return $null
     }
 
-    # CORRECTED: Retrieve the stored module from the session data
-    $sessionData = $Script:SnapshotManager_ActiveSessions[$sessionId]
+    $sessionData = $Global:PoShBackup_SnapshotManager_ActiveSessions[$sessionId]
     $providerModule = $sessionData.ProviderModule
     $invokeFunctionName = "Get-PoShBackupSnapshotPathsInternal"
     $providerFunctionCmd = Get-Command $invokeFunctionName -Module $providerModule -ErrorAction SilentlyContinue
@@ -161,14 +165,18 @@ function Remove-PoShBackupSnapshot {
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
     $sessionId = $SnapshotSession.SessionId
-    if (-not $Script:SnapshotManager_ActiveSessions.ContainsKey($sessionId)) {
+    if (-not $Global:PoShBackup_SnapshotManager_ActiveSessions.ContainsKey($sessionId)) {
         Write-Warning "SnapshotManager: Cannot remove snapshot. No active session found for ID '$sessionId'. It may have already been cleaned up."
         return
     }
 
-    # CORRECTED: Retrieve the stored module from the session data
-    $sessionData = $Script:SnapshotManager_ActiveSessions[$sessionId]
-    $providerModule = $sessionData.ProviderModule
+    $sessionData = $Global:PoShBackup_SnapshotManager_ActiveSessions[$sessionId]
+    $providerModulePath = $sessionData.ProviderModulePath
+    if ([string]::IsNullOrWhiteSpace($providerModulePath) -or -not (Test-Path -LiteralPath $providerModulePath)) {
+        Write-Error "SnapshotManager: Could not find provider module path '$providerModulePath' stored in session '$sessionId'. Cannot perform cleanup."
+        return
+    }
+    $providerModule = Import-Module -Name $providerModulePath -Force -PassThru
     $providerType = $providerModule.Name
     
     if (-not $PSCmdlet.ShouldProcess($sessionId, "Remove Snapshot (via provider '$providerType')")) {
@@ -186,7 +194,7 @@ function Remove-PoShBackupSnapshot {
         Write-Error "SnapshotManager: Active provider module for session '$sessionId' is missing the required function '$invokeFunctionName'."
     }
 
-    $Script:SnapshotManager_ActiveSessions.Remove($sessionId)
+    $Global:PoShBackup_SnapshotManager_ActiveSessions.Remove($sessionId)
 }
 
 #endregion

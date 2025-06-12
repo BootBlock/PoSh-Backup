@@ -5,6 +5,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 
 ## Features
 *   **Enterprise-Grade PowerShell Solution:** Robust, modular design built with dedicated PowerShell modules for reliability, maintainability, and clarity.
+*   **Infrastructure Snapshot Orchestration (Hyper-V):** Perform application-consistent backups of live Hyper-V virtual machines with minimal performance impact. PoSh-Backup orchestrates the creation of a VM checkpoint, mounts the snapshot's virtual disk(s) to the host, backs up the data from the static snapshot, and then automatically cleans up the checkpoint and mount points. This allows for reliable backups of entire VMs or specific folders within them.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
 *   **Maintenance Mode:** A global flag (either in the configuration file or via a simple on-disk `.maintenance` file) can prevent any new backup jobs from starting. This is ideal for performing system maintenance without generating failed job reports. The mode can be easily toggled via a command-line switch (`-Maintenance $true/$false`) and bypassed for a specific run if needed (`-ForceRunInMaintenanceMode`).
 *   **Integrated Backup Scheduling:** Define backup schedules directly within your job configurations. A simple command (`-SyncSchedules`) synchronises these settings with the Windows Task Scheduler, creating, updating, or removing tasks as needed for a true "set and forget" experience.
@@ -67,6 +68,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **PowerShell:** Version 5.1 or higher.
 *   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
 *   **Posh-SSH Module:** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).*   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files, and potentially for some Post-Run System Actions (e.g., Shutdown, Restart, Hibernate).
+*   **Hyper-V Module:** Required if you plan to use the Hyper-V Snapshot Orchestration feature. On Windows Client OS, this is installed via "Turn Windows features on or off". On Windows Server, it's installed as a server role.
 *   **(WebDAV):** The WebDAV target provider uses built-in PowerShell cmdlets (`Invoke-WebRequest`) and does not require an additional external module for its core functionality.
 *   **Network/Remote Access:** For using Backup Targets, appropriate permissions and connectivity to the remote locations (e.g., UNC shares) are necessary for the user account running PoSh-Backup. For the Update Checking feature, internet access is required to fetch the remote version manifest.
 
@@ -91,6 +93,7 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
         *   `Managers/`: Modules for managing specific functionalities (e.g., `7ZipManager.psm1`, `VssManager.psm1`, `LogManager.psm1`, `JobDependencyManager.psm1`, `SystemStateManager.psm1`, etc.).
         *   `Operations/`: Sub-modules for specific phases of a backup job (e.g., `JobPreProcessor.psm1`, `LocalArchiveProcessor.psm1`).
         *   `Reporting/`: Modules related to report generation.
+        *   `SnapshotProviders/`: Sub-directory for infrastructure snapshot provider modules (e.g., `HyperV.Snapshot.psm1`).
         *   `Targets/`: Sub-directory for Backup Target provider modules.
         *   `Utilities/`: Sub-directory for specialised utility modules (including `Update.psm1` for update checks).
         *   (Other direct .psm1 files like `Utils.psm1`, `ScriptModeHandler.psm1`, `PoShBackupValidator.psm1`)
@@ -451,6 +454,57 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
 3.  **Explore `Config\Default.psd1` for All Options:**
     *   Open `Config\Default.psd1` (but don't edit it for your settings). This file serves as a comprehensive reference. It contains detailed comments explaining every available global and job-specific setting.
 
+### Backing Up Virtual Machines via Snapshot Orchestration
+This is a powerful enterprise feature that allows for application-consistent backups of live virtual machines with minimal performance impact.
+
+**How it Works:**
+Instead of backing up files directly from the live VM's file system, PoSh-Backup orchestrates the underlying hypervisor (currently Hyper-V) to:
+1.  Create a temporary, application-consistent checkpoint (snapshot) of the target VM.
+2.  Mount the virtual hard disk(s) from this checkpoint onto the host machine where PoSh-Backup is running.
+3.  Perform the 7-Zip backup operation against the data on the mounted, static snapshot.
+4.  Once the backup is complete, automatically dismount the disk(s) and remove the checkpoint from the VM, leaving the live VM untouched.
+
+**Host System Setup for Hyper-V:**
+1.  **Administrator Privileges:** You must run `PoSh-Backup.ps1` from a PowerShell session with Administrator privileges.
+2.  **Hyper-V PowerShell Module:** The `Hyper-V` module must be installed and enabled.
+3.  **SAN Policy:** The host's SAN Policy must be set to `OnlineAll` to allow the mounted VHDs to be automatically brought online. To check and set this, run `diskpart` as an administrator, then use the commands `san policy` to view and `san policy=OnlineAll` to set.
+4.  **BitLocker:** The guest VM's volumes **must not** be encrypted with BitLocker. The host OS cannot read BitLocker-encrypted volumes when mounting a VHD, and the backup will fail.
+
+**Configuration Example:**
+
+1.  **Define the Provider:** In `Config\Default.psd1` (or `User.psd1`), ensure a provider is defined in the `SnapshotProviders` section. For a local Hyper-V host, this is all you need:
+    ```powershell
+    SnapshotProviders = @{
+        "LocalHyperV" = @{
+            Type = "HyperV"
+            ProviderSpecificSettings = @{}
+        }
+    }
+    ```
+
+2.  **Define the Backup Job:** Create a job in `BackupLocations`.
+    ```powershell
+    "HyperV_VM_Backup_Example" = @{
+        # When using a SnapshotProvider, 'Path' becomes an array where:
+        # - Element 0 is the Name of the Virtual Machine to be snapshotted.
+        # - Subsequent elements (optional) are the specific paths *inside* the VM to back up.
+        #   If only the VM name is provided (e.g., Path = "MyVM"), the entire mounted VM disk is backed up.
+        Path                    = @(
+            "MyWebApp-VM01",      # The VM Name.
+            "C:\inetpub\wwwroot", # A specific folder to back up from the snapshot.
+            "D:\Logs"             # Another folder from another drive in the VM.
+        )
+        SourceIsVMName          = $true         # Tells PoSh-Backup to use the Snapshot Provider.
+        SnapshotProviderName    = "LocalHyperV" # Links this job to the provider defined above.
+
+        # Standard job settings:
+        Name                    = "MyWebAppVM_Backup"
+        DestinationDir          = "D:\Backups\VMs"
+        LocalRetentionCount     = 7
+        EnableVSS               = $true # Still recommended for application consistency inside the guest.
+    }
+    ```
+
 ### 4. Basic Usage Examples
 Once your `Config\User.psd1` is configured with at least one backup job, you can run PoSh-Backup from a PowerShell console located in the script's root directory:
 
@@ -480,6 +534,11 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups"
     ```
     (Replace `"DailyCriticalBackups"` with the name of a defined set. If the "DailyCriticalBackups" set has a `PostRunAction`, it will be evaluated after all jobs in the set complete. This set-level action overrides any job-level post-run actions within the set. Log retention for jobs in this set will follow the set's `LogRetentionCount` if defined, otherwise job or global settings.)
+
+*   **Run a Hyper-V VM backup job:**
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "HyperV_VM_Backup_Example"
+    ```
 
 *   **Simulate a backup job (local archive creation, any remote transfers, checksum operations, SFX creation, CPU affinity application, log retention, and post-run actions will be simulated):**
     ```powershell
