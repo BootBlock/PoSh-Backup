@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.9.1: Refined Snapshot job definition to allow specifying sub-paths within a VM.
+# Version 1.9.2: Added VerificationJobs section for automated restore testing.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -439,7 +439,6 @@
             }
             RemoteRetentionSettings = @{
                 KeepCount = 5 # Example: Keep the last 5 backup instances on this WebDAV target.
-                            # Note: WebDAV retention is currently a placeholder in WebDAV.Target.psm1 and not fully implemented.
             }
         }
 
@@ -474,6 +473,47 @@
                                        # Valid: "SUCCESS", "WARNINGS", "FAILURE", "SIMULATED_COMPLETE", "ANY".
                                        # "ANY" means the action triggers if Enabled=$true, regardless of status.
         ForceAction     = $false # For "Shutdown" or "Restart", $true attempts to force the operation (e.g., closing apps without saving).
+    }
+    #endregion
+
+    #region --- NEW: Automated Backup Verification ---
+    # Define automated verification jobs. These run independently of backup jobs via a new CLI switch.
+    VerificationJobs = @{
+        # Example verification job.
+        "Verify_Pojects" = @{
+            # Master switch for this verification job. Set to $true to enable.
+            Enabled = $true
+
+            # The name of the backup job (from BackupLocations) whose archives you want to test.
+            TargetJobName = "projects"
+            
+            # The name of the secret (in PowerShell SecretManagement) that holds the password for the
+            # archive, if it's encrypted. This is required if the target job creates encrypted archives.
+            #ArchivePasswordSecretName = "VMBackupPassword"
+
+            # A temporary, empty directory where the archive will be restored for verification.
+            # WARNING: The contents of this directory may be cleared automatically. Do not use an important path.
+            SandboxPath = "D:\Backup_Verification_Sandbox"
+
+            # What to do if the sandbox path is not empty when the job starts.
+            # "Fail" (default): The verification job will fail.
+            # "CleanAndContinue": The verification job will attempt to delete the contents and proceed.
+            OnDirtySandbox = "CleanAndContinue"
+
+            # An array of verification steps to perform after the restore.
+            # Available steps:
+            # - "TestArchive": Simply tests the archive integrity using `7z t`. This happens before restore.
+            # - "VerifyChecksums": (Most thorough) For each restored file, recalculates its checksum and
+            #   compares it against the value stored in the backup's manifest file. Fails if the manifest
+            #   is missing or if any checksum does not match.
+            # - "CompareFileCount": A basic check to ensure the number of restored files/folders matches
+            #   the count from the archive's listing.
+            VerificationSteps = @("TestArchive", "VerifyChecksums")
+            
+            # How many of the most recent backup instances for the TargetJobName to test.
+            # '1' will test only the very latest backup. '3' will test the latest three.
+            TestLatestCount = 1
+        }
     }
     #endregion
 
@@ -523,6 +563,7 @@
             #GenerateSplitArchiveManifest = $false                    # Job-specific. $true to generate a manifest for split archives. Overrides GenerateArchiveChecksum for the primary archive.
 
             GenerateArchiveChecksum     = $true                       # Example: Enable checksum generation for this job
+            GenerateContentsManifest    = $true
             ChecksumAlgorithm           = "SHA256"                    # Use SHA256
             VerifyArchiveChecksumOnTest = $true                       # Verify checksum if TestArchiveAfterCreation is also true
 
@@ -595,27 +636,28 @@
             # - Element 0 is the Name of the Virtual Machine to be snapshotted.
             # - Subsequent elements (optional) are the specific paths *inside* the VM to back up.
             #   If only the VM name is provided (e.g., Path = "MyVM"), the entire mounted VM disk will be backed up.
-            Path                    = @(
+            Path                     = @(
                 "Windows10",                                          # Element 0: The VM Name. <-- CHANGE THIS to your test VM name.
                 "C:\Users\Public"                                     # Element 1 (Optional): A specific folder to back up from the snapshot.
                 #"D:\Data\Important"                                  # Element 2 (Optional): Another folder from another drive in the VM.
             )
-            SourceIsVMName          = $true                           # Tells PoSh-Backup to treat 'Path' as a VM name for the snapshot provider.
-            SnapshotProviderName    = "LocalHyperV"                   # Links this job to the 'LocalHyperV' provider defined in 'SnapshotProviders'.
+            SourceIsVMName           = $true                           # Tells PoSh-Backup to treat 'Path' as a VM name for the snapshot provider.
+            SnapshotProviderName     = "LocalHyperV"                   # Links this job to the 'LocalHyperV' provider defined in 'SnapshotProviders'.
 
-            Name                    = "Windows10"
-            DestinationDir          = "D:\Backups"                    # <-- CHANGE THIS to a valid path on your system.
-            Enabled                 = $true
-            LocalRetentionCount     = 5
+            Name                     = "Windows10"
+            DestinationDir           = "D:\Backups"                    # <-- CHANGE THIS to a valid path on your system.
+            GenerateContentsManifest = $true
+            Enabled                  = $true
+            LocalRetentionCount      = 5
             #TargetNames             = @("ExampleUNCShare")
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
 
             # VSS is still relevant. The snapshot provider will trigger VSS *inside* the guest VM
             # to ensure application-consistent snapshots. Requires Hyper-V Integration Services in the guest.
-            EnableVSS               = $true
+            EnableVSS                = $true
 
             # Other settings apply as normal to the resulting archive.
-            ArchivePasswordMethod   = "None" #"SecretManagement"
+            ArchivePasswordMethod    = "None" #"SecretManagement"
             ArchivePasswordSecretName = "VMBackupPassword"
             TreatSevenZipWarningsAsSuccess = $true
             NotificationSettings = @{

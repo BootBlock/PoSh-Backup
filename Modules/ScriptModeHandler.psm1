@@ -7,19 +7,19 @@
 .DESCRIPTION
     This module provides a function, Invoke-PoShBackupScriptMode, which checks if PoSh-Backup
     was invoked with a non-backup parameter like -ListArchiveContents, -ExtractFromArchive,
-    -PinBackup, -TestConfig, or -Maintenance.
+    -PinBackup, -TestConfig, -RunVerificationJobs, or -Maintenance.
     If one of these modes is active, this module takes over, performs the requested action,
     and then exits the script. This keeps the main PoSh-Backup.ps1 script cleaner by
     offloading this mode-specific logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.6.4 # Removed unused PSScriptRootForUpdateCheck parameter.
+    Version:        1.7.0 # Added -RunVerificationJobs mode.
     DateCreated:    24-May-2025
-    LastModified:   10-Jun-2025
+    LastModified:   12-Jun-2025
     Purpose:        To handle informational and utility script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
-                    Requires PinManager, PasswordManager, and 7ZipManager for specific modes.
+                    Requires PinManager, PasswordManager, 7ZipManager, and VerificationManager for specific modes.
 #>
 
 #region --- Module Dependencies ---
@@ -60,6 +60,9 @@ function Invoke-PoShBackupScriptMode {
 
         [Parameter(Mandatory = $true)]
         [bool]$TestConfigSwitch,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$RunVerificationJobsSwitch,
 
         [Parameter(Mandatory = $true)]
         [bool]$CheckForUpdateSwitch,
@@ -120,6 +123,33 @@ function Invoke-PoShBackupScriptMode {
         } else {
             & $Logger -Message $Message -Level $Level
         }
+    }
+
+    if ($RunVerificationJobsSwitch) {
+        & $LocalWriteLog -Message "`n--- Automated Backup Verification Mode ---" -Level "HEADING"
+        $verificationManagerPath = Join-Path -Path $PSScriptRoot -ChildPath "Managers\VerificationManager.psm1"
+        try {
+            if (-not (Test-Path -LiteralPath $verificationManagerPath -PathType Leaf)) {
+                throw "VerificationManager.psm1 not found at '$verificationManagerPath'."
+            }
+            Import-Module -Name $verificationManagerPath -Force -ErrorAction Stop
+            if (-not (Get-Command Invoke-PoShBackupVerification -ErrorAction SilentlyContinue)) {
+                throw "Could not find the Invoke-PoShBackupVerification command after importing the module."
+            }
+            
+            $verificationParams = @{
+                Configuration = $Configuration
+                Logger        = $Logger
+                PSCmdlet      = $PSCmdletForUpdateCheck # Re-use the passed PSCmdlet object
+            }
+            Invoke-PoShBackupVerification @verificationParams
+
+        } catch {
+            & $LocalWriteLog -Message "[FATAL] ScriptModeHandler: Error during -RunVerificationJobs mode. Error: $($_.Exception.Message)" -Level "ERROR"
+            exit 14 # Specific exit code for verification mode failure
+        }
+        & $LocalWriteLog -Message "`n--- Verification Run Finished ---" -Level "HEADING"
+        exit 0 # Exit after running verification jobs
     }
 
     if ($PSBoundParameters.ContainsKey('MaintenanceSwitchValue')) {

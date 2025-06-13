@@ -14,9 +14,9 @@
     logging parameters, and determines the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.1 # Bugfix: Corrected SecretManagement dependency check to use NotificationSettings.
+    Version:        1.6.0 # Added RunVerificationJobs parameter.
     DateCreated:    01-Jun-2025
-    LastModified:   10-Jun-2025
+    LastModified:   12-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
     Prerequisites:  PowerShell 5.1+.
                     Relies on InitialisationManager.psm1 and CliManager.psm1 having been run.
@@ -218,6 +218,8 @@ function Invoke-PoShBackupCoreSetup {
         [switch]$ListBackupSets,
         [Parameter(Mandatory = $false)]
         [switch]$SyncSchedules,
+        [Parameter(Mandatory = $false)]
+        [switch]$RunVerificationJobs,
         [Parameter(Mandatory = $true)]
         [switch]$SkipUserConfigCreation,
         [Parameter(Mandatory = $true)]
@@ -254,7 +256,7 @@ function Invoke-PoShBackupCoreSetup {
     # --- Configuration Loading and Validation ---
     $configLoadParams = @{
         UserSpecifiedPath            = $ConfigFile
-        IsTestConfigMode             = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent) -or ($SyncSchedules.IsPresent))
+        IsTestConfigMode             = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent) -or ($SyncSchedules.IsPresent) -or ($RunVerificationJobs.IsPresent))
         MainScriptPSScriptRoot       = $PSScriptRoot
         Logger                       = $LoggerScriptBlock
         SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
@@ -306,6 +308,7 @@ function Invoke-PoShBackupCoreSetup {
         ListBackupLocationsSwitch = $ListBackupLocations.IsPresent
         ListBackupSetsSwitch      = $ListBackupSets.IsPresent
         TestConfigSwitch          = $TestConfig.IsPresent
+        RunVerificationJobsSwitch = $RunVerificationJobs.IsPresent
         CheckForUpdateSwitch      = $false
         VersionSwitch             = $Version.IsPresent
         PinBackupPath             = $CliOverrideSettings.PinBackup

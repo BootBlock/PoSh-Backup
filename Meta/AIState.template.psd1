@@ -227,7 +227,7 @@
     "        - **Bug Fix 2:** Corrected the order of operations. The maintenance mode check was moved to run *after* the `ScriptModeHandler` to allow the `-Maintenance `$false` command to successfully disable the mode before the script halts.",
     "        - **Bug Fix 3:** Corrected path resolution for the on-disk flag file to use the reliable `_PoShBackup_PSScriptRoot` key from the configuration object.",
     "    - `README.md`: Updated to document the new feature and its CLI controls.",
-    "--- Feature: Snapshot Orchestration for Hyper-V (Current Session Segment) ---",
+    "--- Feature: Snapshot Orchestration for Hyper-V (Completed in Previous Session Segment) ---",
     "    - **Goal:** Implement infrastructure-level snapshotting for application-consistent VM backups, starting with Hyper-V.",
     "    - **Configuration (`Config\Default.psd1` v1.9.1):**",
     "        - Added a new top-level `SnapshotProviders` hashtable to define snapshot engine connections (e.g., 'LocalHyperV').",
@@ -249,11 +249,31 @@
     "        - Addressed `7-Zip` `Access is denied` warnings on junction points by making the `-snl` switch configurable via a new `FollowSymbolicLinks` setting.",
     "        - Fixed a bug in the retention policy scanner that prevented it from correctly matching archive filenames with date stamps.",
     "    - **Status:** The feature is now fully implemented and working, including VHD dismount and cleanup.",
+    "--- Feature: Automated Backup Verification (Current Session Segment) ---",
+    "    - **Goal:** Create a framework to automatically test if backups are valid and restorable.",
+    "    - **New Config:** Added a `VerificationJobs` hashtable to `Config\Default.psd1` and `Modules\ConfigManagement\Assets\ConfigSchema.psd1` to define verification tasks.",
+    "    - **New Script Mode:** Added a `-RunVerificationJobs` switch and a `Verification` parameter set to `PoSh-Backup.ps1`.",
+    "    - **New Manager Module:** Created `Modules\Managers\VerificationManager.psm1` to orchestrate the entire verification process, including sandbox preparation, archive restoration, and cleanup.",
+    "    - **Module Integration:** `ScriptModeHandler.psm1` now lazy-loads and calls the new `VerificationManager`. `RetentionManager.psm1` was updated to export `Find-BackupArchiveInstance` for use by the verification process.",
+    "    - **Contents Manifest Generation:**",
+    "        - `Modules\Operations\LocalArchiveProcessor.psm1` updated with a `GenerateContentsManifest` option.",
+    "        - When enabled, it creates a `.contents.manifest` file listing every file and directory from the archive, along with their CRC checksum, size, modification date, and attributes.",
+    "        - `Modules\Managers\7ZipManager\Lister.psm1` parser was significantly improved to correctly capture all metadata fields from `7z l -slt` output.",
+    "    - **Verification Logic:**",
+    "        - `VerificationManager.psm1` now parses the new rich manifest.",
+    "        - It intelligently handles both files and directories, checking for existence.",
+    "        - For files, it verifies the size and modification date against the manifest.",
+    "        - A C# helper class and function (`Get-FileCrc32Internal`) were added to calculate CRC32 checksums for restored files.",
+    "    - **Bug Fixes:**",
+    "        - Corrected an endianness issue in the CRC32 calculation by reversing the byte array before string conversion.",
+    "        - Fixed file I/O errors by replacing `Set-Content`/`Out-File` with the more compatible `[System.IO.File]::WriteAllLines` method for manifest creation.",
+    "        - Made the verification logic robust against hidden/system files by using `Get-Item -Force` within a `try/catch` block.",
+    "    - **Status:** The feature is now complete and working as expected.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and now Hyper-V snapshot orchestration. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.27.0 # Added Hyper-V Snapshot Orchestration feature."
+  main_script_poSh_backup_version = "1.28.0 # Added Automated Backup Verification feature."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

@@ -8,9 +8,9 @@
     This helps to decouple CLI argument handling from the main script's core logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Added Maintenance and ForceRunInMaintenanceMode parameters.
+    Version:        1.3.0 # Added RunVerificationJobs parameter.
     DateCreated:    01-Jun-2025
-    LastModified:   09-Jun-2025
+    LastModified:   12-Jun-2025
     Purpose:        To centralise CLI parameter processing.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -41,6 +41,7 @@ function Get-PoShBackupCliOverride {
     $cliOverrideSettings.Maintenance                         = if ($BoundParameters.ContainsKey('Maintenance')) { $BoundParameters['Maintenance'] } else { $null }
     $cliOverrideSettings.ForceRunInMaintenanceMode           = if ($BoundParameters.ContainsKey('ForceRunInMaintenanceMode')) { $true } else { $null }
     $cliOverrideSettings.ForceExtract                        = if ($BoundParameters.ContainsKey('ForceExtract')) { $true } else { $null }
+    $cliOverrideSettings.RunVerificationJobs                 = if ($BoundParameters.ContainsKey('RunVerificationJobs')) { $true } else { $null }
 
     # Parameters that take arguments: Value will be the argument, or $null if not present.
     # Default values for these are handled by the param block in the main PoSh-Backup.ps1 script.

@@ -4,7 +4,7 @@
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
-# Version: (Implicit) Updated 10-Jun-2025 (Added Snapshot Provider settings)
+# Version: (Implicit) Updated 12-Jun-2025 (Added VerificationJobs section)
 
 @{
     # Top-level global settings
@@ -171,6 +171,25 @@
         }
     }
 
+    # NEW: Section for Automated Backup Verification Jobs
+    VerificationJobs = @{
+        Type             = 'hashtable'
+        Required         = $false
+        DynamicKeySchema = @{ # Schema for each named verification job (e.g., "Verify_MyWebApp_Backup")
+            Type     = 'hashtable'
+            Required = $true
+            Schema   = @{
+                Enabled                   = @{ Type = 'boolean'; Required = $false }
+                TargetJobName             = @{ Type = 'string'; Required = $true }
+                ArchivePasswordSecretName = @{ Type = 'string'; Required = $false }
+                SandboxPath               = @{ Type = 'string'; Required = $true }
+                OnDirtySandbox            = @{ Type = 'string'; Required = $false; AllowedValues = @("Fail", "CleanAndContinue") }
+                VerificationSteps         = @{ Type = 'array'; Required = $true; ItemSchema = @{ Type = 'string'; AllowedValues = @("TestArchive", "VerifyChecksums", "CompareFileCount") } }
+                TestLatestCount           = @{ Type = 'int'; Required = $false; Min = 1 }
+            }
+        }
+    }
+
     BackupLocations                           = @{
         Type = 'hashtable'; Required = $true
         DynamicKeySchema = @{
@@ -232,6 +251,7 @@
                 VerifyLocalArchiveBeforeTransfer          = @{ Type = 'boolean'; Required = $false }
                 GenerateArchiveChecksum                   = @{ Type = 'boolean'; Required = $false }
                 GenerateSplitArchiveManifest              = @{ Type = 'boolean'; Required = $false }
+                GenerateContentsManifest                  = @{ Type = 'boolean'; Required = $false }
                 ChecksumAlgorithm                         = @{ Type = 'string'; Required = $false; AllowedValues = @("SHA1", "SHA256", "SHA384", "SHA512", "MD5") }
                 VerifyArchiveChecksumOnTest               = @{ Type = 'boolean'; Required = $false }
                 HtmlReportTheme                           = @{ Type = 'string'; Required = $false }

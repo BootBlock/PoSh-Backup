@@ -9,9 +9,9 @@
     checksum generation/verification parameters, and split archive manifest generation.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Added GenerateSplitArchiveManifest resolution.
+    Version:        1.1.0 # Added GenerateContentsManifest resolution.
     DateCreated:    30-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   12-Jun-2025
     Purpose:        Archive-specific settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -110,9 +110,12 @@ function Resolve-ArchiveConfiguration {
     $resolvedSettings.ChecksumAlgorithm = Get-ConfigValue -ConfigObject $JobConfig -Key 'ChecksumAlgorithm' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultChecksumAlgorithm' -DefaultValue "SHA256")
     $resolvedSettings.VerifyArchiveChecksumOnTest = Get-ConfigValue -ConfigObject $JobConfig -Key 'VerifyArchiveChecksumOnTest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVerifyArchiveChecksumOnTest' -DefaultValue $false)
 
-    # NEW: Split Archive Manifest Setting
+    # Split Archive Manifest Setting
     $resolvedSettings.GenerateSplitArchiveManifest = Get-ConfigValue -ConfigObject $JobConfig -Key 'GenerateSplitArchiveManifest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultGenerateSplitArchiveManifest' -DefaultValue $false)
-    $reportData.GenerateSplitArchiveManifest = $resolvedSettings.GenerateSplitArchiveManifest # Add to report data
+    
+    # NEW: Contents Manifest Setting
+    $resolvedSettings.GenerateContentsManifest = Get-ConfigValue -ConfigObject $JobConfig -Key 'GenerateContentsManifest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultGenerateContentsManifest' -DefaultValue $false)
+
 
     # If splitting and manifest generation is enabled, GenerateArchiveChecksum (for single file) is effectively false.
     if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.SplitVolumeSize) -and $resolvedSettings.GenerateSplitArchiveManifest) {

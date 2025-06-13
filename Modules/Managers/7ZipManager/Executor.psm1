@@ -7,12 +7,13 @@
     This module contains the 'Invoke-7ZipOperation' and 'Test-7ZipArchive' functions.
     'Invoke-7ZipOperation' executes 7z.exe for creating archives, supporting process
     priority, CPU affinity, retries, and warning handling.
-    'Test-7ZipArchive' uses 'Invoke-7ZipOperation' to test archive integrity.
+    'Test-7ZipArchive' uses 'Invoke-7ZipOperation' to test archive integrity, now with
+    an option to verify internal file checksums (CRCs).
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Added -VerifyCRC switch to Test-7ZipArchive.
     DateCreated:    29-May-2025
-    LastModified:   29-May-2025
+    LastModified:   13-Jun-2025
     Purpose:        7-Zip command execution logic for 7ZipManager.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 (for logger functionality if used directly, though logger is passed, and for Write-ConsoleBanner).
@@ -250,6 +251,7 @@ function Test-7ZipArchive {
         [Parameter(Mandatory = $false)]
         [string]$SevenZipCpuAffinityString = $null,
         [switch]$HideOutput,
+        [switch]$VerifyCRC, # NEW
         [int]$MaxRetries = 1,
         [int]$RetryDelaySeconds = 60,
         [bool]$EnableRetries = $false,
@@ -272,7 +274,13 @@ function Test-7ZipArchive {
 
     & $LocalWriteLog -Message "`n[INFO] 7ZipManager/Executor: Performing archive integrity test for '$ArchivePath'..."
     $testArguments = [System.Collections.Generic.List[string]]::new()
-    $testArguments.Add("t")
+    $testArguments.Add("t") # Test command
+
+    if ($VerifyCRC.IsPresent) {
+        $testArguments.Add("-scrc") # Add switch to verify CRCs
+        & $LocalWriteLog -Message "   - CRC Verification is ENABLED for this test." -Level "DEBUG"
+    }
+
     $testArguments.Add($ArchivePath)
 
     if (-not [string]::IsNullOrWhiteSpace($PlainTextPassword)) {

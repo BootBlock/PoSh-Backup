@@ -12,7 +12,8 @@
     7-Zip include/exclude list files, backup job chaining/dependencies, multi-volume
     (split) archive creation (with CLI override), an update checking mechanism, the
     ability to pin backups to prevent retention policy deletion, integrated backup
-    job scheduling via Windows Task Scheduler, and a global maintenance mode.
+    job scheduling via Windows Task Scheduler, a global maintenance mode, and automated
+    backup verification jobs.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -63,6 +64,8 @@
       creating, updating, or removing tasks as needed for fully automated "set and forget" backups.
     - Maintenance Mode: A global flag (in config or via an on-disk file) can prevent any new
       backup jobs from starting, useful for system maintenance.
+    - Automated Backup Verification: Define and run verification jobs that restore archives
+      to a sandbox and perform integrity checks to ensure backups are viable.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -147,6 +150,11 @@
 .PARAMETER ListBackupSets
     Optional. A switch parameter. If present, lists defined Backup Sets and exits.
 
+.PARAMETER RunVerificationJobs
+    Switch. Runs all enabled automated backup verification jobs defined in the configuration.
+    This performs a restore to a temporary sandbox location and verifies the integrity
+    of the restored files against a manifest created during the backup.
+
 .PARAMETER SyncSchedules
     Optional. A switch parameter. If present, synchronises job schedules from the configuration
     file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits.
@@ -197,6 +205,10 @@
     Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.
 
 .EXAMPLE
+    .\PoSh-Backup.ps1 -RunVerificationJobs
+    Runs all enabled automated backup verification jobs defined in the configuration.
+
+.EXAMPLE
     .\PoSh-Backup.ps1 -Maintenance $true
     Enables maintenance mode by creating the '.maintenance' flag file in the script root.
 
@@ -210,8 +222,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.26.1 # Corrected -Maintenance parameter type to [Nullable[bool]].
-    Date:           10-Jun-2025
+    Version:        1.27.0 # Added Automated Backup Verification feature.
+    Date:           12-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -263,6 +275,10 @@ param (
     # Scheduling Parameter Set
     [Parameter(ParameterSetName='Scheduling', Mandatory=$true, HelpMessage="Switch. Synchronises job schedules from config with Windows Task Scheduler and exits.")]
     [switch]$SyncSchedules,
+
+    # Verification Parameter Set
+    [Parameter(ParameterSetName='Verification', Mandatory=$true, HelpMessage="Switch. Runs all enabled automated backup verification jobs defined in the configuration.")]
+    [switch]$RunVerificationJobs,
 
     # Maintenance Mode Parameter Set
     [Parameter(ParameterSetName='Maintenance', Mandatory=$true, HelpMessage="Utility to enable/disable maintenance mode via the on-disk flag file.")]
@@ -470,6 +486,7 @@ try {
                                                 -ListBackupLocations:$ListBackupLocations.IsPresent `
                                                 -ListBackupSets:$ListBackupSets.IsPresent `
                                                 -SyncSchedules:$SyncSchedules.IsPresent `
+                                                -RunVerificationJobs:$RunVerificationJobs.IsPresent `
                                                 -SkipUserConfigCreation:$SkipUserConfigCreation.IsPresent `
                                                 -Version:$Version.IsPresent `
                                                 -PSCmdlet $PSCmdlet `

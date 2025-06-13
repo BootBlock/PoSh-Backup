@@ -8,6 +8,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Infrastructure Snapshot Orchestration (Hyper-V):** Perform application-consistent backups of live Hyper-V virtual machines with minimal performance impact. PoSh-Backup orchestrates the creation of a VM checkpoint, mounts the snapshot's virtual disk(s) to the host, backs up the data from the static snapshot, and then automatically cleans up the checkpoint and mount points. This allows for reliable backups of entire VMs or specific folders within them.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
 *   **Maintenance Mode:** A global flag (either in the configuration file or via a simple on-disk `.maintenance` file) can prevent any new backup jobs from starting. This is ideal for performing system maintenance without generating failed job reports. The mode can be easily toggled via a command-line switch (`-Maintenance $true/$false`) and bypassed for a specific run if needed (`-ForceRunInMaintenanceMode`).
+*   **Automated Backup Verification:** Define and run verification jobs that automatically restore a backup to a temporary "sandbox" location and perform integrity checks. This includes verifying file sizes, modification dates, and CRC checksums against a manifest created during the backup, providing a high degree of confidence that backups are restorable and uncorrupted.
 *   **Integrated Backup Scheduling:** Define backup schedules directly within your job configurations. A simple command (`-SyncSchedules`) synchronises these settings with the Windows Task Scheduler, creating, updating, or removing tasks as needed for a true "set and forget" experience.
 *   **Flexible Notifications (Email & Webhooks):** Automatically send notifications upon job or set completion. Configure multiple notification profiles, choosing between providers like "Email" (for standard SMTP alerts) or "Webhook" (for sending formatted messages to platforms like Microsoft Teams, Slack, or Discord).
 *   **Local and Remote Backups:**
@@ -650,6 +651,56 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
         }
     }
 
+### Automated Backup Verification
+PoSh-Backup includes a powerful feature to automate the verification of your backups, providing a high degree of confidence that they are valid and restorable. This works by defining "Verification Jobs" that restore an archive to a temporary "sandbox" location and then check the restored files against a manifest that was created during the original backup.
+
+**How it Works:**
+1.  **Enable Manifest Creation:** For any backup job you wish to verify, you must first enable the creation of a contents manifest. In your `User.psd1`, add `GenerateContentsManifest = $true` to the job's definition. This creates a `.contents.manifest` file alongside the backup archive, listing every file's path, size, modification date, attributes, and CRC checksum.
+2.  **Configure a Verification Job:** In the `VerificationJobs` section of your `User.psd1`, define a new verification task. You specify which backup job to target, where the temporary sandbox directory is, and what checks to perform.
+3.  **Run Verification:** From an Administrator PowerShell prompt, run the command `.\PoSh-Backup.ps1 -RunVerificationJobs`.
+4.  **Process:** The script will find the latest backup for your target job, restore it to the sandbox, perform the checks, log the results, and then clean up the sandbox.
+
+**Configuration Example:**
+
+Here is an example of a `VerificationJobs` block you can add to `User.psd1`:
+
+```powershell
+# In Config\User.psd1
+VerificationJobs = @{
+    "Verify_Projects_Backup" = @{
+        # Master switch for this verification job. Set to $true to enable.
+        Enabled = $true
+
+        # The name of the BackupLocation whose archives you want to test.
+        # This job *must* have 'GenerateContentsManifest = $true' set.
+        TargetJobName = "Projects" 
+        
+        # If the target archive is encrypted, provide the secret name.
+        ArchivePasswordSecretName = "MyArchivePassword" # Optional
+
+        # A temporary, empty directory where the archive will be restored for verification.
+        # WARNING: The contents of this directory will be cleared automatically if not empty
+        # and OnDirtySandbox is set to 'CleanAndContinue'.
+        SandboxPath = "D:\Backup_Verification_Sandbox"
+
+        # What to do if the sandbox path is not empty when the job starts.
+        # "Fail" (default): The verification job will fail.
+        # "CleanAndContinue": The verification job will attempt to delete the contents and proceed.
+        OnDirtySandbox = "CleanAndContinue"
+
+        # An array of verification steps to perform after the restore.
+        # - "TestArchive": Runs `7z t` on the archive file itself.
+        # - "VerifyChecksums": Parses the contents manifest and verifies the existence,
+        #   size, modification date, and CRC checksum for every restored file.
+        VerificationSteps = @("TestArchive", "VerifyChecksums")
+        
+        # How many of the most recent backup instances for the TargetJobName to test.
+        # '1' will test only the very latest backup. '3' will test the latest three.
+        TestLatestCount = 1
+    }
+}
+```
+
 ### 5. Key Operational Command-Line Parameters
 These parameters allow you to override certain configuration settings for a specific run:
 
@@ -679,6 +730,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-PinBackup <FilePath>`: Pins the backup archive specified by `<FilePath>`, protecting it from retention policies. This creates a `.pinned` marker file alongside the archive.
 *   `-UnpinBackup <FilePath>`: Unpins the backup archive specified by `<FilePath>`, making it subject to retention policies again. This removes the `.pinned` marker file.
 *   `-ListArchiveContents <FilePath>`: Lists the contents of the backup archive specified by `<FilePath>`. This is a utility mode and does not run a backup.
+*   `-RunVerificationJobs`: A switch to run all enabled automated backup verification jobs defined in the configuration. This performs a restore to a temporary sandbox location and verifies the integrity of the restored files against a manifest created during the backup. This is a standalone mode and will not perform any regular backup jobs.
 *   `-ArchivePasswordSecretName <SecretName>`: For use with utility modes like `-ListArchiveContents`. Specifies the name of the secret in PowerShell SecretManagement that holds the password for an encrypted archive.
 *   `-ExtractFromArchive <FilePath>`: Extracts files from the backup archive specified by `<FilePath>`. Must be used with `-ExtractToDirectory`.
 *   `-ExtractToDirectory <DirectoryPath>`: The destination directory where files will be extracted.

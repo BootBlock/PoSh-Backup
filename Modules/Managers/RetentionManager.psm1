@@ -176,4 +176,4 @@ function Invoke-BackupRetentionPolicy {
 }
 #endregion
 
-Export-ModuleMember -Function Invoke-BackupRetentionPolicy
+Export-ModuleMember -Function Invoke-BackupRetentionPolicy, Find-BackupArchiveInstance
