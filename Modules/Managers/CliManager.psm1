@@ -42,6 +42,7 @@ function Get-PoShBackupCliOverride {
     $cliOverrideSettings.ForceRunInMaintenanceMode           = if ($BoundParameters.ContainsKey('ForceRunInMaintenanceMode')) { $true } else { $null }
     $cliOverrideSettings.ForceExtract                        = if ($BoundParameters.ContainsKey('ForceExtract')) { $true } else { $null }
     $cliOverrideSettings.RunVerificationJobs                 = if ($BoundParameters.ContainsKey('RunVerificationJobs')) { $true } else { $null }
+    $cliOverrideSettings.SkipJob                             = if ($BoundParameters.ContainsKey('SkipJob')) { $BoundParameters['SkipJob'] } else { $null }
 
     # Parameters that take arguments: Value will be the argument, or $null if not present.
     # Default values for these are handled by the param block in the main PoSh-Backup.ps1 script.

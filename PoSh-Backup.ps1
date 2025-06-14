@@ -75,6 +75,10 @@
     Optional. The name of a Backup Set to process. Jobs within the set will be ordered
     based on any defined dependencies.
 
+.PARAMETER SkipJob
+    Optional. A job name or list of job names to exclude from the current run.
+    This is useful for temporarily skipping a specific job when running a large backup set.
+
 .PARAMETER Pin
     Optional. A switch parameter. If present, the backup archive(s) created during this
     specific run will be automatically pinned, protecting them from retention policies.
@@ -245,6 +249,9 @@ param (
 
     [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Optional. Name of a Backup Set (defined in config) to process.")]
     [string]$RunSet,
+
+    [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Optional. A job name or list of job names to exclude from the current run.")]
+    [string[]]$SkipJob,
 
     [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Pin the backup archive(s) created during this specific run, protecting them from retention policies.")]
     [switch]$Pin,

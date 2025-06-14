@@ -741,6 +741,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-ExtractToDirectory <DirectoryPath>`: The destination directory where files will be extracted.
 *   `-ItemsToExtract <String[]>`: Optional. An array of specific file or folder paths inside the archive to extract. If omitted, the entire archive is extracted.
 *   `-ForceExtract`: Optional. A switch. If present, extraction will overwrite existing files in the destination directory without prompting.
+*   `-SkipJob <JobName>` or `-SkipJob <JobName1>,<JobName2>`: A utility parameter to temporarily exclude one or more jobs from a run, which is particularly useful when running a large backup set.
 *   `-SyncSchedules`: Synchronises job schedules from the configuration file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits. Requires Administrator privileges.
 *   `-CheckForUpdate`: Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.

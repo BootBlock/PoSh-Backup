@@ -1383,12 +1383,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** `Modules\ConfigManagement\ConfigLoader.psm1` would need to parse a special `@include "path/to/snippet.psd1"` directive and merge the content.
     *   **Acceptance Criteria:** Configuration snippets can be defined and included, reducing duplication.
 
-176. **Feature: `-SkipJob <JobName>` or `-ExcludeJob <JobName>` CLI Parameter**
-    *   **Goal:** When running a Backup Set or all jobs, provide a way to explicitly skip one or more specific jobs for that particular run without disabling them in the config.
-    *   **Description:** Useful for temporarily excluding a problematic job or a job not needed for a specific ad-hoc run of a larger set.
-    *   **Scope & Impact:** `PoSh-Backup.ps1` (new CLI parameter), `Modules\ConfigManagement\JobResolver.psm1` (to filter these out from the initial list).
-    *   **Acceptance Criteria:** Specified jobs are skipped when running a set or all jobs.
-
 177. **Enhancement: `-TestConfig` to Show Effective `PostRunAction`**
     *   **Goal:** Make the `-TestConfig` output clearly state what post-run system action (if any) would be taken and from what level it was derived (CLI, Set, Job, Global).
     *   **Description:** Currently, it simulates post-run actions but might not explicitly detail the *source* of the decision.
