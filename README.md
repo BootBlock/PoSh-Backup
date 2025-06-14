@@ -264,10 +264,6 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                         # BodyTemplate is a here-string containing the JSON payload.
                         # Placeholders like {JobName}, {Status}, {ErrorMessage}, etc., will be replaced.
                         BodyTemplate         = @'
-{
-    "text": "PoSh-Backup Job ''{JobName}'' finished with status: **{Status}**"
-}
-'@
                     }
                 }
             }
