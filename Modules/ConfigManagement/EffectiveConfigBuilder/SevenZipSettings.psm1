@@ -5,13 +5,13 @@
 .DESCRIPTION
     This sub-module for EffectiveConfigBuilder.psm1 determines the effective
     7-Zip parameters, including compression level, method, dictionary size,
-    word size, solid block size, thread count, CPU affinity, and paths to
-    include/exclude list files.
+    word size, solid block size, thread count, CPU affinity, paths to
+    include/exclude list files, and the temporary working directory.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Added SevenZipTempDirectory resolution.
     DateCreated:    30-May-2025
-    LastModified:   30-May-2025
+    LastModified:   14-Jun-2025
     Purpose:        7-Zip specific settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -64,6 +64,12 @@ function Resolve-SevenZipConfiguration {
     $resolvedSettings.JobCompressOpenFiles = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressOpenFiles' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressOpenFiles' -DefaultValue $true)
     $resolvedSettings.JobAdditionalExclusions = @(Get-ConfigValue -ConfigObject $JobConfig -Key 'AdditionalExclusions' -DefaultValue @())
     $resolvedSettings.FollowSymbolicLinks = Get-ConfigValue -ConfigObject $JobConfig -Key 'FollowSymbolicLinks' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultFollowSymbolicLinks' -DefaultValue $false)
+
+    # NEW: Resolve Temp Directory
+    $resolvedSettings.JobSevenZipTempDirectory = Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipTempDirectory' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipTempDirectory' -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.JobSevenZipTempDirectory)) {
+        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Temp Directory resolved to: '$($resolvedSettings.JobSevenZipTempDirectory)'." -Level "DEBUG"
+    }
 
     $_globalConfigThreads = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultThreadCount' -DefaultValue 0
     $_jobSpecificThreadsToUse = Get-ConfigValue -ConfigObject $JobConfig -Key 'ThreadsToUse' -DefaultValue 0

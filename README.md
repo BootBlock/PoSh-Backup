@@ -8,7 +8,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Infrastructure Snapshot Orchestration (Hyper-V):** Perform application-consistent backups of live Hyper-V virtual machines with minimal performance impact. PoSh-Backup orchestrates the creation of a VM checkpoint, mounts the snapshot's virtual disk(s) to the host, backs up the data from the static snapshot, and then automatically cleans up the checkpoint and mount points. This allows for reliable backups of entire VMs or specific folders within them.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
 *   **Maintenance Mode:** A global flag (either in the configuration file or via a simple on-disk `.maintenance` file) can prevent any new backup jobs from starting. This is ideal for performing system maintenance without generating failed job reports. The mode can be easily toggled via a command-line switch (`-Maintenance $true/$false`) and bypassed for a specific run if needed (`-ForceRunInMaintenanceMode`).
-*   **Automated Backup Verification:** Define and run verification jobs that automatically restore a backup to a temporary "sandbox" location and perform integrity checks. This includes verifying file sizes, modification dates, and CRC checksums against a manifest created during the backup, providing a high degree of confidence that backups are restorable and uncorrupted.
+*   **Automated Backup Verification:** Define and run verification jobs that automatically restore a backup to a temporary "sandbox" location and perform integrity checks. This includes verifying file sizes, modification dates, and CRC checksums against a manifest created during the original backup, providing a high degree of confidence that backups are restorable and uncorrupted.
 *   **Integrated Backup Scheduling:** Define backup schedules directly within your job configurations. A simple command (`-SyncSchedules`) synchronises these settings with the Windows Task Scheduler, creating, updating, or removing tasks as needed for a true "set and forget" experience.
 *   **Flexible Notifications (Email & Webhooks):** Automatically send notifications upon job or set completion. Configure multiple notification profiles, choosing between providers like "Email" (for standard SMTP alerts) or "Webhook" (for sending formatted messages to platforms like Microsoft Teams, Slack, or Discord).
 *   **Local and Remote Backups:**
@@ -27,6 +27,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   **Remote Retention:** Each Backup Target provider can, if designed to do so, implement its own retention logic on the remote storage (e.g., keep last X versions, delete after Y days). This is configured within the target's definition in the `BackupTargets` section (e.g., via `RemoteRetentionSettings` or per-destination settings for providers like "Replicate").
 *   **Live File Backups with VSS:** Utilise the Windows Volume Shadow Copy Service (VSS) to seamlessly back up open or locked files (requires Administrator privileges). Features configurable VSS context, reliable shadow copy creation, and a configurable metadata cache path.
 *   **Advanced 7-Zip Integration:** Leverage 7-Zip for efficient, highly configurable compression. Customise archive type, compression level, method, dictionary/word/solid block sizes, and thread count for local archive creation.
+    *   **Configurable Temp Directory:** Specify a custom directory for 7-Zip's temporary working files (`-w` switch). This is useful for directing I/O-intensive temp operations to a faster drive or a drive with more space, preventing failures on systems with a small or full system drive.
     *   **Include/Exclude List Files:** Define complex include or exclude rules for 7-Zip by specifying paths to external text files. These files contain patterns (one per line) that 7-Zip will use with its `-i@listfile` or `-x@listfile` switches. Configurable globally, per-job, per-set, or via CLI.
     *   **Multi-Volume (Split) Archives:** Optionally split large archives into smaller volumes (e.g., "100m", "4g"). Configurable per job or via CLI. This will override SFX creation if both are set for a job.
 *   **Secure Password Protection:** Encrypt local backup archives with passwords. The password, whether obtained interactively, from PowerShell SecretManagement, an encrypted file, or plain text (discouraged), is now passed directly to 7-Zip using its standard `-p{password}` switch. While this avoids intermediate temporary password files, the command line itself (which can sometimes be logged or inspected) will contain the password switch.
@@ -130,6 +131,8 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
         *   Defaults to `30`. This specifies the number of log files to keep for each job name pattern in the `LogDirectory`.
         *   Set to `0` to keep all log files (infinite retention).
         *   This can be overridden by `LogRetentionCount` at the job level or set level, or by the `-LogRetentionCountCLI` parameter.
+    *   **`DefaultSevenZipTempDirectory` (Global Setting):**
+        *   `DefaultSevenZipTempDirectory` (string, default `""`): Optionally specify a path to a directory for 7-Zip to use for its temporary working files. If left empty, 7-Zip uses the system default temp directory. This is useful for redirecting temp file I/O to a faster drive or one with more space.
     *   **Checksum Settings (Global Defaults):**
         *   `DefaultGenerateArchiveChecksum` (boolean, default `$false`): Set to `$true` to enable checksum generation for all jobs by default.
         *   `DefaultChecksumAlgorithm` (string, default `"SHA256"`): Specifies the default algorithm (e.g., "SHA1", "SHA256", "SHA512", "MD5").
@@ -353,6 +356,7 @@ We plan to implement full remote retention capabilities for WebDAV targets in a 
                 VerifyLocalArchiveBeforeTransfer = $true # Ensure this archive is good before sending to MyMainUNCShare
                 SevenZipCpuAffinity         = "0,1"  # Restrict 7-Zip to CPU cores 0 and 1
                 SevenZipExcludeListFile     = "C:\PoShBackup\Config\MyDocsExcludes.txt"
+                SevenZipTempDirectory       = "E:\Temp" # Use a fast drive for temporary files
             }
 
             # Inside BackupLocations in User.psd1 or Default.psd1
@@ -842,3 +846,4 @@ PoSh-Backup can check if a newer version is available online. This is a manual c
 For a full list of all command-line parameters and their descriptions, use PowerShell's built-in help:
 ```powershell
 Get-Help .\PoSh-Backup.ps1 -Full
+```

@@ -113,6 +113,7 @@
     DefaultSevenZipCpuAffinity                = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' }
     DefaultSevenZipIncludeListFile            = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
     DefaultSevenZipExcludeListFile            = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
+    DefaultSevenZipTempDirectory              = @{ Type = 'string'; Required = $false }
     DefaultArchiveType                        = @{ Type = 'string'; Required = $false }
     DefaultArchiveExtension                   = @{ Type = 'string'; Required = $false }
     DefaultCompressionLevel                   = @{ Type = 'string'; Required = $false }
@@ -222,6 +223,7 @@
                 SevenZipCpuAffinity                       = @{ Type = 'string'; Required = $false; Pattern = '^0x[0-9a-fA-F]+$|^(\d+(,\d+)*)?$' }
                 SevenZipIncludeListFile                   = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
                 SevenZipExcludeListFile                   = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
+                SevenZipTempDirectory                     = @{ Type = 'string'; Required = $false }
                 ReportGeneratorType                       = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
                 TreatSevenZipWarningsAsSuccess            = @{ Type = 'boolean'; Required = $false }
                 FollowSymbolicLinks                       = @{ Type = 'boolean'; Required = $false }

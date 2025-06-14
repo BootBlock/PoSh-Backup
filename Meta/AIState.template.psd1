@@ -249,7 +249,7 @@
     "        - Addressed `7-Zip` `Access is denied` warnings on junction points by making the `-snl` switch configurable via a new `FollowSymbolicLinks` setting.",
     "        - Fixed a bug in the retention policy scanner that prevented it from correctly matching archive filenames with date stamps.",
     "    - **Status:** The feature is now fully implemented and working, including VHD dismount and cleanup.",
-    "--- Feature: Automated Backup Verification (Current Session Segment) ---",
+    "--- Feature: Automated Backup Verification (Completed in Previous Session Segment) ---",
     "    - **Goal:** Create a framework to automatically test if backups are valid and restorable.",
     "    - **New Config:** Added a `VerificationJobs` hashtable to `Config\Default.psd1` and `Modules\ConfigManagement\Assets\ConfigSchema.psd1` to define verification tasks.",
     "    - **New Script Mode:** Added a `-RunVerificationJobs` switch and a `Verification` parameter set to `PoSh-Backup.ps1`.",
@@ -269,6 +269,13 @@
     "        - Fixed file I/O errors by replacing `Set-Content`/`Out-File` with the more compatible `[System.IO.File]::WriteAllLines` method for manifest creation.",
     "        - Made the verification logic robust against hidden/system files by using `Get-Item -Force` within a `try/catch` block.",
     "    - **Status:** The feature is now complete and working as expected.",
+    "--- Feature: Configurable 7-Zip Temporary Directory (Current Session Segment) ---",
+    "    - **Goal:** Allow users to specify a custom temporary directory for 7-Zip's working files to manage disk space and I/O.",
+    "    - `Config\Default.psd1`: Added global `DefaultSevenZipTempDirectory` and job-level `SevenZipTempDirectory` settings.",
+    "    - `Modules\ConfigManagement\Assets\ConfigSchema.psd1`: Updated schema to validate the new `SevenZipTempDirectory` keys.",
+    "    - `Modules\ConfigManagement\EffectiveConfigBuilder\SevenZipSettings.psm1`: Modified to resolve the effective `JobSevenZipTempDirectory` path.",
+    "    - `Modules\Managers\7ZipManager\ArgumentBuilder.psm1`: Updated to add the `-w`{path}`` switch to the 7-Zip command if a valid temporary directory is configured.",
+    "    - `README.md`: Updated to document the new feature and its configuration options.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and now Hyper-V snapshot orchestration. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )

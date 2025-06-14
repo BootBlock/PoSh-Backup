@@ -8,9 +8,9 @@
     archive creation operation based on the effective job configuration.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.8 # Added -l switch to prevent traversing symbolic links/junctions.
+    Version:        1.1.0 # Added -w switch for custom temp directory.
     DateCreated:    29-May-2025
-    LastModified:   12-Jun-2025
+    LastModified:   14-Jun-2025
     Purpose:        7-Zip argument construction logic for 7ZipManager.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 for Get-ConfigValue.
@@ -32,10 +32,10 @@ function Get-PoShBackup7ZipArgument {
     param(
         [Parameter(Mandatory)] [hashtable]$EffectiveConfig,
         [Parameter(Mandatory)] [string]$FinalArchivePath,
-        [Parameter(Mandatory, ValueFromPipeline = $false)] 
-        [string[]]$CurrentJobSourcePathFor7Zip, 
+        [Parameter(Mandatory, ValueFromPipeline = $false)]
+        [string[]]$CurrentJobSourcePathFor7Zip,
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger 
+        [scriptblock]$Logger
     )
 
     begin {
@@ -47,7 +47,7 @@ function Get-PoShBackup7ZipArgument {
         # not streamed pipeline objects for its main argument building logic.
         # Adding it to satisfy PSScriptAnalyzer's PSAvoidCmdletPipelineOverrides.
     }
-    
+
     end {
         # PSSA Appeasement: Directly use the Logger parameter once.
         & $Logger -Message "7ZipManager/ArgumentBuilder/Get-PoShBackup7ZipArgument: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -61,9 +61,9 @@ function Get-PoShBackup7ZipArgument {
                 & $Logger -Message $Message -Level $Level
             }
         }
-    
+
         $sevenZipArgs = [System.Collections.Generic.List[string]]::new()
-        $sevenZipArgs.Add("a") 
+        $sevenZipArgs.Add("a")
 
         if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobArchiveType)) { $sevenZipArgs.Add($EffectiveConfig.JobArchiveType) }
         if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobCompressionLevel)) { $sevenZipArgs.Add($EffectiveConfig.JobCompressionLevel) }
@@ -71,21 +71,32 @@ function Get-PoShBackup7ZipArgument {
         if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobDictionarySize)) { $sevenZipArgs.Add($EffectiveConfig.JobDictionarySize) }
         if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobWordSize)) { $sevenZipArgs.Add($EffectiveConfig.JobWordSize) }
         if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSolidBlockSize)) { $sevenZipArgs.Add($EffectiveConfig.JobSolidBlockSize) }
-        if ($EffectiveConfig.JobCompressOpenFiles) { $sevenZipArgs.Add("-ssw") } 
+        if ($EffectiveConfig.JobCompressOpenFiles) { $sevenZipArgs.Add("-ssw") }
         if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.ThreadsSetting)) { $sevenZipArgs.Add($EffectiveConfig.ThreadsSetting) }
 
         # Do not follow symbolic links/junctions if set within the config.
         if ($EffectiveConfig.FollowSymbolicLinks -ne $true) {
             $sevenZipArgs.Add("-snl")
         }
-        
+
+        # NEW: Add custom temporary directory switch (-w) if configured and valid
+        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipTempDirectory)) {
+            $tempDirPath = $EffectiveConfig.JobSevenZipTempDirectory
+            if (Test-Path -LiteralPath $tempDirPath -PathType Container) {
+                $sevenZipArgs.Add("-w`"$tempDirPath`"") # Format is -w"C:\Path\To\Temp" with no space
+                & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added custom temporary directory switch: '-w`"$tempDirPath`"'." -Level "DEBUG"
+            } else {
+                & $LocalWriteLog -Message "[WARNING] 7ZipManager/ArgumentBuilder: Configured 7-Zip temporary directory '$tempDirPath' not found or is not a directory. 7-Zip will use the system default. Please create this directory." -Level "WARNING"
+            }
+        }
+
         if ($EffectiveConfig.ContainsKey('CreateSFX') -and $EffectiveConfig.CreateSFX -eq $true) {
-            $sfxModuleSwitch = "-sfx" 
+            $sfxModuleSwitch = "-sfx"
             if ($EffectiveConfig.ContainsKey('SFXModule')) {
                 $sfxModuleType = $EffectiveConfig.SFXModule.ToString().ToUpperInvariant()
                 switch ($sfxModuleType) {
-                    "GUI" { $sfxModuleSwitch = "-sfx7zS.sfx" } 
-                    "INSTALLER" { $sfxModuleSwitch = "-sfx7zSD.sfx" } 
+                    "GUI" { $sfxModuleSwitch = "-sfx7zS.sfx" }
+                    "INSTALLER" { $sfxModuleSwitch = "-sfx7zSD.sfx" }
                 }
             }
             $sevenZipArgs.Add($sfxModuleSwitch)
@@ -94,7 +105,7 @@ function Get-PoShBackup7ZipArgument {
 
         if ($EffectiveConfig.ContainsKey('SplitVolumeSize') -and -not [string]::IsNullOrWhiteSpace($EffectiveConfig.SplitVolumeSize)) {
             $volumeSize = $EffectiveConfig.SplitVolumeSize
-            if ($volumeSize -match "^\d+[kmg]$") { 
+            if ($volumeSize -match "^\d+[kmg]$") {
                 $sevenZipArgs.Add(("-v" + $volumeSize))
                 & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added multi-volume switch '-v$volumeSize'." -Level "DEBUG"
             }
@@ -108,7 +119,7 @@ function Get-PoShBackup7ZipArgument {
                 if (-not [string]::IsNullOrWhiteSpace($_)) {
                     $exclusion = $_.Trim()
                     if (-not ($exclusion.StartsWith("-x!") -or $exclusion.StartsWith("-xr!") -or $exclusion.StartsWith("-i!") -or $exclusion.StartsWith("-ir!"))) {
-                        $exclusion = "-x!$($exclusion)" 
+                        $exclusion = "-x!$($exclusion)"
                     }
                     $sevenZipArgs.Add($exclusion)
                 }
@@ -117,7 +128,7 @@ function Get-PoShBackup7ZipArgument {
 
         if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipIncludeListFile)) {
             if (Test-Path -LiteralPath $EffectiveConfig.JobSevenZipIncludeListFile -PathType Leaf) {
-                $sevenZipArgs.Add("-i@`"$($EffectiveConfig.JobSevenZipIncludeListFile)`"") 
+                $sevenZipArgs.Add("-i@`"$($EffectiveConfig.JobSevenZipIncludeListFile)`"")
                 & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added include list file: '$($EffectiveConfig.JobSevenZipIncludeListFile)'." -Level "DEBUG"
             }
             else {
@@ -126,7 +137,7 @@ function Get-PoShBackup7ZipArgument {
         }
         if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipExcludeListFile)) {
             if (Test-Path -LiteralPath $EffectiveConfig.JobSevenZipExcludeListFile -PathType Leaf) {
-                $sevenZipArgs.Add("-x@`"$($EffectiveConfig.JobSevenZipExcludeListFile)`"") 
+                $sevenZipArgs.Add("-x@`"$($EffectiveConfig.JobSevenZipExcludeListFile)`"")
                 & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added exclude list file: '$($EffectiveConfig.JobSevenZipExcludeListFile)'." -Level "DEBUG"
             }
             else {
@@ -138,7 +149,7 @@ function Get-PoShBackup7ZipArgument {
             & $LocalWriteLog -Message "[CRITICAL] Final Archive Path is NULL or EMPTY in 7ZipManager/ArgumentBuilder/Get-PoShBackup7ZipArgument. 7-Zip command will likely fail or use an unexpected name." -Level ERROR
         }
         $sevenZipArgs.Add($FinalArchivePath)
-    
+
         if ($null -ne $CurrentJobSourcePathFor7Zip -and $CurrentJobSourcePathFor7Zip.Count -gt 0) {
             foreach ($sourcePathItem in $CurrentJobSourcePathFor7Zip) {
                 if (-not [string]::IsNullOrWhiteSpace($sourcePathItem)) {

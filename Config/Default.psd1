@@ -330,6 +330,9 @@
     DefaultSevenZipIncludeListFile  = ""                              # Global default path to a 7-Zip include list file (e.g., "C:\BackupConfig\GlobalIncludes.txt"). Used with -i@.
     DefaultSevenZipExcludeListFile  = ""                              # Global default path to a 7-Zip exclude list file (e.g., "C:\BackupConfig\GlobalExcludes.txt"). Used with -x@.
 
+    DefaultSevenZipTempDirectory    = ""                              # Optional. Global default path to a directory for 7-Zip's temporary files. If empty, 7-Zip uses the system default.
+                                                                      # This location must already exist, if specified.
+
     DefaultArchiveType              = "-t7z"                          # 7-Zip -t (type) switch. Examples: -t7z, -tzip, -ttar, -tgzip.
                                                                       # This determines the internal format of the archive, even if an SFX (.exe) is created.
     DefaultArchiveExtension         = ".7z"                           # Default file extension for generated archives if NOT creating an SFX.
@@ -552,6 +555,7 @@
             SevenZipCpuAffinity     = ""                              # Job-specific CPU affinity for 7-Zip. E.g., "0,1" or "0x3". Empty means use global default.
             # SevenZipIncludeListFile = "D:\MyIncludes.txt"           # Job-specific include list file.
             # SevenZipExcludeListFile = "D:\MyExcludes.txt"           # Job-specific exclude list file.
+            SevenZipTempDirectory   = ""                              # Optional. Job-specific path for 7-Zip's temporary files. Overrides global default. Must already exist.
             ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
             FollowSymbolicLinks     = $false                          # Job-specific override for following symbolic links.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
