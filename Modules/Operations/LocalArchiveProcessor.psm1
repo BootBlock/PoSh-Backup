@@ -4,7 +4,8 @@
     Handles local backup archive creation, checksum generation (including multi-volume manifests),
     and integrity verification. Supports standard archives, Self-Extracting Archives (SFX),
     automatic pinning on creation, and mandatory local archive verification before remote
-    transfers if configured. Now also supports generating a manifest of archive contents.
+    transfers if configured. Now also supports generating a manifest of archive contents and
+    a post-local-archive creation script hook.
 .DESCRIPTION
     This module is a sub-component of the main Operations module for PoSh-Backup.
     It encapsulates the specific steps involved in:
@@ -16,6 +17,7 @@
     - Optionally generating a manifest of the archive's contents for verification, including
       CRC checksums, size, and date metadata for each file.
     - Optionally testing the integrity of the local archive.
+    - Executing a post-local-archive hook script after successful creation and testing.
     - Optionally pinning the newly created archive by creating a '.pinned' marker file if
       the 'PinOnCreation' setting is active for the job.
     - Updating the job report data with outcomes of these local operations.
@@ -23,9 +25,9 @@
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.3 # Corrected manifest generation to exclude directories.
+    Version:        1.4.0 # Added PostLocalArchiveScriptPath hook.
     DateCreated:    24-May-2025
-    LastModified:   12-Jun-2025
+    LastModified:   14-Jun-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1, 7ZipManager.psm1, and PinManager.psm1.
@@ -49,21 +51,23 @@ function Invoke-LocalArchiveOperation {
         [Parameter(Mandatory = $true)]
         [hashtable]$EffectiveJobConfig,
         [Parameter(Mandatory = $true)]
-        [object]$CurrentJobSourcePathFor7Zip, 
+        [object]$CurrentJobSourcePathFor7Zip,
         [Parameter(Mandatory = $true)]
         [ref]$JobReportDataRef,
         [Parameter(Mandatory = $true)]
         [switch]$IsSimulateMode,
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger, 
+        [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet,
         [Parameter(Mandatory = $true)]
         [hashtable]$GlobalConfig,
-        [Parameter(Mandatory = $false)] 
+        [Parameter(Mandatory = $false)]
         [string]$ArchivePasswordPlainText = $null,
         [Parameter(Mandatory = $false)]
-        [string]$SevenZipCpuAffinityString = $null
+        [string]$SevenZipCpuAffinityString = $null,
+        [Parameter(Mandatory = $true)]
+        [string]$ActualConfigFile
     )
 
     $LocalWriteLog = {
@@ -75,13 +79,13 @@ function Invoke-LocalArchiveOperation {
             & $Logger -Message $Message -Level $Level
         }
     }
-    
-    & $LocalWriteLog -Message "LocalArchiveProcessor/Invoke-LocalArchiveOperation: Logger active. CPU Affinity String: '$SevenZipCpuAffinityString'" -Level "DEBUG"
 
-    $currentLocalArchiveStatus = "SUCCESS" 
-    $finalArchivePathForReturn = $null 
+    & $Logger -Message "LocalArchiveProcessor/Invoke-LocalArchiveOperation: Logger active. CPU Affinity String: '$SevenZipCpuAffinityString'" -Level "DEBUG"
+
+    $currentLocalArchiveStatus = "SUCCESS"
+    $finalArchivePathForReturn = $null
     $reportData = $JobReportDataRef.Value
-    $archiveFileNameOnly = $null 
+    $archiveFileNameOnly = $null
 
     $reportData.VerifyLocalArchiveBeforeTransfer = $EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer
     $reportData.GenerateSplitArchiveManifest = $EffectiveJobConfig.GenerateSplitArchiveManifest
@@ -100,7 +104,7 @@ function Invoke-LocalArchiveOperation {
 
         $DateString = Get-Date -Format $EffectiveJobConfig.JobArchiveDateFormat
         $archiveFileNameOnly = "$($EffectiveJobConfig.BaseFileName) [$DateString]$($EffectiveJobConfig.JobArchiveExtension)"
-        
+
         $sevenZipTargetName = if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize)) {
             "$($EffectiveJobConfig.BaseFileName) [$DateString]$($EffectiveJobConfig.InternalArchiveExtension)"
         }
@@ -108,23 +112,23 @@ function Invoke-LocalArchiveOperation {
             $archiveFileNameOnly
         }
         $finalArchivePathFor7ZipCommand = Join-Path -Path $EffectiveJobConfig.DestinationDir -ChildPath $sevenZipTargetName
-        
+
         $finalArchivePathForReturn = if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize)) {
-            $finalArchivePathFor7ZipCommand + ".001" 
+            $finalArchivePathFor7ZipCommand + ".001"
         }
         else {
-            $finalArchivePathFor7ZipCommand 
+            $finalArchivePathFor7ZipCommand
         }
 
-        $reportData.FinalArchivePath = $finalArchivePathForReturn 
+        $reportData.FinalArchivePath = $finalArchivePathForReturn
         & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Target Archive in ${destinationDirTerm}: $finalArchivePathFor7ZipCommand (First volume/file expected at: $finalArchivePathForReturn)" -Level "INFO"
 
         if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize) -and $EffectiveJobConfig.SplitVolumeSize -match "^\d+[kmg]$") {
             $existingVolumePattern = [regex]::Escape($sevenZipTargetName) + ".[0-9][0-9]*"
             & $LocalWriteLog -Message "  - LocalArchiveProcessor: Split archive detected. Checking for existing volumes with pattern '$existingVolumePattern' in '$($EffectiveJobConfig.DestinationDir)'." -Level "DEBUG"
-            
+
             $existingVolumes = Get-ChildItem -Path $EffectiveJobConfig.DestinationDir -Filter ($sevenZipTargetName + ".*") | Where-Object { $_.Name -match $existingVolumePattern }
-            
+
             if ($existingVolumes.Count -gt 0) {
                 & $LocalWriteLog -Message "[WARNING] LocalArchiveProcessor: Found $($existingVolumes.Count) existing volume(s) for '$sevenZipTargetName'. Attempting to delete them before creating new split set." -Level "WARNING"
                 foreach ($volumeFile in $existingVolumes) {
@@ -157,7 +161,7 @@ function Invoke-LocalArchiveOperation {
             & $LocalWriteLog -Message "   - Note: This will be a Self-Extracting Archive (SFX) using module type: $($EffectiveJobConfig.SFXModule)." -Level "INFO"
         }
         $reportData.SFXModule = $EffectiveJobConfig.SFXModule
-        
+
         $sourcePathsFor7ZipArg = if ($CurrentJobSourcePathFor7Zip -is [array]) {
             $CurrentJobSourcePathFor7Zip | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
         }
@@ -165,7 +169,7 @@ function Invoke-LocalArchiveOperation {
             @($CurrentJobSourcePathFor7Zip)
         }
         else {
-            @() 
+            @()
         }
         if ($null -eq $sourcePathsFor7ZipArg) { $sourcePathsFor7ZipArg = @() }
 
@@ -183,14 +187,14 @@ function Invoke-LocalArchiveOperation {
             SevenZipArguments         = $sevenZipArgsArray
             ProcessPriority           = $EffectiveJobConfig.JobSevenZipProcessPriority
             SevenZipCpuAffinityString = $SevenZipCpuAffinityString
-            PlainTextPassword         = $ArchivePasswordPlainText 
+            PlainTextPassword         = $ArchivePasswordPlainText
             HideOutput                = $EffectiveJobConfig.HideSevenZipOutput
             MaxRetries                = $EffectiveJobConfig.JobMaxRetryAttempts
             RetryDelaySeconds         = $EffectiveJobConfig.JobRetryDelaySeconds
             EnableRetries             = $EffectiveJobConfig.JobEnableRetries
             TreatWarningsAsSuccess    = $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess
             IsSimulateMode            = $IsSimulateMode.IsPresent
-            Logger                    = $Logger 
+            Logger                    = $Logger
         }
         if ((Get-Command Invoke-7ZipOperation).Parameters.ContainsKey('PSCmdlet')) {
             $zipOpParams.PSCmdlet = $PSCmdlet
@@ -204,8 +208,8 @@ function Invoke-LocalArchiveOperation {
         $reportData.RetryAttemptsMade = $sevenZipResult.AttemptsMade
 
         if (-not $IsSimulateMode.IsPresent -and (Test-Path -LiteralPath $finalArchivePathForReturn -PathType Leaf)) {
-            $reportData.ArchiveSizeBytes = (Get-Item -LiteralPath $finalArchivePathForReturn).Length 
-            $reportData.ArchiveSizeFormatted = Get-ArchiveSizeFormatted -PathToArchive $finalArchivePathForReturn -Logger $Logger 
+            $reportData.ArchiveSizeBytes = (Get-Item -LiteralPath $finalArchivePathForReturn).Length
+            $reportData.ArchiveSizeFormatted = Get-ArchiveSizeFormatted -PathToArchive $finalArchivePathForReturn -Logger $Logger
         }
         elseif ($IsSimulateMode.IsPresent) {
             $reportData.ArchiveSizeBytes = 0
@@ -228,7 +232,7 @@ function Invoke-LocalArchiveOperation {
 
         $reportData.ArchiveChecksumAlgorithm = $EffectiveJobConfig.ChecksumAlgorithm
         if ($currentLocalArchiveStatus -ne "FAILURE") {
-            
+
             # --- Generate a manifest of the archive's *contents* if configured (for verification) ---
             if ($EffectiveJobConfig.GenerateContentsManifest) {
                 $archiveForManifestGeneration = $finalArchivePathFor7ZipCommand
@@ -237,7 +241,7 @@ function Invoke-LocalArchiveOperation {
                 $baseManifestName = Split-Path -Path $archiveForManifestGeneration -Leaf
                 $manifestDir = Split-Path -Path $archiveForManifestGeneration -Parent
                 $contentsManifestFileName = Join-Path -Path $manifestDir -ChildPath "$($baseManifestName).contents.manifest"
-                
+
                 $reportData.ContentsManifestFile = $contentsManifestFileName
                 if ($IsSimulateMode.IsPresent) {
                     & $LocalWriteLog -Message "SIMULATE: Would list contents of '$archiveForManifestGeneration' and save to '$contentsManifestFileName'." -Level "SIMULATE"
@@ -246,7 +250,6 @@ function Invoke-LocalArchiveOperation {
                 elseif (Test-Path -LiteralPath $archiveForManifestGeneration -PathType Leaf) {
                     $archiveContents = Get-7ZipArchiveListing -SevenZipPathExe $sevenZipPathGlobal -ArchivePath $archiveForManifestGeneration -PlainTextPassword $ArchivePasswordPlainText -Logger $Logger
                     if ($null -ne $archiveContents) {
-                        # Create a detailed, CSV-like manifest line for FILES ONLY
                         $manifestContent = $archiveContents | Where-Object { $_.Attributes -notlike "D*" } | ForEach-Object {
                             $crc = if ($_.'CRC') { $_.'CRC' } else { "00000000" }
                             $size = $_.'Size'
@@ -258,9 +261,7 @@ function Invoke-LocalArchiveOperation {
                         try {
                             $manifestHeader = "# PoSh-Backup Contents Manifest. Fields: CRC,Size,Modified,Attributes,Path"
                             $finalManifestContent = @($manifestHeader) + $manifestContent
-
                             [System.IO.File]::WriteAllLines($contentsManifestFileName, $finalManifestContent, [System.Text.Encoding]::UTF8)
-
                             & $LocalWriteLog -Message "  - Contents manifest created: '$contentsManifestFileName'" -Level "SUCCESS"
                             $reportData.ContentsManifestStatus = "Generated"
                         }
@@ -296,15 +297,15 @@ function Invoke-LocalArchiveOperation {
                     $reportData.ArchiveChecksum = "Manifest Simulated"
                 }
                 else {
-                    $volumeFiles = Get-ChildItem -Path $EffectiveJobConfig.DestinationDir -Filter ($sevenZipTargetName + ".*") | 
-                    Where-Object { $_.Name -match ([regex]::Escape($sevenZipTargetName) + "\.\d{3,}") } | 
-                    Sort-Object Name 
-                    
+                    $volumeFiles = Get-ChildItem -Path $EffectiveJobConfig.DestinationDir -Filter ($sevenZipTargetName + ".*") |
+                    Where-Object { $_.Name -match ([regex]::Escape($sevenZipTargetName) + "\.\d{3,}") } |
+                    Sort-Object Name
+
                     if ($volumeFiles.Count -gt 0) {
                         $manifestContentBuilder = [System.Text.StringBuilder]::new()
                         $allVolumeHashesSuccessful = $true
                         foreach ($volumeFile in $volumeFiles) {
-                            $volHash = Get-PoshBackupFileHash -FilePath $volumeFile.FullName -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger 
+                            $volHash = Get-PoshBackupFileHash -FilePath $volumeFile.FullName -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger
                             if ($null -ne $volHash) {
                                 $null = $manifestContentBuilder.AppendLine("$($volHash.ToUpperInvariant())  $($volumeFile.Name)")
                                 $volumeChecksumsForReport.Add(@{VolumeName = $volumeFile.Name; Checksum = $volHash.ToUpperInvariant() })
@@ -334,17 +335,17 @@ function Invoke-LocalArchiveOperation {
                 }
                 $reportData.VolumeChecksums = $volumeChecksumsForReport
             }
-            elseif ($EffectiveJobConfig.GenerateArchiveChecksum) { 
+            elseif ($EffectiveJobConfig.GenerateArchiveChecksum) {
                 & $LocalWriteLog -Message "`n[INFO] Generating checksum for archive '$finalArchivePathForReturn'..." -Level "INFO"
                 $checksumFileExtension = $EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
-                $fileToChecksumPath = $finalArchivePathForReturn 
-                $archiveNameForInChecksumFile = Split-Path -Path $fileToChecksumPath -Leaf 
+                $fileToChecksumPath = $finalArchivePathForReturn
+                $archiveNameForInChecksumFile = Split-Path -Path $fileToChecksumPath -Leaf
 
                 $archiveFileItem = Get-Item -LiteralPath $fileToChecksumPath -ErrorAction SilentlyContinue
-                
+
                 if ($null -ne $archiveFileItem -and $archiveFileItem.Exists) {
-                    $checksumFileNameWithExt = $archiveFileItem.Name + ".$checksumFileExtension" 
-                    $checksumFileDir = $archiveFileItem.DirectoryName 
+                    $checksumFileNameWithExt = $archiveFileItem.Name + ".$checksumFileExtension"
+                    $checksumFileDir = $archiveFileItem.DirectoryName
                     $checksumFilePath = Join-Path -Path $checksumFileDir -ChildPath $checksumFileNameWithExt
                     $reportData.ArchiveChecksumFile = $checksumFilePath
                 }
@@ -358,7 +359,7 @@ function Invoke-LocalArchiveOperation {
                     $reportData.ArchiveChecksum = "SIMULATED_CHECKSUM_VALUE"
                 }
                 elseif ($null -ne $archiveFileItem -and $archiveFileItem.Exists) {
-                    $generatedHash = Get-PoshBackupFileHash -FilePath $fileToChecksumPath -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger 
+                    $generatedHash = Get-PoshBackupFileHash -FilePath $fileToChecksumPath -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger
                     if ($null -ne $generatedHash) {
                         $reportData.ArchiveChecksum = $generatedHash
                         try {
@@ -394,7 +395,7 @@ function Invoke-LocalArchiveOperation {
         if ($shouldTestArchiveNow -and ($currentLocalArchiveStatus -ne "FAILURE") -and (-not $IsSimulateMode.IsPresent) -and (Test-Path -LiteralPath $finalArchivePathForReturn -PathType Leaf)) {
             $testArchiveParams = @{
                 SevenZipPathExe           = $sevenZipPathGlobal
-                ArchivePath               = $finalArchivePathForReturn 
+                ArchivePath               = $finalArchivePathForReturn
                 PlainTextPassword         = $ArchivePasswordPlainText
                 ProcessPriority           = $EffectiveJobConfig.JobSevenZipProcessPriority
                 SevenZipCpuAffinityString = $SevenZipCpuAffinityString
@@ -402,8 +403,8 @@ function Invoke-LocalArchiveOperation {
                 MaxRetries                = $EffectiveJobConfig.JobMaxRetryAttempts
                 RetryDelaySeconds         = $EffectiveJobConfig.JobRetryDelaySeconds
                 EnableRetries             = $EffectiveJobConfig.JobEnableRetries
-                TreatWarningsAsSuccess    = $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess
-                Logger                    = $Logger 
+                TreatWarningsAsSuccess    = $EffectiveJobConfig.TreatWarningsAsSuccess
+                Logger                    = $Logger
             }
             if ((Get-Command Test-7ZipArchive).Parameters.ContainsKey('PSCmdlet')) {
                 $testArchiveParams.PSCmdlet = $PSCmdlet
@@ -414,7 +415,7 @@ function Invoke-LocalArchiveOperation {
             if ($testResult.ExitCode -eq 0) {
                 $reportData.ArchiveTestResult = "PASSED (7z t on first volume/archive)"
             }
-            elseif ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess) {
+            elseif ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatWarningsAsSuccess) {
                 $reportData.ArchiveTestResult = "PASSED (7z t Warning on first volume/archive, treated as success)"
             }
             else {
@@ -426,8 +427,8 @@ function Invoke-LocalArchiveOperation {
             if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize) -and `
                     $EffectiveJobConfig.GenerateSplitArchiveManifest -and `
                     $EffectiveJobConfig.VerifyArchiveChecksumOnTest -and `
-                ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess))) {
-                
+                ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatWarningsAsSuccess))) {
+
                 & $LocalWriteLog -Message "`n[INFO] Verifying archive volumes using manifest '$($reportData.ArchiveChecksumFile)'..." -Level "INFO"
                 $reportData.ArchiveChecksumVerificationStatus = "Verification Attempted (Manifest)"
                 $manifestFileForVerify = $reportData.ArchiveChecksumFile
@@ -438,11 +439,11 @@ function Invoke-LocalArchiveOperation {
                     try {
                         $manifestEntries = Get-Content -LiteralPath $manifestFileForVerify -ErrorAction Stop
                         foreach ($entryLine in $manifestEntries) {
-                            if ($entryLine -match "^\s*([a-fA-F0-9]+)\s\s+(.+)$") { 
+                            if ($entryLine -match "^\s*([a-fA-F0-9]+)\s\s+(.+)$") {
                                 $storedVolHash = $Matches[1].Trim().ToUpperInvariant()
                                 $volFileNameInManifest = $Matches[2].Trim()
                                 $fullVolPathToVerify = Join-Path -Path $EffectiveJobConfig.DestinationDir -ChildPath $volFileNameInManifest
-                                
+
                                 $manifestVerificationDetails.Add("Volume: $volFileNameInManifest, Expected Hash: $storedVolHash")
 
                                 if (-not (Test-Path -LiteralPath $fullVolPathToVerify -PathType Leaf)) {
@@ -450,7 +451,7 @@ function Invoke-LocalArchiveOperation {
                                     $manifestVerificationDetails.Add("  Status: MISSING")
                                     $allVolumesInManifestVerified = $false; continue
                                 }
-                                $recalculatedVolHash = Get-PoshBackupFileHash -FilePath $fullVolPathToVerify -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger 
+                                $recalculatedVolHash = Get-PoshBackupFileHash -FilePath $fullVolPathToVerify -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger
                                 if ($null -ne $recalculatedVolHash -and $recalculatedVolHash.Equals($storedVolHash, [System.StringComparison]::OrdinalIgnoreCase)) {
                                     & $LocalWriteLog -Message "  - Manifest Verification - Volume '$volFileNameInManifest': Checksum VERIFIED." -Level "SUCCESS"
                                     $manifestVerificationDetails.Add("  Status: VERIFIED")
@@ -470,7 +471,7 @@ function Invoke-LocalArchiveOperation {
                                 $volFileNameInManifest = $Matches[1].Trim()
                                 & $LocalWriteLog -Message "[WARNING] Manifest Verification - Volume '$volFileNameInManifest' had checksum generation error during manifest creation. Cannot verify." -Level "WARNING"
                                 $manifestVerificationDetails.Add("Volume: $volFileNameInManifest, Status: SKIPPED (Original checksum error)")
-                                $allVolumesInManifestVerified = $false 
+                                $allVolumesInManifestVerified = $false
                             }
                         }
                         $reportData.ArchiveChecksumVerificationStatus = if ($allVolumesInManifestVerified) { "Verified via Manifest (All Volumes OK)" } else { "Verification via Manifest FAILED (One or more volumes)" }
@@ -496,17 +497,17 @@ function Invoke-LocalArchiveOperation {
                 }
             }
             elseif ($EffectiveJobConfig.VerifyArchiveChecksumOnTest -and $EffectiveJobConfig.GenerateArchiveChecksum -and `
-                ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess))) {
+                ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatWarningsAsSuccess))) {
                 & $LocalWriteLog -Message "`n[INFO] Verifying single archive checksum for '$finalArchivePathForReturn'..." -Level "INFO"
                 $checksumFileExtensionForVerify = $EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
-                $checksumFilePathForVerify = "$($finalArchivePathForReturn).$checksumFileExtensionForVerify" 
+                $checksumFilePathForVerify = "$($finalArchivePathForReturn).$checksumFileExtensionForVerify"
                 $reportData.ArchiveChecksumVerificationStatus = "Verification Attempted (Single File/First Volume)"
 
                 if (Test-Path -LiteralPath $checksumFilePathForVerify -PathType Leaf) {
                     try {
                         $checksumFileContent = Get-Content -LiteralPath $checksumFilePathForVerify -Raw -ErrorAction Stop
                         $storedHashFromFile = ($checksumFileContent -split '\s+')[0].Trim().ToUpperInvariant()
-                        $recalculatedHash = Get-PoshBackupFileHash -FilePath $finalArchivePathForReturn -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger 
+                        $recalculatedHash = Get-PoshBackupFileHash -FilePath $finalArchivePathForReturn -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger
                         if ($null -ne $recalculatedHash -and $recalculatedHash.Equals($storedHashFromFile, [System.StringComparison]::OrdinalIgnoreCase)) {
                             & $LocalWriteLog -Message "  - Checksum VERIFIED for '$finalArchivePathForReturn'. Stored: $storedHashFromFile, Calculated: $recalculatedHash." -Level "SUCCESS"
                             $reportData.ArchiveChecksumVerificationStatus = "Verified Successfully"
@@ -551,19 +552,41 @@ function Invoke-LocalArchiveOperation {
             }
 
         }
-        elseif ($shouldTestArchiveNow) { 
+        elseif ($shouldTestArchiveNow) {
             $reportData.ArchiveTestResult = if ($IsSimulateMode.IsPresent) { "Not Performed (Simulation Mode)" } else { "Not Performed (Archive Missing or Prior Compression Error)" }
             $reportData.ArchiveChecksumVerificationStatus = "Skipped (Archive test not performed)"
         }
-        else { 
+        else {
             $reportData.ArchiveTestResult = "Not Configured"
             $reportData.ArchiveChecksumVerificationStatus = "Skipped (Archive test not configured)"
+        }
+
+        # --- Post Local Archive Hook ---
+        if ($currentLocalArchiveStatus -ne "FAILURE" -and (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.PostLocalArchiveScriptPath))) {
+            & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Executing Post-Local-Archive Hook..." -Level "INFO"
+            $hookArgsForLocalArchive = @{
+                JobName      = $EffectiveJobConfig.BaseFileName
+                Status       = $currentLocalArchiveStatus
+                ArchivePath  = $finalArchivePathForReturn
+                ConfigFile   = $ActualConfigFile
+                SimulateMode = $IsSimulateMode.IsPresent
+            }
+            if ($reportData.ContainsKey('ArchiveChecksum') -and $reportData.ArchiveChecksum -notlike "N/A*" -and $reportData.ArchiveChecksum -notlike "Error*") {
+                $hookArgsForLocalArchive.ArchiveChecksum = $reportData.ArchiveChecksum
+                $hookArgsForLocalArchive.ArchiveChecksumAlgorithm = $reportData.ArchiveChecksumAlgorithm
+                $hookArgsForLocalArchive.ArchiveChecksumFile = $reportData.ArchiveChecksumFile
+            }
+            Invoke-PoShBackupHook -ScriptPath $EffectiveJobConfig.PostLocalArchiveScriptPath `
+                -HookType "PostLocalArchive" `
+                -HookParameters $hookArgsForLocalArchive `
+                -IsSimulateMode:$IsSimulateMode `
+                -Logger $Logger
         }
 
         # --- Pinning Logic ---
         if ($EffectiveJobConfig.PinOnCreation -and $currentLocalArchiveStatus -ne "FAILURE") {
             & $LocalWriteLog -Message "`n[INFO] PinOnCreation is enabled for this job. Pinning newly created archive..." -Level "INFO"
-            
+
             $pathToPin = $finalArchivePathFor7ZipCommand # e.g., "D:\Backups\MyJob [Date].7z"
 
             if ($IsSimulateMode.IsPresent) {
@@ -571,7 +594,6 @@ function Invoke-LocalArchiveOperation {
                 $reportData.ArchivePinned = "Simulated"
             }
             elseif (Test-Path -LiteralPath $finalArchivePathForReturn -PathType Leaf) {
-                # Check that at least the first part exists
                 if ($PSCmdlet.ShouldProcess($pathToPin, "Pin Archive")) {
                     try {
                         Add-PoShBackupPin -Path $pathToPin -Logger $Logger
@@ -597,8 +619,6 @@ function Invoke-LocalArchiveOperation {
         else {
             $reportData.ArchivePinned = "No"
         }
-        # --- END Pinning Logic ---
-
     }
     catch {
         & $LocalWriteLog -Message "[ERROR] Error during local archive operations for job '$($EffectiveJobConfig.JobName)': $($_.Exception.ToString())" -Level ERROR
@@ -608,8 +628,8 @@ function Invoke-LocalArchiveOperation {
 
     return @{
         Status              = $currentLocalArchiveStatus
-        FinalArchivePath    = $finalArchivePathForReturn 
-        ArchiveFileNameOnly = $archiveFileNameOnly     
+        FinalArchivePath    = $finalArchivePathForReturn
+        ArchiveFileNameOnly = $archiveFileNameOnly
     }
 }
 

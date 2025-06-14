@@ -568,10 +568,16 @@
             #SplitVolumeSize         = ""                             # Job-specific volume size (e.g., "100m", "4g"). Empty for no split.
             #GenerateSplitArchiveManifest = $false                    # Job-specific. $true to generate a manifest for split archives. Overrides GenerateArchiveChecksum for the primary archive.
 
-            GenerateArchiveChecksum     = $true                       # Example: Enable checksum generation for this job
-            GenerateContentsManifest    = $true
-            ChecksumAlgorithm           = "SHA256"                    # Use SHA256
-            VerifyArchiveChecksumOnTest = $true                       # Verify checksum if TestArchiveAfterCreation is also true
+            GenerateArchiveChecksum       = $true                     # Example: Enable checksum generation for this job
+            GenerateContentsManifest      = $true
+            ChecksumAlgorithm             = "SHA256"                  # Use SHA256
+            VerifyArchiveChecksumOnTest   = $true                     # Verify checksum if TestArchiveAfterCreation is also true
+
+            PreBackupScriptPath           = ""                        # A script to run before this specific backup job begins.
+            PostLocalArchiveScriptPath    = ""                        # A script to run after local archive creation/testing, but BEFORE remote transfers.
+            PostBackupScriptOnSuccessPath = ""                        # A script to run after this backup job completes with a status of SUCCESS or WARNINGS.
+            PostBackupScriptOnFailurePath = ""                        # A script to run after this backup job completes with a status of FAILURE.
+            PostBackupScriptAlwaysPath    = ""                        # A script to run after a backup job finishes, regardless of status.
 
             # --- Notification Settings for this Job ---
             # These settings override the DefaultNotificationSettings.

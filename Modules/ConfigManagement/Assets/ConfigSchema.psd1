@@ -273,6 +273,8 @@
                 PostBackupScriptOnSuccessPath             = @{ Type = 'string'; Required = $false }
                 PostBackupScriptOnFailurePath             = @{ Type = 'string'; Required = $false }
                 PostBackupScriptAlwaysPath                = @{ Type = 'string'; Required = $false }
+                PostLocalArchiveScriptPath                = @{ Type = 'string'; Required = $false }
+                
                 NotificationSettings                      = @{
                     Type     = 'hashtable'
                     Required = $false

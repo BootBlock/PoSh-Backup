@@ -173,6 +173,7 @@ function Resolve-OperationalConfiguration {
 
     # Hook Script Paths
     $resolvedSettings.PreBackupScriptPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PreBackupScriptPath' -DefaultValue $null
+    $resolvedSettings.PostLocalArchiveScriptPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostLocalArchiveScriptPath' -DefaultValue $null
     $resolvedSettings.PostBackupScriptOnSuccessPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptOnSuccessPath' -DefaultValue $null
     $resolvedSettings.PostBackupScriptOnFailurePath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptOnFailurePath' -DefaultValue $null
     $resolvedSettings.PostBackupScriptAlwaysPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptAlwaysPath' -DefaultValue $null

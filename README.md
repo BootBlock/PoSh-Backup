@@ -3,6 +3,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 
 > **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
 
+> **Notice:** Additionally, this `ReadMe.md` will eventually be broken down into proper documentation, as opposed to being one large file.
+
 ## Features
 *   **Enterprise-Grade PowerShell Solution:** Robust, modular design built with dedicated PowerShell modules for reliability, maintainability, and clarity.
 *   **Infrastructure Snapshot Orchestration (Hyper-V):** Perform application-consistent backups of live Hyper-V virtual machines with minimal performance impact. PoSh-Backup orchestrates the creation of a VM checkpoint, mounts the snapshot's virtual disk(s) to the host, backs up the data from the static snapshot, and then automatically cleans up the checkpoint and mount points. This allows for reliable backups of entire VMs or specific folders within them.
@@ -35,7 +37,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Automatic Retry Mechanism:** Overcome transient failures during 7-Zip operations for local archive creation. (Note: Retries for remote transfers are the responsibility of the specific Backup Target provider module, if implemented.)
 *   **CPU Priority Control:** Manage system resource impact by setting the 7-Zip process priority (e.g., Idle, BelowNormal, Normal, High) for local archiving.
 *   **7-Zip CPU Core Affinity:** Optionally restrict the 7-Zip process to specific CPU cores using a comma-separated list (e.g., "0,1") or a hexadecimal bitmask (e.g., "0x3") for finer-grained resource control. User input is validated against available system cores, and clamped if necessary. Can be overridden via CLI.
-*   **Extensible Script Hooks:** Execute your own custom PowerShell scripts at various stages of a backup job for ultimate operational flexibility. Hook scripts now receive information about target transfer results if applicable.
+*   **Extensible Script Hooks:** Execute your own custom PowerShell scripts at various stages of a backup job (e.g., before the backup, after local archive creation, after success/failure) for ultimate operational flexibility. Hook scripts now receive information about target transfer results if applicable.
 *   **Multi-Format Reporting:** Generate comprehensive reports for each job.
     *   **Interactive HTML Reports:** Highly customisable with titles, logos, and themes (via external CSS). Now includes a dedicated section detailing the status of **Remote Target Transfers** and **Archive Checksum** information in the summary.
         *   **Collapsible Sections:** Summary, Configuration, Hooks, Target Transfers, and Detailed Log sections are collapsible for easier navigation, with their open/closed state remembered in the browser (via `localStorage`).

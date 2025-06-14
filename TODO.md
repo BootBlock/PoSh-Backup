@@ -316,14 +316,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         *   Various modules (`Operations.psm1`, target providers) need specific pre-flight check logic.
     *   **Acceptance Criteria:** Pre-flight check provides a report of potential issues.
 
-9. **Feature: Global Pre/Post Script Hooks**
-    *   **Goal:** Define hooks that run once before any jobs and once after all jobs/sets complete.
-    *   **Description:** For global setup/teardown (e.g., mount global resource, final summary notification).
-    *   **Scope & Impact:**
-        *   `Config\Default.psd1`: Global `GlobalPreScriptPath`, `GlobalPostScriptPath`.
-        *   `PoSh-Backup.ps1`: Logic at script start/end to invoke these via `HookManager.psm1`.
-    *   **Acceptance Criteria:** Global hooks execute at the start and end of PoSh-Backup execution.
-
 **V. Reporting & Notifications**
 
 29. **BugFix: HTML Report - Log Filter "Select All" / "Deselect All"**

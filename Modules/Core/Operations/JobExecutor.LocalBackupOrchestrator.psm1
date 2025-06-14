@@ -116,6 +116,7 @@ function Invoke-PoShBackupLocalBackupExecution {
             PSCmdlet                    = $PSCmdlet
             GlobalConfig                = $GlobalConfig
             SevenZipCpuAffinityString   = $EffectiveJobConfig.JobSevenZipCpuAffinity
+            ActualConfigFile            = $ActualConfigFile
         }
         $localArchiveResult = Invoke-LocalArchiveOperation @localArchiveOpParams
 
