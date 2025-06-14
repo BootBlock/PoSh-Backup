@@ -78,12 +78,6 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **(WebDAV):** The WebDAV target provider uses built-in PowerShell cmdlets (`Invoke-WebRequest`) and does not require an additional external module for its core functionality.
 *   **Network/Remote Access:** For using Backup Targets, appropriate permissions and connectivity to the remote locations (e.g., UNC shares) are necessary for the user account running PoSh-Backup. For the Update Checking feature, internet access is required to fetch the remote version manifest.
 
-**What this means for you:**
-*   If you configure `RemoteRetentionSettings` for a WebDAV target, PoSh-Backup will currently **not** automatically delete older backup sets from your WebDAV server.
-*   The local retention policy for the staging directory (`DestinationDir`) will still apply as configured for the job.
-
-We plan to implement full remote retention capabilities for WebDAV targets in a future update. Please check the release notes for updates on this feature.
-
 ### 2. Installation & Initial Setup
 1.  **Obtain the Script:**
     *   Download the project files (e.g., as a ZIP archive from the project page) or clone the repository if you use Git.
