@@ -303,11 +303,19 @@
     "    - `Modules\Core\Operations\JobExecutor.LocalBackupOrchestrator.psm1`: Updated to pass the `$ActualConfigFile` parameter through to the `LocalArchiveProcessor` so the hook has access to it.",
     "    - `README.md`: Updated feature description to include the new hook point.",
     "    - **Status:** The feature is now complete and working as expected.",
+    "--- Feature: Report File Retention (Completed in Current Session Segment) ---",
+    "    - **Goal:** Add an automated retention policy for report files to prevent the Reports directory from growing indefinitely.",
+    "    - `Config\Default.psd1`: Added global `DefaultReportRetentionCount`, `CompressOldReports`, and `OldReportCompressionFormat` settings.",
+    "    - `Modules\ConfigManagement\Assets\ConfigSchema.psd1`: Updated schema to validate the new report retention settings.",
+    "    - `Modules\Managers\FinalisationManager.psm1`: Implemented the core retention logic in a new `Invoke-ReportFileRetentionInternal` function. This function is called at the end of a run and can either delete or compress old reports based on the configuration. The completion banner was moved to run after retention.",
+    "    - `PoSh-Backup.ps1`: Corrected the call to `Invoke-PoShBackupFinalisation` to pass the full list of processed jobs needed for the retention logic, fixing a parameter binding error.",
+    "    - `README.md`: Updated feature list to include report retention.",
+    "    - **Status:** The feature is now complete and working as expected.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and now Hyper-V snapshot orchestration. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.28.0 # Added Log Compression and GetEffectiveConfig features."
+  main_script_poSh_backup_version = "1.29.0 # Added Report Retention and Post-Local-Archive Hook features."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

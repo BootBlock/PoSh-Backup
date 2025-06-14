@@ -143,6 +143,10 @@
     HtmlReportShowConfiguration     = $true                           # $true to include the job configuration details (as used for the backup) in the HTML report.
     HtmlReportShowHooks             = $true                           # $true to include details of any executed hook scripts (pre/post backup) and their status/output.
     HtmlReportShowLogEntries        = $true                           # $true to include the detailed log messages from the script execution in the HTML report.
+
+    DefaultReportRetentionCount     = 30                              # Global default for the number of report files to keep per job name pattern. Set to 0 for infinite.
+    CompressOldReports              = $false                          # If $true, report files marked for deletion by retention will be compressed into an archive.
+    OldReportCompressionFormat      = "Zip"                           # Format for the compressed report archive. Valid values: "Zip".
     #endregion
 
     #region --- Notification Settings (Global) ---

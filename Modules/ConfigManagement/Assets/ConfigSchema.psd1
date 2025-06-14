@@ -44,6 +44,9 @@
     HtmlReportShowConfiguration               = @{ Type = 'boolean'; Required = $false }
     HtmlReportShowHooks                       = @{ Type = 'boolean'; Required = $false }
     HtmlReportShowLogEntries                  = @{ Type = 'boolean'; Required = $false }
+    DefaultReportRetentionCount               = @{ Type = 'int'; Required = $false; Min = 0 }
+    CompressOldReports                        = @{ Type = 'boolean'; Required = $false }
+    OldReportCompressionFormat                = @{ Type = 'string'; Required = $false; AllowedValues = @("Zip") }
 
     NotificationProfiles                      = @{
         Type             = 'hashtable'
@@ -269,6 +272,9 @@
                 HtmlReportShowConfiguration               = @{ Type = 'boolean'; Required = $false }
                 HtmlReportShowHooks                       = @{ Type = 'boolean'; Required = $false }
                 HtmlReportShowLogEntries                  = @{ Type = 'boolean'; Required = $false }
+                DefaultReportRetentionCount               = @{ Type = 'int'; Required = $false; Min = 0 }
+                CompressOldReports                        = @{ Type = 'boolean'; Required = $false }
+                OldReportCompressionFormat                = @{ Type = 'string'; Required = $false; AllowedValues = @("Zip") }
                 PreBackupScriptPath                       = @{ Type = 'string'; Required = $false }
                 PostBackupScriptOnSuccessPath             = @{ Type = 'string'; Required = $false }
                 PostBackupScriptOnFailurePath             = @{ Type = 'string'; Required = $false }

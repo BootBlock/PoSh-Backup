@@ -580,7 +580,6 @@ Invoke-PoShBackupFinalisation -OverallSetStatus $overallSetStatus `
                               -LoggerScriptBlock $LoggerScriptBlock `
                               -PSCmdletInstance $PSCmdlet `
                               -CurrentSetNameForLog $currentSetName `
-                              -JobNameForLog $(if ($jobsToProcess.Count -eq 1 -and (-not $currentSetName)) { $jobsToProcess[0] } else { $null }) `
-                              -JobsToProcessCount $jobsToProcess.Count
+                              -JobsToProcess $jobsToProcess
 # The Invoke-PoShBackupFinalisation function will call exit internally.
 #endregion

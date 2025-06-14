@@ -1,9 +1,12 @@
 # Wildcard files
 Logs/*.log
+Logs/*.7z
 Reports/*.csv
 Reports/*.xml
 Reports/*.md
 Reports/*.html
+Reports/*.zip
+Reports/*.7z
 Releases/*.7z
 Releases/*.zip
 

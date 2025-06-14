@@ -369,14 +369,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Technical Considerations:** Cmdlets/ .NET classes for Syslog/Event Log.
     *   **Acceptance Criteria:** Logs appear in the configured centralised system.
 
-37. **Feature: Report Archiving and Rotation**
-    *   **Goal:** Manage retention of generated report files, similar to how logging works.
-    *   **Description:** Prevents `Reports/` directory from growing indefinitely.
-    *   **Scope & Impact:**
-        *   `Config\Default.psd1`: Global `ReportRetentionDays` or `ReportRetentionCount`.
-        *   `PoSh-Backup.ps1` / `Modules\Reporting.psm1`: Logic to delete old report files.
-    *   **Acceptance Criteria:** Old report files are automatically deleted.
-
 38. **Feature: Customisable Report Templates (Advanced HTML)**
     *   **Goal:** Allow users to provide their own HTML template files for reports.
     *   **Description:** For complete control over HTML report structure.
