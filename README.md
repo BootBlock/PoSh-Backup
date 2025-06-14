@@ -53,6 +53,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Pin Backups:** Protect specific backup archives from automatic deletion by retention policies. This can be done by pinning an existing archive via `-PinBackup <path>` or by pinning the result of the current run via the `-Pin` switch.
 *   **Safe Simulation Mode:** Perform a dry run (`-Simulate`) to preview local backup operations, remote transfers, retention (archive and log files), **post-run system actions**, and **checksum operations** without making any actual changes.
 *   **Configuration Validation:** Quickly test and validate your configuration file (`-TestConfig`). This includes basic validation of Backup Target definitions and **job dependency validation** (checking for circular references and dependencies on non-existent jobs). Optional advanced schema validation for the overall configuration structure is also available.
+*   **Effective Configuration Display:** A diagnostic switch (`-GetEffectiveConfig <JobName>`) to display the fully resolved, final configuration for a specific job, including all merged global, set, and job-level settings.
 *   **Archive Inspection & Restore Utilities:** Inspect or restore files directly from the command line. Use `-ListArchiveContents` to see what's inside an archive, and `-ExtractFromArchive` to restore the entire archive or specific files/folders from it. Both utilities fully support encrypted archives.
 *   **Proactive Free Space Check:** Optionally verify sufficient destination disk space in the `DestinationDir` before starting backups to prevent failures.
 *   **Archive Integrity Verification:** Optionally test the integrity of newly created local archives using `7z t`.
@@ -743,6 +744,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-SyncSchedules`: Synchronises job schedules from the configuration file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits. Requires Administrator privileges.
 *   `-CheckForUpdate`: Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.
+*   `-GetEffectiveConfig <JobName>`: A utility parameter. Displays the fully resolved, effective configuration for a given job name, including all global, set, and CLI overrides, then exits. Does not run a backup.
 
 ### Pinning Backups to Prevent Deletion
 PoSh-Backup includes a feature to "pin" a specific backup archive, which makes it immune to automatic deletion by local or remote retention policies. This is useful for preserving important milestone backups, such as the first backup of a new system, a backup from before a major upgrade, or a known-good full backup that you want to keep as a baseline.

@@ -305,25 +305,27 @@ function Invoke-PoShBackupCoreSetup {
 
     # --- Handle Informational/Utility Modes FIRST ---
     $scriptModeParams = @{
-        ListBackupLocationsSwitch = $ListBackupLocations.IsPresent
-        ListBackupSetsSwitch      = $ListBackupSets.IsPresent
-        TestConfigSwitch          = $TestConfig.IsPresent
-        RunVerificationJobsSwitch = $RunVerificationJobs.IsPresent
-        CheckForUpdateSwitch      = $false
-        VersionSwitch             = $Version.IsPresent
-        PinBackupPath             = $CliOverrideSettings.PinBackup
-        UnpinBackupPath           = $CliOverrideSettings.UnpinBackup
-        ListArchiveContentsPath   = $CliOverrideSettings.ListArchiveContents
-        ArchivePasswordSecretName = $CliOverrideSettings.ArchivePasswordSecretName
-        ExtractFromArchivePath    = $CliOverrideSettings.ExtractFromArchive
-        ExtractToDirectoryPath    = $CliOverrideSettings.ExtractToDirectory
-        ItemsToExtract            = $CliOverrideSettings.ItemsToExtract
-        ForceExtract              = ([bool]$CliOverrideSettings.ForceExtract)
-        Configuration             = $Configuration
-        ActualConfigFile          = $ActualConfigFile
-        ConfigLoadResult          = $configResult
-        Logger                    = $LoggerScriptBlock
-        PSCmdletForUpdateCheck    = $PSCmdlet
+        ListBackupLocationsSwitch   = $ListBackupLocations.IsPresent
+        ListBackupSetsSwitch        = $ListBackupSets.IsPresent
+        TestConfigSwitch            = $TestConfig.IsPresent
+        RunVerificationJobsSwitch   = $RunVerificationJobs.IsPresent
+        CheckForUpdateSwitch        = $false
+        VersionSwitch               = $Version.IsPresent
+        PinBackupPath               = $CliOverrideSettings.PinBackup
+        UnpinBackupPath             = $CliOverrideSettings.UnpinBackup
+        ListArchiveContentsPath     = $CliOverrideSettings.ListArchiveContents
+        ArchivePasswordSecretName   = $CliOverrideSettings.ArchivePasswordSecretName
+        ExtractFromArchivePath      = $CliOverrideSettings.ExtractFromArchive
+        ExtractToDirectoryPath      = $CliOverrideSettings.ExtractToDirectory
+        ItemsToExtract              = $CliOverrideSettings.ItemsToExtract
+        ForceExtract                = ([bool]$CliOverrideSettings.ForceExtract)
+        GetEffectiveConfigJobName   = $CliOverrideSettings.GetEffectiveConfig
+        CliOverrideSettingsInternal = $CliOverrideSettings 
+        Configuration               = $Configuration
+        ActualConfigFile            = $ActualConfigFile
+        ConfigLoadResult            = $configResult
+        Logger                      = $LoggerScriptBlock
+        PSCmdletForUpdateCheck      = $PSCmdlet
     }
     if ($PSBoundParameters.ContainsKey('Maintenance') -and $null -ne $Maintenance) {
         $scriptModeParams.MaintenanceSwitchValue = $Maintenance

@@ -7,19 +7,19 @@
 .DESCRIPTION
     This module provides a function, Invoke-PoShBackupScriptMode, which checks if PoSh-Backup
     was invoked with a non-backup parameter like -ListArchiveContents, -ExtractFromArchive,
-    -PinBackup, -TestConfig, -RunVerificationJobs, or -Maintenance.
+    -PinBackup, -TestConfig, -RunVerificationJobs, -GetEffectiveConfig, or -Maintenance.
     If one of these modes is active, this module takes over, performs the requested action,
     and then exits the script. This keeps the main PoSh-Backup.ps1 script cleaner by
     offloading this mode-specific logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.7.0 # Added -RunVerificationJobs mode.
+    Version:        1.8.0 # Added -GetEffectiveConfig mode.
     DateCreated:    24-May-2025
-    LastModified:   12-Jun-2025
+    LastModified:   14-Jun-2025
     Purpose:        To handle informational and utility script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
-                    Requires PinManager, PasswordManager, 7ZipManager, and VerificationManager for specific modes.
+                    Requires PinManager, PasswordManager, 7ZipManager, VerificationManager, and ConfigManager for specific modes.
 #>
 
 #region --- Module Dependencies ---
@@ -29,6 +29,8 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\PinManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\PasswordManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\7ZipManager.psm1") -Force -ErrorAction Stop
+    # Import ConfigManager to get access to Get-PoShBackupJobEffectiveConfiguration
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Core\ConfigManager.psm1") -Force -ErrorAction Stop
 }
 catch {
     # Don't throw here, as these are only needed for specific modes.
@@ -69,6 +71,12 @@ function Invoke-PoShBackupScriptMode {
 
         [Parameter(Mandatory = $true)]
         [bool]$VersionSwitch,
+
+        [Parameter(Mandatory = $false)]
+        [string]$GetEffectiveConfigJobName,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$CliOverrideSettingsInternal,
 
         [Parameter(Mandatory = $false)]
         [Nullable[bool]]$MaintenanceSwitchValue,
@@ -125,6 +133,37 @@ function Invoke-PoShBackupScriptMode {
         }
     }
 
+    if (-not [string]::IsNullOrWhiteSpace($GetEffectiveConfigJobName)) {
+        & $LocalWriteLog -Message "`n--- Get Effective Job Configuration Mode ---" -Level "HEADING"
+        if (-not $Configuration.BackupLocations.ContainsKey($GetEffectiveConfigJobName)) {
+            & $LocalWriteLog -Message "  - ERROR: The specified job name '$GetEffectiveConfigJobName' was not found in the configuration." -Level "ERROR"
+            exit 1
+        }
+        try {
+            & $LocalWriteLog -Message "  - Resolving effective configuration for job: '$GetEffectiveConfigJobName'..." -Level "INFO"
+            $jobConfigForReport = $Configuration.BackupLocations[$GetEffectiveConfigJobName]
+            $dummyReportDataRef = [ref]@{ JobName = $GetEffectiveConfigJobName }
+
+            $effectiveConfigParams = @{
+                JobConfig                  = $jobConfigForReport
+                GlobalConfig               = $Configuration
+                CliOverrides               = $CliOverrideSettingsInternal # This should be passed in from CoreSetupManager
+                JobReportDataRef           = $dummyReportDataRef
+                Logger                     = $Logger
+            }
+            $effectiveConfigResult = Get-PoShBackupJobEffectiveConfiguration @effectiveConfigParams
+
+            & $LocalWriteLog -Message "`n--- Effective Configuration for Job: '$GetEffectiveConfigJobName' ---`n" -Level "NONE"
+            $effectiveConfigResult | Format-List | Out-String | ForEach-Object { & $LocalWriteLog -Message $_ -Level "NONE" }
+            & $LocalWriteLog -Message "`n--- End of Effective Configuration ---" -Level "NONE"
+
+        } catch {
+            & $LocalWriteLog -Message "[FATAL] ScriptModeHandler: An error occurred while resolving the effective configuration for job '$GetEffectiveConfigJobName'. Error: $($_.Exception.Message)" -Level "ERROR"
+            exit 1
+        }
+        exit 0
+    }
+
     if ($RunVerificationJobsSwitch) {
         & $LocalWriteLog -Message "`n--- Automated Backup Verification Mode ---" -Level "HEADING"
         $verificationManagerPath = Join-Path -Path $PSScriptRoot -ChildPath "Managers\VerificationManager.psm1"
@@ -136,7 +175,7 @@ function Invoke-PoShBackupScriptMode {
             if (-not (Get-Command Invoke-PoShBackupVerification -ErrorAction SilentlyContinue)) {
                 throw "Could not find the Invoke-PoShBackupVerification command after importing the module."
             }
-            
+
             $verificationParams = @{
                 Configuration = $Configuration
                 Logger        = $Logger
@@ -165,7 +204,7 @@ function Invoke-PoShBackupScriptMode {
             }
             $maintenanceFileFullPath = Join-Path -Path $scriptRootPath -ChildPath $maintenanceFilePathFromConfig
         }
-        
+
         if ($MaintenanceSwitchValue -eq $true) {
             & $LocalWriteLog -Message "ScriptModeHandler: Enabling maintenance mode by creating flag file: '$maintenanceFileFullPath'" -Level "INFO"
             if (Test-Path -LiteralPath $maintenanceFileFullPath -PathType Leaf) {
@@ -247,7 +286,7 @@ function Invoke-PoShBackupScriptMode {
         }
 
         $success = Invoke-7ZipExtraction @extractParams
-        
+
         if ($success) {
             & $LocalWriteLog -Message "Successfully extracted archive '$ExtractFromArchivePath' to '$ExtractToDirectoryPath'." -Level "SUCCESS"
         } else {
@@ -276,7 +315,7 @@ function Invoke-PoShBackupScriptMode {
 
         $sevenZipPath = $Configuration.SevenZipPath
         $listing = Get-7ZipArchiveListing -SevenZipPathExe $sevenZipPath -ArchivePath $ListArchiveContentsPath -PlainTextPassword $plainTextPasswordForList -Logger $Logger
-        
+
         if ($null -ne $listing) {
             & $LocalWriteLog -Message "Contents of archive: $ListArchiveContentsPath" -Level "INFO"
             $listing | Format-Table -AutoSize
@@ -355,11 +394,11 @@ function Invoke-PoShBackupScriptMode {
             $Configuration.BackupLocations.GetEnumerator() | Sort-Object Name | ForEach-Object {
                 $jobConf = $_.Value
                 $jobName = $_.Name
-                
+
                 $isEnabled = Get-ConfigValue -ConfigObject $jobConf -Key 'Enabled' -DefaultValue $true
                 $jobNameColor = if ($isEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
                 & $LocalWriteLog -Message ("`n  Job Name      : " + $jobName) -Level "NONE" -ForegroundColour $jobNameColor
-                
+
                 & $LocalWriteLog -Message ("  Enabled       : " + $isEnabled) -Level "NONE"
 
                 if ($jobConf.Path -is [array]) {
@@ -376,13 +415,13 @@ function Invoke-PoShBackupScriptMode {
                 } else {
                     & $LocalWriteLog -Message ('  Source Path(s): "{0}"' -f $jobConf.Path) -Level "NONE"
                 }
-                
+
                 $archiveNameDisplay = Get-ConfigValue -ConfigObject $jobConf -Key 'Name' -DefaultValue 'N/A (Uses Job Name)'
                 & $LocalWriteLog -Message ("  Archive Name  : " + $archiveNameDisplay) -Level "NONE"
-                
+
                 $destDirDisplay = Get-ConfigValue -ConfigObject $jobConf -Key 'DestinationDir' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'DefaultDestinationDir' -DefaultValue 'N/A')
                 & $LocalWriteLog -Message ("  Destination   : " + $destDirDisplay) -Level "NONE"
-                
+
                 $targetNames = @(Get-ConfigValue -ConfigObject $jobConf -Key 'TargetNames' -DefaultValue @())
                 if ($targetNames.Count -gt 0) {
                     & $LocalWriteLog -Message ("  Remote Targets: " + ($targetNames -join ", ")) -Level "NONE"
@@ -426,7 +465,7 @@ function Invoke-PoShBackupScriptMode {
                 $setConf = $_.Value
                 $setName = $_.Name
                 & $LocalWriteLog -Message ("`n  Set Name     : " + $setName) -Level "NONE"
-                
+
                 $onErrorDisplay = Get-ConfigValue -ConfigObject $setConf -Key 'OnErrorInJob' -DefaultValue 'StopSet'
                 & $LocalWriteLog -Message ("  On Error     : " + $onErrorDisplay) -Level "NONE"
 

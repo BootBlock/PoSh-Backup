@@ -155,6 +155,10 @@
     This performs a restore to a temporary sandbox location and verifies the integrity
     of the restored files against a manifest created during the backup.
 
+.PARAMETER GetEffectiveConfig
+    A utility parameter. Displays the fully resolved, effective configuration for a given job name,
+    including all global, set, and CLI overrides, then exits. Does not run a backup.
+
 .PARAMETER SyncSchedules
     Optional. A switch parameter. If present, synchronises job schedules from the configuration
     file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits.
@@ -283,6 +287,10 @@ param (
     # Maintenance Mode Parameter Set
     [Parameter(ParameterSetName='Maintenance', Mandatory=$true, HelpMessage="Utility to enable/disable maintenance mode via the on-disk flag file.")]
     [Nullable[bool]]$Maintenance,
+
+    # Effective configuration Parameter Set
+    [Parameter(ParameterSetName='EffectiveConfig', Mandatory=$true, HelpMessage="Display the fully resolved configuration for a specific job and exit.")]
+    [string]$GetEffectiveConfig,
 
     # Parameters available to multiple utility sets (Listing, Extraction)
     [Parameter(ParameterSetName='Listing', Mandatory=$false)]

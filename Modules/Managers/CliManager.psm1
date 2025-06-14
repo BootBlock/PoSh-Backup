@@ -65,6 +65,7 @@ function Get-PoShBackupCliOverride {
     $cliOverrideSettings.ExtractFromArchive                  = if ($BoundParameters.ContainsKey('ExtractFromArchive')) { $BoundParameters['ExtractFromArchive'] } else { $null }
     $cliOverrideSettings.ExtractToDirectory                  = if ($BoundParameters.ContainsKey('ExtractToDirectory')) { $BoundParameters['ExtractToDirectory'] } else { $null }
     $cliOverrideSettings.ItemsToExtract                      = if ($BoundParameters.ContainsKey('ItemsToExtract')) { $BoundParameters['ItemsToExtract'] } else { $null }
+    $cliOverrideSettings.GetEffectiveConfig                  = if ($BoundParameters.ContainsKey('GetEffectiveConfig')) { $BoundParameters['GetEffectiveConfig'] } else { $null }
 
     return $cliOverrideSettings
 }

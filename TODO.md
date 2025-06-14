@@ -79,12 +79,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     - **Scope & Impact:** `Config\Default.psd1` (new hook type `PostLocalArchiveScriptPath`), `Modules\Managers\HookManager.psm1`, `Modules\Core\Operations\JobExecutor.psm1`.
     - **Acceptance Criteria:** Script executes at the specified point in the lifecycle.
         
-3. **Feature: Configurable Temporary Directory for 7-Zip**
-    - **Goal:** Allow users to specify a temporary directory for 7-Zip's working files.
-    - **Description:** 7-Zip can use significant temporary space. Default is system temp. Users might want to redirect this to a faster drive or one with more space.
-    - **Scope & Impact:** `Config\Default.psd1` (global/job `SevenZipTempDirectory`), `Modules\Managers\7ZipManager.psm1` (pass -`w{path}` switch).
-    - **Acceptance Criteria:** 7-Zip uses the specified temporary directory.
-        
 4. **Enhancement: Granular Control over VSS Writers**
     - **Goal:** Allow excluding specific VSS writers during shadow copy creation.
     - **Description:** Some VSS writers can cause issues or are unnecessary for certain backups. diskshadow supports excluding writers.
@@ -296,26 +290,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         
     - **Acceptance Criteria:** User is prompted to select a job/set if none specified and multiple exist.
         
-4. **Feature: List Archive Contents (CLI Utility)**
-    *   **Goal:** CLI option to list contents of a PoSh-Backup archive.
-    *   **Description:** Quick inspection without full extraction.
-    *   **Scope & Impact:**
-        *   `PoSh-Backup.ps1`: New CLI parameter `-ListArchiveContents <path> [-PasswordSecretName <secret>]`.
-        *   `Modules\7ZipManager.psm1`: New `Get-7ZipArchiveListing` function (`7z l`).
-        *   `Modules\PasswordManager.psm1`: For password retrieval if archive encrypted.
-    *   **Technical Considerations:** Parsing `7z l` output.
-    *   **Acceptance Criteria:** User sees a formatted list of archive contents.
-
-5. **Feature: Extract Specific Files/Folders from Archive (CLI Utility)**
-    *   **Goal:** CLI option to extract specific items from an archive.
-    *   **Description:** Targeted restoration.
-    *   **Scope & Impact:**
-        *   `PoSh-Backup.ps1`: New CLI parameters `-ExtractFromArchive <path> -ItemsToExtract <items> -TargetDirectory <out_path> [-PasswordSecretName <secret>]`.
-        *   `Modules\7ZipManager.psm1`: New `Invoke-7ZipExtraction` function (`7z e` or `x`).
-        *   `Modules\PasswordManager.psm1`: For password retrieval.
-    *   **Technical Considerations:** 7-Zip `e` or `x` switches. Parsing items to extract.
-    *   **Acceptance Criteria:** Specified items are extracted to the target directory.
-
 6. **Feature: More Robust Archive Testing Options (Deep Test)**
     *   **Goal:** Provide a more thorough archive verification beyond `7z t`.
     *   **Description:** Full extraction to a temporary location for critical archives.
@@ -378,16 +352,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     - **Scope & Impact:** **Complex.** Requires storing/comparing previous job configurations. Modules\Reporting\ReportingHtml.psm1.
         
     - **Acceptance Criteria:** HTML report visually indicates config changes from a previous run (if data available).
-
-33. **Feature: Email Notifications for Reports**
-    *   **Goal:** Enable sending reports (or summaries) via email.
-    *   **Description:** For notifications, especially on failures/warnings.
-    *   **Scope & Impact:**
-        *   `Config\Default.psd1`: SMTP server settings, recipient(s), send conditions.
-        *   `Modules\PoShBackupValidator.psm1`: Schema validation.
-        *   `PoSh-Backup.ps1` (or new `NotificationManager.psm1`): Logic to send email via `Send-MailMessage`.
-    *   **Technical Considerations:** `Send-MailMessage`. Secure SMTP credential handling.
-    *   **Acceptance Criteria:** Emails sent with report content based on configuration and job status.
 
 34. **Enhancement: Pre/Post Backup Script Output in HTML Report**
     *   **Goal:** Improve clarity of hook script output in HTML reports.
@@ -1299,23 +1263,11 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XXXVIII. User Interface & CLI (Practical)**
 
-156. **Feature: `-GetEffectiveConfig <JobName>` CLI Switch**
-    *   **Goal:** A CLI option to display the fully resolved, effective configuration for a given job, including all global, set, and job-level settings and CLI overrides, without running the backup.
-    *   **Description:** Extremely useful for troubleshooting configuration inheritance and understanding exactly what settings a job will use.
-    *   **Scope & Impact:** `PoSh-Backup.ps1`, `Modules\Core\ConfigManager.psm1` (expose effective config building), `Modules\ScriptModeHandler.psm1`.
-    *   **Acceptance Criteria:** CLI command outputs the complete effective configuration for a specified job.
-
 157. **Enhancement: Standardized Exit Codes with More Granularity**
     *   **Goal:** Provide more distinct exit codes for different types of failures or outcomes.
     *   **Description:** E.g., 0=Success, 1=SuccessWithWarnings, 2=OperationalFailure (7zip, VSS), 3=ConfigError, 4=DependencyFailure, 5=UserCancelled, 10=CriticalScriptError.
     *   **Scope & Impact:** `Modules\Managers\FinalisationManager.psm1`, error handling throughout the script. Document exit codes.
     *   **Acceptance Criteria:** Script returns more granular exit codes.
-
-158. **Feature: `-SkipVSS` and `-SkipRetries` CLI Switches**
-    *   **Goal:** Quick CLI toggles to disable VSS or retries for a specific run, overriding config.
-    *   **Description:** Useful for quick troubleshooting or specific scenarios without editing config files.
-    *   **Scope & Impact:** `PoSh-Backup.ps1` (new params), `Modules\Managers\CliManager.psm1`, `Modules\ConfigManagement\EffectiveConfigBuilder.psm1`.
-    *   **Acceptance Criteria:** VSS and/or retries can be disabled via CLI for a run.
 
 **XXXIX. Installation & Portability**
 
