@@ -1333,12 +1333,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XLIV. Advanced Diagnostics & Troubleshooting**
 
-172. **Feature: "Export Diagnostic Package" Utility**
-    *   **Goal:** A CLI command to gather all relevant logs, configuration (with sensitive data redacted), system information, and PoSh-Backup version details into a single ZIP file for easier troubleshooting when reporting issues.
-    *   **Description:** Simplifies support and bug reporting.
-    *   **Scope & Impact:** New utility function/script. Logic for redacting sensitive info.
-    *   **Acceptance Criteria:** A comprehensive diagnostic package can be easily generated.
-
 173. **Feature: Trace-Level Logging**
     *   **Goal:** An extremely verbose logging level beyond "DEBUG" for deep troubleshooting of PoSh-Backup's internal logic flow.
     *   **Description:** Logs entry/exit of most functions, key variable states, etc. Performance impact expected.

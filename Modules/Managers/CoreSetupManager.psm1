@@ -320,6 +320,7 @@ function Invoke-PoShBackupCoreSetup {
         ItemsToExtract              = $CliOverrideSettings.ItemsToExtract
         ForceExtract                = ([bool]$CliOverrideSettings.ForceExtract)
         GetEffectiveConfigJobName   = $CliOverrideSettings.GetEffectiveConfig
+        ExportDiagnosticPackagePath = $CliOverrideSettings.ExportDiagnosticPackage
         CliOverrideSettingsInternal = $CliOverrideSettings 
         Configuration               = $Configuration
         ActualConfigFile            = $ActualConfigFile

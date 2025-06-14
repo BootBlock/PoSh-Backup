@@ -163,6 +163,11 @@
     A utility parameter. Displays the fully resolved, effective configuration for a given job name,
     including all global, set, and CLI overrides, then exits. Does not run a backup.
 
+.PARAMETER ExportDiagnosticPackage
+    A utility parameter. Gathers configuration files (with sensitive data replaced), recent log files,
+    and system information into a single .zip package specified by the provided path. This is useful
+    for support and troubleshooting. The script will exit after creating the package.
+
 .PARAMETER SyncSchedules
     Optional. A switch parameter. If present, synchronises job schedules from the configuration
     file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits.
@@ -230,13 +235,13 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.27.0 # Added Automated Backup Verification feature.
-    Date:           12-Jun-2025
+    Version:        1.28.0 # Added ExportDiagnosticPackage feature.
+    Date:           14-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
                     Optional: 'PoShBackupValidator.psm1'.
-    Configuration:  Via '.\Config\Default.psd1' and '.\Config\User.psd1'.
+    Configuration:  Via '.\Config\Default.psd1' and '.\Config\User.psd1' (or user-specified file).
     Script Name:    PoSh-Backup.ps1
 #>
 
@@ -298,6 +303,9 @@ param (
     # Effective configuration Parameter Set
     [Parameter(ParameterSetName='EffectiveConfig', Mandatory=$true, HelpMessage="Display the fully resolved configuration for a specific job and exit.")]
     [string]$GetEffectiveConfig,
+
+    [Parameter(ParameterSetName='Diagnostics', Mandatory=$true, HelpMessage="Gathers logs and sanitized configuration into a single zip file for troubleshooting.")]
+    [string]$ExportDiagnosticPackage,
 
     # Parameters available to multiple utility sets (Listing, Extraction)
     [Parameter(ParameterSetName='Listing', Mandatory=$false)]

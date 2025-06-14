@@ -303,7 +303,7 @@
     "    - `Modules\Core\Operations\JobExecutor.LocalBackupOrchestrator.psm1`: Updated to pass the `$ActualConfigFile` parameter through to the `LocalArchiveProcessor` so the hook has access to it.",
     "    - `README.md`: Updated feature description to include the new hook point.",
     "    - **Status:** The feature is now complete and working as expected.",
-    "--- Feature: Report File Retention (Completed in Current Session Segment) ---",
+    "--- Feature: Report File Retention (Completed in Previous Session Segment) ---",
     "    - **Goal:** Add an automated retention policy for report files to prevent the Reports directory from growing indefinitely.",
     "    - `Config\Default.psd1`: Added global `DefaultReportRetentionCount`, `CompressOldReports`, and `OldReportCompressionFormat` settings.",
     "    - `Modules\ConfigManagement\Assets\ConfigSchema.psd1`: Updated schema to validate the new report retention settings.",
@@ -311,11 +311,20 @@
     "    - `PoSh-Backup.ps1`: Corrected the call to `Invoke-PoShBackupFinalisation` to pass the full list of processed jobs needed for the retention logic, fixing a parameter binding error.",
     "    - `README.md`: Updated feature list to include report retention.",
     "    - **Status:** The feature is now complete and working as expected.",
+    "--- Feature: Export Diagnostic Package Utility (Completed in Current Session Segment) ---",
+    "    - **Goal:** Add a CLI switch to create a zip file containing sanitized configs, logs, and system info for easier troubleshooting.",
+    "    - `PoSh-Backup.ps1`: Added the `-ExportDiagnosticPackage <FilePath>` parameter and a new `Diagnostics` parameter set.",
+    "    - `Modules\Managers\CliManager.psm1`: Updated to recognize the new parameter.",
+    "    - `Modules\Managers\CoreSetupManager.psm1`: Updated to pass the new parameter value to `ScriptModeHandler`.",
+    "    - `Modules\ScriptModeHandler.psm1`: Implemented the core logic in a new internal function `Invoke-ExportDiagnosticPackageInternal`. This function gathers system info, copies and sanitizes config files by replacing sensitive keys, copies recent logs, and creates the final zip archive.",
+    "    - **Bug Fix:** Addressed a PSSA warning for an unused `Logger` parameter in the new internal function.",
+    "    - `README.md`: Updated to document the new diagnostic switch.",
+    "    - **Status:** The feature is now complete and working as expected.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and now Hyper-V snapshot orchestration. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.29.0 # Added Report Retention and Post-Local-Archive Hook features."
+  main_script_poSh_backup_version = "1.30.0 # Added Diagnostic Package Export utility."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

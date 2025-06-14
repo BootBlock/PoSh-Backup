@@ -7,14 +7,15 @@
 .DESCRIPTION
     This module provides a function, Invoke-PoShBackupScriptMode, which checks if PoSh-Backup
     was invoked with a non-backup parameter like -ListArchiveContents, -ExtractFromArchive,
-    -PinBackup, -TestConfig, -RunVerificationJobs, -GetEffectiveConfig, or -Maintenance.
+    -PinBackup, -TestConfig, -RunVerificationJobs, -GetEffectiveConfig, -ExportDiagnosticPackage, or -Maintenance.
     If one of these modes is active, this module takes over, performs the requested action,
-    and then exits the script. This keeps the main PoSh-Backup.ps1 script cleaner by
+    and then exits the script. This keeps the main PoSh-Backup.psm1 script cleaner by
     offloading this mode-specific logic. The -TestConfig mode now also resolves and displays
-    the effective post-run system action.
+    the effective post-run system action. The -ExportDiagnosticPackage mode now includes
+    disk space, configuration diff, and permissions reports.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.0 # -TestConfig now displays effective post-run action.
+    Version:        1.12.0 # Added Disk, Config Diff, and ACL reports to Diagnostic Package.
     DateCreated:    24-May-2025
     LastModified:   14-Jun-2025
     Purpose:        To handle informational and utility script execution modes for PoSh-Backup.
@@ -31,94 +32,279 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\PasswordManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\7ZipManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Core\ConfigManager.psm1") -Force -ErrorAction Stop
-    # Import PostRunActionOrchestrator for the -TestConfig mode
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Core\PostRunActionOrchestrator.psm1") -Force -ErrorAction Stop
 }
 catch {
-    # Don't throw here, as these are only needed for specific modes.
-    # The check within the mode logic will handle the missing functions.
     Write-Warning "ScriptModeHandler.psm1: Could not import a manager module. Specific modes may be unavailable. Error: $($_.Exception.Message)"
+}
+#endregion
+
+#region --- Private Helper: Export Diagnostic Package ---
+function Invoke-ExportDiagnosticPackageInternal {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OutputPath,
+        [Parameter(Mandatory = $true)]
+        [string]$PSScriptRoot,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger
+    )
+    & $Logger -Message "ScriptModeHandler/Invoke-ExportDiagnosticPackageInternal: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
+    & $LocalWriteLog -Message "`n--- Exporting Diagnostic Package ---" -Level "HEADING"
+
+    if (-not $PSCmdlet.ShouldProcess($OutputPath, "Create Diagnostic Package")) {
+        & $LocalWriteLog -Message "Diagnostic package creation skipped by user." -Level "WARNING"
+        return
+    }
+
+    $tempDir = Join-Path -Path $env:TEMP -ChildPath "PoShBackup_Diag_$(Get-Random)"
+    try {
+        & $LocalWriteLog -Message "  - Creating temporary directory: '$tempDir'" -Level "INFO"
+        New-Item -Path $tempDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+
+        # --- 1. Gather System Information ---
+        & $LocalWriteLog -Message "  - Gathering system information..." -Level "INFO"
+        $systemInfo = [System.Text.StringBuilder]::new()
+        $null = $systemInfo.AppendLine("PoSh-Backup Diagnostic Information")
+        $null = $systemInfo.AppendLine("Generated on: $(Get-Date -Format 'o')")
+        $null = $systemInfo.AppendLine(("-"*40))
+
+        $mainScriptVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content (Join-Path $PSScriptRoot "PoSh-Backup.ps1") -Raw)
+        $null = $systemInfo.AppendLine("PoSh-Backup Version: $mainScriptVersion")
+        $null = $systemInfo.AppendLine("PowerShell Version : $($PSVersionTable.PSVersion)")
+        $null = $systemInfo.AppendLine("OS Version         : $((Get-CimInstance Win32_OperatingSystem).Caption)")
+        $null = $systemInfo.AppendLine("Culture            : $((Get-Culture).Name)")
+        $null = $systemInfo.AppendLine("Execution Policy   : $(Get-ExecutionPolicy)")
+        $null = $systemInfo.AppendLine("Admin Rights       : $(Test-AdminPrivilege -Logger $Logger)")
+        $null = $systemInfo.AppendLine(("-"*40))
+
+        # 7-Zip Info
+        $sevenZipPathForDiag = Find-SevenZipExecutable -Logger $Logger
+        if ($sevenZipPathForDiag) {
+            $sevenZipVersionInfo = (& $sevenZipPathForDiag | Select-Object -First 2) -join " "
+            $null = $systemInfo.AppendLine("7-Zip Path    : $sevenZipPathForDiag")
+            $null = $systemInfo.AppendLine("7-Zip Version : $sevenZipVersionInfo")
+        } else {
+            $null = $systemInfo.AppendLine("7-Zip Info    : <not found or configured>")
+        }
+        $null = $systemInfo.AppendLine(("-"*40))
+
+        # External Module Info
+        $null = $systemInfo.AppendLine("External PowerShell Module Status:")
+        $poshSshModule = Get-Module -Name Posh-SSH -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1
+        $secretMgmtModule = Get-Module -Name Microsoft.PowerShell.SecretManagement -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1
+        $null = $systemInfo.AppendLine(" - Posh-SSH: $(if($poshSshModule){"v$($poshSshModule.Version) found at $($poshSshModule.Path)"}else{'<not found>'})")
+        $null = $systemInfo.AppendLine(" - SecretManagement: $(if($secretMgmtModule){"v$($secretMgmtModule.Version) found"}else{'<not found>'})")
+        try {
+            $vaults = Get-SecretVault -ErrorAction SilentlyContinue
+            if ($vaults) {
+                $vaults | ForEach-Object { $null = $systemInfo.AppendLine("   - Vault Found: Name '$($_.Name)', Module '$($_.ModuleName)', Default: $($_.DefaultVault)") }
+            } else {
+                $null = $systemInfo.AppendLine("   - Vaults: No secret vaults found or registered.")
+            }
+        } catch { $null = $systemInfo.AppendLine("   - Vaults: Error checking for vaults: $($_.Exception.Message)") }
+
+        $null = $systemInfo.AppendLine(("-"*40))
+
+        # Internal Module Info
+        $null = $systemInfo.AppendLine("PoSh-Backup Project File Versions:")
+        $rootUri = [uri]($PSScriptRoot + [System.IO.Path]::DirectorySeparatorChar)
+        Get-ChildItem -Path $PSScriptRoot -Include "*.psm1", "*.ps1" -Recurse -Exclude "Tests\*" | Sort-Object FullName | ForEach-Object {
+            $file = $_
+            $fileContentForVersion = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
+            $version = Get-ScriptVersionFromContent -ScriptContent $fileContentForVersion -ScriptNameForWarning $file.Name
+            $fileUri = [uri]$file.FullName
+            $relativePathUri = $rootUri.MakeRelativeUri($fileUri)
+            $relativePath = [uri]::UnescapeDataString($relativePathUri.ToString()).Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+            $versionString = if ($version -eq "N/A" -or $version -like "N/A (*") { "<no version>" } else { "v$version" }
+            $null = $systemInfo.AppendLine(" - $($relativePath.PadRight(75)) $versionString")
+        }
+
+        # --- NEW: Disk Space Report ---
+        $null = $systemInfo.AppendLine(("-"*40))
+        $null = $systemInfo.AppendLine("Disk Space Report:")
+        try {
+            Get-PSDrive -PSProvider FileSystem | ForEach-Object {
+                if ($_.Root -match "^[A-Z]:\\$") { # Only check fixed local drives
+                    $drive = $_
+                    $totalSizeGB = [math]::Round(($drive.Used + $drive.Free) / 1GB, 2)
+                    $freeSpaceGB = [math]::Round($drive.Free / 1GB, 2)
+                    $percentFree = if ($totalSizeGB -gt 0) { [math]::Round(($freeSpaceGB / $totalSizeGB) * 100, 2) } else { 0 }
+                    $null = $systemInfo.AppendLine(" - Drive $($drive.Name): Total: $($totalSizeGB) GB, Free: $($freeSpaceGB) GB ($($percentFree)%)")
+                }
+            }
+        } catch { $null = $systemInfo.AppendLine(" - Error gathering disk space information: $($_.Exception.Message)") }
+        # --- END NEW ---
+
+        $systemInfo.ToString() | Set-Content -Path (Join-Path $tempDir "SystemInfo.txt") -Encoding UTF8
+
+        # --- 2. Copy and Sanitise Configuration Files ---
+        & $LocalWriteLog -Message "  - Copying and sanitising configuration files..." -Level "INFO"
+        $configDir = Join-Path -Path $tempDir -ChildPath "Config"
+        New-Item -Path $configDir -ItemType Directory -Force | Out-Null
+        $defaultConfigPath = Join-Path -Path $PSScriptRoot -ChildPath "Config\Default.psd1"
+        $userConfigPath = Join-Path -Path $PSScriptRoot -ChildPath "Config\User.psd1"
+        $pssaSettingsPath = Join-Path -Path $PSScriptRoot -ChildPath "PSScriptAnalyzerSettings.psd1"
+
+        # --- NEW: Configuration Diff ---
+        if ((Test-Path $defaultConfigPath) -and (Test-Path $userConfigPath)) {
+            & $LocalWriteLog -Message "    - Generating configuration diff..." -Level "DEBUG"
+            try {
+                # A simple text-based diff is sufficient and safe
+                $diffOutput = Compare-Object -ReferenceObject (Get-Content $defaultConfigPath) -DifferenceObject (Get-Content $userConfigPath) | Format-List | Out-String
+                if ([string]::IsNullOrWhiteSpace($diffOutput)) { $diffOutput = "No differences found between Default.psd1 and User.psd1." }
+                else { $diffOutput = "Differences between Default.psd1 (<=) and User.psd1 (=>):`n`n" + $diffOutput }
+                $diffOutput | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
+            } catch {
+                "Error generating config diff: $($_.Exception.Message)" | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
+            }
+        }
+        # --- END NEW ---
+
+        $configFilesToCopy = @{ ($defaultConfigPath) = "Default.psd1"; ($userConfigPath) = "User.psd1"; ($pssaSettingsPath) = "PSScriptAnalyzerSettings.psd1" }
+        $sensitiveKeyPatterns = @('Password', 'SecretName', 'Credential', 'WebhookUrl')
+
+        foreach ($sourcePath in $configFilesToCopy.Keys) {
+            if (Test-Path -LiteralPath $sourcePath) {
+                $destFileName = $configFilesToCopy[$sourcePath]
+                $destPath = Join-Path -Path $configDir -ChildPath $destFileName
+                Copy-Item -LiteralPath $sourcePath -Destination $destPath
+
+                $content = Get-Content -LiteralPath $destPath -Raw
+                foreach ($pattern in $sensitiveKeyPatterns) {
+                    $regex = "(?im)^(\s*${pattern}\s*=\s*)['""](.*?)['""]"
+                    $replacement = "`$1'<REDACTED_VALUE_FOR_${pattern}_$(Get-Random -Minimum 1000 -Maximum 9999)>'"
+                    $content = $content -replace $regex, $replacement
+                }
+                $content | Set-Content -LiteralPath $destPath -Encoding UTF8
+                & $LocalWriteLog -Message "    - Copied and sanitised '$destFileName'." -Level "DEBUG"
+            }
+        }
+
+        # --- 3. Gather Recent Logs ---
+        & $LocalWriteLog -Message "  - Gathering recent log files..." -Level "INFO"
+        $logSourceDir = Join-Path -Path $PSScriptRoot -ChildPath "Logs"
+        $logDestDir = Join-Path -Path $tempDir -ChildPath "Logs"
+        if (Test-Path -LiteralPath $logSourceDir) {
+            New-Item -Path $logDestDir -ItemType Directory -Force | Out-Null
+            Get-ChildItem -Path $logSourceDir -Filter "*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 10 | ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination $logDestDir
+            }
+            & $LocalWriteLog -Message "    - Copied up to 10 most recent log files." -Level "DEBUG"
+        }
+
+        # --- NEW: Permissions/ACLs Report ---
+        & $LocalWriteLog -Message "  - Gathering permissions report..." -Level "INFO"
+        $aclReport = [System.Text.StringBuilder]::new()
+        $pathsToAclCheck = @(
+            $PSScriptRoot,
+            (Join-Path $PSScriptRoot "Config"),
+            (Join-Path $PSScriptRoot "Modules"),
+            (Join-Path $PSScriptRoot "Logs"),
+            (Join-Path $PSScriptRoot "Reports")
+        )
+        # Add destination directories from config
+        try {
+            $configForAcl = Import-PowerShellDataFile -LiteralPath (Join-Path $PSScriptRoot "Config\Default.psd1")
+            if (Test-Path (Join-Path $PSScriptRoot "Config\User.psd1")) {
+                $userConfigForAcl = Import-PowerShellDataFile -LiteralPath (Join-Path $PSScriptRoot "Config\User.psd1")
+                # Simple merge for this purpose
+                $userConfigForAcl.GetEnumerator() | ForEach-Object { $configForAcl[$_.Name] = $_.Value }
+            }
+            if ($configForAcl.DefaultDestinationDir) { $pathsToAclCheck += $configForAcl.DefaultDestinationDir }
+            if ($configForAcl.BackupLocations) { $configForAcl.BackupLocations.Values | ForEach-Object { if ($_.DestinationDir) { $pathsToAclCheck += $_.DestinationDir } } }
+        } catch {
+            & $LocalWriteLog -Message "[ERROR] ScriptModeHandler: Failed to import Config\Default.psd1 (or User.psd1, dunno!). Error: $($_.Exception.Message)" -Level "ERROR"
+        }
+
+        foreach ($path in ($pathsToAclCheck | Select-Object -Unique)) {
+            $null = $aclReport.AppendLine(("="*60))
+            $null = $aclReport.AppendLine("ACL for: $path")
+            $null = $aclReport.AppendLine(("="*60))
+            if (Test-Path -LiteralPath $path) {
+                try {
+                    $aclOutput = (Get-Acl -LiteralPath $path | Format-List | Out-String).Trim()
+                    $null = $aclReport.AppendLine($aclOutput)
+                } catch {
+                    $null = $aclReport.AppendLine("ERROR retrieving ACL: $($_.Exception.Message)")
+                }
+            } else {
+                $null = $aclReport.AppendLine("Path does not exist.")
+            }
+            $null = $aclReport.AppendLine()
+        }
+        $aclReport.ToString() | Set-Content -Path (Join-Path $tempDir "Permissions.acl.txt") -Encoding UTF8
+        # --- END NEW ---
+
+        # --- 4. Create ZIP Package ---
+        & $LocalWriteLog -Message "  - Compressing diagnostic files to '$OutputPath'..." -Level "INFO"
+        Compress-Archive -Path "$tempDir\*" -DestinationPath $OutputPath -Force -ErrorAction Stop
+        & $LocalWriteLog -Message "  - Diagnostic package created successfully." -Level "SUCCESS"
+
+    } catch {
+        & $LocalWriteLog -Message "[ERROR] Failed to create diagnostic package. Error: $($_.Exception.Message)" -Level "ERROR"
+    } finally {
+        # --- 5. Cleanup ---
+        if (Test-Path -LiteralPath $tempDir) {
+            & $LocalWriteLog -Message "  - Cleaning up temporary directory..." -Level "DEBUG"
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 #endregion
 
 #region --- Exported Function: Invoke-PoShBackupScriptMode ---
 function Invoke-PoShBackupScriptMode {
     [CmdletBinding()]
-    <#
-    .SYNOPSIS
-        Checks for and handles informational and utility script modes.
-    .DESCRIPTION
-        If one of the specified informational or utility CLI switches is present, this function executes
-        the corresponding logic and then exits the script. If no such mode is active, it returns
-        a value indicating that the main script should continue.
-    .PARAMETER MaintenanceSwitchValue
-        The boolean value provided to the -Maintenance parameter.
-    #... (other params) ...
-    #>
-        param(
+    param(
         [Parameter(Mandatory = $true)]
         [bool]$ListBackupLocationsSwitch,
-
         [Parameter(Mandatory = $true)]
         [bool]$ListBackupSetsSwitch,
-
         [Parameter(Mandatory = $true)]
         [bool]$TestConfigSwitch,
-
         [Parameter(Mandatory = $true)]
         [bool]$RunVerificationJobsSwitch,
-
         [Parameter(Mandatory = $true)]
         [bool]$CheckForUpdateSwitch,
-
         [Parameter(Mandatory = $true)]
         [bool]$VersionSwitch,
-
         [Parameter(Mandatory = $false)]
         [string]$GetEffectiveConfigJobName,
-
         [Parameter(Mandatory = $true)]
         [hashtable]$CliOverrideSettingsInternal,
-
+        [Parameter(Mandatory = $false)]
+        [string]$ExportDiagnosticPackagePath,
         [Parameter(Mandatory = $false)]
         [Nullable[bool]]$MaintenanceSwitchValue,
-
         [Parameter(Mandatory = $false)]
         [string]$PinBackupPath,
-
         [Parameter(Mandatory = $false)]
         [string]$UnpinBackupPath,
-
         [Parameter(Mandatory = $false)]
         [string]$ListArchiveContentsPath,
-
+        [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSScriptAnalyzer", "PSAvoidUsingPlainTextForPassword")]
         [Parameter(Mandatory = $false)]
         [string]$ArchivePasswordSecretName,
-
         [Parameter(Mandatory = $false)]
         [string]$ExtractFromArchivePath,
-
         [Parameter(Mandatory = $false)]
         [string]$ExtractToDirectoryPath,
-
         [Parameter(Mandatory = $false)]
         [string[]]$ItemsToExtract,
-
         [Parameter(Mandatory = $false)]
         [bool]$ForceExtract,
-
         [Parameter(Mandatory = $true)]
         [hashtable]$Configuration,
-
         [Parameter(Mandatory = $true)]
         [string]$ActualConfigFile,
-
         [Parameter(Mandatory = $true)]
         [hashtable]$ConfigLoadResult,
-
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
-
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.PSCmdlet]$PSCmdletForUpdateCheck
     )
@@ -133,6 +319,13 @@ function Invoke-PoShBackupScriptMode {
         } else {
             & $Logger -Message $Message -Level $Level
         }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ExportDiagnosticPackagePath)) {
+        Invoke-ExportDiagnosticPackageInternal -OutputPath $ExportDiagnosticPackagePath `
+            -PSScriptRoot $Configuration['_PoShBackup_PSScriptRoot'] `
+            -Logger $Logger
+        exit 0
     }
 
     if (-not [string]::IsNullOrWhiteSpace($GetEffectiveConfigJobName)) {
@@ -481,7 +674,7 @@ function Invoke-PoShBackupScriptMode {
                         $isFirstJobEnabled = Get-ConfigValue -ConfigObject $firstJobConf -Key 'Enabled' -DefaultValue $true
                         $firstJobColor = if ($isFirstJobEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
                     } else {
-                        $firstJobDisplayName += " (Not Found)"
+                        $firstJobDisplayName += " <not found>"
                         $firstJobColor = $Global:ColourWarning
                     }
                     & $LocalWriteLog -Message ("  Jobs in Set  : " + $firstJobDisplayName) -Level "NONE" -ForegroundColour $firstJobColor
@@ -496,7 +689,7 @@ function Invoke-PoShBackupScriptMode {
                                 $isJobEnabled = Get-ConfigValue -ConfigObject $jobConfInSet -Key 'Enabled' -DefaultValue $true
                                 $jobColor = if ($isJobEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
                             } else {
-                                $jobDisplayName += " (Not Found)"
+                                $jobDisplayName += " <not found>"
                                 $jobColor = $Global:ColourWarning
                             }
                             & $LocalWriteLog -Message ("                 " + $jobDisplayName) -Level "NONE" -ForegroundColour $jobColor
@@ -576,8 +769,8 @@ function Invoke-PoShBackupScriptMode {
                 $onErrorDisplaySet = if ($setConf.ContainsKey('OnErrorInJob')) { $setConf.OnErrorInJob } else { 'StopSet' }; & $LocalWriteLog -Message ("      On Error     : {0}" -f $onErrorDisplaySet) -Level "CONFIG_TEST"
             }
         } else { & $LocalWriteLog -Message "`n  --- Defined Backup Sets ---`n    No Backup Sets defined." -Level "CONFIG_TEST" }
-        
-        # --- NEW: Display Effective Post-Run Action ---
+
+        # --- Display Effective Post-Run Action ---
         if (Get-Command Invoke-PoShBackupPostRunActionHandler -ErrorAction SilentlyContinue) {
             $postRunResolution = Invoke-PoShBackupPostRunActionHandler -OverallStatus "SIMULATED_COMPLETE" `
                 -CliOverrideSettings $CliOverrideSettingsInternal `
@@ -603,10 +796,9 @@ function Invoke-PoShBackupScriptMode {
             & $LocalWriteLog -Message "`n  --- Effective Post-Run Action ---" -Level "CONFIG_TEST"
             & $LocalWriteLog -Message "    (Could not be determined as PostRunActionOrchestrator was not available)" -Level "CONFIG_TEST"
         }
-        # --- END NEW: Display Effective Post-Run Action ---
 
         & $LocalWriteLog -Message "`n[INFO] --- Configuration Test Mode Finished ---" -Level "CONFIG_TEST"
-        exit 0 # Exit after testing config
+        exit 0
     }
 
     return $false # No informational mode was handled, main script should continue

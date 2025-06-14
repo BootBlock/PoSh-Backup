@@ -752,6 +752,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-SyncSchedules`: Synchronises job schedules from the configuration file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits. Requires Administrator privileges.
 *   `-CheckForUpdate`: Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.
+*   `-ExportDiagnosticPackage <FilePath.zip>`: A utility parameter. Gathers configuration files (with sensitive data replaced with placeholders), recent log files, and system information into a single .zip package at the specified path. This is useful for support and troubleshooting.
 *   `-GetEffectiveConfig <JobName>`: A utility parameter. Displays the fully resolved, effective configuration for a given job name, including all global, set, and CLI overrides, then exits. Does not run a backup.
 
 ### Pinning Backups to Prevent Deletion
