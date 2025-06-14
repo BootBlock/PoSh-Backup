@@ -473,6 +473,8 @@ $cliOverridesString
                 Invoke-LogFileRetention -LogDirectory $Global:GlobalLogDirectory `
                     -JobNamePattern $currentJobName `
                     -RetentionCount $finalLogRetentionCountForJob `
+                    -CompressOldLogs $effectiveJobConfigForThisJob.CompressOldLogs `
+                    -OldLogCompressionFormat $effectiveJobConfigForThisJob.OldLogCompressionFormat `
                     -Logger $Logger `
                     -IsSimulateMode:$IsSimulateMode `
                     -PSCmdletInstance $PSCmdlet

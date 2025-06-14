@@ -163,6 +163,10 @@ function Resolve-OperationalConfiguration {
         }
     }
 
+    # Log Compression Settings (Job > Global)
+    $resolvedSettings.CompressOldLogs = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressOldLogs' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'CompressOldLogs' -DefaultValue $false)
+    $resolvedSettings.OldLogCompressionFormat = Get-ConfigValue -ConfigObject $JobConfig -Key 'OldLogCompressionFormat' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'OldLogCompressionFormat' -DefaultValue "Zip")
+
     # Free Space Check
     $resolvedSettings.JobMinimumRequiredFreeSpaceGB = Get-ConfigValue -ConfigObject $JobConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue 0)
     $resolvedSettings.JobExitOnLowSpace = Get-ConfigValue -ConfigObject $JobConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue $false)

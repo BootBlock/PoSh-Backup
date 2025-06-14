@@ -97,6 +97,8 @@
     DefaultLogRetentionCount        = 30                              # Global default for the number of log files to keep per job name pattern.
                                                                       # Set to 0 to keep all log files (infinite retention).
                                                                       # Can be overridden at the job or set level.
+    CompressOldLogs                 = $false                          # If $true, log files marked for deletion by retention will be compressed into an archive instead of being permanently deleted.
+    OldLogCompressionFormat         = "Zip"                           # Format for the compressed log archive. Valid values: "Zip".
     #endregion
 
     #region --- Reporting Settings (Global Defaults) ---

@@ -276,18 +276,29 @@
     "    - `Modules\ConfigManagement\EffectiveConfigBuilder\SevenZipSettings.psm1`: Modified to resolve the effective `JobSevenZipTempDirectory` path.",
     "    - `Modules\Managers\7ZipManager\ArgumentBuilder.psm1`: Updated to add the `-w`{path}`` switch to the 7-Zip command if a valid temporary directory is configured.",
     "    - `README.md`: Updated to document the new feature and its configuration options.",
-    "--- Feature: Get Effective Configuration Utility (Current Session Segment) ---",
+    "--- Feature: Get Effective Configuration Utility (Completed in Current Session Segment) ---",
     "    - **Goal:** Add a diagnostic switch `-GetEffectiveConfig <JobName>` to display the final, merged configuration for a specific job.",
     "    - `PoSh-Backup.ps1`: Added the `-GetEffectiveConfig` parameter and a new `EffectiveConfig` parameter set.",
     "    - `Modules\Managers\CliManager.psm1`: Updated to recognize the new parameter.",
     "    - `Modules\Managers\CoreSetupManager.psm1`: Updated to pass the new parameter value to `ScriptModeHandler`.",
     "    - `Modules\ScriptModeHandler.psm1` (v1.7.0 -> v1.8.0): Implemented the core logic to handle the new mode, call `Get-PoShBackupJobEffectiveConfiguration`, and display the formatted results before exiting.",
     "    - `README.md`: Updated to document the new diagnostic switch.",
+    "    - **Bug Fix:** Corrected a `Cannot bind argument... because it is null` error by properly passing the `$cliOverrideSettings` hashtable to the `ScriptModeHandler`.",
+    "    - **Status:** The feature is now complete and working as expected.",
+    "--- Feature: Log File Archiving and Compression (Completed in Current Session Segment) ---",
+    "    - **Goal:** Add an option to compress old log files into a zip archive instead of deleting them during retention.",
+    "    - `Config\Default.psd1`: Added global `CompressOldLogs` and `OldLogCompressionFormat` settings.",
+    "    - `Modules\ConfigManagement\Assets\ConfigSchema.psd1`: Updated schema to validate the new log compression settings.",
+    "    - `Modules\ConfigManagement\EffectiveConfigBuilder\OperationalSettings.psm1`: Updated to resolve the effective log compression settings.",
+    "    - `Modules\Managers\LogManager.psm1`: The `Invoke-LogFileRetention` function was updated to use `Compress-Archive` on logs marked for deletion when the feature is enabled. A PSSA false positive was also addressed.",
+    "    - `Modules\Core\JobOrchestrator.psm1`: Corrected the call to `Invoke-LogFileRetention` to pass the new, required parameters, fixing a `Cannot bind argument` error.",
+    "    - `README.md`: Updated to document the new log compression feature.",
+    "    - **Status:** The feature is now complete and working as expected.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and now Hyper-V snapshot orchestration. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.28.0 # Added Automated Backup Verification feature."
+  main_script_poSh_backup_version = "1.28.0 # Added Log Compression and GetEffectiveConfig features."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

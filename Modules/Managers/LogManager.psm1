@@ -4,11 +4,10 @@
     Provides utility functions for managing PoSh-Backup log files and console/file logging.
     This includes applying retention policies to log files and handling the core
     Write-LogMessage functionality.
-
 .DESCRIPTION
     This module contains:
-    - Invoke-LogFileRetention: Responsible for finding and deleting old log files based
-      on a specified retention count and job name pattern. This helps prevent the log
+    - Invoke-LogFileRetention: Responsible for finding and deleting or compressing old log files
+      based on a specified retention count and job name pattern. This helps prevent the log
       directory from growing indefinitely.
     - Write-LogMessage: Responsible for standardised console and file logging with
       colour-coding and timestamping. It relies on global variables (e.g.,
@@ -18,9 +17,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.2 # Corrected color override logic for -Level "NONE" to use host default.
+    Version:        1.3.0 # Added log compression feature.
     DateCreated:    27-May-2025
-    LastModified:   08-Jun-2025
+    LastModified:   14-Jun-2025
     Purpose:        Log file retention management and core message logging utility for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function and PSCmdlet instance to be passed to Invoke-LogFileRetention.
@@ -105,8 +104,8 @@ function Invoke-LogFileRetention {
         Applies retention policy to log files for a specific job pattern.
     .DESCRIPTION
         This function finds log files in the specified directory that match a job name pattern
-        (e.g., "MyJob_*.log"). It sorts these files by creation time and deletes the oldest
-        ones, ensuring that no more than the specified RetentionCount remain.
+        (e.g., "MyJob_*.log"). It sorts these files by creation time and deletes or compresses
+        the oldest ones, ensuring that no more than the specified RetentionCount remain.
         A RetentionCount of 0 means infinite retention (no logs are deleted).
     .PARAMETER LogDirectory
         The directory where the log files are stored.
@@ -114,17 +113,16 @@ function Invoke-LogFileRetention {
         The base name of the job, used to construct the file pattern (e.g., "MyJob" becomes "MyJob_*.log").
     .PARAMETER RetentionCount
         The number of log files to keep for this job pattern. If 0, all logs are kept.
+    .PARAMETER CompressOldLogs
+        If $true, log files marked for deletion will be compressed into an archive instead of being deleted.
+    .PARAMETER OldLogCompressionFormat
+        The format for the compressed log archive (currently only "Zip" is supported).
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
     .PARAMETER IsSimulateMode
-        A switch. If $true, deletion operations are simulated and logged, but no files are actually deleted.
+        A switch. If $true, deletion/compression operations are simulated and logged, but no files are actually changed.
     .PARAMETER PSCmdletInstance
         A mandatory reference to the calling cmdlet's $PSCmdlet automatic variable for ShouldProcess support.
-    .EXAMPLE
-        # Invoke-LogFileRetention -LogDirectory "C:\PoShBackup\Logs" -JobNamePattern "ServerBackup" `
-        #   -RetentionCount 10 -Logger ${function:Write-LogMessage} -PSCmdletInstance $PSCmdlet
-    .OUTPUTS
-        None. This function performs file operations and logs its actions.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -134,6 +132,10 @@ function Invoke-LogFileRetention {
         [Parameter(Mandatory = $true)]
         [int]$RetentionCount,
         [Parameter(Mandatory = $true)]
+        [bool]$CompressOldLogs,
+        [Parameter(Mandatory = $true)]
+        [string]$OldLogCompressionFormat,
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
         [switch]$IsSimulateMode,
@@ -141,10 +143,8 @@ function Invoke-LogFileRetention {
         [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
 
-    # Defensive PSSA appeasement line by directly calling the logger for this initial message
-    & $Logger -Message "LogManager/Invoke-LogFileRetention: Logger parameter active for JobPattern '$JobNamePattern', RetentionCount '$RetentionCount'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "LogManager/Invoke-LogFileRetention: Logger parameter active for JobPattern '$JobNamePattern'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
-    # Internal helper to use the passed-in logger consistently for other messages
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
@@ -158,7 +158,7 @@ function Invoke-LogFileRetention {
         & $LocalWriteLog -Message "[INFO] LogManager: LogRetentionCount is 0 for job pattern '$JobNamePattern'. All log files will be kept." -Level "INFO"
         return
     }
-    if ($RetentionCount -lt 0) { # Should be caught by ValidateRange in PoSh-Backup.ps1, but defensive check.
+    if ($RetentionCount -lt 0) {
         & $LocalWriteLog -Message "[WARNING] LogManager: LogRetentionCount is negative ($RetentionCount) for job pattern '$JobNamePattern'. Interpreting as 0 (infinite retention)." -Level "WARNING"
         return
     }
@@ -166,6 +166,7 @@ function Invoke-LogFileRetention {
     & $LocalWriteLog -Message "`n[INFO] LogManager: Applying Log Retention Policy for job pattern '$JobNamePattern'..." -Level "INFO"
     & $LocalWriteLog -Message "   - Log Directory: $LogDirectory"
     & $LocalWriteLog -Message "   - Number of log files to keep: $RetentionCount"
+    & $LocalWriteLog -Message "   - Compress Old Logs: $CompressOldLogs"
 
     if (-not (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
         & $LocalWriteLog -Message "   - LogManager: Log directory '$LogDirectory' not found. Skipping log retention." -Level "WARNING"
@@ -177,44 +178,69 @@ function Invoke-LogFileRetention {
 
     try {
         $existingLogFiles = Get-ChildItem -Path $LogDirectory -Filter $fileFilter -File -ErrorAction SilentlyContinue |
-                            Sort-Object CreationTime -Descending # Sort newest first
+                            Sort-Object CreationTime -Descending
 
         if ($null -eq $existingLogFiles -or $existingLogFiles.Count -eq 0) {
-            & $LocalWriteLog -Message "   - LogManager: No log files found matching pattern '$fileFilter' in '$LogDirectory'. No retention actions needed." -Level "INFO"
+            & $LocalWriteLog -Message "   - LogManager: No log files found matching pattern '$fileFilter'. No retention actions needed." -Level "INFO"
             return
         }
 
         if ($existingLogFiles.Count -le $RetentionCount) {
-            & $LocalWriteLog -Message "   - LogManager: Number of existing log files ($($existingLogFiles.Count)) is at or below retention count ($RetentionCount). No logs to delete." -Level "INFO"
+            & $LocalWriteLog -Message "   - LogManager: Number of existing log files ($($existingLogFiles.Count)) is at or below retention count ($RetentionCount). No logs to delete or compress." -Level "INFO"
             return
         }
 
         $logFilesToDelete = $existingLogFiles | Select-Object -Skip $RetentionCount
-        & $LocalWriteLog -Message "[INFO] LogManager: Found $($existingLogFiles.Count) log files. Will attempt to delete $($logFilesToDelete.Count) older log(s) to meet retention count ($RetentionCount)." -Level "INFO"
+        & $LocalWriteLog -Message "[INFO] LogManager: Found $($existingLogFiles.Count) log files. Will process $($logFilesToDelete.Count) older log(s) to meet retention count ($RetentionCount)." -Level "INFO"
 
-        foreach ($logFile in $logFilesToDelete) {
-            $deleteActionMessage = "Permanently Delete Log File"
+        if ($CompressOldLogs) {
+            $archiveFileName = "PoSh-Backup_ArchivedLogs_$($safeJobNamePatternForFile).$($OldLogCompressionFormat.ToLower())"
+            $archiveFullPath = Join-Path -Path $LogDirectory -ChildPath $archiveFileName
+            $actionMessage = "Compress $($logFilesToDelete.Count) log files to '$archiveFullPath' and then delete originals"
 
             if ($IsSimulateMode.IsPresent) {
-                & $LocalWriteLog -Message "       - SIMULATE: Would $deleteActionMessage '$($logFile.FullName)' (Created: $($logFile.CreationTime))" -Level "SIMULATE"
-                continue
+                & $LocalWriteLog -Message "SIMULATE: $actionMessage" -Level "SIMULATE"
+                return
             }
 
-            if (-not $PSCmdletInstance.ShouldProcess($logFile.FullName, $deleteActionMessage)) {
-                & $LocalWriteLog -Message "       - LogManager: Deletion of log file '$($logFile.FullName)' skipped by user (ShouldProcess)." -Level "WARNING"
-                continue
+            if (-not $PSCmdletInstance.ShouldProcess($archiveFullPath, "Compress and Remove Old Logs")) {
+                & $LocalWriteLog -Message "       - LogManager: Log compression for job pattern '$JobNamePattern' skipped by user (ShouldProcess)." -Level "WARNING"
+                return
             }
 
-            & $LocalWriteLog -Message "       - LogManager: Deleting log file: '$($logFile.FullName)' (Created: $($logFile.CreationTime))" -Level "WARNING"
             try {
-                Remove-Item -LiteralPath $logFile.FullName -Force -ErrorAction Stop
-                & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level "SUCCESS"
+                Compress-Archive -Path $logFilesToDelete.FullName -DestinationPath $archiveFullPath -Update -ErrorAction Stop
+                & $LocalWriteLog -Message "       - LogManager: Successfully compressed $($logFilesToDelete.Count) log files into '$archiveFullPath'." -Level "SUCCESS"
+                
+                # Now delete the original log files that were compressed
+                foreach ($logFile in $logFilesToDelete) {
+                    try {
+                        Remove-Item -LiteralPath $logFile.FullName -Force -ErrorAction Stop
+                    } catch {
+                        & $LocalWriteLog -Message "         - Status: FAILED to delete original compressed log file '$($logFile.FullName)'! Error: $($_.Exception.Message)" -Level "ERROR"
+                    }
+                }
             } catch {
-                & $LocalWriteLog -Message "         - Status: FAILED to delete log file! Error: $($_.Exception.Message)" -Level "ERROR"
+                & $LocalWriteLog -Message "[ERROR] LogManager: Failed to compress log files. Original files have not been deleted. Error: $($_.Exception.Message)" -Level "ERROR"
+            }
+        } else {
+            foreach ($logFile in $logFilesToDelete) {
+                $deleteActionMessage = "Permanently Delete Log File"
+                if (-not $PSCmdletInstance.ShouldProcess($logFile.FullName, $deleteActionMessage)) {
+                    & $LocalWriteLog -Message "       - LogManager: Deletion of log file '$($logFile.FullName)' skipped by user (ShouldProcess)." -Level "WARNING"
+                    continue
+                }
+                & $LocalWriteLog -Message "       - LogManager: Deleting log file: '$($logFile.FullName)' (Created: $($logFile.CreationTime))" -Level "WARNING"
+                try {
+                    Remove-Item -LiteralPath $logFile.FullName -Force -ErrorAction Stop
+                    & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level "SUCCESS"
+                } catch {
+                    & $LocalWriteLog -Message "         - Status: FAILED to delete log file! Error: $($_.Exception.Message)" -Level "ERROR"
+                }
             }
         }
     } catch {
-        & $LocalWriteLog -Message "[WARNING] LogManager: Error during log retention policy for job pattern '$JobNamePattern'. Some old logs might not have been deleted. Error: $($_.Exception.Message)" -Level "WARNING"
+        & $LocalWriteLog -Message "[WARNING] LogManager: Error during log retention policy for job pattern '$JobNamePattern'. Some old logs might not have been processed. Error: $($_.Exception.Message)" -Level "WARNING"
     }
     & $LocalWriteLog -Message "[INFO] LogManager: Log retention policy application finished for job pattern '$JobNamePattern'." -Level "INFO"
 }

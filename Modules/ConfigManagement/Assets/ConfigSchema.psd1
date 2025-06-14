@@ -22,6 +22,8 @@
     EnableFileLogging                         = @{ Type = 'boolean'; Required = $false }
     LogDirectory                              = @{ Type = 'string'; Required = $false }
     DefaultLogRetentionCount                  = @{ Type = 'int'; Required = $false; Min = 0 }
+    CompressOldLogs                           = @{ Type = 'boolean'; Required = $false }
+    OldLogCompressionFormat                   = @{ Type = 'string'; Required = $false; AllowedValues = @("Zip") }
     ReportGeneratorType                       = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
 
     HtmlReportDirectory                       = @{ Type = 'string'; Required = $false }

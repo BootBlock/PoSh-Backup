@@ -1173,12 +1173,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** `Modules\ScriptModeHandler.psm1`, `Modules\PoShBackupValidator.psm1`.
     *   **Acceptance Criteria:** `-TestConfig` with a job name provides targeted validation output.
 
-141. **Feature: Log File Archiving/Compression**
-    *   **Goal:** Option to compress old log files (e.g., into a ZIP or 7z archive) instead of or before deleting them via log retention.
-    *   **Description:** Saves space while keeping historical logs accessible if needed.
-    *   **Scope & Impact:** `Modules\Managers\LogManager.psm1` (in `Invoke-LogFileRetention`), `Config\Default.psd1` (e.g., `CompressOldLogs = $true`, `OldLogCompressionFormat = "Zip"`).
-    *   **Acceptance Criteria:** Old log files are compressed according to configuration.
-
 143. **Enhancement: Clearer Progress for Multi-Job Sets**
     *   **Goal:** Provide better console feedback on the overall progress when running a backup set.
     *   **Description:** E.g., "Starting Set 'DailyBackups' (3 jobs total)...", "Job 'Job1' (1 of 3) starting...", "Job 'Job1' (1 of 3) completed. Status: SUCCESS".
