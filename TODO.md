@@ -1361,12 +1361,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** `Modules\ConfigManagement\ConfigLoader.psm1` would need to parse a special `@include "path/to/snippet.psd1"` directive and merge the content.
     *   **Acceptance Criteria:** Configuration snippets can be defined and included, reducing duplication.
 
-177. **Enhancement: `-TestConfig` to Show Effective `PostRunAction`**
-    *   **Goal:** Make the `-TestConfig` output clearly state what post-run system action (if any) would be taken and from what level it was derived (CLI, Set, Job, Global).
-    *   **Description:** Currently, it simulates post-run actions but might not explicitly detail the *source* of the decision.
-    *   **Scope & Impact:** `Modules\ScriptModeHandler.psm1` (for `-TestConfig` logic), `Modules\Core\PostRunActionOrchestrator.psm1` (might need a "dry-run resolve" mode).
-    *   **Acceptance Criteria:** `-TestConfig` clearly shows the effective post-run action and its configuration source.
-
 **XLVI. Practical Archive & File Handling**
 
 180. **Feature: "Test Before Delete" for Local Retention**

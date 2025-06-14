@@ -10,16 +10,17 @@
     -PinBackup, -TestConfig, -RunVerificationJobs, -GetEffectiveConfig, or -Maintenance.
     If one of these modes is active, this module takes over, performs the requested action,
     and then exits the script. This keeps the main PoSh-Backup.ps1 script cleaner by
-    offloading this mode-specific logic.
+    offloading this mode-specific logic. The -TestConfig mode now also resolves and displays
+    the effective post-run system action.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.8.0 # Added -GetEffectiveConfig mode.
+    Version:        1.9.0 # -TestConfig now displays effective post-run action.
     DateCreated:    24-May-2025
     LastModified:   14-Jun-2025
     Purpose:        To handle informational and utility script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
-                    Requires PinManager, PasswordManager, 7ZipManager, VerificationManager, and ConfigManager for specific modes.
+                    Requires various Manager and Core modules for specific modes.
 #>
 
 #region --- Module Dependencies ---
@@ -29,8 +30,9 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\PinManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\PasswordManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\7ZipManager.psm1") -Force -ErrorAction Stop
-    # Import ConfigManager to get access to Get-PoShBackupJobEffectiveConfiguration
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Core\ConfigManager.psm1") -Force -ErrorAction Stop
+    # Import PostRunActionOrchestrator for the -TestConfig mode
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Core\PostRunActionOrchestrator.psm1") -Force -ErrorAction Stop
 }
 catch {
     # Don't throw here, as these are only needed for specific modes.
@@ -147,7 +149,7 @@ function Invoke-PoShBackupScriptMode {
             $effectiveConfigParams = @{
                 JobConfig                  = $jobConfigForReport
                 GlobalConfig               = $Configuration
-                CliOverrides               = $CliOverrideSettingsInternal # This should be passed in from CoreSetupManager
+                CliOverrides               = $CliOverrideSettingsInternal
                 JobReportDataRef           = $dummyReportDataRef
                 Logger                     = $Logger
             }
@@ -574,6 +576,35 @@ function Invoke-PoShBackupScriptMode {
                 $onErrorDisplaySet = if ($setConf.ContainsKey('OnErrorInJob')) { $setConf.OnErrorInJob } else { 'StopSet' }; & $LocalWriteLog -Message ("      On Error     : {0}" -f $onErrorDisplaySet) -Level "CONFIG_TEST"
             }
         } else { & $LocalWriteLog -Message "`n  --- Defined Backup Sets ---`n    No Backup Sets defined." -Level "CONFIG_TEST" }
+        
+        # --- NEW: Display Effective Post-Run Action ---
+        if (Get-Command Invoke-PoShBackupPostRunActionHandler -ErrorAction SilentlyContinue) {
+            $postRunResolution = Invoke-PoShBackupPostRunActionHandler -OverallStatus "SIMULATED_COMPLETE" `
+                -CliOverrideSettings $CliOverrideSettingsInternal `
+                -SetSpecificPostRunAction $null `
+                -JobSpecificPostRunActionForNonSet $null `
+                -GlobalConfig $Configuration `
+                -IsSimulateMode $true `
+                -TestConfigIsPresent $true `
+                -Logger $Logger `
+                -ResolveOnly
+
+            if ($null -ne $postRunResolution) {
+                & $LocalWriteLog -Message "`n  --- Effective Post-Run Action ---" -Level "CONFIG_TEST"
+                & $LocalWriteLog -Message ("    Action          : {0}" -f $postRunResolution.Action) -Level "CONFIG_TEST"
+                & $LocalWriteLog -Message ("    Source          : {0}" -f $postRunResolution.Source) -Level "CONFIG_TEST"
+                if ($postRunResolution.Action -ne 'None') {
+                    & $LocalWriteLog -Message ("    Trigger On      : {0}" -f $postRunResolution.TriggerOnStatus) -Level "CONFIG_TEST"
+                    & $LocalWriteLog -Message ("    Delay (seconds) : {0}" -f $postRunResolution.DelaySeconds) -Level "CONFIG_TEST"
+                    & $LocalWriteLog -Message ("    Force Action    : {0}" -f $postRunResolution.ForceAction) -Level "CONFIG_TEST"
+                }
+            }
+        } else {
+            & $LocalWriteLog -Message "`n  --- Effective Post-Run Action ---" -Level "CONFIG_TEST"
+            & $LocalWriteLog -Message "    (Could not be determined as PostRunActionOrchestrator was not available)" -Level "CONFIG_TEST"
+        }
+        # --- END NEW: Display Effective Post-Run Action ---
+
         & $LocalWriteLog -Message "`n[INFO] --- Configuration Test Mode Finished ---" -Level "CONFIG_TEST"
         exit 0 # Exit after testing config
     }
