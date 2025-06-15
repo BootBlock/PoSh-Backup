@@ -932,12 +932,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XXI. User Interface & User Experience (Beyond Home User)**
 
-107. **Feature: Command-Line Auto-Completion / Intellisense**
-    *   **Goal:** Provide PowerShell auto-completion for PoSh-Backup cmdlets/parameters (especially job names, set names, target names from config).
-    *   **Description:** Improves CLI usability and reduces typos.
-    *   **Scope & Impact:** Implement `ArgumentCompleter` attributes or `Register-ArgumentCompleter`.
-    *   **Acceptance Criteria:** Tab-completion works for key PoSh-Backup parameters.
-
 108. **Feature: PoSh-Backup PowerShell Module Packaging**
     *   **Goal:** Package the entire PoSh-Backup solution as a proper PowerShell module installable from PowerShell Gallery or local repository.
     *   **Description:** Simplifies installation, updates, and version management. Makes functions more easily discoverable.

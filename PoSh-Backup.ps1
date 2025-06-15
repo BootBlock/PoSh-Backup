@@ -12,8 +12,8 @@
     7-Zip include/exclude list files, backup job chaining/dependencies, multi-volume
     (split) archive creation (with CLI override), an update checking mechanism, the
     ability to pin backups to prevent retention policy deletion, integrated backup
-    job scheduling via Windows Task Scheduler, a global maintenance mode, and automated
-    backup verification jobs.
+    job scheduling via Windows Task Scheduler, a global maintenance mode, automated
+    backup verification jobs, and CLI tab-completion for job and set names.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -235,8 +235,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.28.0 # Added ExportDiagnosticPackage feature.
-    Date:           14-Jun-2025
+    Version:        1.29.0 # Added CLI tab-completion for job and set names.
+    Date:           15-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -250,12 +250,15 @@
 param (
     # Execution Parameter Set: For running backups
     [Parameter(ParameterSetName='Execution', Position=0, Mandatory=$false, HelpMessage="Optional. Name of a single backup location to process.")]
+    [ArgumentCompleter({ Get-PoShBackupJobNameCompletion @args })]
     [string]$BackupLocationName,
 
     [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Optional. Name of a Backup Set (defined in config) to process.")]
+    [ArgumentCompleter({ Get-PoShBackupSetNameCompletion @args })]
     [string]$RunSet,
 
     [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Optional. A job name or list of job names to exclude from the current run.")]
+    [ArgumentCompleter({ Get-PoShBackupJobNameCompletion @args })]
     [string[]]$SkipJob,
 
     [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Pin the backup archive(s) created during this specific run, protecting them from retention policies.")]
@@ -302,6 +305,7 @@ param (
 
     # Effective configuration Parameter Set
     [Parameter(ParameterSetName='EffectiveConfig', Mandatory=$true, HelpMessage="Display the fully resolved configuration for a specific job and exit.")]
+    [ArgumentCompleter({ Get-PoShBackupJobNameCompletion @args })]
     [string]$GetEffectiveConfig,
 
     [Parameter(ParameterSetName='Diagnostics', Mandatory=$true, HelpMessage="Gathers logs and sanitized configuration into a single zip file for troubleshooting.")]
@@ -419,12 +423,10 @@ param (
 #endregion
 
 #region --- Initial Script Setup & Module Import ---
-# Set global quiet mode flag immediately after parameter processing
-$Global:IsQuietMode = $Quiet.IsPresent
-
 # Import InitialisationManager first to set up globals and display banner
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\InitialisationManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utilities\ArgumentCompleters.psm1") -Force -ErrorAction Stop
     Invoke-PoShBackupInitialSetup -MainScriptPath $PSCommandPath
 } catch {
     Write-Host "[FATAL] Failed to import or run CRITICAL InitialisationManager.psm1 module." -ForegroundColor Red

@@ -18,6 +18,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   If remote targets (e.g., UNC shares, SFTP servers) are configured for the job, this `DestinationDir` acts as a **local staging area** before the archive is transferred.
     *   If no remote targets are specified for a job, the archive in `DestinationDir` serves as the **final backup destination**.
 *   **Granular Backup Job Control:** Precisely define sources, the primary archive creation directory (`DestinationDir`), archive names, local retention policies, **remote target assignments**, and **post-run actions** for each individual backup job.
+*   **CLI Tab-Completion:** Interactive argument completion for job and set names (`-BackupLocationName`, `-RunSet`, `-SkipJob`, etc.), reducing typos and making it easier to select the correct item from the command line.
 *   **Backup Job Chaining / Dependencies:** Define prerequisite jobs for a backup job using the `DependsOnJobs` array setting in the configuration. A job will only execute if all its specified prerequisite jobs have completed successfully. Success for a prerequisite is determined by its final status, taking into account its specific `TreatSevenZipWarningsAsSuccess` setting (i.e., a status of "SUCCESS", "SIMULATED_COMPLETE", or "WARNINGS" if that job treats warnings as success, will allow dependent jobs to proceed). The script automatically builds a valid execution order for the targeted job(s) and their dependencies, and will detect and report circular dependencies during configuration testing (`-TestConfig`) or before a run.
 *   **Backup Sets:** Group multiple jobs to run. If jobs within a set have dependencies defined via `DependsOnJobs`, they will be ordered accordingly within the set's execution. The set-level error handling (`OnErrorInJob`: "StopSet" or "ContinueSet") interacts with both operational job failures and jobs skipped due to failed prerequisites. For example, if `OnErrorInJob` is "StopSet", a critical prerequisite failure that causes a dependent job to be skipped can halt the entire set. Set-level post-run actions are also supported.
 *   **Extensible Backup Target Providers:** A modular system (located in `Modules\Targets\`) allows for adding support for various remote storage types.
@@ -513,6 +514,8 @@ Instead of backing up files directly from the live VM's file system, PoSh-Backup
 
 ### 4. Basic Usage Examples
 Once your `Config\User.psd1` is configured with at least one backup job, you can run PoSh-Backup from a PowerShell console located in the script's root directory:
+
+> **Tip:** You can use the `Tab` key to auto-complete job and set names for parameters like `-BackupLocationName` and `-RunSet`.
 
 *   **Enable Maintenance Mode (prevents jobs from running):**
     ```powershell

@@ -34,7 +34,7 @@
   )
 
   conversation_summary            = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.33.0).",
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.34.0).",
     "Modular design: Core (Modules\\Core\\), Managers (Modules\\Managers\\), Utilities (Modules\\Utilities\\), Operations (Modules\\Operations\\), ConfigManagement (Modules\\ConfigManagement\\), Reporting (Modules\\Reporting\\), Targets (Modules\\Targets\\).",
     "AI State structure loaded from 'Meta\\AIState.template.psd1', dynamically populated by Bundler (v__BUNDLER_VERSION_PLACEHOLDER__).",
     "--- CLI Usability Enhancements (Completed in Previous Session Segment) ---",
@@ -333,7 +333,7 @@
     "    - **Bug Fixes:**",
     "        - Corrected a parameter name mismatch (`PSCmdletInstance`) in `CoreSetupManager.psm1` when calling the script mode handler.",
     "        - Fixed a logic bug where maintenance mode was being incorrectly triggered on normal backup runs.",
-    "--- Feature: Retention Safety (Test Before Delete) & Bug Fixes (Completed in Current Session Segment) ---",
+    "--- Feature: Retention Safety (Test Before Delete) & Bug Fixes (Completed in Previous Current Session Segment) ---",
     "    - **Goal:** Add a safety check to verify an old archive's integrity before retention deletes it, and fix related bugs in the retention scanner.",
     "    - `Config\\Default.psd1`: Added `TestArchiveBeforeDeletion = `$false` to job definitions.",
     "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated schema to include the new `TestArchiveBeforeDeletion` boolean key.",
@@ -343,11 +343,19 @@
     "    - **Bug Fix (Off-by-One):** Corrected the retention count logic in `Modules\\Managers\\RetentionManager.psm1`, which was previously keeping `N-1` archives instead of the configured `N`. It now correctly skips the specified number of archives.",
     "    - `Modules\\Managers\\RetentionManager.psm1`: Facade updated to accept the full `$EffectiveJobConfig` to pass settings down to the deleter.",
     "    - `Modules\\Core\\Operations\\JobExecutor.LocalRetentionHandler.psm1`: Updated to pass the full effective configuration to the retention manager.",
+    "--- Feature: CLI Auto-Completion (Completed in Current Session Segment) ---",
+    "    - **Goal:** Add tab-completion for job and set names to improve usability.",
+    "    - **New Module:** Created `Modules\\Utilities\\ArgumentCompleters.psm1` to house the completion logic, keeping the main script clean.",
+    "    - `PoSh-Backup.ps1` (v1.28.0 -> v1.29.0):",
+    "        - Imports the new `ArgumentCompleters.psm1` module.",
+    "        - Decorates the `-BackupLocationName`, `-RunSet`, `-SkipJob`, and `-GetEffectiveConfig` parameters with the `[ArgumentCompleter({ ... })]` attribute.",
+    "    - **Bug Fix:** Corrected the syntax for the `ArgumentCompleter` from `[scriptblock]::Create(...)` to the required `{ ... }` script block literal to resolve parsing errors.",
+    "    - **Status:** Tab-completion for job and set names is now active.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular, with utility modes now broken into sub-modules under `Modules\ScriptModes\`. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and Hyper-V snapshot orchestration. PSSA warnings: 2 (known password-related warnings)."
   )
 
-  main_script_poSh_backup_version = "1.32.0 # Refactored ScriptModeHandler into sub-modules."
+  main_script_poSh_backup_version = "1.34.0 # Added CLI tab-completion for job and set names."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
