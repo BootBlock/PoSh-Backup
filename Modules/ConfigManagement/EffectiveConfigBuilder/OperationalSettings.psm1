@@ -10,9 +10,9 @@
     and notification settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.0 # Added SnapshotProviderName and SourceIsVMName resolution.
+    Version:        1.4.2 # Robust fix for PinOnCreation boolean conversion bug.
     DateCreated:    30-May-2025
-    LastModified:   10-Jun-2025
+    LastModified:   15-Jun-2025
     Purpose:        Operational settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -132,7 +132,19 @@ function Resolve-OperationalConfiguration {
         $resolvedSettings.PinOnCreation = $true
         & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: PinOnCreation set to TRUE by -Pin CLI switch." -Level "DEBUG"
     } else {
-        $resolvedSettings.PinOnCreation = Get-ConfigValue -ConfigObject $JobConfig -Key 'PinOnCreation' -DefaultValue $false
+        $pinValueFromConfig = Get-ConfigValue -ConfigObject $JobConfig -Key 'PinOnCreation' -DefaultValue $false
+        $isPinEnabled = $false # Default to safe value
+
+        if ($pinValueFromConfig -is [bool]) {
+            $isPinEnabled = $pinValueFromConfig
+        } elseif ($pinValueFromConfig -is [string] -and $pinValueFromConfig.ToLowerInvariant() -eq 'true') {
+            $isPinEnabled = $true
+        } elseif ($pinValueFromConfig -is [int] -and $pinValueFromConfig -ne 0) {
+            $isPinEnabled = $true
+        }
+        # Any other value (string "false", string "fals", etc.) will result in $isPinEnabled remaining $false.
+        $resolvedSettings.PinOnCreation = $isPinEnabled
+        
         if ($resolvedSettings.PinOnCreation) {
             & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: PinOnCreation set to TRUE by job configuration." -Level "DEBUG"
         }

@@ -14,9 +14,9 @@
     logging parameters, and determines the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.6.0 # Added RunVerificationJobs parameter.
+    Version:        1.6.1 # Corrected parameter name for PSCmdletInstance when calling ScriptModeHandler.
     DateCreated:    01-Jun-2025
-    LastModified:   12-Jun-2025
+    LastModified:   15-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
     Prerequisites:  PowerShell 5.1+.
                     Relies on InitialisationManager.psm1 and CliManager.psm1 having been run.
@@ -133,45 +133,11 @@ function Test-RequiredModulesInternal {
                 return $false # No active job triggered the condition.
             }
         }
-        # Add other required modules here in the future with their own conditions.
-        # --- HOW TO ADD A NEW DEPENDENCY ---
-        # To add a check for another module (e.g., a hypothetical 'Az.Storage' for an Azure target),
-        # simply add a new hashtable entry to the $requiredModules array above, following this pattern:
-        #
-        # @{
-        #     ModuleName  = 'Az.Storage' # The exact name of the module on the PowerShell Gallery.
-        #     RequiredFor = 'Azure Blob Storage Target Provider' # A user-friendly description of the feature.
-        #     InstallHint = 'Install-Module Az.Storage -Scope CurrentUser' # The command to install the module.
-        #     Condition   = {
-        #         param($Config, $ActiveJobs)
-        #         # This scriptblock MUST return $true if the dependency check is needed, otherwise $false.
-        #         # It should inspect the loaded $Config and the list of $ActiveJobs to make its decision.
-        #         #
-        #         # Example logic for an 'AzureBlob' target type:
-        #         if ($Config.ContainsKey('BackupTargets') -and $Config.BackupTargets -is [hashtable]) {
-        #             foreach ($jobName in $ActiveJobs) {
-        #                 $jobConf = $Config.BackupLocations[$jobName]
-        #                 if ($jobConf -and $jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array]) {
-        #                     foreach ($targetName in $jobConf.TargetNames) {
-        #                         if ($Config.BackupTargets.ContainsKey($targetName)) {
-        #                             $targetDef = $Config.BackupTargets[$targetName]
-        #                             if ($targetDef -is [hashtable] -and $targetDef.Type -eq 'AzureBlob') {
-        #                                 return $true # An active job uses an AzureBlob target, so the check is required.
-        #                             }
-        #                         }
-        #                     }
-        #                 }
-        #             }
-        #         }
-        #         return $false # No active job uses an AzureBlob target, so the check is skipped.
-        #     }
-        # }
     )
 
     $missingModules = [System.Collections.Generic.List[string]]::new()
 
     foreach ($moduleInfo in $requiredModules) {
-        # Evaluate the condition to see if we need to check for this module.
         if (& $moduleInfo.Condition -Config $Configuration -ActiveJobs $JobsToRun) {
             $moduleName = $moduleInfo.ModuleName
             & $LocalWriteLog -Message "  - Condition met for '$($moduleInfo.RequiredFor)'. Checking for module: '$moduleName'." -Level "DEBUG"
@@ -326,7 +292,7 @@ function Invoke-PoShBackupCoreSetup {
         ActualConfigFile            = $ActualConfigFile
         ConfigLoadResult            = $configResult
         Logger                      = $LoggerScriptBlock
-        PSCmdletForUpdateCheck      = $PSCmdlet
+        PSCmdletInstance            = $PSCmdlet
     }
     if ($PSBoundParameters.ContainsKey('Maintenance') -and $null -ne $Maintenance) {
         $scriptModeParams.MaintenanceSwitchValue = $Maintenance
@@ -334,7 +300,6 @@ function Invoke-PoShBackupCoreSetup {
     $null = Invoke-PoShBackupScriptMode @scriptModeParams
 
     # --- Check for Maintenance Mode ---
-    # This check runs AFTER utility modes have had a chance to run and exit.
     if (-not $Maintenance.HasValue) {
         $forceRun = $ForceRunInMaintenanceMode.IsPresent
         $maintModeEnabledByConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'MaintenanceModeEnabled' -DefaultValue $false

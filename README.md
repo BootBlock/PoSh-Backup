@@ -94,9 +94,10 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   `Operations/`: Sub-modules for specific phases of a backup job (e.g., `JobPreProcessor.psm1`, `LocalArchiveProcessor.psm1`).
         *   `Reporting/`: Modules related to report generation.
         *   `SnapshotProviders/`: Sub-directory for infrastructure snapshot provider modules (e.g., `HyperV.Snapshot.psm1`).
+        *   `ScriptModes/`: Sub-directory for modules that handle specific non-backup script modes (e.g., diagnostics, archive management).
         *   `Targets/`: Sub-directory for Backup Target provider modules.
         *   `Utilities/`: Sub-directory for specialised utility modules (including `Update.psm1` for update checks).
-        *   (Other direct .psm1 files like `Utils.psm1`, `ScriptModeHandler.psm1`, `PoShBackupValidator.psm1`)
+        *   (Other direct .psm1 files like `Utils.psm1`, `ScriptModeHandler.psm1` (now a facade for ScriptModes), `PoShBackupValidator.psm1`)
 3.  **First Run & User Configuration:**
     *   Open a PowerShell console.
     *   Navigate to the root directory where you placed the `PoSh-Backup` folder (e.g., `cd C:\Scripts\PoSh-Backup`).

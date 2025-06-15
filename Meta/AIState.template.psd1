@@ -307,7 +307,7 @@
     "    - **Bug Fix:** Addressed a PSSA warning for an unused `Logger` parameter in the new internal function.",
     "    - `README.md`: Updated to document the new diagnostic switch.",
     "    - **Status:** The feature is now complete and working as expected.",
-    "--- Feature: Enhanced Diagnostic Package Export (Completed in Current Session Segment) ---",
+    "--- Feature: Enhanced Diagnostic Package Export (Completed in Previous Current Session Segment) ---",
     "    - **Goal:** Enhance the `-ExportDiagnosticPackage` utility to include more detailed and useful troubleshooting information.",
     "    - `Modules\ScriptModeHandler.psm1` (v1.11.x -> v1.13.2):",
     "        - The internal diagnostic function was significantly updated to gather more data.",
@@ -321,11 +321,23 @@
     "        - Fixed an incorrect relative path calculation that was truncating the start of some module paths in the report.",
     "    - `README.md`: Updated to reflect the new contents of the diagnostic package.",
     "    - **Status:** The feature is now complete and working as expected.",
+    "--- Refactoring: ScriptModeHandler (Completed in Current Session Segment) ---",
+    "    - **Goal:** Further modularize the project by decomposing the large `ScriptModeHandler.psm1`.",
+    "    - **New Directory:** Created `Modules\ScriptModes\` to house the new, more focused modules.",
+    "    - **New Modules Created:**",
+    "        - `Modules\ScriptModes\Diagnostics.psm1`: Handles `-TestConfig`, `-GetEffectiveConfig`, and `-ExportDiagnosticPackage`.",
+    "        - `Modules\ScriptModes\ArchiveManagement.psm1`: Handles `-ListArchiveContents`, `-ExtractFromArchive`, `-PinBackup`, and `-UnpinBackup`.",
+    "        - `Modules\ScriptModes\Listing.psm1`: Handles `-ListBackupLocations`, `-ListBackupSets`, and `-Version`.",
+    "        - `Modules\ScriptModes\MaintenanceAndVerification.psm1`: Handles `-Maintenance` and `-RunVerificationJobs`.",
+    "    - **Refactoring:** `ScriptModeHandler.psm1` was refactored into a lightweight facade that now delegates execution to the appropriate new sub-module.",
+    "    - **Bug Fixes:**",
+    "        - Corrected a parameter name mismatch (`PSCmdletInstance`) in `CoreSetupManager.psm1` when calling the script mode handler.",
+    "        - Fixed a logic bug where maintenance mode was being incorrectly triggered on normal backup runs.",
     "--- PROJECT STATUS ---",
-    "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and now Hyper-V snapshot orchestration. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
+    "Overall: PoSh-Backup.ps1 is highly modular, with utility modes now broken into sub-modules under `Modules\ScriptModes\`. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and Hyper-V snapshot orchestration. PSSA warnings: 2 (known password-related warnings)."
   )
 
-  main_script_poSh_backup_version = "1.31.0 # Enhanced Diagnostic Package export."
+  main_script_poSh_backup_version = "1.32.0 # Refactored ScriptModeHandler into sub-modules."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
