@@ -28,21 +28,8 @@
     "STRUCTURE: Respect modular design (Core, Managers, Utilities, Operations, etc.). `Write-LogMessage` is now in `Managers\\LogManager.psm1`.",
     "SCOPE: Global color/status map variables in `PoSh-Backup.ps1` (now initialised by `InitialisationManager.psm1`) must be accessible for `Write-LogMessage` (via `Utils.psm1` facade from `Managers\\LogManager.psm1`).",
     "SYNTAX (PSSA): `$null` should be on the left side of equality comparisons (e.g., `if (`$null -eq `$variable)`).",
-    "PESTER (v5.7.1 Environment - Key Learnings & Workarounds):",
-    "  - **Pattern A: Testing ACTUAL IMPORTED Module Functions (e.g., for `ConfigUtils.Tests.ps1`):**",
-    "    1. `BeforeAll`: `Import-Module Utils.psm1` (the facade). Get command reference: `$script:FuncRef = Get-Command Utils\\MyFunction`.",
-    "    2. `BeforeEach` (in `Context`): Set up test data using `$script:` scope: `$script:testData = @{...}`.",
-    "    3. `It`: Call `& `$script:FuncRef -Parameter `$script:testData`. This pattern *now works* for `Get-ConfigValue`.",
-    "  - **Pattern B: Testing LOCAL COPIES of Function Logic (e.g., for `FileUtils.Tests.ps1`):**",
-    "    1. Top-level of `.Tests.ps1`: Define dummy functions and local copies of functions under test.",
-    "    2. `BeforeAll`: Dot-source self, mock dependencies, get `$script:` references to local test functions.",
-    "    3. `It` blocks: Call local functions via `$script:` reference. Local functions call mocked dependencies directly. Assert mock calls (`Should -Invoke`). For external cmdlets like `Get-FileHash`, make them injectable `[scriptblock]` parameters in local test functions.",
-    "  - **General Pester 5 Notes for This Environment:** `Import-Module` + `Get-Command` + `$script:`-scoped data is key for Pattern A. `$MyInvocation.MyCommand.ScriptBlock.File` for self dot-sourcing. `(`$result.GetType().IsArray) | Should -Be `$true` for array assertion. Clear shared mock log arrays in `ForEach` if used. PSSA `PSUseDeclaredVarsMoreThanAssignments` and `$var = `$null` interaction.",
     "MODULE_SCOPE (IMPORTANT): Functions from modules imported by a 'manager' or 'orchestrator' module are not automatically available to other modules called by that manager/orchestrator, nor to the script that called the manager. The module needing the function must typically import the provider of that function directly, or the calling script must import modules whose functions it will call directly after the manager/orchestrator returns. Using `-Global` on imports is a workaround but generally less desirable.",
     "CRITICAL (MODULE_STATE): Module-scoped variables (e.g., `$Script:MyVar`) are NOT shared across different imports of the same module within a single script run. If state must be maintained (like tracking active snapshot sessions), use a global variable (`$Global:MyVar`) and ensure its name is unique to the module's purpose.",
-    "AI STRATEGY (ORDER OF OPERATIONS): When adding a script-halting check (like Maintenance Mode), ensure it runs *after* any utility modes that are meant to configure that check (e.g., `-Maintenance `$false` must run before the script halts due to the maintenance file existing).",
-    "AI STRATEGY (PARAMETER PASSING): When a parameter type error occurs (e.g., `Cannot process argument transformation`), check the `param()` block of the *entire call stack* for that parameter, not just the entry point script. The type mismatch may be in a downstream function.",
-    "AI STRATEGY (PARAMETER_PASSING): When a function in a facade module (e.g., SnapshotManager) calls a function in a provider module (e.g., HyperV.Snapshot), ensure that all necessary parameters like `$Logger` and `$PSCmdlet` are passed through the entire call chain. A failure to do so will result in parameter binding errors.",
     "SYNTAX (CMDLET BEHAVIOR): Cmdlets that create or modify objects (e.g., Checkpoint-VM, New-ScheduledTaskTrigger) may not return the object by default. Always check if a -Passthru switch is needed to capture the result in a variable."
   )
 
@@ -311,7 +298,7 @@
     "    - `PoSh-Backup.ps1`: Corrected the call to `Invoke-PoShBackupFinalisation` to pass the full list of processed jobs needed for the retention logic, fixing a parameter binding error.",
     "    - `README.md`: Updated feature list to include report retention.",
     "    - **Status:** The feature is now complete and working as expected.",
-    "--- Feature: Export Diagnostic Package Utility (Completed in Current Session Segment) ---",
+    "--- Feature: Export Diagnostic Package Utility (Completed in Previous Current Session Segment) ---",
     "    - **Goal:** Add a CLI switch to create a zip file containing sanitized configs, logs, and system info for easier troubleshooting.",
     "    - `PoSh-Backup.ps1`: Added the `-ExportDiagnosticPackage <FilePath>` parameter and a new `Diagnostics` parameter set.",
     "    - `Modules\Managers\CliManager.psm1`: Updated to recognize the new parameter.",
@@ -320,11 +307,25 @@
     "    - **Bug Fix:** Addressed a PSSA warning for an unused `Logger` parameter in the new internal function.",
     "    - `README.md`: Updated to document the new diagnostic switch.",
     "    - **Status:** The feature is now complete and working as expected.",
+    "--- Feature: Enhanced Diagnostic Package Export (Completed in Current Session Segment) ---",
+    "    - **Goal:** Enhance the `-ExportDiagnosticPackage` utility to include more detailed and useful troubleshooting information.",
+    "    - `Modules\ScriptModeHandler.psm1` (v1.11.x -> v1.13.2):",
+    "        - The internal diagnostic function was significantly updated to gather more data.",
+    "        - **Module Versions:** Correctly parses module versions from comment blocks instead of relying on `Get-Module`.",
+    "        - **Disk Space Report:** Added a report of all fixed drives with total size, free space, and percentage free.",
+    "        - **Permissions (ACL) Report:** Added a report showing the Access Control Lists for key project and destination directories.",
+    "        - **Human-Readable Config Diff:** Replaced the default `Compare-Object` output with a much clearer, recursive diff function that shows exactly which settings were added or modified in `User.psd1`.",
+    "    - **Bug Fixes:**",
+    "        - Fixed a recurring `Cannot convert the... value of type 'System.String' to type 'System.Collections.Generic.IEnumerable'` error by ensuring the recursive diff function always returns a collection.",
+    "        - Fixed an incorrect disk space calculation caused by an order-of-operations error.",
+    "        - Fixed an incorrect relative path calculation that was truncating the start of some module paths in the report.",
+    "    - `README.md`: Updated to reflect the new contents of the diagnostic package.",
+    "    - **Status:** The feature is now complete and working as expected.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and now Hyper-V snapshot orchestration. PSSA warnings: 2 known for SFTP.Target.psm1 (ConvertTo-SecureString)."
   )
 
-  main_script_poSh_backup_version = "1.30.0 # Added Diagnostic Package Export utility."
+  main_script_poSh_backup_version = "1.31.0 # Enhanced Diagnostic Package export."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

@@ -12,10 +12,10 @@
     and then exits the script. This keeps the main PoSh-Backup.psm1 script cleaner by
     offloading this mode-specific logic. The -TestConfig mode now also resolves and displays
     the effective post-run system action. The -ExportDiagnosticPackage mode now includes
-    disk space, configuration diff, and permissions reports.
+    disk space, a human-readable configuration diff, and permissions reports.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.12.0 # Added Disk, Config Diff, and ACL reports to Diagnostic Package.
+    Version:        1.13.3 # Definitive fix for config diff collection type error.
     DateCreated:    24-May-2025
     LastModified:   14-Jun-2025
     Purpose:        To handle informational and utility script execution modes for PoSh-Backup.
@@ -36,6 +36,53 @@ try {
 }
 catch {
     Write-Warning "ScriptModeHandler.psm1: Could not import a manager module. Specific modes may be unavailable. Error: $($_.Exception.Message)"
+}
+#endregion
+
+#region --- Private Helper: Compare Configs for Diff ---
+function Compare-PoShBackupConfigsInternal {
+    [OutputType([System.Collections.Generic.List[string]])]
+    param(
+        [hashtable]$UserConfig,
+        [hashtable]$DefaultConfig,
+        [string]$PathPrefix = "",
+        [scriptblock]$Logger # Added for debug logging
+    )
+    
+    $differences = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($key in $UserConfig.Keys) {
+        $currentPath = if ([string]::IsNullOrWhiteSpace($PathPrefix)) { $key } else { "$PathPrefix.$key" }
+        $userValue = $UserConfig[$key]
+
+        if (-not $DefaultConfig.ContainsKey($key)) {
+            $differences.Add(" + Added: $currentPath = '$userValue'")
+            continue
+        }
+
+        $defaultValue = $DefaultConfig[$key]
+
+        if (($userValue -is [hashtable]) -and ($defaultValue -is [hashtable])) {
+            $recursiveDiffs = Compare-PoShBackupConfigsInternal -UserConfig $userValue -DefaultConfig $defaultValue -PathPrefix $currentPath -Logger $Logger
+            if ($null -ne $recursiveDiffs -and $recursiveDiffs.Count -gt 0) {
+                # This loop is robust against single-item unwrapping.
+                foreach ($diffItem in $recursiveDiffs) {
+                    $differences.Add($diffItem)
+                }
+            }
+        }
+        else {
+            $diff = Compare-Object -ReferenceObject $defaultValue -DifferenceObject $userValue
+            if ($null -ne $diff) {
+                $defaultDisplay = if ($defaultValue -is [array]) { "'@($($defaultValue -join ', '))'" } else { "'$defaultValue'" }
+                $userDisplay = if ($userValue -is [array]) { "'@($($userValue -join ', '))'" } else { "'$userValue'" }
+                $diffString = " ~ Modified: $currentPath | Default: $defaultDisplay -> User: $userDisplay"
+                $differences.Add($diffString)
+            }
+        }
+    }
+
+    return $differences
 }
 #endregion
 
@@ -81,18 +128,16 @@ function Invoke-ExportDiagnosticPackageInternal {
         $null = $systemInfo.AppendLine("Admin Rights       : $(Test-AdminPrivilege -Logger $Logger)")
         $null = $systemInfo.AppendLine(("-"*40))
 
-        # 7-Zip Info
         $sevenZipPathForDiag = Find-SevenZipExecutable -Logger $Logger
         if ($sevenZipPathForDiag) {
             $sevenZipVersionInfo = (& $sevenZipPathForDiag | Select-Object -First 2) -join " "
             $null = $systemInfo.AppendLine("7-Zip Path    : $sevenZipPathForDiag")
             $null = $systemInfo.AppendLine("7-Zip Version : $sevenZipVersionInfo")
         } else {
-            $null = $systemInfo.AppendLine("7-Zip Info    : <not found or configured>")
+            $null = $systemInfo.AppendLine("7-Zip Info    : Not found or configured.")
         }
         $null = $systemInfo.AppendLine(("-"*40))
 
-        # External Module Info
         $null = $systemInfo.AppendLine("External PowerShell Module Status:")
         $poshSshModule = Get-Module -Name Posh-SSH -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1
         $secretMgmtModule = Get-Module -Name Microsoft.PowerShell.SecretManagement -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1
@@ -108,8 +153,6 @@ function Invoke-ExportDiagnosticPackageInternal {
         } catch { $null = $systemInfo.AppendLine("   - Vaults: Error checking for vaults: $($_.Exception.Message)") }
 
         $null = $systemInfo.AppendLine(("-"*40))
-
-        # Internal Module Info
         $null = $systemInfo.AppendLine("PoSh-Backup Project File Versions:")
         $rootUri = [uri]($PSScriptRoot + [System.IO.Path]::DirectorySeparatorChar)
         Get-ChildItem -Path $PSScriptRoot -Include "*.psm1", "*.ps1" -Recurse -Exclude "Tests\*" | Sort-Object FullName | ForEach-Object {
@@ -120,15 +163,14 @@ function Invoke-ExportDiagnosticPackageInternal {
             $relativePathUri = $rootUri.MakeRelativeUri($fileUri)
             $relativePath = [uri]::UnescapeDataString($relativePathUri.ToString()).Replace('/', [System.IO.Path]::DirectorySeparatorChar)
             $versionString = if ($version -eq "N/A" -or $version -like "N/A (*") { "<no version>" } else { "v$version" }
-            $null = $systemInfo.AppendLine(" - $($relativePath.PadRight(75)) $versionString")
+            $null = $systemInfo.AppendLine(" - $($relativePath.PadRight(76)) $versionString")
         }
 
-        # --- NEW: Disk Space Report ---
         $null = $systemInfo.AppendLine(("-"*40))
         $null = $systemInfo.AppendLine("Disk Space Report:")
         try {
             Get-PSDrive -PSProvider FileSystem | ForEach-Object {
-                if ($_.Root -match "^[A-Z]:\\$") { # Only check fixed local drives
+                if ($_.Root -match "^[A-Z]:\\$") {
                     $drive = $_
                     $totalSizeGB = [math]::Round(($drive.Used + $drive.Free) / 1GB, 2)
                     $freeSpaceGB = [math]::Round($drive.Free / 1GB, 2)
@@ -137,32 +179,32 @@ function Invoke-ExportDiagnosticPackageInternal {
                 }
             }
         } catch { $null = $systemInfo.AppendLine(" - Error gathering disk space information: $($_.Exception.Message)") }
-        # --- END NEW ---
 
         $systemInfo.ToString() | Set-Content -Path (Join-Path $tempDir "SystemInfo.txt") -Encoding UTF8
 
-        # --- 2. Copy and Sanitise Configuration Files ---
-        & $LocalWriteLog -Message "  - Copying and sanitising configuration files..." -Level "INFO"
+        # --- 2. Copy and Sanitize Configuration Files ---
+        & $LocalWriteLog -Message "  - Copying and sanitizing configuration files..." -Level "INFO"
         $configDir = Join-Path -Path $tempDir -ChildPath "Config"
         New-Item -Path $configDir -ItemType Directory -Force | Out-Null
         $defaultConfigPath = Join-Path -Path $PSScriptRoot -ChildPath "Config\Default.psd1"
         $userConfigPath = Join-Path -Path $PSScriptRoot -ChildPath "Config\User.psd1"
         $pssaSettingsPath = Join-Path -Path $PSScriptRoot -ChildPath "PSScriptAnalyzerSettings.psd1"
 
-        # --- NEW: Configuration Diff ---
         if ((Test-Path $defaultConfigPath) -and (Test-Path $userConfigPath)) {
-            & $LocalWriteLog -Message "    - Generating configuration diff..." -Level "DEBUG"
+            & $LocalWriteLog -Message "    - Generating human-readable configuration diff..." -Level "DEBUG"
             try {
-                # A simple text-based diff is sufficient and safe
-                $diffOutput = Compare-Object -ReferenceObject (Get-Content $defaultConfigPath) -DifferenceObject (Get-Content $userConfigPath) | Format-List | Out-String
-                if ([string]::IsNullOrWhiteSpace($diffOutput)) { $diffOutput = "No differences found between Default.psd1 and User.psd1." }
-                else { $diffOutput = "Differences between Default.psd1 (<=) and User.psd1 (=>):`n`n" + $diffOutput }
-                $diffOutput | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
+                $defaultData = Import-PowerShellDataFile -LiteralPath $defaultConfigPath
+                $userData = Import-PowerShellDataFile -LiteralPath $userConfigPath
+                $diffOutput = Compare-PoShBackupConfigsInternal -UserConfig $userData -DefaultConfig $defaultData -Logger $Logger
+                if ($diffOutput.Count -eq 0) {
+                    "No differences found between Default.psd1 and User.psd1." | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
+                } else {
+                    ("User.psd1 Overrides and Additions:" + [Environment]::NewLine + ("-"*40)) + [Environment]::NewLine + ($diffOutput -join [Environment]::NewLine) | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
+                }
             } catch {
                 "Error generating config diff: $($_.Exception.Message)" | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
             }
         }
-        # --- END NEW ---
 
         $configFilesToCopy = @{ ($defaultConfigPath) = "Default.psd1"; ($userConfigPath) = "User.psd1"; ($pssaSettingsPath) = "PSScriptAnalyzerSettings.psd1" }
         $sensitiveKeyPatterns = @('Password', 'SecretName', 'Credential', 'WebhookUrl')
@@ -180,7 +222,7 @@ function Invoke-ExportDiagnosticPackageInternal {
                     $content = $content -replace $regex, $replacement
                 }
                 $content | Set-Content -LiteralPath $destPath -Encoding UTF8
-                & $LocalWriteLog -Message "    - Copied and sanitised '$destFileName'." -Level "DEBUG"
+                & $LocalWriteLog -Message "    - Copied and sanitized '$destFileName'." -Level "DEBUG"
             }
         }
 
@@ -196,7 +238,7 @@ function Invoke-ExportDiagnosticPackageInternal {
             & $LocalWriteLog -Message "    - Copied up to 10 most recent log files." -Level "DEBUG"
         }
 
-        # --- NEW: Permissions/ACLs Report ---
+        # --- 4. Permissions/ACLs Report ---
         & $LocalWriteLog -Message "  - Gathering permissions report..." -Level "INFO"
         $aclReport = [System.Text.StringBuilder]::new()
         $pathsToAclCheck = @(
@@ -206,18 +248,18 @@ function Invoke-ExportDiagnosticPackageInternal {
             (Join-Path $PSScriptRoot "Logs"),
             (Join-Path $PSScriptRoot "Reports")
         )
-        # Add destination directories from config
         try {
             $configForAcl = Import-PowerShellDataFile -LiteralPath (Join-Path $PSScriptRoot "Config\Default.psd1")
             if (Test-Path (Join-Path $PSScriptRoot "Config\User.psd1")) {
                 $userConfigForAcl = Import-PowerShellDataFile -LiteralPath (Join-Path $PSScriptRoot "Config\User.psd1")
-                # Simple merge for this purpose
+                # This requires Merge-DeepHashtable, which is not available here.
+                # A simple overlay is sufficient for finding destination paths for ACL check.
                 $userConfigForAcl.GetEnumerator() | ForEach-Object { $configForAcl[$_.Name] = $_.Value }
             }
             if ($configForAcl.DefaultDestinationDir) { $pathsToAclCheck += $configForAcl.DefaultDestinationDir }
             if ($configForAcl.BackupLocations) { $configForAcl.BackupLocations.Values | ForEach-Object { if ($_.DestinationDir) { $pathsToAclCheck += $_.DestinationDir } } }
         } catch {
-            & $LocalWriteLog -Message "[ERROR] ScriptModeHandler: Failed to import Config\Default.psd1 (or User.psd1, dunno!). Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message "  - Diagnostic ACL Check: Could not load config to find destination paths. Error: $($_.Exception.Message)" -Level "DEBUG"
         }
 
         foreach ($path in ($pathsToAclCheck | Select-Object -Unique)) {
@@ -237,9 +279,8 @@ function Invoke-ExportDiagnosticPackageInternal {
             $null = $aclReport.AppendLine()
         }
         $aclReport.ToString() | Set-Content -Path (Join-Path $tempDir "Permissions.acl.txt") -Encoding UTF8
-        # --- END NEW ---
 
-        # --- 4. Create ZIP Package ---
+        # --- 5. Create ZIP Package ---
         & $LocalWriteLog -Message "  - Compressing diagnostic files to '$OutputPath'..." -Level "INFO"
         Compress-Archive -Path "$tempDir\*" -DestinationPath $OutputPath -Force -ErrorAction Stop
         & $LocalWriteLog -Message "  - Diagnostic package created successfully." -Level "SUCCESS"
@@ -247,7 +288,7 @@ function Invoke-ExportDiagnosticPackageInternal {
     } catch {
         & $LocalWriteLog -Message "[ERROR] Failed to create diagnostic package. Error: $($_.Exception.Message)" -Level "ERROR"
     } finally {
-        # --- 5. Cleanup ---
+        # --- 6. Cleanup ---
         if (Test-Path -LiteralPath $tempDir) {
             & $LocalWriteLog -Message "  - Cleaning up temporary directory..." -Level "DEBUG"
             Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -605,7 +646,7 @@ function Invoke-PoShBackupScriptMode {
                             }
                         }
                     } else {
-                        & $LocalWriteLog -Message ("  Source Path(s): (None specified)") -Level "NONE"
+                        & $LocalWriteLog -Message ("  Source Path(s): <none specified>") -Level "NONE"
                     }
                 } else {
                     & $LocalWriteLog -Message ('  Source Path(s): "{0}"' -f $jobConf.Path) -Level "NONE"
@@ -696,7 +737,7 @@ function Invoke-PoShBackupScriptMode {
                         }
                     }
                 } else {
-                    & $LocalWriteLog -Message ("  Jobs in Set  : (None listed)") -Level "NONE"
+                    & $LocalWriteLog -Message ("  Jobs in Set  : <none listed>") -Level "NONE"
                 }
             }
         } else {
@@ -710,7 +751,7 @@ function Invoke-PoShBackupScriptMode {
         & $LocalWriteLog -Message "`n[INFO] --- Configuration Test Mode Summary ---" -Level "CONFIG_TEST"
         & $LocalWriteLog -Message "[SUCCESS] Configuration file(s) loaded and validated successfully from '$($ActualConfigFile)'" -Level "CONFIG_TEST"
         if ($ConfigLoadResult.UserConfigLoaded) {
-            & $LocalWriteLog -Message "          (User overrides from '$($ConfigLoadResult.UserConfigPath)' were applied)" -Level "CONFIG_TEST"
+            & $LocalWriteLog -Message "          (User overrides from '$($ConfigLoadResult.UserConfigPath)')" -Level "CONFIG_TEST"
         }
         & $LocalWriteLog -Message "`n  --- Key Global Settings ---" -Level "CONFIG_TEST"
         $sevenZipPathDisplay = if($Configuration.ContainsKey('SevenZipPath')){ $Configuration.SevenZipPath } else { 'N/A' }
@@ -743,7 +784,7 @@ function Invoke-PoShBackupScriptMode {
                     }
                 }
             }
-        } else { & $LocalWriteLog -Message "`n  --- Defined Backup Targets ---`n    (None defined)" -Level "CONFIG_TEST" }
+        } else { & $LocalWriteLog -Message "`n  --- Defined Backup Targets ---`n    <none defined>" -Level "CONFIG_TEST" }
 
         if ($Configuration.BackupLocations -is [hashtable] -and $Configuration.BackupLocations.Count -gt 0) {
             & $LocalWriteLog -Message "`n  --- Defined Backup Locations (Jobs) ---" -Level "CONFIG_TEST"
