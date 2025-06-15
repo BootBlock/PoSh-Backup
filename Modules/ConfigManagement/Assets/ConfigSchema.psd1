@@ -4,7 +4,7 @@
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
-# Version: (Implicit) Updated 12-Jun-2025 (Added VerificationJobs section)
+# Version: (Implicit) Updated 12-Jun-2025 (Added TestArchiveBeforeDeletion switch)
 
 @{
     # Top-level global settings
@@ -202,8 +202,8 @@
             Type = "hashtable"; Required = $true
             Schema = @{
                 Path                                      = @{ Type = 'string_or_array'; Required = $true }
-                SourceIsVMName                            = @{ Type = 'boolean'; Required = $false } # NEW
-                SnapshotProviderName                      = @{ Type = 'string'; Required = $false }  # NEW
+                SourceIsVMName                            = @{ Type = 'boolean'; Required = $false }
+                SnapshotProviderName                      = @{ Type = 'string'; Required = $false }
                 Name                                      = @{ Type = 'string'; Required = $true }
                 DestinationDir                            = @{ Type = 'string'; Required = $false }
                 Enabled                                   = @{ Type = 'boolean'; Required = $false }
@@ -214,6 +214,7 @@
                 DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false }
                 DeleteToRecycleBin                        = @{ Type = 'boolean'; Required = $false }
                 RetentionConfirmDelete                    = @{ Type = 'boolean'; Required = $false }
+                TestArchiveBeforeDeletion                 = @{ Type = 'boolean'; Required = $false }
                 DependsOnJobs                             = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } }
                 ArchivePasswordMethod                     = @{ Type = 'string'; Required = $false; AllowedValues = @("NONE", "INTERACTIVE", "SECRETMANAGEMENT", "SECURESTRINGFILE", "PLAINTEXT") }
                 CredentialUserNameHint                    = @{ Type = 'string'; Required = $false }

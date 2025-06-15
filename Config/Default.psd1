@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.9.2: Added VerificationJobs section for automated restore testing.
+# Version 1.9.3: Added TestArchiveBeforeDeletion setting.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -301,7 +301,7 @@
     #endregion
 
     #region --- Archive Filename Settings (Global Default) ---
-    DefaultArchiveDateFormat        = "yyyy-MMM-dd"                   # Default .NET date format string used for the date component in archive filenames.
+    DefaultArchiveDateFormat        = "yyyy-MMM-dd_hh_mm_ss"          # Default .NET date format string used for the date component in archive filenames.
                                                                       # Examples: "yyyy-MM-dd", "dd-MMM-yyyy_HH-mm-ss" (includes time), "yyMMdd".
     DefaultCreateSFX                = $false                          # Global default. $true to create a Self-Extracting Archive (.exe).
                                                                       # If $true, the final archive extension will be '.exe'. Windows-specific.
@@ -528,26 +528,27 @@
 
     #region --- Backup Locations (Job Definitions) ---
     # Define individual backup jobs here. Each key in this hashtable represents a unique job name.
-    BackupLocations                 = @{
-        "Projects"  = @{
-            Path                    = "P:\Images\*"                   # Path(s) to back up. Can be a single string or an array of strings for multiple sources.
-            Name                    = "Projects"                      # Base name for the archive file (date stamp and extension will be appended).
-            DestinationDir          = "D:\Backups"                    # Specific directory for this job. If remote targets are specified, this acts as a LOCAL STAGING area.
-            Enabled                 = $true                           # Set to $false to disable this job without deleting its configuration.
-            PinOnCreation           = $false                          # Set to $true to automatically pin the archive created by this job, protecting it from retention.
-            #TargetNames             = @("ExampleUNCShare")           # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
+    BackupLocations                   = @{
+        "Projects"  = @{  
+            Path                      = "P:\Images\*"                 # Path(s) to back up. Can be a single string or an array of strings for multiple sources.
+            Name                      = "Projects"                    # Base name for the archive file (date stamp and extension will be appended).
+            DestinationDir            = "D:\Backups"                  # Specific directory for this job. If remote targets are specified, this acts as a LOCAL STAGING area.
+            Enabled                   = $true                         # Set to $false to disable this job without deleting its configuration.
+            PinOnCreation             = $false                        # Set to $true to automatically pin the archive created by this job, protecting it from retention.
+            #TargetNames              = @("ExampleUNCShare")          # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
                                                                       # If no remote targets, this is the FINAL BACKUP DESTINATION.
                                                                       # If empty or not present, this job is local-only to DestinationDir.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override. Only effective if TargetNames are specified.
 
-            LocalRetentionCount     = 3                               # Number of archive versions for this job to keep in 'DestinationDir'.
-            LogRetentionCount       = 10                              # Job-specific log retention.
-            DeleteToRecycleBin      = $false                          # For local retention in 'DestinationDir'.
-            RetentionConfirmDelete  = $false                          # Job-specific override for local retention: auto-delete old local archives without prompting.
+            LocalRetentionCount       = 1                             # Number of archive versions for this job to keep in 'DestinationDir'.
+            LogRetentionCount         = 10                            # Job-specific log retention.
+            DeleteToRecycleBin        = $false                        # For local retention in 'DestinationDir'.
+            RetentionConfirmDelete    = $false                        # Job-specific override for local retention: auto-delete old local archives without prompting.
+            TestArchiveBeforeDeletion = $false                        # If $true, performs an integrity test on an old archive before deleting it via retention. If the test fails, the archive is NOT deleted.
 
-            DependsOnJobs           = @()                             # Array of job names this job depends on. E.g., @("DatabaseBackupJob")
+            DependsOnJobs             = @()                           # Array of job names this job depends on. E.g., @("DatabaseBackupJob")
 
-            ArchivePasswordMethod   = "None"                          # Password method: "None", "Interactive", "SecretManagement", "SecureStringFile", "PlainText". See instructions at top.
+            ArchivePasswordMethod     = "None"                        # Password method: "None", "Interactive", "SecretManagement", "SecureStringFile", "PlainText". See instructions at top.
             # CredentialUserNameHint  = "ProjectBackupUser"           # For "Interactive" method.
             # ArchivePasswordSecretName = ""                          # For "SecretManagement" method.
             # ArchivePasswordVaultName  = ""                          # Optional for "SecretManagement".
@@ -615,6 +616,7 @@
             # LogRetentionCount will use DefaultLogRetentionCount (e.g., 30)
             DeleteToRecycleBin         = $true                        # Note: Ensure this is appropriate if 'DestinationDir' is a network share (less common for staging).
             RetentionConfirmDelete     = $false                       # Example: This job will auto-delete old local archives without prompting.
+            TestArchiveBeforeDeletion  = $false                       # If $true, performs an integrity test on an old archive before deleting it via retention. If the test fails, the archive is NOT deleted.
 
             DependsOnJobs              = @()
 
@@ -664,7 +666,8 @@
             DestinationDir           = "D:\Backups"                    # <-- CHANGE THIS to a valid path on your system.
             GenerateContentsManifest = $true
             Enabled                  = $true
-            LocalRetentionCount      = 5
+            LocalRetentionCount        = 7
+            TestArchiveBeforeDeletion  = $false                       # If $true, performs an integrity test on an old archive before deleting it via retention. If the test fails, the archive is NOT deleted.
             #TargetNames             = @("ExampleUNCShare")
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
 

@@ -6,24 +6,26 @@
     This module contains the 'Remove-OldBackupArchiveInstance' function, which takes a list
     of backup instances (each potentially comprising multiple files for split archives)
     and deletes them according to the specified parameters (Recycle Bin, simulation mode, etc.).
-    It also includes the internal helper for Recycle Bin operations.
+    It now includes a safety check to test an archive's integrity before deleting it if configured.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.3 # Revised -Confirm switch handling for Remove-Item again.
+    Version:        1.1.0 # Added TestArchiveBeforeDeletion logic.
     DateCreated:    29-May-2025
-    LastModified:   29-May-2025
+    LastModified:   15-Jun-2025
     Purpose:        Backup archive deletion logic for RetentionManager.
     Prerequisites:  PowerShell 5.1+.
                     Microsoft.VisualBasic assembly for Recycle Bin functionality.
 #>
 
-# Explicitly import Utils.psm1 from the main Modules directory.
+# Explicitly import dependent modules from the main Modules directory.
 # $PSScriptRoot here is Modules\Managers\RetentionManager.
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\7ZipManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\PasswordManager.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Error "Deleter.psm1 (RetentionManager submodule) FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    Write-Error "Deleter.psm1 (RetentionManager submodule) FATAL: Could not import a dependent module. Error: $($_.Exception.Message)"
     throw
 }
 
@@ -78,6 +80,8 @@ function Remove-OldBackupArchiveInstance {
         [Parameter(Mandatory = $true)]
         [bool]$RetentionConfirmDeleteFromConfig, # True = Prompt (respect $ConfirmPreference), False = No Prompt (-Confirm:$false)
         [Parameter(Mandatory = $true)]
+        [hashtable]$EffectiveJobConfig,
+        [Parameter(Mandatory = $true)]
         [switch]$IsSimulateMode,
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
@@ -106,6 +110,39 @@ function Remove-OldBackupArchiveInstance {
         $instanceSortTime = $instanceEntry.Value.SortTime
 
         & $LocalWriteLog -Message "   - RetentionManager/Deleter: Preparing to delete backup instance '$instanceIdentifierToDelete' (Sorted by Time: $instanceSortTime)." -Level "WARNING"
+
+        # --- NEW: Test Before Delete Logic ---
+        if ($EffectiveJobConfig.TestArchiveBeforeDeletion) {
+            & $LocalWriteLog -Message "     - TestArchiveBeforeDeletion is TRUE. Performing integrity test before deleting instance '$instanceIdentifierToDelete'." -Level "INFO"
+            
+            # Find the primary archive file to test (.001 for split, or the main file)
+            $fileToTest = $instanceFilesToDelete | Where-Object { $_.Name -match '\.001$' -or $_.Name -eq $instanceIdentifierToDelete } | Sort-Object Name | Select-Object -First 1
+            
+            if ($null -eq $fileToTest) {
+                & $LocalWriteLog -Message "[ERROR] Could not find a primary archive file to test for instance '$instanceIdentifierToDelete'. Skipping deletion of this instance as a safety measure." -Level "ERROR"
+                continue
+            }
+
+            $passwordForTest = $null
+            if ($EffectiveJobConfig.PasswordInUseFor7Zip) {
+                $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $EffectiveJobConfig -JobName "Retention Test for $($EffectiveJobConfig.JobName)" -Logger $Logger
+                $passwordForTest = $passwordResult.PlainTextPassword
+            }
+            
+            $testResult = Test-7ZipArchive -SevenZipPathExe $EffectiveJobConfig.GlobalConfigRef.SevenZipPath `
+                                            -ArchivePath $fileToTest.FullName `
+                                            -PlainTextPassword $passwordForTest `
+                                            -TreatWarningsAsSuccess $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess `
+                                            -Logger $Logger
+            
+            if ($testResult.ExitCode -ne 0 -and ($testResult.ExitCode -ne 1 -or -not $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess)) {
+                & $LocalWriteLog -Message "[CRITICAL] SAFETY HALT: Integrity test FAILED for old archive instance '$instanceIdentifierToDelete' (Exit Code: $($testResult.ExitCode)). This instance WILL NOT be deleted by retention to prevent data loss." -Level "ERROR"
+                continue # Skip to the next instance, do not delete this one.
+            } else {
+                & $LocalWriteLog -Message "     - Integrity test PASSED for old archive instance '$instanceIdentifierToDelete'. Proceeding with deletion." -Level "SUCCESS"
+            }
+        }
+        # --- END: Test Before Delete Logic ---
 
         foreach ($fileToDeleteInfo in $instanceFilesToDelete) {
             $deleteActionMessage = if ($EffectiveSendToRecycleBin) {"Send to Recycle Bin"} else {"Permanently Delete"}
@@ -138,14 +175,9 @@ function Remove-OldBackupArchiveInstance {
                 } else {
                     $removeItemParams = @{ LiteralPath = $fileToDeleteInfo.FullName; Force = $true; ErrorAction = 'Stop' }
 
-                    # If RetentionConfirmDeleteFromConfig is $false (meaning "don't prompt from config"),
-                    # then add -Confirm:$false to the splatting parameters.
-                    # Otherwise, do NOT add -Confirm to splatting, allowing Remove-Item to use $ConfirmPreference.
                     if (-not $RetentionConfirmDeleteFromConfig) {
                         $removeItemParams.Add('Confirm', $false)
                     }
-                    # If $RetentionConfirmDeleteFromConfig is $true, 'Confirm' is NOT added to $removeItemParams.
-                    # Remove-Item will then respect $ConfirmPreference.
 
                     Remove-Item @removeItemParams
                     & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level "SUCCESS"

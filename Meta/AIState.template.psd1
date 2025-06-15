@@ -34,7 +34,7 @@
   )
 
   conversation_summary            = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.18.0).",
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.33.0).",
     "Modular design: Core (Modules\\Core\\), Managers (Modules\\Managers\\), Utilities (Modules\\Utilities\\), Operations (Modules\\Operations\\), ConfigManagement (Modules\\ConfigManagement\\), Reporting (Modules\\Reporting\\), Targets (Modules\\Targets\\).",
     "AI State structure loaded from 'Meta\\AIState.template.psd1', dynamically populated by Bundler (v__BUNDLER_VERSION_PLACEHOLDER__).",
     "--- CLI Usability Enhancements (Completed in Previous Session Segment) ---",
@@ -321,7 +321,7 @@
     "        - Fixed an incorrect relative path calculation that was truncating the start of some module paths in the report.",
     "    - `README.md`: Updated to reflect the new contents of the diagnostic package.",
     "    - **Status:** The feature is now complete and working as expected.",
-    "--- Refactoring: ScriptModeHandler (Completed in Current Session Segment) ---",
+    "--- Refactoring: ScriptModeHandler (Completed in Previous Current Session Segment) ---",
     "    - **Goal:** Further modularize the project by decomposing the large `ScriptModeHandler.psm1`.",
     "    - **New Directory:** Created `Modules\ScriptModes\` to house the new, more focused modules.",
     "    - **New Modules Created:**",
@@ -333,6 +333,16 @@
     "    - **Bug Fixes:**",
     "        - Corrected a parameter name mismatch (`PSCmdletInstance`) in `CoreSetupManager.psm1` when calling the script mode handler.",
     "        - Fixed a logic bug where maintenance mode was being incorrectly triggered on normal backup runs.",
+    "--- Feature: Retention Safety (Test Before Delete) & Bug Fixes (Completed in Current Session Segment) ---",
+    "    - **Goal:** Add a safety check to verify an old archive's integrity before retention deletes it, and fix related bugs in the retention scanner.",
+    "    - `Config\\Default.psd1`: Added `TestArchiveBeforeDeletion = `$false` to job definitions.",
+    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated schema to include the new `TestArchiveBeforeDeletion` boolean key.",
+    "    - `Modules\\ConfigManagement\\EffectiveConfigBuilder\\OperationalSettings.psm1`: Modified to resolve the new `TestArchiveBeforeDeletion` setting.",
+    "    - `Modules\\Managers\\RetentionManager\\Deleter.psm1`: Implemented the core logic. Before deleting, it now optionally calls `Test-7ZipArchive` on the old archive. If the test fails, deletion of that instance is aborted and a critical error is logged.",
+    "    - **Bug Fix (Scanner):** Corrected the retention scanner logic in `Modules\\Managers\\RetentionManager\\Scanner.psm1`. It now dynamically builds its date-matching regex from the job's `ArchiveDateFormat` setting, fixing a critical bug where it failed to find archives using a non-default date format.",
+    "    - **Bug Fix (Off-by-One):** Corrected the retention count logic in `Modules\\Managers\\RetentionManager.psm1`, which was previously keeping `N-1` archives instead of the configured `N`. It now correctly skips the specified number of archives.",
+    "    - `Modules\\Managers\\RetentionManager.psm1`: Facade updated to accept the full `$EffectiveJobConfig` to pass settings down to the deleter.",
+    "    - `Modules\\Core\\Operations\\JobExecutor.LocalRetentionHandler.psm1`: Updated to pass the full effective configuration to the retention manager.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular, with utility modes now broken into sub-modules under `Modules\ScriptModes\`. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and Hyper-V snapshot orchestration. PSSA warnings: 2 (known password-related warnings)."
   )

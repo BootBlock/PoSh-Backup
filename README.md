@@ -27,6 +27,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Configurable Retention Policies:**
     *   **Local Retention:** Manage archive versions in the `DestinationDir` using the `LocalRetentionCount` setting per job.
     *   **Remote Retention:** Each Backup Target provider can, if designed to do so, implement its own retention logic on the remote storage (e.g., keep last X versions, delete after Y days). This is configured within the target's definition in the `BackupTargets` section (e.g., via `RemoteRetentionSettings` or per-destination settings for providers like "Replicate").
+*   **Retention Safety Check (Test Before Delete):** Optionally performs an integrity test on an old backup archive before the retention policy deletes it. If the test fails, the archive is preserved, and a critical warning is logged, preventing the deletion of a potentially last-known-good backup.
 *   **Live File Backups with VSS:** Utilise the Windows Volume Shadow Copy Service (VSS) to seamlessly back up open or locked files (requires Administrator privileges). Features configurable VSS context, reliable shadow copy creation, and a configurable metadata cache path.
 *   **Advanced 7-Zip Integration:** Leverage 7-Zip for efficient, highly configurable compression. Customise archive type, compression level, method, dictionary/word/solid block sizes, and thread count for local archive creation.
     *   **Configurable Temp Directory:** Specify a custom directory for 7-Zip's temporary working files (`-w` switch). This is useful for directing I/O-intensive temp operations to a faster drive or a drive with more space, preventing failures on systems with a small or full system drive.
@@ -294,13 +295,14 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   `DestinationDir`: Specifies the directory where this job's archive is created. If remote targets are used, this acts as a **local staging directory**. If no remote targets are used, this is the **final backup destination**. Overrides `DefaultDestinationDir`.
             *   `LocalRetentionCount`: (Renamed from `RetentionCount`) Defines how many archive versions to keep in the `DestinationDir`.
             *   `LogRetentionCount`: Defines how many log files to keep for this specific job. Overrides `DefaultLogRetentionCount`. A value of `0` means infinite retention for this job's logs.
+            *   `TestArchiveBeforeDeletion`: (boolean, default `$false`) If set to `$true`, PoSh-Backup will perform a full integrity test (`7z t`) on an old archive before deleting it as part of the retention policy. If the test fails, the archive will **not** be deleted, and a critical warning will be logged. This provides a safety net against deleting a potentially important (though corrupt) backup if newer backups have also failed.
             *   `TargetNames`: An array of strings. Each string must be a name of a target instance defined in the global `BackupTargets` section. If you specify target names here, the locally created archive will be transferred to each listed remote target. If `TargetNames` is omitted or empty, the backup is local-only to `DestinationDir`.
             *   `DeleteLocalArchiveAfterSuccessfulTransfer` (Job-Specific): Overrides the global setting for this job.
         *   **Checksum Settings (Job-Specific):**
             *   `GenerateArchiveChecksum` (boolean): Overrides `DefaultGenerateArchiveChecksum`.
             *   `ChecksumAlgorithm` (string): Overrides `DefaultChecksumAlgorithm`.
             *   `VerifyArchiveChecksumOnTest` (boolean): Overrides `DefaultVerifyArchiveChecksumOnTest`.
-        *   **`VerifyLocalArchiveBeforeTransfer` (Job-Specific):**
+        *   **  `VerifyLocalArchiveBeforeTransfer` (Job-Specific):**
             *   Overrides `DefaultVerifyLocalArchiveBeforeTransfer`. Set to `$true` to enable pre-transfer verification for this specific job.
         *   **Self-Extracting Archive (SFX) Setting (Job-Specific):**
             *   `CreateSFX` (boolean, default `$false`): Set to `$true` to create a self-extracting archive (.exe) for this job.

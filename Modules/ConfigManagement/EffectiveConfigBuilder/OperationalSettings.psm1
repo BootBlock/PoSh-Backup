@@ -67,6 +67,7 @@ function Resolve-OperationalConfiguration {
     if ($resolvedSettings.LocalRetentionCount -lt 0) { $resolvedSettings.LocalRetentionCount = 0 }
     $resolvedSettings.DeleteToRecycleBin = Get-ConfigValue -ConfigObject $JobConfig -Key 'DeleteToRecycleBin' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDeleteToRecycleBin' -DefaultValue $false)
     $resolvedSettings.RetentionConfirmDelete = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionConfirmDelete' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetentionConfirmDelete' -DefaultValue $true)
+    $resolvedSettings.TestArchiveBeforeDeletion = Get-ConfigValue -ConfigObject $JobConfig -Key 'TestArchiveBeforeDeletion' -DefaultValue $false
 
     # Password settings
     $resolvedSettings.ArchivePasswordMethod = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordMethod' -DefaultValue "None"

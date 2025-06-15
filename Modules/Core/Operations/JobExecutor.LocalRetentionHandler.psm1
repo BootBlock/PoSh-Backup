@@ -66,7 +66,7 @@ function Invoke-PoShBackupLocalRetentionExecution {
         }
     }
 
-    $extensionForRetention = $EffectiveJobConfig.JobArchiveExtension 
+    $extensionForRetention = $EffectiveJobConfig.JobArchiveExtension
     if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize)) {
         $extensionForRetention = $EffectiveJobConfig.InternalArchiveExtension
         & $LocalWriteLog -Message "  - JobExecutor.LocalRetentionHandler: Using internal extension '$extensionForRetention' for retention policy due to active volume splitting for job '$JobName'." -Level DEBUG
@@ -76,11 +76,13 @@ function Invoke-PoShBackupLocalRetentionExecution {
         DestinationDirectory             = $EffectiveJobConfig.DestinationDir
         ArchiveBaseFileName              = $EffectiveJobConfig.BaseFileName
         ArchiveExtension                 = $extensionForRetention
+        ArchiveDateFormat                = $EffectiveJobConfig.JobArchiveDateFormat
         RetentionCountToKeep             = $EffectiveJobConfig.LocalRetentionCount
         RetentionConfirmDeleteFromConfig = $EffectiveJobConfig.RetentionConfirmDelete
         SendToRecycleBin                 = $EffectiveJobConfig.DeleteToRecycleBin
         VBAssemblyLoaded                 = $vbLoaded
         IsSimulateMode                   = $IsSimulateMode.IsPresent
+        EffectiveJobConfig               = $EffectiveJobConfig
         Logger                           = $Logger
         PSCmdlet                         = $PSCmdlet
     }

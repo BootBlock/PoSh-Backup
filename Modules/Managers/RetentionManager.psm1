@@ -4,7 +4,7 @@
     Manages backup archive retention policies for PoSh-Backup. This module now acts as a facade,
     delegating scanning and deletion tasks to sub-modules.
 .DESCRIPTION
-    The RetentionManager module centralizes the logic for applying retention policies.
+    The RetentionManager module centralises the logic for applying retention policies.
     It uses sub-modules for specific tasks:
     - 'Scanner.psm1': Finds and groups backup archive instances, and identifies pinned backups.
     - 'Deleter.psm1': Handles the actual deletion of identified instances.
@@ -13,9 +13,9 @@
     any backups marked as 'pinned' are excluded from the retention policy and are not deleted.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Added logic to respect pinned backups.
+    Version:        1.4.0 # Added EffectiveJobConfig parameter for TestBeforeDelete feature.
     DateCreated:    17-May-2025
-    LastModified:   06-Jun-2025
+    LastModified:   15-Jun-2025
     Purpose:        Facade for centralised backup retention policy management.
     Prerequisites:  PowerShell 5.1+.
                     Sub-modules (Scanner.psm1, Deleter.psm1) must exist in '.\Modules\Managers\RetentionManager\'.
@@ -24,7 +24,7 @@
 # Explicitly import Utils.psm1 from the main Modules directory.
 # $PSScriptRoot here is Modules\Managers.
 try {
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "RetentionManager.psm1 (Facade) FATAL: Could not import main Utils.psm1. Error: $($_.Exception.Message)"
@@ -46,17 +46,20 @@ catch {
 
 #region --- Exported Backup Retention Policy Function ---
 function Invoke-BackupRetentionPolicy {
-    [CmdletBinding()] 
+    [CmdletBinding()]
     param(
         [string]$DestinationDirectory,
         [string]$ArchiveBaseFileName,
         [string]$ArchiveExtension,
+        [string]$ArchiveDateFormat,
         [int]$RetentionCountToKeep,
-        [Parameter(Mandatory)] 
+        [Parameter(Mandatory)]
         [bool]$RetentionConfirmDeleteFromConfig,
         [bool]$SendToRecycleBin,
-        [bool]$VBAssemblyLoaded, 
+        [bool]$VBAssemblyLoaded,
         [switch]$IsSimulateMode,
+        [Parameter(Mandatory=$true)]
+        [hashtable]$EffectiveJobConfig, # NEW: Pass the full effective config
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
@@ -72,7 +75,7 @@ function Invoke-BackupRetentionPolicy {
             & $Logger -Message $Message -Level $Level
         }
     }
-    
+
     & $LocalWriteLog -Message "`n[INFO] RetentionManager (Facade): Applying Backup Retention Policy for archives matching base name '$ArchiveBaseFileName' and primary extension '$ArchiveExtension'..." -Level "INFO"
     & $LocalWriteLog -Message "   - Destination Directory: $DestinationDirectory"
     & $LocalWriteLog -Message "   - Configured Total Retention Count (target instances after current backup completes): $RetentionCountToKeep"
@@ -100,9 +103,10 @@ function Invoke-BackupRetentionPolicy {
         $backupInstances = Find-BackupArchiveInstance -DestinationDirectory $DestinationDirectory `
                                                       -ArchiveBaseFileName $ArchiveBaseFileName `
                                                       -ArchiveExtension $ArchiveExtension `
-                                                      -Logger $Logger 
+                                                      -ArchiveDateFormat $ArchiveDateFormat `
+                                                      -Logger $Logger
                                                       # ErrorAction Stop is now inherited
-        
+
         & $LocalWriteLog -Message "RetentionManager (Facade): Find-BackupArchiveInstance returned $($backupInstances.Count) instance(s)." -Level "DEBUG"
 
         if ($null -eq $backupInstances) {
@@ -114,7 +118,7 @@ function Invoke-BackupRetentionPolicy {
             return
         }
 
-        # --- NEW: Filter out pinned backups ---
+        # --- Filter out pinned backups ---
         $unpinnedInstances = @{}
         $pinnedInstances = @{}
         foreach ($instanceEntry in $backupInstances.GetEnumerator()) {
@@ -133,31 +137,30 @@ function Invoke-BackupRetentionPolicy {
         & $LocalWriteLog -Message "RetentionManager (Facade): Attempting to sort $($unpinnedInstances.Count) unpinned instance(s)..." -Level "DEBUG"
         $sortedInstances = $null
         if ($null -ne $unpinnedInstances.GetEnumerator()) {
-            $sortedInstances = $unpinnedInstances.GetEnumerator() | Sort-Object {$_.Value.SortTime} -Descending 
+            $sortedInstances = $unpinnedInstances.GetEnumerator() | Sort-Object {$_.Value.SortTime} -Descending
             # ErrorAction Stop is inherited
             & $LocalWriteLog -Message "RetentionManager (Facade): Successfully sorted instances. Count: $($sortedInstances.Count)." -Level "DEBUG"
         } else {
             & $LocalWriteLog -Message "[WARNING] RetentionManager (Facade): unpinnedInstances.GetEnumerator() was null. Cannot sort. Instance count: $($unpinnedInstances.Count)" -Level "WARNING"
-            $sortedInstances = @() 
+            $sortedInstances = @()
         }
-        
+
         if ($RetentionCountToKeep -le 0) {
             & $LocalWriteLog -Message "   - RetentionManager (Facade): Retention count is $RetentionCountToKeep; all existing unpinned backup instances will be kept." -Level "INFO"
             return
         }
-        
-        $numberOfOldInstancesToPreserve = $RetentionCountToKeep - 1 
-        if ($numberOfOldInstancesToPreserve -lt 0) { $numberOfOldInstancesToPreserve = 0 }
-        & $LocalWriteLog -Message "RetentionManager (Facade): Number of old unpinned instances to preserve: $numberOfOldInstancesToPreserve. Total sorted unpinned instances: $($sortedInstances.Count)." -Level "DEBUG"
 
-        if ($sortedInstances.Count -gt $numberOfOldInstancesToPreserve) {
-            $instancesToDelete = $sortedInstances | Select-Object -Skip $numberOfOldInstancesToPreserve
+        & $LocalWriteLog -Message "RetentionManager (Facade): Total sorted unpinned instances: $($sortedInstances.Count). Configured to keep: $RetentionCountToKeep." -Level "DEBUG"
+
+        if ($sortedInstances.Count -gt $RetentionCountToKeep) {
+            $instancesToDelete = $sortedInstances | Select-Object -Skip $RetentionCountToKeep
             & $LocalWriteLog -Message "[INFO] RetentionManager (Facade): Found $($sortedInstances.Count) existing unpinned backup instance(s). Will attempt to delete $($instancesToDelete.Count) older instance(s) to meet retention ($RetentionCountToKeep total target)." -Level "INFO"
             & $LocalWriteLog -Message "RetentionManager (Facade): Calling Remove-OldBackupArchiveInstance..." -Level "DEBUG"
 
             Remove-OldBackupArchiveInstance -InstancesToDelete $instancesToDelete `
                 -EffectiveSendToRecycleBin $effectiveSendToRecycleBin `
                 -RetentionConfirmDeleteFromConfig $RetentionConfirmDeleteFromConfig `
+                -EffectiveJobConfig $EffectiveJobConfig `
                 -IsSimulateMode:$IsSimulateMode `
                 -Logger $Logger `
                 -PSCmdlet $PSCmdlet
