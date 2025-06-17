@@ -216,6 +216,7 @@
                 RetentionConfirmDelete                    = @{ Type = 'boolean'; Required = $false }
                 TestArchiveBeforeDeletion                 = @{ Type = 'boolean'; Required = $false }
                 DependsOnJobs                             = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } }
+                OnSourcePathNotFound                      = @{ Type = 'string'; Required = $false; AllowedValues = @("FailJob", "WarnAndContinue", "SkipJob") }
                 ArchivePasswordMethod                     = @{ Type = 'string'; Required = $false; AllowedValues = @("NONE", "INTERACTIVE", "SECRETMANAGEMENT", "SECURESTRINGFILE", "PLAINTEXT") }
                 CredentialUserNameHint                    = @{ Type = 'string'; Required = $false }
                 ArchivePasswordSecretName                 = @{ Type = 'string'; Required = $false }

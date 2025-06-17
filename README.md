@@ -11,6 +11,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
 *   **Maintenance Mode:** A global flag (either in the configuration file or via a simple on-disk `.maintenance` file) can prevent any new backup jobs from starting. This is ideal for performing system maintenance without generating failed job reports. The mode can be easily toggled via a command-line switch (`-Maintenance $true/$false`) and bypassed for a specific run if needed (`-ForceRunInMaintenanceMode`).
 *   **Automated Backup Verification:** Define and run verification jobs that automatically restore a backup to a temporary "sandbox" location and perform integrity checks. This includes verifying file sizes, modification dates, and CRC checksums against a manifest created during the original backup, providing a high degree of confidence that backups are restorable and uncorrupted.
+*   **Configurable Source Path Not Found Behaviour:** For jobs with multiple source paths, you can now define what happens if a path is not found (e.g., a network drive is offline). Options include failing the job (default), logging a warning and continuing with other valid paths, or skipping the job entirely. This enhances the reliability of automated backups.
 *   **Integrated Backup Scheduling:** Define backup schedules directly within your job configurations. A simple command (`-SyncSchedules`) synchronises these settings with the Windows Task Scheduler, creating, updating, or removing tasks as needed for a true "set and forget" experience.
 *   **Flexible Notifications (Email & Webhooks):** Automatically send notifications upon job or set completion. Configure multiple notification profiles, choosing between providers like "Email" (for standard SMTP alerts) or "Webhook" (for sending formatted messages to platforms like Microsoft Teams, Slack, or Discord).
 *   **Local and Remote Backups:**
@@ -315,6 +316,11 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   An array of job name strings that this job depends on. Example: `DependsOnJobs = @("DatabaseBackupJob", "LogArchiveJob")`
             *   The current job will only run if all jobs listed in `DependsOnJobs` complete successfully (success considers the prerequisite job's `TreatSevenZipWarningsAsSuccess` setting).
             *   The script will attempt to order jobs to satisfy these dependencies and will detect circular dependencies.
+        *   **`OnSourcePathNotFound` (Job-Level Setting):**
+            *   A string that defines how the job should behave if one of the source paths in its `Path` array is not found. This is crucial for making scheduled backups more robust against temporary issues like disconnected network drives.
+            *   `"FailJob"` (Default): The job will immediately fail if any source path is not found. This was the original behaviour.
+            *   `"WarnAndContinue"`: The script will log a warning for the missing path but will proceed to back up the other valid paths in the job.
+            *   `"SkipJob"`: The script will log a warning and then gracefully skip the entire job, reporting a "SKIPPED" status. If the job is part of a set, the set will continue with the next job (unless `OnErrorInJob` is set to `StopSet`).
         *   Key settings for local and remote behaviour:
         *   Key settings for local and remote behaviour:
             *   `DestinationDir`: Specifies the directory where this job's archive is created. If remote targets are used, this acts as a **local staging directory**. If no remote targets are used, this is the **final backup destination**. Overrides `DefaultDestinationDir`.

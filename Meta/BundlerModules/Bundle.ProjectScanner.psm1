@@ -44,7 +44,7 @@ function Invoke-BundlerProjectScan {
         [Parameter(Mandatory)]
         [System.Text.StringBuilder]$FileContentBuilder, # Used by Add-FileToBundle
         [Parameter(Mandatory=$false)]
-        [string[]]$MetaFilesToExcludeExplicitly = @() 
+        [string[]]$MetaFilesToExcludeExplicitly = @()
     )
 
     $collectedModuleDescriptions = @{}
@@ -73,14 +73,13 @@ function Invoke-BundlerProjectScan {
                 }
             }
         }
-        
-        # --- NEW EXCLUSION: Skip Config\User*.psd1 files ---
+
+        # --- EXCLUSION: Skip Config\User*.psd1 files ---
         $normalizedRelativePathForConfigCheck = $file.FullName.Substring($NormalizedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
         if ($normalizedRelativePathForConfigCheck.StartsWith("Config" + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase) -and $file.Name -like "User*.psd1") {
             Write-Verbose "Bundler ProjectScanner: Skipping user configuration file in Config folder: $normalizedRelativePathForConfigCheck"
             return # Skips the current file and moves to the next in the ForEach-Object loop
         }
-        # --- END NEW EXCLUSION ---
 
         $currentRelativePath = $file.FullName.Substring($NormalizedProjectRootForCalculations.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
 
@@ -100,11 +99,11 @@ function Invoke-BundlerProjectScan {
         }
 
         Write-Verbose "Bundler ProjectScanner: Adding file to bundle: $currentRelativePath"
-        
+
         $fileProcessingResult = Add-FileToBundle -FileObject $file `
                                                  -RootPathForRelativeCalculations $NormalizedProjectRootForCalculations `
                                                  -BundleBuilder $FileContentBuilder
-        
+
         if ($null -ne $fileProcessingResult) {
             if (-not [string]::IsNullOrWhiteSpace($fileProcessingResult.Synopsis)) {
                 $collectedModuleDescriptions[$currentRelativePath] = $fileProcessingResult.Synopsis

@@ -1,3 +1,4 @@
+# Modules\Managers\VssManager.psm1
 <#
 .SYNOPSIS
     Manages Volume Shadow Copy Service (VSS) operations for PoSh-Backup.
@@ -22,9 +23,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.3
+    Version:        1.0.5 # Added -Force switch for cleanup from catch blocks.
     DateCreated:    17-May-2025
-    LastModified:   18-May-2025
+    LastModified:   17-Jun-2025
     Purpose:        Centralised VSS management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+. Administrator privileges.
                     Core PoSh-Backup module Utils.psm1 (for Write-LogMessage, Test-AdminPrivilege)
@@ -46,7 +47,11 @@ function Remove-VssManagerShadowCopyByIdInternal {
         [Parameter(Mandatory)] [string]$ShadowID,
         [Parameter(Mandatory)] [switch]$IsSimulateMode,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        [Parameter(Mandatory=$true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
+        [Parameter(Mandatory = $false)]
+        [switch]$Force
     )
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
     & $Logger -Message "Remove-VssManagerShadowCopyByIdInternal: Logger parameter active for ShadowID '$ShadowID'." -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -61,7 +66,7 @@ function Remove-VssManagerShadowCopyByIdInternal {
         }
     }
 
-    if (-not $PSCmdlet.ShouldProcess("VSS Shadow ID $ShadowID", "Delete using diskshadow.exe")) {
+    if (-not $Force.IsPresent -and -not $PSCmdletInstance.ShouldProcess("VSS Shadow ID $ShadowID", "Delete using diskshadow.exe")) {
         & $LocalWriteLog -Message "  - VSS shadow ID $ShadowID deletion skipped by user (ShouldProcess)." -Level WARNING
         return
     }
@@ -113,12 +118,14 @@ function New-VSSShadowCopy {
         If $true, VSS creation is simulated, and plausible shadow paths are returned.
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
+    .PARAMETER PSCmdlet
+        A mandatory reference to the calling cmdlet's $PSCmdlet automatic variable.
     .OUTPUTS
         System.Collections.Hashtable
         A hashtable mapping original source paths to their VSS shadow copy paths if successful.
         Returns $null on failure or if no valid volumes are found.
     .EXAMPLE
-        # $shadowMap = New-VSSShadowCopy -SourcePathsToShadow "C:\Data", "D:\Logs" -VSSContextOption "Volatile NoWriters" ... -Logger ${function:Write-LogMessage}
+        # $shadowMap = New-VSSShadowCopy -SourcePathsToShadow "C:\Data", "D:\Logs" -VSSContextOption "Volatile NoWriters" ... -Logger ${function:Write-LogMessage} -PSCmdlet $PSCmdlet
         # if ($shadowMap) { # Use $shadowMap.Values for backup }
     #>
     param(
@@ -129,7 +136,9 @@ function New-VSSShadowCopy {
         [Parameter(Mandatory)] [int]$PollingIntervalSeconds,
         [Parameter(Mandatory)] [switch]$IsSimulateMode,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        [Parameter(Mandatory=$true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
     & $Logger -Message "New-VSSShadowCopy: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -246,7 +255,7 @@ CREATE
         $foundShadowsForThisSpecificCall.Keys | ForEach-Object {
             $volNameToClean = $_
             if ($currentCallShadowIDs.ContainsKey($volNameToClean)) {
-                Remove-VssManagerShadowCopyByIdInternal -ShadowID $currentCallShadowIDs[$volNameToClean] -IsSimulateMode:$IsSimulateMode -Logger $Logger # Pass logger
+                Remove-VssManagerShadowCopyByIdInternal -ShadowID $currentCallShadowIDs[$volNameToClean] -IsSimulateMode:$IsSimulateMode -Logger $Logger -PSCmdletInstance $PSCmdlet -Force
                 $currentCallShadowIDs.Remove($volNameToClean)
             }
         }
@@ -293,13 +302,21 @@ function Remove-VSSShadowCopy {
         If $true, VSS deletion is simulated and logged, but not actually performed.
     .PARAMETER Logger
         A mandatory scriptblock reference to the 'Write-LogMessage' function.
+    .PARAMETER PSCmdletInstance
+        A mandatory reference to the calling cmdlet's $PSCmdlet automatic variable.
+    .PARAMETER Force
+        A switch to bypass the ShouldProcess confirmation prompt, intended for cleanup from a catch block.
     .EXAMPLE
-        # Remove-VSSShadowCopy -IsSimulateMode:$false -Logger ${function:Write-LogMessage}
+        # Remove-VSSShadowCopy -IsSimulateMode:$false -Logger ${function:Write-LogMessage} -PSCmdletInstance $PSCmdlet
     #>
     param(
         [Parameter(Mandatory)] [switch]$IsSimulateMode,
         [Parameter(Mandatory=$true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
+        [Parameter(Mandatory = $false)]
+        [switch]$Force
     )
     # Defensive PSSA appeasement line by directly calling the logger for this initial message
     & $Logger -Message "Remove-VSSShadowCopy: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -328,7 +345,7 @@ function Remove-VSSShadowCopy {
         $shadowIdMapForRun.Clear(); return
     }
 
-    if (-not $PSCmdlet.ShouldProcess("VSS Shadow IDs: $($shadowIdsToRemove -join ', ')", "Delete All (diskshadow.exe)")) {
+    if (-not $Force.IsPresent -and -not $PSCmdletInstance.ShouldProcess("VSS Shadow IDs: $($shadowIdsToRemove -join ', ')", "Delete All (diskshadow.exe)")) {
         & $LocalWriteLog -Message "  - VssManager: VSS shadow deletion skipped by user (ShouldProcess) for IDs: $($shadowIdsToRemove -join ', ')." -Level WARNING
         return
     }

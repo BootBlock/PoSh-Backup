@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.9.4: Added S3 Target example.
+# Version 1.9.5: Added OnSourcePathNotFound setting.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -552,7 +552,7 @@
             DestinationDir            = "D:\Backups"                  # Specific directory for this job. If remote targets are specified, this acts as a LOCAL STAGING area.
             Enabled                   = $true                         # Set to $false to disable this job without deleting its configuration.
             PinOnCreation             = $false                        # Set to $true to automatically pin the archive created by this job, protecting it from retention.
-            TargetNames              = @("S3Server")          # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
+            #TargetNames              = @("")                          # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
                                                                       # If no remote targets, this is the FINAL BACKUP DESTINATION.
                                                                       # If empty or not present, this job is local-only to DestinationDir.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override. Only effective if TargetNames are specified.
@@ -564,6 +564,13 @@
             TestArchiveBeforeDeletion = $false                        # If $true, performs an integrity test on an old archive before deleting it via retention. If the test fails, the archive is NOT deleted.
 
             DependsOnJobs             = @()                           # Array of job names this job depends on. E.g., @("DatabaseBackupJob")
+
+            # --- NEW: OnSourcePathNotFound ---
+            # What to do if one of the paths in the 'Path' array is not found.
+            # "FailJob" (Default): The entire backup job will fail.
+            # "WarnAndContinue": A warning is logged, the missing path is skipped, and the job continues with any valid paths.
+            # "SkipJob": A warning is logged, and the entire job is skipped (status will be SKIPPED), but the backup set (if any) continues.
+            OnSourcePathNotFound      = "FailJob"
 
             ArchivePasswordMethod     = "None"                        # Password method: "None", "Interactive", "SecretManagement", "SecureStringFile", "PlainText". See instructions at top.
             # CredentialUserNameHint  = "ProjectBackupUser"           # For "Interactive" method.

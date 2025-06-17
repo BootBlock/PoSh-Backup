@@ -1,4 +1,7 @@
 # UnlockVaultAndRun-PoShBackup.ps1 - Wrapper script to unlock the vault and run a backup set.
+#
+# If you're not sure what this is or you don't need the functionality to automatically unlock
+# a value prior to a back up job/set that requires vault access, please use PoSh-Backup.ps1 instead.
 
 # --- Configuration ---
 # The backup set or job you want to run

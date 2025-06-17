@@ -135,8 +135,8 @@ function Invoke-PoShBackupJob {
         $plainTextPasswordToClearAfterJob = $localBackupResult.PlainTextPasswordToClear
         $skipRemoteTransfersDueToLocalVerificationFailure = $localBackupResult.SkipRemoteTransfersDueToLocalVerification
 
-        if ($localBackupResult.LocalBackupStatus -ne "FAILURE" -or $IsSimulateMode.IsPresent) {
-            # Use $reportData.PSObject.Properties.Name for ordered dictionaries
+        # Log the job settings regardless of the outcome, as long as it wasn't a catastrophic failure before this.
+        if ($null -ne $effectiveJobConfig) {
             $resolvedSourcePathForLog = if ($reportData.PSObject.Properties.Name -contains 'EffectiveSourcePath') { $reportData.EffectiveSourcePath } else { $effectiveJobConfig.OriginalSourcePath }
             & $LocalWriteLog -Message " - Job Settings for '$JobName' (derived from configuration and CLI overrides):"
             & $LocalWriteLog -Message "   - Effective Source Path(s) (after VSS/Snapshot if any): $(if ($resolvedSourcePathForLog -is [array]) {$resolvedSourcePathForLog -join '; '} else {$resolvedSourcePathForLog})"
@@ -160,30 +160,35 @@ function Invoke-PoShBackupJob {
             }
         }
 
-        if ($currentJobStatus -ne "FAILURE") {
+        # Only proceed with retention and remote transfers if the local backup operation was successful or had warnings.
+        # A FAILURE or a SKIP status should bypass these steps.
+        $allRemoteTransfersSucceeded = $true # Default to true if not applicable
+        if ($currentJobStatus -in 'SUCCESS', 'WARNINGS') {
             Invoke-PoShBackupLocalRetentionExecution -JobName $JobName `
                 -EffectiveJobConfig $effectiveJobConfig `
                 -IsSimulateMode:$IsSimulateMode `
                 -Logger $Logger `
                 -PSCmdlet $PSCmdlet
-        } else {
-            & $LocalWriteLog -Message "[INFO] JobExecutor: Skipping local retention for job '$JobName' due to earlier FAILURE status." -Level "INFO"
+
+            $allRemoteTransfersSucceeded = Invoke-PoShBackupRemoteTransferExecution -JobName $JobName `
+                -EffectiveJobConfig $effectiveJobConfig `
+                -FinalLocalArchivePath $finalLocalArchivePath `
+                -ArchiveFileNameOnly $archiveFileNameOnly `
+                -JobReportDataRef $JobReportDataRef `
+                -IsSimulateMode:$IsSimulateMode `
+                -Logger $Logger `
+                -PSCmdlet $PSCmdlet `
+                -PSScriptRootForPaths $PSScriptRootForPaths `
+                -CurrentJobStatusForTransferCheck $currentJobStatus `
+                -SkipRemoteTransfersDueToLocalVerificationFailure $skipRemoteTransfersDueToLocalVerificationFailure
+
+            if (-not $allRemoteTransfersSucceeded) {
+                if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
+            }
         }
-
-        $allRemoteTransfersSucceeded = Invoke-PoShBackupRemoteTransferExecution -JobName $JobName `
-            -EffectiveJobConfig $effectiveJobConfig `
-            -FinalLocalArchivePath $finalLocalArchivePath `
-            -ArchiveFileNameOnly $archiveFileNameOnly `
-            -JobReportDataRef $JobReportDataRef `
-            -IsSimulateMode:$IsSimulateMode `
-            -Logger $Logger `
-            -PSCmdlet $PSCmdlet `
-            -PSScriptRootForPaths $PSScriptRootForPaths `
-            -CurrentJobStatusForTransferCheck $currentJobStatus `
-            -SkipRemoteTransfersDueToLocalVerificationFailure $skipRemoteTransfersDueToLocalVerificationFailure
-
-        if (-not $allRemoteTransfersSucceeded) {
-            if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
+        else {
+            & $LocalWriteLog -Message "[INFO] JobExecutor: Skipping local retention and remote transfers for job '$JobName' due to local operation status: '$currentJobStatus'." -Level "INFO"
+            $allRemoteTransfersSucceeded = $false # Effectively not successful as they didn't run.
         }
     }
     catch {
@@ -232,7 +237,8 @@ function Invoke-PoShBackupJob {
                 -EffectiveJobConfig $effectiveJobConfig `
                 -ReportData $reportData `
                 -Logger $Logger
-        } else {
+        }
+        else {
             & $LocalWriteLog -Message "[WARNING] JobExecutor: EffectiveJobConfig was not resolved. Post-job hooks cannot be executed for job '$JobName'." -Level "WARNING"
         }
     }

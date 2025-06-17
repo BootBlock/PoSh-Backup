@@ -83,7 +83,7 @@ function Invoke-PoShBackupRun {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLog -Message "JobOrchestrator/Invoke-PoShBackupRun: Initializing run. Job order: $($JobsToProcess -join ', ')" -Level "DEBUG"
+    & $LocalWriteLog -Message "JobOrchestrator/Invoke-PoShBackupRun: Initialising run. Job order: $($JobsToProcess -join ', ')" -Level "DEBUG"
 
     $overallSetStatus = "SUCCESS"
     $jobSpecificPostRunActionForSingleJob = $null
@@ -328,7 +328,7 @@ $cliOverridesString
                     & $LocalWriteLog -Message "  - Job '$currentJobName' completed with WARNINGS, and TreatSevenZipWarningsAsSuccess is FALSE. Considered effectively FAILED for dependencies." -Level "INFO"
                 }
             }
-            elseif ($currentJobIndividualStatus -eq "SKIPPED_DEPENDENCY") {
+            if ($currentJobIndividualStatus -eq "SKIPPED_DEPENDENCY" -or $currentJobIndividualStatus -eq "SKIPPED_SOURCE_MISSING") {
                 $currentJobEffectiveSuccess = $false
             }
             $jobEffectiveSuccessState[$currentJobName] = $currentJobEffectiveSuccess
@@ -372,7 +372,7 @@ $cliOverridesString
         elseif ($currentJobIndividualStatus -eq "WARNINGS" -and $overallSetStatus -ne "FAILURE") {
             $overallSetStatus = "WARNINGS"
         }
-        elseif ($currentJobIndividualStatus -eq "SKIPPED_DEPENDENCY" -and $overallSetStatus -ne "FAILURE") {
+        elseif (($currentJobIndividualStatus -eq "SKIPPED_DEPENDENCY" -or $currentJobIndividualStatus -eq "SKIPPED_SOURCE_MISSING") -and $overallSetStatus -ne "FAILURE") {
             $overallSetStatus = "WARNINGS"
         }
 
@@ -485,8 +485,8 @@ $cliOverridesString
         }
 
         if ($CurrentSetName -and $StopSetOnErrorPolicy) {
-            if ($currentJobIndividualStatus -eq "FAILURE" -or $skipJobDueToDependencyFailure) {
-                $stopReason = if ($currentJobIndividualStatus -eq "FAILURE") { "FAILED (Status: $currentJobIndividualStatus)" } else { "SKIPPED due to dependency failure" }
+            if ($currentJobIndividualStatus -eq "FAILURE" -or $skipJobDueToDependencyFailure -or $currentJobIndividualStatus -eq "SKIPPED_SOURCE_MISSING") {
+                $stopReason = if ($currentJobIndividualStatus -eq "FAILURE") { "FAILED (Status: $currentJobIndividualStatus)" } elseif ($currentJobIndividualStatus -eq "SKIPPED_SOURCE_MISSING") { "SKIPPED due to missing source" } else { "SKIPPED due to dependency failure" }
                 & $LocalWriteLog -Message "[ERROR] Job '$currentJobName' in set '$CurrentSetName' $stopReason. Stopping set as 'OnErrorInJob' policy is 'StopSet'." -Level "ERROR"
                 if ($overallSetStatus -ne "FAILURE") { $overallSetStatus = "FAILURE" }
                 break

@@ -34,7 +34,7 @@
   )
 
   conversation_summary            = @(
-    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.34.0).",
+    "Development of a comprehensive PowerShell file backup solution (PoSh-Backup.ps1 v1.31.0).",
     "Modular design: Core (Modules\\Core\\), Managers (Modules\\Managers\\), Utilities (Modules\\Utilities\\), Operations (Modules\\Operations\\), ConfigManagement (Modules\\ConfigManagement\\), Reporting (Modules\\Reporting\\), Targets (Modules\\Targets\\).",
     "AI State structure loaded from 'Meta\\AIState.template.psd1', dynamically populated by Bundler (v__BUNDLER_VERSION_PLACEHOLDER__).",
     "--- CLI Usability Enhancements (Completed in Previous Session Segment) ---",
@@ -351,7 +351,7 @@
     "        - Decorates the `-BackupLocationName`, `-RunSet`, `-SkipJob`, and `-GetEffectiveConfig` parameters with the `[ArgumentCompleter({ ... })]` attribute.",
     "    - **Bug Fix:** Corrected the syntax for the `ArgumentCompleter` from `[scriptblock]::Create(...)` to the required `{ ... }` script block literal to resolve parsing errors.",
     "    - **Status:** Tab-completion for job and set names is now active.",
-    "--- Feature: S3-Compatible Backup Target (Completed) ---",
+    "--- Feature: S3-Compatible Backup Target (Completed in Previous Current Session Segment) ---",
     "    - **Goal:** Add support for backing up to S3-compatible object storage like MinIO or AWS S3.",
     "    - **New Module:** Created `Modules\\Targets\\S3.Target.psm1` with validation and transfer logic.",
     "    - **Configuration:** Added an S3 target example to `Config\\Default.psd1` and updated the schema in `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`.",
@@ -361,11 +361,19 @@
     "    - **Bug Fix (S3 Provider):** Fixed a cosmetic bug in a debug log line in `S3.Target.psm1` that was referencing an incorrect variable for the job name.",
     "    - **Documentation:** Updated `README.md` to include the new S3 provider in the features list, prerequisites, and configuration examples.",
     "    - **Status:** The S3 Target Provider is now fully functional.",
+    "--- Feature: Configurable Action on Missing Source Path (Current Session Segment) ---",
+    "    - **Goal:** Allow users to define how a job behaves if a source path is not found (e.g., disconnected network drive).",
+    "    - `Config\\Default.psd1`: Added `OnSourcePathNotFound` setting to the example job ('FailJob', 'WarnAndContinue', 'SkipJob').",
+    "    - `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`: Updated schema to validate the new setting.",
+    "    - `Modules\\ConfigManagement\\EffectiveConfigBuilder\\OperationalSettings.psm1`: Modified to resolve the new setting.",
+    "    - `Modules\\Operations\\JobPreProcessor.psm1`: Logic rewritten to correctly handle wildcard paths and implement the new policies. Now returns a detailed status (`Proceed`, `SkipJob`, `FailJob`).",
+    "    - `Modules\\Core\\Operations\\JobExecutor.psm1` & `Modules\\Core\\JobOrchestrator.psm1`: Updated to handle the new `SKIPPED_SOURCE_MISSING` status for dependency and set-level logic.",
+    "    - **Bug Fix:** A persistent `ParameterBindingException` during error handling was traced to incorrect logic for wildcard path validation in `JobPreProcessor.psm1`. This was definitively fixed by using `Test-Path -Path` instead of `-LiteralPath` on a parsed parent directory.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular, with utility modes now broken into sub-modules under `Modules\ScriptModes\`. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and Hyper-V snapshot orchestration. PSSA warnings: 2 (known password-related warnings).""Overall: PoSh-Backup.ps1 is highly modular, with utility modes now broken into sub-modules under Modules\ScriptModes`. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, Hyper-V snapshot orchestration, and a new S3-compatible target provider. PSSA warnings: 2 (known password-related warnings)."
   )
 
-  main_script_poSh_backup_version = "1.30.0 # Added S3-Compatible Backup Target Provider."
+  main_script_poSh_backup_version = "1.31.0 # Added configurable action for missing source paths."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

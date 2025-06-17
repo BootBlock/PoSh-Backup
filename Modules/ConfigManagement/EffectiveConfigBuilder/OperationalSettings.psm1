@@ -10,9 +10,9 @@
     and notification settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.2 # Robust fix for PinOnCreation boolean conversion bug.
+    Version:        1.4.3 # Added OnSourcePathNotFound resolution.
     DateCreated:    30-May-2025
-    LastModified:   15-Jun-2025
+    LastModified:   17-Jun-2025
     Purpose:        Operational settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -39,7 +39,7 @@ function Resolve-OperationalConfiguration {
         [hashtable]$SetSpecificConfig = $null
     )
 
-    # PSSA: Directly use Logger for initial debug message
+    # PSSA: Directly use Logger and CliOverrides for initial debug message
     & $Logger -Message "EffectiveConfigBuilder/OperationalSettings/Resolve-OperationalConfiguration: Logger active. CLI Overrides count: $($CliOverrides.Count)." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     $LocalWriteLog = {
@@ -61,6 +61,9 @@ function Resolve-OperationalConfiguration {
     # Snapshot Provider Settings
     $resolvedSettings.SnapshotProviderName = Get-ConfigValue -ConfigObject $JobConfig -Key 'SnapshotProviderName' -DefaultValue $null
     $resolvedSettings.SourceIsVMName = Get-ConfigValue -ConfigObject $JobConfig -Key 'SourceIsVMName' -DefaultValue $false
+
+    # NEW: On Source Path Not Found
+    $resolvedSettings.OnSourcePathNotFound = Get-ConfigValue -ConfigObject $JobConfig -Key 'OnSourcePathNotFound' -DefaultValue "FailJob"
 
     # Local Retention settings
     $resolvedSettings.LocalRetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'LocalRetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3)

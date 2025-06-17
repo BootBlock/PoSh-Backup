@@ -6,12 +6,13 @@
     This module contains the 'Remove-OldBackupArchiveInstance' function, which takes a list
     of backup instances (each potentially comprising multiple files for split archives)
     and deletes them according to the specified parameters (Recycle Bin, simulation mode, etc.).
-    It now includes a safety check to test an archive's integrity before deleting it if configured.
+    It now includes a safety check to test an archive's integrity before deleting it if configured,
+    and a retry loop to handle file-locking race conditions.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added TestArchiveBeforeDeletion logic.
+    Version:        1.1.1 # Added retry loop to deletion to handle file locks.
     DateCreated:    29-May-2025
-    LastModified:   15-Jun-2025
+    LastModified:   17-Jun-2025
     Purpose:        Backup archive deletion logic for RetentionManager.
     Prerequisites:  PowerShell 5.1+.
                     Microsoft.VisualBasic assembly for Recycle Bin functionality.
@@ -159,32 +160,37 @@ function Remove-OldBackupArchiveInstance {
             }
 
             & $LocalWriteLog -Message "       - Deleting: $($fileToDeleteInfo.FullName) (Created: $($fileToDeleteInfo.CreationTime))" -Level "WARNING"
-            try {
-                if ($EffectiveSendToRecycleBin) {
-                    $vbUIOption = if ($RetentionConfirmDeleteFromConfig) {
-                                      [Microsoft.VisualBasic.FileIO.UIOption]::AllDialogs
-                                  } else {
-                                      [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs
-                                  }
+            
+            # --- NEW: Retry loop for deletion ---
+            $maxDeleteRetries = 3
+            $deleteRetryDelaySeconds = 2
 
-                    Invoke-VisualBasicFileOperationInternal -Path $fileToDeleteInfo.FullName -Operation "DeleteFile" `
-                        -RecycleOption ([Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin) `
-                        -UIOption $vbUIOption `
-                        -Logger $Logger
-                    & $LocalWriteLog -Message "         - Status: MOVED TO RECYCLE BIN" -Level "SUCCESS"
-                } else {
-                    $removeItemParams = @{ LiteralPath = $fileToDeleteInfo.FullName; Force = $true; ErrorAction = 'Stop' }
-
-                    if (-not $RetentionConfirmDeleteFromConfig) {
-                        $removeItemParams.Add('Confirm', $false)
+            for ($attempt = 1; $attempt -le $maxDeleteRetries; $attempt++) {
+                try {
+                    if ($EffectiveSendToRecycleBin) {
+                        $vbUIOption = if ($RetentionConfirmDeleteFromConfig) { [Microsoft.VisualBasic.FileIO.UIOption]::AllDialogs } else { [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs }
+                        Invoke-VisualBasicFileOperationInternal -Path $fileToDeleteInfo.FullName -Operation "DeleteFile" `
+                            -RecycleOption ([Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin) `
+                            -UIOption $vbUIOption `
+                            -Logger $Logger
+                        & $LocalWriteLog -Message "         - Status: MOVED TO RECYCLE BIN" -Level "SUCCESS"
+                    } else {
+                        $removeItemParams = @{ LiteralPath = $fileToDeleteInfo.FullName; Force = $true; ErrorAction = 'Stop' }
+                        if (-not $RetentionConfirmDeleteFromConfig) { $removeItemParams.Add('Confirm', $false) }
+                        Remove-Item @removeItemParams
+                        & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level "SUCCESS"
                     }
-
-                    Remove-Item @removeItemParams
-                    & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level "SUCCESS"
+                    break # Exit loop on success
+                } catch {
+                    if ($attempt -lt $maxDeleteRetries) {
+                        & $LocalWriteLog -Message "         - Status: FAILED (Attempt $attempt/$maxDeleteRetries). Retrying in $deleteRetryDelaySeconds seconds... Error: $($_.Exception.Message)" -Level "WARNING"
+                        Start-Sleep -Seconds $deleteRetryDelaySeconds
+                    } else {
+                        & $LocalWriteLog -Message "         - Status: FAILED! Final attempt failed. Error: $($_.Exception.Message)" -Level "ERROR"
+                    }
                 }
-            } catch {
-                & $LocalWriteLog -Message "         - Status: FAILED! Error: $($_.Exception.Message)" -Level "ERROR"
             }
+            # --- END: Retry loop for deletion ---
         }
     }
 }

@@ -7,18 +7,21 @@
     This module provides the 'Invoke-PoShBackupLocalBackupExecution' function.
     It is responsible for:
     1. Calling 'Invoke-PoShBackupJobPreProcessing' to handle snapshotting, VSS, password retrieval,
-       destination checks, and pre-backup hooks.
-    2. If pre-processing is successful, it calls 'Invoke-LocalArchiveOperation' to
-       create the local archive, generate checksums, and perform local tests.
+       source path validation, destination checks, and pre-backup hooks.
+    2. Based on the status from pre-processing (Proceed, SkipJob, FailJob), it either:
+        - Calls 'Invoke-LocalArchiveOperation' to create the local archive, generate checksums,
+          and perform local tests.
+        - Skips the job gracefully if a source path was not found and the policy is 'SkipJob'.
+        - Fails the job if pre-processing failed.
     3. It determines if remote transfers should be skipped based on local archive
        verification failures if the 'VerifyLocalArchiveBeforeTransfer' option is enabled.
     The function returns a hashtable containing the outcome of these local operations,
     paths, and any necessary data for subsequent steps like snapshot/VSS cleanup or password clearing.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added SnapshotSession handling.
+    Version:        1.2.0 # Added handling for pre-processor status (Proceed, SkipJob, FailJob).
     DateCreated:    30-May-2025
-    LastModified:   10-Jun-2025
+    LastModified:   17-Jun-2025
     Purpose:        To modularise the main local backup sequence from JobExecutor.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Modules\Operations\JobPreProcessor.psm1 and
@@ -67,14 +70,14 @@ function Invoke-PoShBackupLocalBackupExecution {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLog -Message "JobExecutor.LocalBackupOrchestrator/Invoke-PoShBackupLocalBackupExecution: Initializing for job '$JobName'." -Level "DEBUG"
+    & $LocalWriteLog -Message "JobExecutor.LocalBackupOrchestrator/Invoke-PoShBackupLocalBackupExecution: Initialising for job '$JobName'." -Level "DEBUG"
 
     $reportData = $JobReportDataRef.Value # For direct updates if needed, and passing by ref
     $currentLocalJobStatus = "SUCCESS" # Assume success initially for this scope
     $finalLocalArchivePathFromOps = $null
     $archiveFileNameOnlyFromOps = $null
     $vssPathsToCleanUpFromOps = $null
-    $snapshotSessionFromOps = $null # NEW
+    $snapshotSessionFromOps = $null
     $plainTextPasswordToClearFromOps = $null
     $skipRemoteTransfersDueToLocalVerification = $false
 
@@ -91,42 +94,57 @@ function Invoke-PoShBackupLocalBackupExecution {
     }
     $preProcessingResult = Invoke-PoShBackupJobPreProcessing @preProcessingParams
 
-    if (-not $preProcessingResult.Success) {
-        $currentLocalJobStatus = "FAILURE"
-        if ([string]::IsNullOrWhiteSpace($reportData.ErrorMessage) -and (-not [string]::IsNullOrWhiteSpace($preProcessingResult.ErrorMessage))) {
-            $reportData.ErrorMessage = $preProcessingResult.ErrorMessage
+    # The pre-processor now returns a detailed status.
+    switch ($preProcessingResult.Status) {
+        'FailJob' {
+            $currentLocalJobStatus = "FAILURE"
+            if ([string]::IsNullOrWhiteSpace($reportData.ErrorMessage) -and (-not [string]::IsNullOrWhiteSpace($preProcessingResult.ErrorMessage))) {
+                $reportData.ErrorMessage = $preProcessingResult.ErrorMessage
+            }
+            & $LocalWriteLog -Message "[ERROR] JobExecutor.LocalBackupOrchestrator: Job pre-processing failed for job '$JobName'. Status set to FAILURE. Reason: $($preProcessingResult.ErrorMessage)" -Level "ERROR"
         }
-        & $LocalWriteLog -Message "[ERROR] JobExecutor.LocalBackupOrchestrator: Job pre-processing failed for job '$JobName'. Status set to FAILURE. Reason: $($preProcessingResult.ErrorMessage)" -Level "ERROR"
-    }
-    else {
-        $currentJobSourcePathFor7Zip = $preProcessingResult.CurrentJobSourcePathFor7Zip
-        $actualPlainTextPasswordFromPreProcessing = $preProcessingResult.ActualPlainTextPassword
-        $vssPathsToCleanUpFromOps = $preProcessingResult.VSSPathsInUse
-        $snapshotSessionFromOps = $preProcessingResult.SnapshotSession # NEW: Capture the session object
-        $plainTextPasswordToClearFromOps = $preProcessingResult.PlainTextPasswordToClear
-
-        # --- Call Local Archive Processor ---
-        $localArchiveOpParams = @{
-            EffectiveJobConfig          = $EffectiveJobConfig
-            CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip
-            ArchivePasswordPlainText    = $actualPlainTextPasswordFromPreProcessing
-            JobReportDataRef            = $JobReportDataRef # Pass the ref
-            IsSimulateMode              = $IsSimulateMode.IsPresent
-            Logger                      = $Logger
-            PSCmdlet                    = $PSCmdlet
-            GlobalConfig                = $GlobalConfig
-            SevenZipCpuAffinityString   = $EffectiveJobConfig.JobSevenZipCpuAffinity
-            ActualConfigFile            = $ActualConfigFile
+        'SkipJob' {
+            $currentLocalJobStatus = "SKIPPED_SOURCE_MISSING" # New status
+            if ([string]::IsNullOrWhiteSpace($reportData.ErrorMessage) -and (-not [string]::IsNullOrWhiteSpace($preProcessingResult.ErrorMessage))) {
+                $reportData.ErrorMessage = $preProcessingResult.ErrorMessage
+            }
+            & $LocalWriteLog -Message "[WARNING] JobExecutor.LocalBackupOrchestrator: Job '$JobName' skipped as per pre-processor result (e.g., source missing). Reason: $($preProcessingResult.ErrorMessage)" -Level "WARNING"
         }
-        $localArchiveResult = Invoke-LocalArchiveOperation @localArchiveOpParams
+        'Proceed' {
+            $currentJobSourcePathFor7Zip = $preProcessingResult.CurrentJobSourcePathFor7Zip
+            $actualPlainTextPasswordFromPreProcessing = $preProcessingResult.ActualPlainTextPassword
+            $vssPathsToCleanUpFromOps = $preProcessingResult.VSSPathsInUse
+            $snapshotSessionFromOps = $preProcessingResult.SnapshotSession
+            $plainTextPasswordToClearFromOps = $preProcessingResult.PlainTextPasswordToClear
 
-        $currentLocalJobStatus = $localArchiveResult.Status # This will be SUCCESS, WARNINGS, or FAILURE
-        $finalLocalArchivePathFromOps = $localArchiveResult.FinalArchivePath
-        $archiveFileNameOnlyFromOps = $localArchiveResult.ArchiveFileNameOnly
+            # --- Call Local Archive Processor ---
+            $localArchiveOpParams = @{
+                EffectiveJobConfig          = $EffectiveJobConfig
+                CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip
+                ArchivePasswordPlainText    = $actualPlainTextPasswordFromPreProcessing
+                JobReportDataRef            = $JobReportDataRef # Pass the ref
+                IsSimulateMode              = $IsSimulateMode.IsPresent
+                Logger                      = $Logger
+                PSCmdlet                    = $PSCmdlet
+                GlobalConfig                = $GlobalConfig
+                SevenZipCpuAffinityString   = $EffectiveJobConfig.JobSevenZipCpuAffinity
+                ActualConfigFile            = $ActualConfigFile
+            }
+            $localArchiveResult = Invoke-LocalArchiveOperation @localArchiveOpParams
 
-        if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer -and $currentLocalJobStatus -ne "SUCCESS" -and $currentLocalJobStatus -ne "SIMULATED_COMPLETE") {
-            $skipRemoteTransfersDueToLocalVerification = $true
-            # Message already logged by LocalArchiveProcessor if VerifyLocalArchiveBeforeTransfer is true and test fails
+            $currentLocalJobStatus = $localArchiveResult.Status # This will be SUCCESS, WARNINGS, or FAILURE
+            $finalLocalArchivePathFromOps = $localArchiveResult.FinalArchivePath
+            $archiveFileNameOnlyFromOps = $localArchiveResult.ArchiveFileNameOnly
+
+            if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer -and $currentLocalJobStatus -ne "SUCCESS" -and $currentLocalJobStatus -ne "SIMULATED_COMPLETE") {
+                $skipRemoteTransfersDueToLocalVerification = $true
+            }
+        }
+        default {
+            # Fallback for safety in case of an unexpected status from the pre-processor
+            $currentLocalJobStatus = "FAILURE"
+            $reportData.ErrorMessage = "Unknown status '$($preProcessingResult.Status)' returned from pre-processor for job '$JobName'."
+            & $LocalWriteLog -Message "[ERROR] JobExecutor.LocalBackupOrchestrator: $($reportData.ErrorMessage)" -Level "ERROR"
         }
     }
 
@@ -137,7 +155,7 @@ function Invoke-PoShBackupLocalBackupExecution {
         FinalLocalArchivePath                       = $finalLocalArchivePathFromOps
         ArchiveFileNameOnly                         = $archiveFileNameOnlyFromOps
         VSSPathsToCleanUp                           = $vssPathsToCleanUpFromOps
-        SnapshotSession                             = $snapshotSessionFromOps # NEW: Return the session object
+        SnapshotSession                             = $snapshotSessionFromOps
         PlainTextPasswordToClear                    = $plainTextPasswordToClearFromOps
         SkipRemoteTransfersDueToLocalVerification   = $skipRemoteTransfersDueToLocalVerification
     }
