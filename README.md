@@ -77,6 +77,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **PowerShell:** Version 5.1 or higher.
 *   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
 *   **Posh-SSH Module:** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).
+*   **PowerShell SecretManagement & SecretStore:** Required for storing any credentials (for archives, targets, or email). The script assumes you are using the default `Microsoft.PowerShell.SecretStore` vault provider.
 *   **AWS.Tools.S3 Module:** Required if you plan to use the S3-Compatible Backup Target feature. Install via PowerShell: `Install-Module AWS.Tools.S3 -Scope CurrentUser`.
 *   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files, and potentially for some Post-Run System Actions (e.g., Shutdown, Restart, Hibernate).
 *   **Hyper-V Module:** Required if you plan to use the Hyper-V Snapshot Orchestration feature. On Windows Client OS, this is installed via "Turn Windows features on or off". On Windows Server, it's installed as a server role.
@@ -483,6 +484,21 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             ```
 3.  **Explore `Config\Default.psd1` for All Options:**
     *   Open `Config\Default.psd1` (but don't edit it for your settings). This file serves as a comprehensive reference. It contains detailed comments explaining every available global and job-specific setting.
+
+    #### Important Note on Automation and PowerShell Secrets
+    When running PoSh-Backup non-interactively (e.g., as a Windows Scheduled Task), you may encounter an error stating that the `SecretStore` vault is locked. This is an intentional safety feature of PoSh-Backup to prevent the automated task from hanging indefinitely while waiting for a password prompt that can never be answered.
+
+    By default, the `Microsoft.PowerShell.SecretStore` vault locks after 15 minutes of inactivity. The correct way to handle this for automation is to use a small **wrapper script** that unlocks the vault just before running PoSh-Backup.
+
+    **Step 1: Store the Vault Password Securely**
+    Run these commands **once, interactively, as the user account that the scheduled task will run as**. This creates an encrypted credential file that only that user can read on that machine.
+
+    ```powershell
+    # This will prompt for the password for your PowerShell vault
+    $vaultCredential = Get-Credential -UserName "PoShBackupVaultUser" -Message "Enter the PASSWORD for your PowerShell Secret VAULT"
+
+    # This saves the credential to an encrypted file
+    $vaultCredential | Export-CliXml -Path "C:\Scripts\PoSh-Backup\vault_credential.xml"
 
 ### Backing Up Virtual Machines via Snapshot Orchestration
 This is a powerful enterprise feature that allows for application-consistent backups of live virtual machines with minimal performance impact.

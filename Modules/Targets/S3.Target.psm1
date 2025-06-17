@@ -16,7 +16,7 @@
     'TargetSpecificSettings' for S3 targets in the main configuration.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1
+    Version:        1.0.5 # Fixed incorrect variable in debug log message.
     DateCreated:    17-Jun-2025
     LastModified:   17-Jun-2025
     Purpose:        S3-Compatible Target Provider for PoSh-Backup.
@@ -148,8 +148,13 @@ function Invoke-PoShBackupS3TargetSettingsValidation {
         $ValidationMessagesListRef.Value.Add("S3 Target '$TargetInstanceName': 'TargetSpecificSettings' must be a Hashtable, but found type '$($TargetSpecificSettings.GetType().Name)'. Path: '$fullPathToSettings'.")
         return
     }
+    
+    # ServiceUrl is optional for AWS S3, but required for MinIO etc.
+    if ($TargetSpecificSettings.ContainsKey('ServiceUrl') -and -not ($TargetSpecificSettings.ServiceUrl -is [string])) {
+         $ValidationMessagesListRef.Value.Add("S3 Target '$TargetInstanceName': 'ServiceUrl' in 'TargetSpecificSettings' must be a string if defined. Path: '$fullPathToSettings.ServiceUrl'.")
+    }
 
-    foreach ($s3Key in @('ServiceUrl', 'Region', 'BucketName', 'AccessKeySecretName', 'SecretKeySecretName')) {
+    foreach ($s3Key in @('Region', 'BucketName', 'AccessKeySecretName', 'SecretKeySecretName')) {
         if (-not $TargetSpecificSettings.ContainsKey($s3Key) -or -not ($TargetSpecificSettings.$s3Key -is [string]) -or [string]::IsNullOrWhiteSpace($TargetSpecificSettings.$s3Key)) {
             $ValidationMessagesListRef.Value.Add("S3 Target '$TargetInstanceName': '$s3Key' in 'TargetSpecificSettings' is missing, not a string, or empty. Path: '$fullPathToSettings.$s3Key'.")
         }
@@ -208,7 +213,8 @@ function Invoke-PoShBackupTargetTransfer {
 
     if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
         & $Logger -Message "S3.Target/Invoke-PoShBackupTargetTransfer: Logger active for Job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
-        $contextMessage = "  - S3.Target Context (PSSA): EffectiveJobConfig.JobName='{0}', CreationTS='{1}', PwdInUse='{2}'." -f $EffectiveJobConfig.JobName, $LocalArchiveCreationTimestamp, $PasswordInUse
+        # FIXED: Use the $JobName parameter instead of trying to get it from $EffectiveJobConfig
+        $contextMessage = "  - S3.Target Context (PSSA): JobName='{0}', CreationTS='{1}', PwdInUse='{2}'." -f $JobName, $LocalArchiveCreationTimestamp, $PasswordInUse
         & $Logger -Message $contextMessage -Level "DEBUG" -ErrorAction SilentlyContinue
     }
 
@@ -217,8 +223,9 @@ function Invoke-PoShBackupTargetTransfer {
     & $LocalWriteLog -Message ("`n[INFO] S3 Target: Starting transfer for Job '{0}' to Target '{1}'." -f $JobName, $targetNameForLog) -Level "INFO"
 
     $result = @{
-        Success          = $false; RemotePath       = $null; ErrorMessage     = $null
-        TransferSize     = 0;      TransferDuration = New-TimeSpan
+        Success               = $false; RemotePath          = $null; ErrorMessage        = $null
+        TransferSize          = 0;      TransferDuration    = New-TimeSpan
+        TransferSizeFormatted = "N/A"
     }
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
@@ -237,6 +244,7 @@ function Invoke-PoShBackupTargetTransfer {
     if ($IsSimulateMode.IsPresent) {
         & $LocalWriteLog -Message "SIMULATE: S3 Target '$targetNameForLog': Would upload '$LocalArchivePath' to Bucket '$($s3Settings.BucketName)' with Key '$remoteObjectKey'." -Level "SIMULATE"
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
+        $result.TransferSizeFormatted = Format-BytesInternal-S3 -Bytes $result.TransferSize
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
             & $LocalWriteLog -Message ("SIMULATE: S3 Target '{0}': Would apply remote retention (KeepCount: {1}) in Bucket '{2}' with Prefix '{3}'." -f $targetNameForLog, $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount, $s3Settings.BucketName, $remoteKeyPrefix) -Level "SIMULATE"
         }
@@ -254,21 +262,36 @@ function Invoke-PoShBackupTargetTransfer {
         $secretKey = Get-SecretFromVaultInternal-S3 -SecretName $s3Settings.SecretKeySecretName -Logger $Logger -SecretPurposeForLog "S3 Secret Key"
         if ([string]::IsNullOrWhiteSpace($accessKey) -or [string]::IsNullOrWhiteSpace($secretKey)) { throw "Failed to retrieve valid S3 credentials from SecretManagement." }
 
-        $s3Config = New-Object Amazon.S3.AmazonS3Config
-        $s3Config.ServiceURL = $s3Settings.ServiceUrl
-        $s3Config.AuthenticationRegion = $s3Settings.Region
-        $s3Config.ForcePathStyle = $true
+        # Build parameter hashtable for all S3 cmdlets
+        $s3CommonParams = @{
+            AccessKey      = $accessKey
+            SecretKey      = $secretKey
+            Region         = $s3Settings.Region
+            EndpointUrl    = $s3Settings.ServiceUrl
+            ForcePathStyle = $true
+            ErrorAction    = 'Stop'
+        }
 
         & $LocalWriteLog -Message ("  - S3 Target '{0}': Uploading file '{1}'..." -f $targetNameForLog, $ArchiveFileName) -Level "INFO"
-        Write-S3Object -BucketName $s3Settings.BucketName -Key $remoteObjectKey -File $LocalArchivePath -AccessKey $accessKey -SecretKey $secretKey -S3ClientConfig $s3Config -ErrorAction Stop
+        $writeS3Params = $s3CommonParams.Clone()
+        $writeS3Params.BucketName = $s3Settings.BucketName
+        $writeS3Params.Key = $remoteObjectKey
+        $writeS3Params.File = $LocalArchivePath
+        Write-S3Object @writeS3Params
+        
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
+        $result.TransferSizeFormatted = Format-BytesInternal-S3 -Bytes $result.TransferSize
         & $LocalWriteLog -Message ("    - S3 Target '{0}': File uploaded successfully." -f $targetNameForLog) -Level "SUCCESS"
 
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -is [int] -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
             $remoteKeepCount = $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount
             & $LocalWriteLog -Message ("  - S3 Target '{0}': Applying remote retention (KeepCount: {1}) in Bucket '{2}' with Prefix '{3}'." -f $targetNameForLog, $remoteKeepCount, $s3Settings.BucketName, $remoteKeyPrefix) -Level "INFO"
             
-            $allRemoteObjects = Get-S3ObjectList -BucketName $s3Settings.BucketName -Prefix $remoteKeyPrefix -AccessKey $accessKey -SecretKey $secretKey -S3ClientConfig $s3Config
+            $getS3ListParams = $s3CommonParams.Clone()
+            $getS3ListParams.BucketName = $s3Settings.BucketName
+            $getS3ListParams.Prefix = $remoteKeyPrefix
+            $allRemoteObjects = Get-S3ObjectV2 @getS3ListParams
+            
             $remoteInstances = Group-RemoteS3BackupInstancesInternal -S3ObjectList $allRemoteObjects -ArchiveBaseName $ArchiveBaseName -PrimaryArchiveExtension $ArchiveExtension -Logger $Logger
             
             if ($remoteInstances.Count -gt $remoteKeepCount) {
@@ -284,7 +307,11 @@ function Invoke-PoShBackupTargetTransfer {
                         }
                         & $LocalWriteLog -Message ("        - Deleting: '{0}'" -f $s3ObjectToDelete.Key) -Level "WARNING"
                         try {
-                            Remove-S3Object -BucketName $s3Settings.BucketName -Key $s3ObjectToDelete.Key -AccessKey $accessKey -SecretKey $secretKey -S3ClientConfig $s3Config -Force -ErrorAction Stop
+                            $removeS3Params = $s3CommonParams.Clone()
+                            $removeS3Params.BucketName = $s3Settings.BucketName
+                            $removeS3Params.Key = $s3ObjectToDelete.Key
+                            $removeS3Params.Force = $true
+                            Remove-S3Object @removeS3Params
                             & $LocalWriteLog "          - Status: DELETED" -Level "SUCCESS"
                         } catch {
                              $retentionErrorMsg = "Failed to delete remote S3 object '$($s3ObjectToDelete.Key)'. Error: $($_.Exception.Message)"

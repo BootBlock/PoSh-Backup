@@ -14,9 +14,9 @@
     logging parameters, and determines the final list and order of jobs to be processed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.6.1 # Corrected parameter name for PSCmdletInstance when calling ScriptModeHandler.
+    Version:        1.6.5 # Made locked SecretStore vault check more robust.
     DateCreated:    01-Jun-2025
-    LastModified:   15-Jun-2025
+    LastModified:   17-Jun-2025
     Purpose:        To centralise core script setup and configuration/job resolution.
     Prerequisites:  PowerShell 5.1+.
                     Relies on InitialisationManager.psm1 and CliManager.psm1 having been run.
@@ -96,6 +96,16 @@ function Test-RequiredModulesInternal {
                 param($Config, $ActiveJobs)
                 if ($null -eq $ActiveJobs -or $ActiveJobs.Count -eq 0) { return $false }
 
+                # Define all known keys that hold secret names within TargetSpecificSettings or top-level of target
+                $targetSecretKeys = @(
+                    'CredentialsSecretName', # WebDAV (top-level), UNC (optional top-level)
+                    'SFTPPasswordSecretName', # SFTP (in TargetSpecificSettings)
+                    'SFTPKeyFileSecretName', # SFTP (in TargetSpecificSettings)
+                    'SFTPKeyFilePassphraseSecretName', # SFTP (in TargetSpecificSettings)
+                    'AccessKeySecretName', # S3 (in TargetSpecificSettings)
+                    'SecretKeySecretName'              # S3 (in TargetSpecificSettings)
+                )
+
                 foreach ($jobName in $ActiveJobs) {
                     if (-not $Config.BackupLocations.ContainsKey($jobName)) { continue }
                     $jobConf = $Config.BackupLocations[$jobName]
@@ -103,29 +113,38 @@ function Test-RequiredModulesInternal {
                     # Condition 1: Job's archive password method is SecretManagement.
                     if ($jobConf.ArchivePasswordMethod -eq 'SecretManagement') { return $true }
 
-                    # Condition 2: Job uses a target that has a CredentialsSecretName defined.
+                    # Condition 2: Job uses a target that uses any known secret key.
                     if ($jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array]) {
                         foreach ($targetName in $jobConf.TargetNames) {
                             if ($Config.BackupTargets.ContainsKey($targetName)) {
                                 $targetDef = $Config.BackupTargets[$targetName]
-                                if ($targetDef -is [hashtable] -and $targetDef.ContainsKey('CredentialsSecretName') -and (-not [string]::IsNullOrWhiteSpace($targetDef.CredentialsSecretName))) {
-                                    return $true
+                                if ($targetDef -isnot [hashtable]) { continue }
+                                
+                                # Check for top-level secret keys
+                                if ($targetDef.ContainsKey('CredentialsSecretName') -and (-not [string]::IsNullOrWhiteSpace($targetDef.CredentialsSecretName))) { return $true }
+
+                                # Check inside TargetSpecificSettings
+                                if ($targetDef.ContainsKey('TargetSpecificSettings') -and $targetDef.TargetSpecificSettings -is [hashtable]) {
+                                    $specificSettings = $targetDef.TargetSpecificSettings
+                                    foreach ($secretKey in $targetSecretKeys) {
+                                        if ($specificSettings.ContainsKey($secretKey) -and (-not [string]::IsNullOrWhiteSpace($specificSettings[$secretKey]))) {
+                                            return $true
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                     
-                    # Condition 3: Job uses a notification profile that has a CredentialSecretName defined.
+                    # Condition 3: Job uses a notification profile that has a secret defined.
                     $notificationSettings = $jobConf.NotificationSettings
                     if ($notificationSettings -is [hashtable] -and $notificationSettings.Enabled -eq $true -and -not [string]::IsNullOrWhiteSpace($notificationSettings.ProfileName)) {
                         $profileName = $notificationSettings.ProfileName
                         if ($Config.NotificationProfiles.ContainsKey($profileName)) {
                             $notificationProfile = $Config.NotificationProfiles[$profileName]
-                            if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings.ContainsKey('CredentialSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.CredentialSecretName))) {
-                                return $true
-                            }
-                            if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings.ContainsKey('WebhookUrlSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.WebhookUrlSecretName))) {
-                                return $true
+                            if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings -is [hashtable]) {
+                                if ($notificationProfile.ProviderSettings.ContainsKey('CredentialSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.CredentialSecretName))) { return $true }
+                                if ($notificationProfile.ProviderSettings.ContainsKey('WebhookUrlSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.WebhookUrlSecretName))) { return $true }
                             }
                         }
                     }
@@ -166,15 +185,29 @@ function Test-RequiredModulesInternal {
                 # This re-uses the exact same condition as the 'Microsoft.PowerShell.SecretManagement' module check.
                 param($Config, $ActiveJobs)
                 if ($null -eq $ActiveJobs -or $ActiveJobs.Count -eq 0) { return $false }
+
+                $targetSecretKeys = @(
+                    'CredentialsSecretName', 'SFTPPasswordSecretName', 'SFTPKeyFileSecretName', 
+                    'SFTPKeyFilePassphraseSecretName', 'AccessKeySecretName', 'SecretKeySecretName'
+                )
+
                 foreach ($jobName in $ActiveJobs) {
                     if (-not $Config.BackupLocations.ContainsKey($jobName)) { continue }
                     $jobConf = $Config.BackupLocations[$jobName]
                     if ($jobConf.ArchivePasswordMethod -eq 'SecretManagement') { return $true }
+
                     if ($jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array]) {
                         foreach ($targetName in $jobConf.TargetNames) {
                             if ($Config.BackupTargets.ContainsKey($targetName)) {
                                 $targetDef = $Config.BackupTargets[$targetName]
-                                if ($targetDef -is [hashtable] -and $targetDef.ContainsKey('CredentialsSecretName') -and (-not [string]::IsNullOrWhiteSpace($targetDef.CredentialsSecretName))) { return $true }
+                                if ($targetDef -isnot [hashtable]) { continue }
+                                if ($targetDef.ContainsKey('CredentialsSecretName') -and (-not [string]::IsNullOrWhiteSpace($targetDef.CredentialsSecretName))) { return $true }
+                                if ($targetDef.ContainsKey('TargetSpecificSettings') -and $targetDef.TargetSpecificSettings -is [hashtable]) {
+                                    $specificSettings = $targetDef.TargetSpecificSettings
+                                    foreach ($secretKey in $targetSecretKeys) {
+                                        if ($specificSettings.ContainsKey($secretKey) -and (-not [string]::IsNullOrWhiteSpace($specificSettings[$secretKey]))) { return $true }
+                                    }
+                                }
                             }
                         }
                     }
@@ -183,9 +216,33 @@ function Test-RequiredModulesInternal {
                         $profileName = $notificationSettings.ProfileName
                         if ($Config.NotificationProfiles.ContainsKey($profileName)) {
                             $notificationProfile = $Config.NotificationProfiles[$profileName]
-                            if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings.ContainsKey('CredentialSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.CredentialSecretName))) { return $true }
-                            if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings.ContainsKey('WebhookUrlSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.WebhookUrlSecretName))) { return $true }
+                            if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings -is [hashtable]) {
+                                if ($notificationProfile.ProviderSettings.ContainsKey('CredentialSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.CredentialSecretName))) { return $true }
+                                if ($notificationProfile.ProviderSettings.ContainsKey('WebhookUrlSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.WebhookUrlSecretName))) { return $true }
+                            }
                         }
+                    }
+                }
+                return $false
+            }
+        },
+        @{ # NEW Check for unlocked vault
+            ModuleName  = 'SecretManagement Vault Unlocked'
+            RequiredFor = 'Non-interactive secret access'
+            InstallHint = "The SecretStore vault is locked. Run 'Unlock-SecretStore' in your session or a wrapper script before running PoSh-Backup non-interactively."
+            Condition   = {
+                # This uses the same condition as the other SecretManagement checks.
+                param($Config, $ActiveJobs)
+                if ($null -eq $ActiveJobs -or $ActiveJobs.Count -eq 0) { return $false }
+                # Only perform this check in a non-interactive context
+                if ($Host.Name -ne 'ConsoleHost' -and $Host.Name -ne 'Windows PowerShell ISE') {
+                    $targetSecretKeys = @( 'CredentialsSecretName', 'SFTPPasswordSecretName', 'SFTPKeyFileSecretName', 'SFTPKeyFilePassphraseSecretName', 'AccessKeySecretName', 'SecretKeySecretName')
+                    foreach ($jobName in $ActiveJobs) {
+                        if (-not $Config.BackupLocations.ContainsKey($jobName)) { continue }
+                        $jobConf = $Config.BackupLocations[$jobName]
+                        if ($jobConf.ArchivePasswordMethod -eq 'SecretManagement') { return $true }
+                        if ($jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array]) { foreach ($targetName in $jobConf.TargetNames) { if ($Config.BackupTargets.ContainsKey($targetName)) { $targetDef = $Config.BackupTargets[$targetName]; if ($targetDef -isnot [hashtable]) { continue }; if ($targetDef.ContainsKey('CredentialsSecretName') -and (-not [string]::IsNullOrWhiteSpace($targetDef.CredentialsSecretName))) { return $true }; if ($targetDef.ContainsKey('TargetSpecificSettings') -and $targetDef.TargetSpecificSettings -is [hashtable]) { $specificSettings = $targetDef.TargetSpecificSettings; foreach ($secretKey in $targetSecretKeys) { if ($specificSettings.ContainsKey($secretKey) -and (-not [string]::IsNullOrWhiteSpace($specificSettings[$secretKey]))) { return $true } } } } } }
+                        $notificationSettings = $jobConf.NotificationSettings; if ($notificationSettings -is [hashtable] -and $notificationSettings.Enabled -eq $true -and -not [string]::IsNullOrWhiteSpace($notificationSettings.ProfileName)) { $profileName = $notificationSettings.ProfileName; if ($Config.NotificationProfiles.ContainsKey($profileName)) { $notificationProfile = $Config.NotificationProfiles[$profileName]; if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings -is [hashtable]) { if ($notificationProfile.ProviderSettings.ContainsKey('CredentialSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.CredentialSecretName))) { return $true }; if ($notificationProfile.ProviderSettings.ContainsKey('WebhookUrlSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.WebhookUrlSecretName))) { return $true } } } }
                     }
                 }
                 return $false
@@ -201,9 +258,23 @@ function Test-RequiredModulesInternal {
             & $LocalWriteLog -Message "  - Condition met for '$($moduleInfo.RequiredFor)'. Checking for module: '$moduleName'." -Level "DEBUG"
 
             if ($moduleName -eq 'SecretManagement Vault') {
-                if (-not (Get-SecretVault -ErrorAction SilentlyContinue)) {
+                # Corrected check: if the count of registered vaults is 0, then fail.
+                if ((Get-SecretVault -ErrorAction SilentlyContinue).Count -eq 0) {
                     $errorMessage = "Configuration requires access to secrets, but no SecretManagement vaults are registered. Please configure a vault to proceed. Hint: $($moduleInfo.InstallHint)"
                     $missingModules.Add($errorMessage)
+                }
+            }
+            elseif ($moduleName -eq 'SecretManagement Vault Unlocked') {
+                # Robustly check if the SecretStore module and its configuration cmdlet are available before checking the vault state
+                if (Get-Module -Name Microsoft.PowerShell.SecretStore -ListAvailable) {
+                    Import-Module Microsoft.PowerShell.SecretStore -ErrorAction SilentlyContinue
+                    if (Get-Command Get-SecretStoreConfiguration -ErrorAction SilentlyContinue) {
+                        $storeConfig = Get-SecretStoreConfiguration
+                        if ($storeConfig.Authentication -eq 'Password' -and $storeConfig.PasswordTimeout -gt 0) {
+                            $errorMessage = "Configuration requires non-interactive secret access, but the SecretStore vault is locked. $($moduleInfo.InstallHint)"
+                            $missingModules.Add($errorMessage)
+                        }
+                    }
                 }
             }
             elseif (-not (Get-Module -Name $moduleName -ListAvailable)) {
@@ -395,7 +466,14 @@ function Invoke-PoShBackupCoreSetup {
     # --- END: Check for Maintenance Mode ---
 
     # --- Job Resolution (only if not in an informational mode that exits) ---
-    $jobResolutionResult = Get-JobsToProcess -Config $Configuration -SpecifiedJobName $BackupLocationName -SpecifiedSetName $RunSet -Logger $LoggerScriptBlock
+    $jobResolutionParams = @{
+        Config           = $Configuration
+        SpecifiedJobName = $BackupLocationName
+        SpecifiedSetName = $RunSet
+        JobsToSkip       = $CliOverrideSettings.SkipJob
+        Logger           = $LoggerScriptBlock
+    }
+    $jobResolutionResult = Get-JobsToProcess @jobResolutionParams
     if (-not $jobResolutionResult.Success) {
         & $LoggerScriptBlock -Message "FATAL: CoreSetupManager: Could not determine jobs to process. $($jobResolutionResult.ErrorMessage)" -Level "ERROR"
         throw "Could not determine jobs to process."

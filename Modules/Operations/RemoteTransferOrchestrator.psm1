@@ -18,9 +18,9 @@
     after the local archive has been successfully created and (optionally) verified.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Handles multi-volume transfer and manifest file transfer.
+    Version:        1.1.1 # Fixed bug calling non-existent function for TransferSizeFormatted.
     DateCreated:    24-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   17-Jun-2025
     Purpose:        To modularise remote target transfer orchestration from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the parent 'Modules' directory.
@@ -67,7 +67,7 @@ function Invoke-RemoteTargetTransferOrchestration {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLog -Message "RemoteTransferOrchestrator/Invoke-RemoteTargetTransferOrchestration: Logger active for job '$($EffectiveJobConfig.JobName)'." -Level "DEBUG"
+    & $Logger -Message "RemoteTransferOrchestrator/Invoke-RemoteTargetTransferOrchestration: Logger active for job '$($EffectiveJobConfig.JobName)'." -Level "DEBUG"
 
     $reportData = $JobReportDataRef.Value
     $allTargetTransfersSuccessfulOverall = $true 
@@ -200,8 +200,7 @@ function Invoke-RemoteTargetTransferOrchestration {
                 $currentTransferReport.ErrorMessage = $transferOutcome.ErrorMessage
                 $currentTransferReport.TransferDuration = if ($null -ne $transferOutcome.TransferDuration) { $transferOutcome.TransferDuration.ToString() } else { "N/A" }
                 $currentTransferReport.TransferSize = $transferOutcome.TransferSize
-                $currentTransferReport.TransferSizeFormatted = Get-UtilityArchiveSizeFormattedFromByte -Bytes $transferOutcome.TransferSize
-
+                $currentTransferReport.TransferSizeFormatted = $transferOutcome.TransferSizeFormatted # FIXED: Use the value from the provider
 
                 if ($transferOutcome.ContainsKey('ReplicationDetails') -and $transferOutcome.ReplicationDetails -is [array] -and $transferOutcome.ReplicationDetails.Count -gt 0) {
                     $currentTransferReport.ReplicationDetails = $transferOutcome.ReplicationDetails 

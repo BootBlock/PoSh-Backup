@@ -351,19 +351,21 @@
     "        - Decorates the `-BackupLocationName`, `-RunSet`, `-SkipJob`, and `-GetEffectiveConfig` parameters with the `[ArgumentCompleter({ ... })]` attribute.",
     "    - **Bug Fix:** Corrected the syntax for the `ArgumentCompleter` from `[scriptblock]::Create(...)` to the required `{ ... }` script block literal to resolve parsing errors.",
     "    - **Status:** Tab-completion for job and set names is now active.",
-    "--- Feature: S3-Compatible Backup Target (In Progress) ---",
-    "    - **Goal:** Add support for backing up to S3-compatible object storage.",
-    "    - **New Module:** Created `Modules\\Targets\\S3.Target.psm1` with a validation function and initial transfer logic.",
+    "--- Feature: S3-Compatible Backup Target (Completed) ---",
+    "    - **Goal:** Add support for backing up to S3-compatible object storage like MinIO or AWS S3.",
+    "    - **New Module:** Created `Modules\\Targets\\S3.Target.psm1` with validation and transfer logic.",
     "    - **Configuration:** Added an S3 target example to `Config\\Default.psd1` and updated the schema in `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`.",
-    "    - **Bug Fix (Secret Management):** Addressed ungraceful errors when no vault is registered. Updated `Modules\\Managers\\CoreSetupManager.psm1` to proactively check for a registered SecretManagement vault if any job in the current run requires it. This needs testing to see if it's actually fixed.",
-    "    - **Possible Remaining Bug Fix (Data Flow):** Corrected a bug where the Job Name was empty when passed to target providers. Modified `Modules\\Operations\\RemoteTransferOrchestrator.psm1` to accept `-JobName` as a direct parameter and updated the call in `JobExecutor.RemoteTransferHandler.psm1`. This needs testing to see if it's actually fixed.",
-    "    - **Remaining Bug Fix (S3 Target):** A `CommandNotFoundException` within `S3.Target.psm1` in regards to a missing `Format-BytesInternal-S3` function.",
-    "    - **Status:** The provider is now somewhat implemented and integrated. The remaining major bugs need to be addressed and tested.",
+    "    - **Bug Fix (Secret Management):** Corrected the dependency check in `Modules\\Managers\\CoreSetupManager.psm1` to properly detect when S3 secrets are required, preventing interactive prompts when no vault is registered.",
+    "    - **Bug Fix (CommandNotFoundException):** Corrected a typo in `Modules\\Operations\\RemoteTransferOrchestrator.psm1` that was calling a non-existent function for formatting transfer sizes.",
+    "    - **Bug Fix (S3 Provider):** Corrected the `S3.Target.psm1` module to use the correct `-EndpointUrl` and `-Region` parameters for `AWS.Tools.S3` cmdlets instead of the non-existent `-S3ClientConfig`.",
+    "    - **Bug Fix (S3 Provider):** Fixed a cosmetic bug in a debug log line in `S3.Target.psm1` that was referencing an incorrect variable for the job name.",
+    "    - **Documentation:** Updated `README.md` to include the new S3 provider in the features list, prerequisites, and configuration examples.",
+    "    - **Status:** The S3 Target Provider is now fully functional.",
     "--- PROJECT STATUS ---",
-    "Overall: PoSh-Backup.ps1 is highly modular, with utility modes now broken into sub-modules under `Modules\ScriptModes\`. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and Hyper-V snapshot orchestration. PSSA warnings: 2 (known password-related warnings)."
+    "Overall: PoSh-Backup.ps1 is highly modular, with utility modes now broken into sub-modules under `Modules\ScriptModes\`. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and Hyper-V snapshot orchestration. PSSA warnings: 2 (known password-related warnings).""Overall: PoSh-Backup.ps1 is highly modular, with utility modes now broken into sub-modules under Modules\ScriptModes`. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, Hyper-V snapshot orchestration, and a new S3-compatible target provider. PSSA warnings: 2 (known password-related warnings)."
   )
 
-  main_script_poSh_backup_version = "1.34.0 # Added CLI tab-completion for job and set names."
+  main_script_poSh_backup_version = "1.30.0 # Added S3-Compatible Backup Target Provider."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
