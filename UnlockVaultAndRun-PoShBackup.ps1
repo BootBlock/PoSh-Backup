@@ -1,9 +1,13 @@
-# Run-PoShBackup.ps1 - Wrapper script to unlock the vault and run a backup set.
+# UnlockVaultAndRun-PoShBackup.ps1 - Wrapper script to unlock the vault and run a backup set.
 
 # --- Configuration ---
-$PoShBackupScriptPath = "C:\Scripts\PoSh-Backup\PoSh-Backup.ps1"
-$VaultCredentialPath  = "C:\Scripts\PoSh-Backup\vault_credential.xml"
-$BackupSetToRun       = "Daily_Critical_Backups" # The name of the job or set you want to run
+# The backup set or job you want to run
+$BackupSetToRun = "Daily_Critical_Backups" 
+
+# Define paths relative to this wrapper script's location
+$scriptDirectory = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
+$PoShBackupScriptPath = Join-Path -Path $scriptDirectory -ChildPath "PoSh-Backup.ps1"
+$VaultCredentialPath  = Join-Path -Path $scriptDirectory -ChildPath "vault_credential.xml"
 
 # --- Script Body ---
 try {
@@ -33,7 +37,7 @@ try {
 
 }
 catch {
-    $errorMessage = "FATAL ERROR in wrapper script (Run-PoShBackup.ps1): $($_.Exception.Message)"
+    $errorMessage = "FATAL ERROR in wrapper script (UnlockVaultAndRun-PoShBackup.ps1): $($_.Exception.Message)"
     Write-Error $errorMessage
     exit 1 # Exit with an error code
 }

@@ -25,7 +25,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   **UNC Provider:** Transfers archives to standard network shares.
     *   **Replicate Provider:** Copies an archive to multiple specified local or UNC paths, with individual retention settings per destination.
     *   **SFTP Provider (via Posh-SSH module):** Transfers archives to SFTP servers, supporting password and key-based authentication.
-    *   **S3-Compatible Object Storage Provider (via AWS.Tools.S3 module):** Transfers archives to any S3-compatible service, including Amazon S3, MinIO, Backblaze B2, and more.
+    *   **S3-Compatible Object Storage Provider (via AWS.Tools.S3 module):** Transfers archives to any S3-compatible service, including Amazon S3, MinIO, Backblaze B2, and more. See `UnlockVaultAndRun-PoShBackup.ps1` if you need automatic vault unlocking.
 *   **Configurable Retention Policies:**
     *   **Local Retention:** Manage archive versions in the `DestinationDir` using the `LocalRetentionCount` setting per job.
     *   **Remote Retention:** Each Backup Target provider can, if designed to do so, implement its own retention logic on the remote storage (e.g., keep last X versions, delete after Y days). This is configured within the target's definition in the `BackupTargets` section (e.g., via `RemoteRetentionSettings` or per-destination settings for providers like "Replicate").
