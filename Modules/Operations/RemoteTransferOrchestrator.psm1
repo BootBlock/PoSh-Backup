@@ -43,6 +43,8 @@ function Invoke-RemoteTargetTransferOrchestration {
         [hashtable]$EffectiveJobConfig,
         [Parameter(Mandatory = $true)] # Path to the first volume or the single archive file
         [string]$LocalFinalArchivePath,
+        [Parameter(Mandatory = $true)]
+        [string]$JobName,
         [Parameter(Mandatory = $true)] # Base archive name (e.g., MyJob [Date].7z or MyJob [Date].exe)
         [string]$ArchiveFileNameOnly, 
         [Parameter(Mandatory = $true)]
@@ -69,7 +71,6 @@ function Invoke-RemoteTargetTransferOrchestration {
 
     $reportData = $JobReportDataRef.Value
     $allTargetTransfersSuccessfulOverall = $true 
-    $jobName = $EffectiveJobConfig.JobName
     $localFilesToTransfer = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
     $localManifestFile = $null
 

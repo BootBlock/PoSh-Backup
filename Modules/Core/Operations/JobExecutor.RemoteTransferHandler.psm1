@@ -73,6 +73,7 @@ function Invoke-PoShBackupRemoteTransferExecution {
     if ($CurrentJobStatusForTransferCheck -ne "FAILURE" -and (-not $SkipRemoteTransfersDueToLocalVerificationFailure) -and $EffectiveJobConfig.ResolvedTargetInstances.Count -gt 0) {
         $remoteTransferResult = Invoke-RemoteTargetTransferOrchestration -EffectiveJobConfig $EffectiveJobConfig `
             -LocalFinalArchivePath $FinalLocalArchivePath `
+            -JobName $JobName `
             -ArchiveFileNameOnly $ArchiveFileNameOnly `
             -JobReportDataRef $JobReportDataRef `
             -IsSimulateMode:$IsSimulateMode `

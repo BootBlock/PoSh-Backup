@@ -25,6 +25,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
     *   **UNC Provider:** Transfers archives to standard network shares.
     *   **Replicate Provider:** Copies an archive to multiple specified local or UNC paths, with individual retention settings per destination.
     *   **SFTP Provider (via Posh-SSH module):** Transfers archives to SFTP servers, supporting password and key-based authentication.
+    *   **S3-Compatible Object Storage Provider (via AWS.Tools.S3 module):** Transfers archives to any S3-compatible service, including Amazon S3, MinIO, Backblaze B2, and more.
 *   **Configurable Retention Policies:**
     *   **Local Retention:** Manage archive versions in the `DestinationDir` using the `LocalRetentionCount` setting per job.
     *   **Remote Retention:** Each Backup Target provider can, if designed to do so, implement its own retention logic on the remote storage (e.g., keep last X versions, delete after Y days). This is configured within the target's definition in the `BackupTargets` section (e.g., via `RemoteRetentionSettings` or per-destination settings for providers like "Replicate").
@@ -75,7 +76,9 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 ### 1. Prerequisites
 *   **PowerShell:** Version 5.1 or higher.
 *   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
-*   **Posh-SSH Module:** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).*   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files, and potentially for some Post-Run System Actions (e.g., Shutdown, Restart, Hibernate).
+*   **Posh-SSH Module:** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).
+*   **AWS.Tools.S3 Module:** Required if you plan to use the S3-Compatible Backup Target feature. Install via PowerShell: `Install-Module AWS.Tools.S3 -Scope CurrentUser`.
+*   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files, and potentially for some Post-Run System Actions (e.g., Shutdown, Restart, Hibernate).
 *   **Hyper-V Module:** Required if you plan to use the Hyper-V Snapshot Orchestration feature. On Windows Client OS, this is installed via "Turn Windows features on or off". On Windows Server, it's installed as a server role.
 *   **(WebDAV):** The WebDAV target provider uses built-in PowerShell cmdlets (`Invoke-WebRequest`) and does not require an additional external module for its core functionality.
 *   **Network/Remote Access:** For using Backup Targets, appropriate permissions and connectivity to the remote locations (e.g., UNC shares) are necessary for the user account running PoSh-Backup. For the Update Checking feature, internet access is required to fetch the remote version manifest.
@@ -240,7 +243,27 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                                     # NOTE: WebDAV retention is currently a placeholder and not fully implemented in WebDAV.Target.psm1 v0.1.0.
                                     # Manual cleanup on the WebDAV server will be required.
                     }
-                }       # Add other targets, e.g., for FTP, S3, etc. as providers become available.
+                }
+
+                "MyLocalS3Server" = @{ # S3-Compatible Target Example (e.g., MinIO, AWS S3, Backblaze B2)
+                    Type = "S3" # Provider module 'Modules\Targets\S3.Target.psm1' will handle this
+                    TargetSpecificSettings = @{
+                        # The full endpoint URL. For AWS S3, leave this blank or use e.g., 's3.eu-west-2.amazonaws.com'.
+                        # For local MinIO testing, this would be 'http://127.0.0.1:9000'.
+                        ServiceUrl              = "http://127.0.0.1:9000"
+                        Region                  = "us-east-1" # Required by the SDK, can be any valid AWS region string. For MinIO, this can be any string.
+                        BucketName              = "my-backup-bucket"
+                        # The following two secrets store your Access Key and Secret Key respectively.
+                        AccessKeySecretName     = "MyS3AccessKey"
+                        SecretKeySecretName     = "MyS3SecretKey"
+                        # Optional: If $true, creates /JobName/ inside the bucket. Default is $false.
+                        CreateJobNameSubdirectory = $true
+                    }
+                    RemoteRetentionSettings = @{ # Optional: Retention on the S3 bucket.
+                        KeepCount = 10 # Keep the last 10 backup instances for any job using this target.
+                    }
+                }
+
             }
             ```
     *   **Notification Settings (Global):**

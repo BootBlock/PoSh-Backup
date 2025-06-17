@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.9.3: Added TestArchiveBeforeDeletion setting.
+# Version 1.9.4: Added S3 Target example.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -386,6 +386,23 @@
             #    # KeepDays  = 0  # e.g., Or keep archives for X days. 0 means not used. (Provider specific)
             # }
         }
+        "S3Server" = @{
+            Type = "S3"
+            TargetSpecificSettings = @{
+                # For AWS, this would be like 's3.eu-west-2.amazonaws.com'. For MinIO, it's your local URL.
+                ServiceUrl              = "http://127.0.0.1:9000"
+                Region                  = "us-east-1"       # Required by the SDK, but can be any string for MinIO
+                BucketName              = "posh-backup"     # Name this whatever your destination bucket is named
+                # The following two secrets store your Access Key and Secret Key respectively
+                AccessKeySecretName     = "MinioAccessKey"
+                SecretKeySecretName     = "MinioSecretKey"
+                # Optional: If $true, creates /JobName/ inside the bucket. Default is $false.
+                CreateJobNameSubdirectory = $false
+            }
+            RemoteRetentionSettings = @{
+                KeepCount = 5 # Keep the last 5 backup instances in this S3 bucket.
+            }
+        }
         "ExampleReplicatedStorage" = @{
             Type = "Replicate" # Provider module 'Modules\Targets\Replicate.Target.psm1' will handle this
             TargetSpecificSettings = @( # This MUST be an array of hashtables, each defining one destination
@@ -535,7 +552,7 @@
             DestinationDir            = "D:\Backups"                  # Specific directory for this job. If remote targets are specified, this acts as a LOCAL STAGING area.
             Enabled                   = $true                         # Set to $false to disable this job without deleting its configuration.
             PinOnCreation             = $false                        # Set to $true to automatically pin the archive created by this job, protecting it from retention.
-            #TargetNames              = @("ExampleUNCShare")          # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
+            TargetNames              = @("S3Server")          # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
                                                                       # If no remote targets, this is the FINAL BACKUP DESTINATION.
                                                                       # If empty or not present, this job is local-only to DestinationDir.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override. Only effective if TargetNames are specified.

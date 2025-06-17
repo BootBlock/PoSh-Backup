@@ -4,7 +4,7 @@
 #
 # This file defines the expected structure and constraints for the PoSh-Backup configuration.
 # It is loaded by Modules\PoShBackupValidator.psm1 for schema-based validation.
-# Version: (Implicit) Updated 12-Jun-2025 (Added TestArchiveBeforeDeletion switch)
+# Version: (Implicit) Updated 17-Jun-2025 (Added S3 to allowed BackupTargets)
 
 @{
     # Top-level global settings
@@ -143,7 +143,7 @@
                 Type = @{
                     Type          = 'string'
                     Required      = $true
-                    AllowedValues = @("UNC", "Replicate", "SFTP", "WebDAV") # Added WebDAV
+                    AllowedValues = @("UNC", "Replicate", "SFTP", "WebDAV", "S3") # Added S3
                 }
                 TargetSpecificSettings = @{
                     Type     = 'object' # This will be validated by the specific target provider's validation function

@@ -132,6 +132,64 @@ function Test-RequiredModulesInternal {
                 }
                 return $false # No active job triggered the condition.
             }
+        },
+        @{
+            ModuleName  = 'AWS.Tools.S3'
+            RequiredFor = 'S3-Compatible Target Provider'
+            InstallHint = 'Install-Module AWS.Tools.S3 -Scope CurrentUser'
+            Condition   = {
+                param($Config, $ActiveJobs)
+                # This module is only required if a job that is *actually going to run* uses an S3 target.
+                if ($Config.ContainsKey('BackupTargets') -and $Config.BackupTargets -is [hashtable]) {
+                    foreach ($jobName in $ActiveJobs) {
+                        $jobConf = $Config.BackupLocations[$jobName]
+                        if ($jobConf -and $jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array]) {
+                            foreach ($targetName in $jobConf.TargetNames) {
+                                if ($Config.BackupTargets.ContainsKey($targetName)) {
+                                    $targetDef = $Config.BackupTargets[$targetName]
+                                    if ($targetDef -is [hashtable] -and $targetDef.Type -eq 'S3') {
+                                        return $true # Condition met, check is required.
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return $false # Condition not met, skip check.
+            }
+        },
+        @{
+            ModuleName  = 'SecretManagement Vault' # This is a logical name, not a real module.
+            RequiredFor = 'Accessing secrets for passwords or credentials'
+            InstallHint = "Run 'Register-SecretVault' to configure a vault. See 'Get-Help Register-SecretVault'."
+            Condition   = {
+                # This re-uses the exact same condition as the 'Microsoft.PowerShell.SecretManagement' module check.
+                param($Config, $ActiveJobs)
+                if ($null -eq $ActiveJobs -or $ActiveJobs.Count -eq 0) { return $false }
+                foreach ($jobName in $ActiveJobs) {
+                    if (-not $Config.BackupLocations.ContainsKey($jobName)) { continue }
+                    $jobConf = $Config.BackupLocations[$jobName]
+                    if ($jobConf.ArchivePasswordMethod -eq 'SecretManagement') { return $true }
+                    if ($jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array]) {
+                        foreach ($targetName in $jobConf.TargetNames) {
+                            if ($Config.BackupTargets.ContainsKey($targetName)) {
+                                $targetDef = $Config.BackupTargets[$targetName]
+                                if ($targetDef -is [hashtable] -and $targetDef.ContainsKey('CredentialsSecretName') -and (-not [string]::IsNullOrWhiteSpace($targetDef.CredentialsSecretName))) { return $true }
+                            }
+                        }
+                    }
+                    $notificationSettings = $jobConf.NotificationSettings
+                    if ($notificationSettings -is [hashtable] -and $notificationSettings.Enabled -eq $true -and -not [string]::IsNullOrWhiteSpace($notificationSettings.ProfileName)) {
+                        $profileName = $notificationSettings.ProfileName
+                        if ($Config.NotificationProfiles.ContainsKey($profileName)) {
+                            $notificationProfile = $Config.NotificationProfiles[$profileName]
+                            if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings.ContainsKey('CredentialSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.CredentialSecretName))) { return $true }
+                            if ($notificationProfile -is [hashtable] -and $notificationProfile.ProviderSettings.ContainsKey('WebhookUrlSecretName') -and (-not [string]::IsNullOrWhiteSpace($notificationProfile.ProviderSettings.WebhookUrlSecretName))) { return $true }
+                        }
+                    }
+                }
+                return $false
+            }
         }
     )
 
@@ -141,7 +199,14 @@ function Test-RequiredModulesInternal {
         if (& $moduleInfo.Condition -Config $Configuration -ActiveJobs $JobsToRun) {
             $moduleName = $moduleInfo.ModuleName
             & $LocalWriteLog -Message "  - Condition met for '$($moduleInfo.RequiredFor)'. Checking for module: '$moduleName'." -Level "DEBUG"
-            if (-not (Get-Module -Name $moduleName -ListAvailable)) {
+
+            if ($moduleName -eq 'SecretManagement Vault') {
+                if (-not (Get-SecretVault -ErrorAction SilentlyContinue)) {
+                    $errorMessage = "Configuration requires access to secrets, but no SecretManagement vaults are registered. Please configure a vault to proceed. Hint: $($moduleInfo.InstallHint)"
+                    $missingModules.Add($errorMessage)
+                }
+            }
+            elseif (-not (Get-Module -Name $moduleName -ListAvailable)) {
                 $errorMessage = "Required PowerShell module '$moduleName' is not installed. This module is necessary for the '$($moduleInfo.RequiredFor)' functionality. Please install it by running: $($moduleInfo.InstallHint)"
                 $missingModules.Add($errorMessage)
             }

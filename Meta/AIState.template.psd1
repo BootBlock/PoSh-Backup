@@ -343,7 +343,7 @@
     "    - **Bug Fix (Off-by-One):** Corrected the retention count logic in `Modules\\Managers\\RetentionManager.psm1`, which was previously keeping `N-1` archives instead of the configured `N`. It now correctly skips the specified number of archives.",
     "    - `Modules\\Managers\\RetentionManager.psm1`: Facade updated to accept the full `$EffectiveJobConfig` to pass settings down to the deleter.",
     "    - `Modules\\Core\\Operations\\JobExecutor.LocalRetentionHandler.psm1`: Updated to pass the full effective configuration to the retention manager.",
-    "--- Feature: CLI Auto-Completion (Completed in Current Session Segment) ---",
+    "--- Feature: CLI Auto-Completion (Completed in Previous Current Session Segment) ---",
     "    - **Goal:** Add tab-completion for job and set names to improve usability.",
     "    - **New Module:** Created `Modules\\Utilities\\ArgumentCompleters.psm1` to house the completion logic, keeping the main script clean.",
     "    - `PoSh-Backup.ps1` (v1.28.0 -> v1.29.0):",
@@ -351,6 +351,14 @@
     "        - Decorates the `-BackupLocationName`, `-RunSet`, `-SkipJob`, and `-GetEffectiveConfig` parameters with the `[ArgumentCompleter({ ... })]` attribute.",
     "    - **Bug Fix:** Corrected the syntax for the `ArgumentCompleter` from `[scriptblock]::Create(...)` to the required `{ ... }` script block literal to resolve parsing errors.",
     "    - **Status:** Tab-completion for job and set names is now active.",
+    "--- Feature: S3-Compatible Backup Target (In Progress) ---",
+    "    - **Goal:** Add support for backing up to S3-compatible object storage.",
+    "    - **New Module:** Created `Modules\\Targets\\S3.Target.psm1` with a validation function and initial transfer logic.",
+    "    - **Configuration:** Added an S3 target example to `Config\\Default.psd1` and updated the schema in `Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1`.",
+    "    - **Bug Fix (Secret Management):** Addressed ungraceful errors when no vault is registered. Updated `Modules\\Managers\\CoreSetupManager.psm1` to proactively check for a registered SecretManagement vault if any job in the current run requires it. This needs testing to see if it's actually fixed.",
+    "    - **Possible Remaining Bug Fix (Data Flow):** Corrected a bug where the Job Name was empty when passed to target providers. Modified `Modules\\Operations\\RemoteTransferOrchestrator.psm1` to accept `-JobName` as a direct parameter and updated the call in `JobExecutor.RemoteTransferHandler.psm1`. This needs testing to see if it's actually fixed.",
+    "    - **Remaining Bug Fix (S3 Target):** A `CommandNotFoundException` within `S3.Target.psm1` in regards to a missing `Format-BytesInternal-S3` function.",
+    "    - **Status:** The provider is now somewhat implemented and integrated. The remaining major bugs need to be addressed and tested.",
     "--- PROJECT STATUS ---",
     "Overall: PoSh-Backup.ps1 is highly modular, with utility modes now broken into sub-modules under `Modules\ScriptModes\`. Core backup/restore functionality is stable. Key features include archive listing/extraction, comprehensive backup pinning, a context-aware dependency checker, robust parameter set handling, and Hyper-V snapshot orchestration. PSSA warnings: 2 (known password-related warnings)."
   )
