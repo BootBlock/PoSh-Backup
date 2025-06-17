@@ -30,19 +30,19 @@ function Test-AdminPrivilege {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
 
-    & $LocalWriteLog -Message "[INFO] Checking for Administrator privileges..." -Level "DEBUG"
     $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
     $isAdmin = $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($isAdmin) {
-        & $LocalWriteLog -Message "  - Script is running with Administrator privileges." -Level "SUCCESS"
+        & $LocalWriteLog -Message "  - Admin Check: Script is running with Administrator privileges." -Level "DEBUG"
     }
     else {
-        & $LocalWriteLog -Message "  - Script is NOT running with Administrator privileges. VSS functionality will be unavailable." -Level "WARNING"
+        & $LocalWriteLog -Message "  - Admin Check: Script is NOT running with Administrator privileges. VSS functionality will be unavailable." -Level "DEBUG"
     }
     return $isAdmin
 }
@@ -100,7 +100,8 @@ function Test-DestinationFreeSpace {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }

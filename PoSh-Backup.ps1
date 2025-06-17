@@ -44,7 +44,7 @@
     - 7-Zip CPU Core Affinity: Optionally restrict 7-Zip to specific CPU cores, with validation
       and CLI override.
     - Verify Local Archive Before Transfer: Optionally test the local archive's integrity
-      (and checksum if enabled for the job) *before* attempting any remote transfers. If verification fails,
+      (and checksum if enabled for the job) *before* any remote transfers are attempted. If verification fails,
       remote transfers for that job are skipped.
     - Log File Retention: Configurable retention count for generated log files (global, per-job,
       per-set, or CLI override) to prevent indefinite growth of the Logs directory.
@@ -235,8 +235,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.29.0 # Added CLI tab-completion for job and set names.
-    Date:           15-Jun-2025
+    Version:        1.29.1 # Pass CheckForUpdate switch to CoreSetupManager.
+    Date:           17-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -514,6 +514,7 @@ try {
                                                 -RunVerificationJobs:$RunVerificationJobs.IsPresent `
                                                 -SkipUserConfigCreation:$SkipUserConfigCreation.IsPresent `
                                                 -Version:$Version.IsPresent `
+                                                -CheckForUpdate:$CheckForUpdate.IsPresent `
                                                 -PSCmdlet $PSCmdlet `
                                                 -ForceRunInMaintenanceMode:$ForceRunInMaintenanceMode.IsPresent `
                                                 -Maintenance:$Maintenance

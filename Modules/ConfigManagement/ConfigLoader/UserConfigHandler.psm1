@@ -172,7 +172,7 @@ function Invoke-UserConfigCreationPromptInternal {
                         & $LocalWriteLogInternal -Message "          Please create '$DefaultUserConfigFileNameInternal' manually if desired. Script will continue with base configuration." -Level "WARNING"
                     }
                 } else {
-                    & $LocalWriteLogInternal -Message "[INFO] ConfigLoader/UserConfigHandler: User chose not to create '$DefaultUserConfigFileNameInternal'. '$DefaultBaseConfigFileNameInternal' will be used for this run." -Level "INFO"
+                    & $LocalWriteLogInternal -Message "[INFO] ConfigLoader/UserConfigHandler: User chose not to create a user config. Using defaults from '$DefaultBaseConfigFileNameInternal'." -Level "INFO"
                 }
             } else {
                  if ($SkipUserConfigCreationSwitchInternal) {

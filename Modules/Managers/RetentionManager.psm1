@@ -76,7 +76,7 @@ function Invoke-BackupRetentionPolicy {
         }
     }
 
-    & $LocalWriteLog -Message "`n[INFO] RetentionManager (Facade): Applying Backup Retention Policy for archives matching base name '$ArchiveBaseFileName' and primary extension '$ArchiveExtension'..." -Level "INFO"
+    & $LocalWriteLog -Message "`n[DEBUG] RetentionManager (Facade): Applying Backup Retention Policy for archives matching base name '$ArchiveBaseFileName' and primary extension '$ArchiveExtension'..." -Level "DEBUG"
     & $LocalWriteLog -Message "   - Destination Directory: $DestinationDirectory"
     & $LocalWriteLog -Message "   - Configured Total Retention Count (target instances after current backup completes): $RetentionCountToKeep"
     & $LocalWriteLog -Message "   - Configured Retention Deletion Confirmation: $(if($RetentionConfirmDeleteFromConfig){'Enabled (Item-Level Cmdlet will respect $ConfirmPreference)'}else{'Disabled (Item-Level Cmdlet will use -Confirm:$false)'})"
