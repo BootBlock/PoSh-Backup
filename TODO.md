@@ -259,13 +259,13 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Acceptance Criteria:** Archives successfully transferred to/retained on FTP/FTPS server.
 
 23. **Feature: Backup Target Provider - Cloud Storage (Generic Placeholder)**
-    *   **Goal:** Add support for major cloud storage providers (e.g., Azure Blob, AWS S3, Google Cloud Storage).
+    *   **Goal:** Add support for major cloud storage providers (e.g., Azure Blob, Google Cloud Storage; AWS S3 is already implemented).
     *   **Description:** Enables direct backup to scalable cloud object storage.
     *   **Scope & Impact:** **Large.** Likely one new provider module per cloud service.
-        *   E.g., `Modules\Targets\AzureBlob.Target.psm1`, `Modules\Targets\S3.Target.psm1`.
+        *   E.g., `Modules\Targets\AzureBlob.Target.psm1`.
         *   `Config\Default.psd1`: New target types with service-specific settings (account/bucket names, regions, authentication keys/roles via SecretManagement).
         *   `Modules\PoShBackupValidator.psm1`: Schema validation for each.
-    *   **Technical Considerations:** Use official PowerShell SDKs/modules for each cloud provider (e.g., `Az.Storage`, `AWS.Tools.S3`). Handle authentication, multipart uploads for large files, object lifecycle/retention.
+    *   **Technical Considerations:** Use official PowerShell SDKs/modules for each cloud provider (e.g., `Az.Storage`). Handle authentication, multipart uploads for large files, object lifecycle/retention.
     *   **Acceptance Criteria:** Archives successfully transferred to/retained on configured cloud storage.
 
 **IV. Utility, Management & Usability Features**
