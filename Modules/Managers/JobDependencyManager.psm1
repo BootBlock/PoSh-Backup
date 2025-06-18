@@ -8,9 +8,9 @@
     detects circular dependencies, and validates that all specified dependencies exist.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        0.3.4 # Renamed Test-JobDependencies to Test-PoShBackupJobDependencyGraph.
+    Version:        0.4.0 # Added Get-PoShBackupJobDependencyMap for visualization.
     DateCreated:    28-May-2025
-    LastModified:   28-May-2025
+    LastModified:   18-Jun-2025
     Purpose:        To handle backup job dependency logic and scheduling.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -56,13 +56,33 @@ function Test-CycleInJobRecursiveInternal ($currentJob, $currentPathMessage, $de
 
 #region --- Exported Functions ---
 
+function Get-PoShBackupJobDependencyMap {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$AllBackupLocations
+    )
+    $dependencyMap = @{}
+    if ($null -eq $AllBackupLocations) { return $dependencyMap }
+
+    foreach ($jobName in ($AllBackupLocations.Keys | Sort-Object)) {
+        $jobConf = $AllBackupLocations[$jobName]
+        $dependencies = @()
+        if ($jobConf.ContainsKey('DependsOnJobs') -and $null -ne $jobConf.DependsOnJobs -and $jobConf.DependsOnJobs -is [array]) {
+            $dependencies = @($jobConf.DependsOnJobs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() })
+        }
+        $dependencyMap[$jobName] = $dependencies
+    }
+    return $dependencyMap
+}
+
 function Test-PoShBackupJobDependencyGraph {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [hashtable]$AllBackupLocations, 
+        [hashtable]$AllBackupLocations,
         [Parameter(Mandatory = $true)]
-        [ref]$ValidationMessagesListRef, 
+        [ref]$ValidationMessagesListRef,
         [Parameter(Mandatory = $false)]
         [scriptblock]$Logger # PSScriptAnalyzer Suppress PSUseDeclaredVarsMoreThanAssignments - Logger is used via $LocalWriteLog helper.
     )
@@ -80,7 +100,7 @@ function Test-PoShBackupJobDependencyGraph {
     }
 
     $jobNamesArray = @($AllBackupLocations.Keys) # Use PowerShell array
-    $dependencyListForValidation = @{} 
+    $dependencyListForValidation = @{}
 
     foreach ($jobName in $jobNamesArray) {
         $jobConf = $AllBackupLocations[$jobName]
@@ -90,7 +110,7 @@ function Test-PoShBackupJobDependencyGraph {
             foreach ($depJobNameRaw in $jobConf.DependsOnJobs) {
                 if (-not ([string]::IsNullOrWhiteSpace($depJobNameRaw))) {
                     $depJobName = $depJobNameRaw.Trim()
-                    $dependencyListForValidation[$jobName] += $depJobName 
+                    $dependencyListForValidation[$jobName] += $depJobName
 
                     if ($jobNamesArray -notcontains $depJobName) {
                         # Check against PowerShell array
@@ -139,7 +159,7 @@ function Get-JobExecutionOrder {
         [Parameter(Mandatory = $true)]
         [System.Collections.Generic.List[string]]$InitialJobsToConsider, # Keep input type for compatibility
         [Parameter(Mandatory = $true)]
-        [hashtable]$AllBackupLocations, 
+        [hashtable]$AllBackupLocations,
         [Parameter(Mandatory = $false)]
         [scriptblock]$Logger # PSScriptAnalyzer Suppress PSUseDeclaredVarsMoreThanAssignments - Logger is used via $LocalWriteLog helper.
     )
@@ -153,14 +173,14 @@ function Get-JobExecutionOrder {
 
     $orderedJobsArray = @() # Use PowerShell array
     $processingError = $null
-    
+
     if ($null -eq $AllBackupLocations -or $AllBackupLocations.Count -eq 0) {
         & $LocalWriteLog -Message "JobDependencyManager/Build-JobExecutionOrder: No backup locations defined. Returning empty order." -Level "DEBUG"
         return @{ OrderedJobs = @(); ErrorMessage = "No backup locations defined in configuration."; Success = $false }
     }
     if ($InitialJobsToConsider.Count -eq 0) {
         & $LocalWriteLog -Message "JobDependencyManager/Build-JobExecutionOrder: Initial list of jobs to consider is empty. Returning empty order." -Level "DEBUG"
-        return @{ OrderedJobs = @(); ErrorMessage = $null; Success = $true } 
+        return @{ OrderedJobs = @(); ErrorMessage = $null; Success = $true }
     }
 
     $relevantJobsSet = @{} # Use Hashtable as a set for keys
@@ -180,7 +200,7 @@ function Get-JobExecutionOrder {
 
             if (-not $relevantJobsSet.ContainsKey($jobToConsider)) {
                 $relevantJobsSet[$jobToConsider] = $true
-                $queueForDependencyExpansion.Enqueue($jobToConsider) 
+                $queueForDependencyExpansion.Enqueue($jobToConsider)
             }
         }
         else {
@@ -204,31 +224,31 @@ function Get-JobExecutionOrder {
                     else {
                         $processingError = "Job '$currentJob' depends on non-existent job '$dependencyName'."
                         & $LocalWriteLog -Message "JobDependencyManager/Build-JobExecutionOrder: $processingError" -Level "ERROR"
-                        return @{ OrderedJobs = @(); ErrorMessage = $processingError; Success = $false } 
+                        return @{ OrderedJobs = @(); ErrorMessage = $processingError; Success = $false }
                     }
                 }
             }
         }
     }
-    
+
     $relevantJobNamesArray = @($relevantJobsSet.Keys)
     & $LocalWriteLog -Message "JobDependencyManager/Build-JobExecutionOrder: Relevant jobs for ordering: $($relevantJobNamesArray -join ', ')" -Level "DEBUG"
 
-    $adj = @{} 
-    $inDegree = @{} 
+    $adj = @{}
+    $inDegree = @{}
 
-    foreach ($jobName in $relevantJobNamesArray) { 
+    foreach ($jobName in $relevantJobNamesArray) {
         $adj[$jobName] = @()
         $inDegree[$jobName] = 0
     }
 
-    foreach ($jobName_item_degree in $relevantJobNamesArray) { 
+    foreach ($jobName_item_degree in $relevantJobNamesArray) {
         $jobConf = $AllBackupLocations[$jobName_item_degree]
         if ($jobConf.ContainsKey('DependsOnJobs') -and $null -ne $jobConf.DependsOnJobs -and $jobConf.DependsOnJobs -is [array]) {
             foreach ($prerequisiteNameRaw in $jobConf.DependsOnJobs) {
                 if (-not [string]::IsNullOrWhiteSpace($prerequisiteNameRaw)) {
                     $prerequisiteName = $prerequisiteNameRaw.Trim()
-                    if ($relevantJobsSet.ContainsKey($prerequisiteName)) { 
+                    if ($relevantJobsSet.ContainsKey($prerequisiteName)) {
                         $adj[$prerequisiteName] += $jobName_item_degree
                         $inDegree[$jobName_item_degree]++
                     }
@@ -238,7 +258,7 @@ function Get-JobExecutionOrder {
     }
 
     $queue = New-Object System.Collections.Queue
-    foreach ($jobName_item_queue in $relevantJobNamesArray) { 
+    foreach ($jobName_item_queue in $relevantJobNamesArray) {
         if ($inDegree[$jobName_item_queue] -eq 0) {
             $queue.Enqueue($jobName_item_queue)
         }
@@ -250,7 +270,7 @@ function Get-JobExecutionOrder {
 
         if ($adj.ContainsKey($u)) {
             foreach ($v in $adj[$u]) {
-                if ($relevantJobsSet.ContainsKey($v)) { 
+                if ($relevantJobsSet.ContainsKey($v)) {
                     $inDegree[$v]--
                     if ($inDegree[$v] -eq 0) {
                         $queue.Enqueue($v)
@@ -267,9 +287,9 @@ function Get-JobExecutionOrder {
             $processingError += " Potential jobs involved in cycle: $($jobsInCycle -join ', ')."
         }
         & $LocalWriteLog -Message "JobDependencyManager/Build-JobExecutionOrder: $processingError" -Level "ERROR"
-        return @{ OrderedJobs = @(); ErrorMessage = $processingError; Success = $false } 
+        return @{ OrderedJobs = @(); ErrorMessage = $processingError; Success = $false }
     }
-    
+
     # Convert back to List[string] for the return type if needed by the caller, or change caller to expect array
     $finalOrderedJobsList = New-Object System.Collections.Generic.List[string]
     $orderedJobsArray | ForEach-Object { $finalOrderedJobsList.Add($_) }
@@ -282,11 +302,11 @@ function Get-JobExecutionOrder {
 
     return @{
         OrderedJobs  = $finalOrderedJobsList # Returning List[string] as originally intended for output
-        ErrorMessage = $null 
+        ErrorMessage = $null
         Success      = $true
     }
 }
 
 #endregion
 
-Export-ModuleMember -Function Test-PoShBackupJobDependencyGraph, Get-JobExecutionOrder
+Export-ModuleMember -Function Test-PoShBackupJobDependencyGraph, Get-JobExecutionOrder, Get-PoShBackupJobDependencyMap

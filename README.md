@@ -322,7 +322,6 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             *   `"WarnAndContinue"`: The script will log a warning for the missing path but will proceed to back up the other valid paths in the job.
             *   `"SkipJob"`: The script will log a warning and then gracefully skip the entire job, reporting a "SKIPPED" status. If the job is part of a set, the set will continue with the next job (unless `OnErrorInJob` is set to `StopSet`).
         *   Key settings for local and remote behaviour:
-        *   Key settings for local and remote behaviour:
             *   `DestinationDir`: Specifies the directory where this job's archive is created. If remote targets are used, this acts as a **local staging directory**. If no remote targets are used, this is the **final backup destination**. Overrides `DefaultDestinationDir`.
             *   `LocalRetentionCount`: (Renamed from `RetentionCount`) Defines how many archive versions to keep in the `DestinationDir`.
             *   `LogRetentionCount`: Defines how many log files to keep for this specific job. Overrides `DefaultLogRetentionCount`. A value of `0` means infinite retention for this job's logs.
@@ -641,7 +640,6 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     .\PoSh-Backup.ps1 -BackupLocationName "MyVeryLargeBackup" -SplitVolumeSizeCLI "10g"
     ```
     (This runs "MyVeryLargeBackup" and splits the archive into 10GB volumes, overriding any `SplitVolumeSize` or `CreateSFX` settings in the configuration for this job.)
-    ```
 
 *   **Run a job and pin the resulting archive:**
     ```powershell

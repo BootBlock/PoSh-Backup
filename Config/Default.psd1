@@ -565,7 +565,7 @@
 
             DependsOnJobs             = @()                           # Array of job names this job depends on. E.g., @("DatabaseBackupJob")
 
-            # --- NEW: OnSourcePathNotFound ---
+            # --- OnSourcePathNotFound ---
             # What to do if one of the paths in the 'Path' array is not found.
             # "FailJob" (Default): The entire backup job will fail.
             # "WarnAndContinue": A warning is logged, the missing path is skipped, and the job continues with any valid paths.
@@ -652,8 +652,8 @@
                                                                       # If CreateSFX is $true, this will be overridden to ".exe" for the final file.
             CreateSFX                  = $false                       # Example, not creating SFX here.
             SFXModule                  = "Console"                    # Default if CreateSFX is false, but good to show.
-            SplitVolumeSize            = "700m"                       # NEW EXAMPLE: Split into 700MB volumes.
-            GenerateSplitArchiveManifest = $true                     # NEW EXAMPLE: Generate manifest for these split volumes.
+            SplitVolumeSize            = "700m"                       # Split into 700MB volumes.
+            GenerateSplitArchiveManifest = $true                      # Generate manifest for these split volumes.
             ArchiveDateFormat          = "dd-MM-yyyy"                 # Custom date format for this job's archives. Overrides DefaultArchiveDateFormat.
             MinimumRequiredFreeSpaceGB = 2                            # Custom free space check for local staging. Overrides global setting.
             HtmlReportTheme            = "RetroTerminal"              # Use a specific HTML report theme for this job.
@@ -673,7 +673,7 @@
             Schedule = @{ Enabled = $false } # Placeholder for this job
         }
         "HyperV_VM_Backup_Example" = @{
-            # --- NEW: Snapshot Orchestration Example ---
+            # --- Snapshot Orchestration Example ---
             # When using a SnapshotProvider with 'SourceIsVMName = $true', 'Path' becomes an array where:
             # - Element 0 is the Name of the Virtual Machine to be snapshotted.
             # - Subsequent elements (optional) are the specific paths *inside* the VM to back up.
@@ -733,7 +733,7 @@
             DeleteLocalArchiveAfterSuccessfulTransfer = $true
             RetentionConfirmDelete  = $false
 
-            DependsOnJobs           = @("ComprehensiveExample_Database") # NEW EXAMPLE
+            DependsOnJobs           = @("ComprehensiveExample_Database")
 
             TargetNames             = @(
                                         "ExampleUNCShare"

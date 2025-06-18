@@ -11,9 +11,9 @@
     - -ExportDiagnosticPackage
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Added missing 7ZipManager import for Find-SevenZipExecutable.
+    Version:        1.1.1 # Improved -TestConfig output for array-based target settings.
     DateCreated:    15-Jun-2025
-    LastModified:   15-Jun-2025
+    LastModified:   18-Jun-2025
     Purpose:        To handle diagnostic script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -25,6 +25,8 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Core\PostRunActionOrchestrator.psm1") -Force -ErrorAction Stop
+    # Import JobDependencyManager to ensure its functions are available for the dependency graph
+    Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Warning "ScriptModes\Diagnostics.psm1: Could not import a manager module. Specific modes may be unavailable. Error: $($_.Exception.Message)"
@@ -74,6 +76,78 @@ function Compare-PoShBackupConfigsInternal {
     }
 
     return $differences
+}
+#endregion
+
+#region --- Private Helper: Format Dependency Graph ---
+function Format-DependencyGraphInternal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$DependencyMap
+    )
+
+    $outputLines = [System.Collections.Generic.List[string]]::new()
+    if ($DependencyMap.Count -eq 0) {
+        $outputLines.Add("    No jobs defined.")
+        return $outputLines
+    }
+
+    $allJobs = $DependencyMap.Keys
+    $allDependencies = @($DependencyMap.Values | ForEach-Object { $_ }) | Select-Object -Unique
+
+    if ($allDependencies.Count -eq 0) {
+        $outputLines.Add("    No job dependencies are defined in the configuration.")
+        return $outputLines
+    }
+
+    $topLevelJobs = $allJobs | Where-Object { $_ -notin $allDependencies } | Sort-Object
+    $processedJobs = @{}
+
+    # Recursive helper function
+    function Write-DependencyNode {
+        param(
+            [string]$JobName,
+            [int]$IndentLevel,
+            [hashtable]$Map,
+            [hashtable]$Processed,
+            [ref]$OutputListRef
+        )
+
+        $indent = "    " + ("  " * $IndentLevel)
+        $arrow = if ($IndentLevel -gt 0) { "└─ " } else { "" }
+        $line = "$indent$arrow$JobName"
+
+        if ($Processed.ContainsKey($JobName)) {
+            $OutputListRef.Value.Add("$line (see above)")
+            return
+        }
+
+        $OutputListRef.Value.Add($line)
+        $Processed[$JobName] = $true
+
+        if ($Map.ContainsKey($JobName)) {
+            $dependencies = $Map[$JobName]
+            foreach ($dep in $dependencies) {
+                Write-DependencyNode -JobName $dep -IndentLevel ($IndentLevel + 1) -Map $Map -Processed $Processed -OutputListRef $OutputListRef
+            }
+        }
+    }
+
+    foreach ($job in $topLevelJobs) {
+        Write-DependencyNode -JobName $job -IndentLevel 0 -Map $DependencyMap -Processed $processedJobs -OutputListRef ([ref]$outputLines)
+    }
+
+    $remainingJobs = $allJobs | Where-Object { -not $processedJobs.ContainsKey($_) } | Sort-Object
+    if ($remainingJobs.Count -gt 0) {
+        $outputLines.Add("")
+        $outputLines.Add("    (Jobs involved in cycles or that are only dependencies)")
+        foreach ($job in $remainingJobs) {
+            Write-DependencyNode -JobName $job -IndentLevel 0 -Map $DependencyMap -Processed $processedJobs -OutputListRef ([ref]$outputLines)
+        }
+    }
+    
+    return $outputLines
 }
 #endregion
 
@@ -390,8 +464,30 @@ function Invoke-PoShBackupDiagnosticMode {
                 $targetConf = $Configuration.BackupTargets[$targetNameKey]
                 & $LocalWriteLog -Message ("    Target: {0} (Type: {1})" -f $targetNameKey, $targetConf.Type) -Level "CONFIG_TEST"
                 if ($targetConf.TargetSpecificSettings) {
-                    $targetConf.TargetSpecificSettings.GetEnumerator() | ForEach-Object {
-                        & $LocalWriteLog -Message ("      -> {0} : {1}" -f $_.Name, $_.Value) -Level "CONFIG_TEST"
+                    # Check if the settings object is an array (for providers like 'Replicate')
+                    if ($targetConf.TargetSpecificSettings -is [array]) {
+                        & $LocalWriteLog -Message ("      -> TargetSpecificSettings (List of Destinations):") -Level "CONFIG_TEST"
+                        $destinationIndex = 0
+                        foreach ($destinationItem in $targetConf.TargetSpecificSettings) {
+                             $destinationIndex++
+                             & $LocalWriteLog -Message ("         [Destination $destinationIndex]") -Level "CONFIG_TEST"
+                             if ($destinationItem -is [hashtable]) {
+                                 # Iterate through the settings of this specific destination
+                                 $destinationItem.GetEnumerator() | ForEach-Object {
+                                     # Handle nested hashtables (like RetentionSettings) for cleaner display
+                                     $destSettingValue = if ($_.Value -is [hashtable]) { '(...)' } else { $_.Value }
+                                     & $LocalWriteLog -Message ("           - $($_.Name.PadRight(25)) = $destSettingValue") -Level "CONFIG_TEST"
+                                 }
+                             } else {
+                                  & $LocalWriteLog -Message ("           - $destinationItem") -Level "CONFIG_TEST"
+                             }
+                        }
+                    }
+                    # Handle standard hashtable-based settings (for providers like UNC, SFTP, WebDAV, S3)
+                    elseif ($targetConf.TargetSpecificSettings -is [hashtable]) {
+                        $targetConf.TargetSpecificSettings.GetEnumerator() | ForEach-Object {
+                            & $LocalWriteLog -Message ("      -> $($_.Name.PadRight(25)) : $($_.Value)") -Level "CONFIG_TEST"
+                        }
                     }
                 }
             }
@@ -421,6 +517,23 @@ function Invoke-PoShBackupDiagnosticMode {
                 $onErrorDisplaySet = if ($setConf.ContainsKey('OnErrorInJob')) { $setConf.OnErrorInJob } else { 'StopSet' }; & $LocalWriteLog -Message ("      On Error     : {0}" -f $onErrorDisplaySet) -Level "CONFIG_TEST"
             }
         } else { & $LocalWriteLog -Message "`n  --- Defined Backup Sets ---`n    No Backup Sets defined." -Level "CONFIG_TEST" }
+
+        # --- NEW DEPENDENCY GRAPH SECTION ---
+        & $LocalWriteLog -Message "`n  --- Job Dependency Graph ---" -Level "CONFIG_TEST"
+        try {
+            if (Get-Command Get-PoShBackupJobDependencyMap -ErrorAction SilentlyContinue) {
+                $dependencyMapData = Get-PoShBackupJobDependencyMap -AllBackupLocations $Configuration.BackupLocations
+                $graphLines = Format-DependencyGraphInternal -DependencyMap $dependencyMapData
+                foreach ($line in $graphLines) {
+                    & $LocalWriteLog -Message $line -Level "CONFIG_TEST"
+                }
+            } else {
+                 & $LocalWriteLog -Message "    (Could not generate graph: Get-PoShBackupJobDependencyMap function not found.)" -Level "CONFIG_TEST"
+            }
+        } catch {
+            & $LocalWriteLog -Message "    (An error occurred while generating the dependency graph: $($_.Exception.Message))" -Level "CONFIG_TEST"
+        }
+        # --- END NEW SECTION ---
 
         if (Get-Command Invoke-PoShBackupPostRunActionHandler -ErrorAction SilentlyContinue) {
             $postRunResolution = Invoke-PoShBackupPostRunActionHandler -OverallStatus "SIMULATED_COMPLETE" `
