@@ -4,13 +4,14 @@
     Manages the initial setup of global variables and console display for PoSh-Backup.
 .DESCRIPTION
     This module provides a function to initialise global settings such as colour
-    palettes, status maps, default logging variables, and to display the initial
-    script banner. This centralises the startup configuration and presentation logic.
+    palettes, status maps, default logging variables, and standardised exit codes.
+    It also displays the initial script banner. This centralises the startup
+    configuration and presentation logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Added centralised Exit Code map.
     DateCreated:    01-Jun-2025
-    LastModified:   01-Jun-2025
+    LastModified:   18-Jun-2025
     Purpose:        To centralise initial script setup and banner display.
     Prerequisites:  PowerShell 5.1+.
                     Requires Modules\Utilities\ConsoleDisplayUtils.psm1 to be available.
@@ -62,6 +63,23 @@ function Invoke-PoShBackupInitialSetup {
         "HEADING"           = $Global:ColourHeading
         "NONE"              = $Host.UI.RawUI.ForegroundColor
         "DEFAULT"           = $Global:ColourInfo
+    }
+
+    # --- Define Global Standardised Exit Codes ---
+    $Global:PoShBackup_ExitCodes = @{
+        # --- Success Codes (0-9) ---
+        Success                   = 0                       # Job/Set completed successfully with no warnings.
+        SuccessWithWarnings       = 1                       # Job/Set completed, but generated one or more warnings (e.g., skipped files).
+
+        # --- Failure Codes (10-19) ---
+        OperationalFailure        = 2                       # A general failure during the main backup operation (e.g., 7-Zip error, VSS failure).
+        ConfigurationError        = 10                      # Script halted due to an invalid or missing configuration.
+        DependencyError           = 11                      # Script halted because a required module (e.g., Posh-SSH) or dependency (e.g., 7z.exe) was not found.
+        UserCancellation          = 12                      # Script was halted by the user (e.g., Ctrl+C, cancelling a prompt).
+        UpdateCheckFailure        = 13                      # The -CheckForUpdate process failed.
+        
+        # --- Critical Script Error Codes (20+) ---
+        CriticalError             = 20                      # An unexpected or unhandled exception occurred in the script's core logic.
     }
 
     # --- Initialise Global Logging Variables ---

@@ -61,13 +61,14 @@
     "   - **Pester Testing:** Found two successful patterns for testing module functions: **A)** Direct `Import-Module` with careful `$script:` scoping for data and function references. **B)** Copying logic into the `.Tests.ps1` file, dot-sourcing it, and then mocking its dependencies (like `Write-LogMessage`). Mocking `Write-LogMessage` is done via a dummy function that gets replaced by `Mock`. This context is critical for future test development.",
     "   - **Hyper-V Snapshots:** This was a complex implementation. **A critical finding was the need to use a `$Global:` variable (`$Global:PoShBackup_SnapshotManager_ActiveSessions`) to track the snapshot session across different module scopes.** A module-scoped `$Script:` variable was insufficient because the cleanup function was called from a different scope than the creation function. This pattern is essential if adding other stateful providers.",
     "   - **Conditional Dependency Checker:** The dependency check in `CoreSetupManager.psm1` was refactored to be context-aware. It runs *after* jobs are resolved and only checks for modules required by the jobs *actually being run*. This prevents errors for users who have not installed optional modules (like `Posh-SSH`) for features they are not using.",
+    "Standardised Exit Codes: Centralised all script exit codes into a global map in `InitialisationManager.psm1` for consistency and easier automation. Updated `FinalisationManager.psm1` and `PoSh-Backup.ps1` to use these new codes. Documented in `README.md`.",
     "   - **Parameter Set Management:** Implementing the various utility modes (`-ListArchiveContents`, `-PinBackup`, etc.) required a significant refactoring of the `param()` block in `PoSh-Backup.ps1` into distinct, mutually exclusive parameter sets (`Execution`, `Pinning`, `Listing`, etc.) to resolve ambiguity.",
     "",
     "--- Current Status ---",
     "The most recent refactoring decomposed the large `CoreSetupManager.psm1` into a facade and several smaller, single-responsibility sub-modules under `Modules\Managers\CoreSetupManager`. This included fixing several module scoping issues related to `Get-ConfigValue` and other functions not being available in the new sub-modules' scopes."
   )
 
-  main_script_poSh_backup_version = "1.29.1 # Pass CheckForUpdate switch to CoreSetupManager."
+  main_script_poSh_backup_version = "1.29.2 # Standardised Exit Codes."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

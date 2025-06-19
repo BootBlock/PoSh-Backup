@@ -289,9 +289,17 @@ function Invoke-PoShBackupFinalisation {
     }
 
     # --- Exit Script ---
-    if ($effectiveOverallStatus -in @("SUCCESS", "SIMULATED_COMPLETE")) { exit 0 }
-    elseif ($effectiveOverallStatus -eq "WARNINGS") { exit 1 }
-    else { exit 2 }
+    $exitCode = $Global:PoShBackup_ExitCodes.OperationalFailure # Default to general failure
+
+    switch ($effectiveOverallStatus) {
+        "SUCCESS"            { $exitCode = $Global:PoShBackup_ExitCodes.Success }
+        "SIMULATED_COMPLETE" { $exitCode = $Global:PoShBackup_ExitCodes.Success }
+        "WARNINGS"           { $exitCode = $Global:PoShBackup_ExitCodes.SuccessWithWarnings }
+        "FAILURE"            { $exitCode = $Global:PoShBackup_ExitCodes.OperationalFailure }
+        # Any other status will use the default OperationalFailure code
+    }
+
+    exit $exitCode
 }
 
 Export-ModuleMember -Function Invoke-PoShBackupFinalisation

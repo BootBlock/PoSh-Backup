@@ -477,7 +477,8 @@ if ($CheckForUpdate.IsPresent) {
                 & $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: Non-critical error during ReadKey for final pause: $($_.Exception.Message)" -Level "DEBUG"
             }
         }
-        exit 13
+
+        exit $Global:PoShBackup_ExitCodes.UpdateCheckFailure
     }
 }
 # --- END OF EARLY EXIT FOR CheckForUpdate ---
@@ -544,7 +545,8 @@ try {
             }
         }
     }
-    exit 12
+    
+    exit $Global:PoShBackup_ExitCodes.ConfigurationError
 }
 #endregion
 

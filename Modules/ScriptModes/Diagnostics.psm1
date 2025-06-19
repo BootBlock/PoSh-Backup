@@ -1,4 +1,4 @@
-# Modules\ScriptModes\Diagnostics.psm1
+﻿# Modules\ScriptModes\Diagnostics.psm1
 <#
 .SYNOPSIS
     Handles diagnostic script modes for PoSh-Backup, such as testing the configuration,

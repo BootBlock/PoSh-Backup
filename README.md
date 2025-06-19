@@ -893,6 +893,20 @@ PoSh-Backup can check if a newer version is available online. This is a manual c
 *   **Automatic Updates:** This feature informs you about updates and then prompts you on whether you would like to update. Note that this feature hasn't been fully tested; ensure you have manually backed up any custom `Config\` configuration files first.
 *   **Internet Access:** Requires an internet connection to fetch the remote version manifest.
 
+## Exit Codes
+PoSh-Backup uses standardised exit codes to allow for better integration with automation and scheduling tools.
+
+| Code | Status                  | Description                                                                                             |
+| :--- | :---------------------- | :------------------------------------------------------------------------------------------------------ |
+| `0`  | Success                 | The backup job or set completed successfully with no warnings.                                          |
+| `1`  | Success with Warnings   | The backup job or set completed, but generated one or more warnings (e.g., skipped files).              |
+| `2`  | Operational Failure     | A general failure occurred during the main backup process (e.g., a 7-Zip error, VSS failure).           |
+| `10` | Configuration Error     | The script halted due to an invalid, malformed, or missing configuration file.                          |
+| `11` | Dependency Error        | The script halted because a required dependency (e.g., 7-Zip) or PowerShell module was not found.       |
+| `12` | User Cancellation       | The script was halted by the user (e.g., pressing Ctrl+C or cancelling a password prompt).              |
+| `13` | Update Check Failure    | The `-CheckForUpdate` process failed to complete (e.g., could not download the remote manifest).        |
+| `20` | Critical Script Error   | An unexpected or unhandled exception occurred in the script's core logic.                               |
+
 For a full list of all command-line parameters and their descriptions, use PowerShell's built-in help:
 ```powershell
 Get-Help .\PoSh-Backup.ps1 -Full
