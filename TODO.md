@@ -214,15 +214,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **III. Backup Target Providers (New & Enhancements)**
 
-18. **Feature: Standardised Target Provider Health Check/Test Functionality**
-    *   **Goal:** Allow users to test connectivity and basic functionality of a configured Backup Target instance.
-    *   **Description:** Verifies target configurations without a full backup run.
-    *   **Scope & Impact:**
-        *   `PoSh-Backup.ps1`: New CLI switch (e.g., `-TestBackupTarget <TargetName>`).
-        *   Target Provider Interface: Define new optional function (e.g., `Test-PoShBackupTargetConnectivity`).
-        *   Each Target Provider Module: Implement this test function.
-    *   **Acceptance Criteria:** User can test a target; script reports success/failure with diagnostics.
-
 19. **Enhancement: SFTP/FTP - Support for Active Mode**
 
     - **Goal:** Add option for Active FTP/SFTP mode if passive is problematic.
