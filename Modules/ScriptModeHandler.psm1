@@ -6,11 +6,11 @@
 .DESCRIPTION
     This module is the primary entry point for handling any PoSh-Backup execution mode that
     is not a standard backup run. It checks for parameters like -TestConfig, -ListBackupLocations,
-    -PinBackup, etc., and orchestrates the call to the correct specialized sub-module located
-    in '.\Modules\ScriptModes\'.
+    -PinBackup, -TestBackupTarget, etc., and orchestrates the call to the correct specialized
+    sub-module located in '.\Modules\ScriptModes\'.
 
     The sub-modules it manages are:
-    - Diagnostics.psm1: For -TestConfig, -GetEffectiveConfig, -ExportDiagnosticPackage.
+    - Diagnostics.psm1: For -TestConfig, -GetEffectiveConfig, -ExportDiagnosticPackage, -TestBackupTarget.
     - Listing.psm1: For -ListBackupLocations, -ListBackupSets, -Version.
     - ArchiveManagement.psm1: For -ListArchiveContents, -ExtractFromArchive, -PinBackup, -UnpinBackup.
     - MaintenanceAndVerification.psm1: For -Maintenance, -RunVerificationJobs.
@@ -18,9 +18,9 @@
     If a sub-module successfully handles a mode, this script will exit with a code of 0.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.1 # Fixed bug where maintenance mode logic was always triggered.
+    Version:        2.1.0 # Added TestBackupTarget parameter.
     DateCreated:    24-May-2025
-    LastModified:   15-Jun-2025
+    LastModified:   18-Jun-2025
     Purpose:        To orchestrate and delegate informational/utility script execution modes.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -57,6 +57,8 @@ function Invoke-PoShBackupScriptMode {
         [bool]$VersionSwitch,
         [Parameter(Mandatory = $false)]
         [string]$GetEffectiveConfigJobName,
+        [Parameter(Mandatory = $false)]
+        [string]$TestBackupTarget,
         [Parameter(Mandatory = $true)]
         [hashtable]$CliOverrideSettingsInternal,
         [Parameter(Mandatory = $false)]
@@ -99,6 +101,7 @@ function Invoke-PoShBackupScriptMode {
         TestConfigSwitch            = $TestConfigSwitch
         GetEffectiveConfigJobName   = $GetEffectiveConfigJobName
         ExportDiagnosticPackagePath = $ExportDiagnosticPackagePath
+        TestBackupTarget            = $TestBackupTarget
         CliOverrideSettingsInternal = $CliOverrideSettingsInternal
         Configuration               = $Configuration
         ActualConfigFile            = $ActualConfigFile
@@ -106,26 +109,28 @@ function Invoke-PoShBackupScriptMode {
         Logger                      = $Logger
         PSCmdletInstance            = $PSCmdletInstance
     }
+
     if (Invoke-PoShBackupDiagnosticMode @diagParams) {
-        exit 0
+        return $true
     }
 
     # --- Delegate to Archive Management Modes Handler ---
     $archiveMgmtParams = @{
-        PinBackupPath           = $PinBackupPath
-        UnpinBackupPath         = $UnpinBackupPath
-        ListArchiveContentsPath = $ListArchiveContentsPath
-        ExtractFromArchivePath  = $ExtractFromArchivePath
-        ExtractToDirectoryPath  = $ExtractToDirectoryPath
-        ItemsToExtract          = $ItemsToExtract
-        ForceExtract            = $ForceExtract
+        PinBackupPath             = $PinBackupPath
+        UnpinBackupPath           = $UnpinBackupPath
+        ListArchiveContentsPath   = $ListArchiveContentsPath
+        ExtractFromArchivePath    = $ExtractFromArchivePath
+        ExtractToDirectoryPath    = $ExtractToDirectoryPath
+        ItemsToExtract            = $ItemsToExtract
+        ForceExtract              = $ForceExtract
         ArchivePasswordSecretName = $ArchivePasswordSecretName
-        Configuration           = $Configuration
-        Logger                  = $Logger
-        PSCmdletInstance        = $PSCmdletInstance
+        Configuration             = $Configuration
+        Logger                    = $Logger
+        PSCmdletInstance          = $PSCmdletInstance
     }
+
     if (Invoke-PoShBackupArchiveManagementMode @archiveMgmtParams) {
-        exit 0
+        return $true
     }
 
     # --- Delegate to Listing Modes Handler ---
@@ -138,8 +143,9 @@ function Invoke-PoShBackupScriptMode {
         ConfigLoadResult          = $ConfigLoadResult
         Logger                    = $Logger
     }
+
     if (Invoke-PoShBackupListingMode @listingParams) {
-        exit 0
+        return $true
     }
 
     # --- Delegate to Maintenance and Verification Modes Handler ---
@@ -149,11 +155,13 @@ function Invoke-PoShBackupScriptMode {
         Logger                    = $Logger
         PSCmdletInstance          = $PSCmdletInstance
     }
+    
     if ($PSBoundParameters.ContainsKey('MaintenanceSwitchValue')) {
         $maintAndVerifyParams.MaintenanceSwitchValue = $MaintenanceSwitchValue
     }
+    
     if (Invoke-PoShBackupMaintenanceAndVerificationMode @maintAndVerifyParams) {
-        exit 0
+        return $true
     }
 
     # If no utility mode was handled by any sub-module, return false to let the main script continue.

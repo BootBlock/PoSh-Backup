@@ -25,12 +25,13 @@
 
     A function, 'Invoke-PoShBackupWebDAVTargetSettingsValidation', is included to validate
     the 'TargetSpecificSettings' and 'RemoteRetentionSettings' specific to this WebDAV provider.
+    A new function, 'Test-PoShBackupTargetConnectivity', validates the WebDAV connection and path.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        0.2.0 # Implemented remote retention logic.
+    Version:        0.3.0 # Added Test-PoShBackupTargetConnectivity.
     DateCreated:    05-Jun-2025
-    LastModified:   06-Jun-2025
+    LastModified:   18-Jun-2025
     Purpose:        WebDAV Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     PowerShell SecretManagement configured if using secrets for credentials.
@@ -328,6 +329,56 @@ function Group-RemoteWebDAVBackupInstancesInternal {
 }
 #endregion
 
+#region --- WebDAV Target Connectivity Test Function ---
+function Test-PoShBackupTargetConnectivity {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$TargetSpecificSettings,
+        [Parameter(Mandatory = $false)]
+        [string]$CredentialsSecretName, # For WebDAV, this is in TargetSpecificSettings
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
+    )
+    # PSSA Appeasement: Use the parameter for logging context.
+    & $Logger -Message "  - WebDAV.Target: Testing connectivity with secret name hint: '$CredentialsSecretName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    
+    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
+    
+    $webDAVUrl = $TargetSpecificSettings.WebDAVUrl
+    $secretName = $TargetSpecificSettings.CredentialsSecretName
+    
+    & $LocalWriteLog -Message "  - WebDAV Target: Testing connectivity to URL '$webDAVUrl'..." -Level "INFO"
+
+    if (-not $PSCmdlet.ShouldProcess($webDAVUrl, "Test WebDAV Connection (PROPFIND)")) {
+        return @{ Success = $false; Message = "WebDAV connection test skipped by user." }
+    }
+
+    $credential = Get-PSCredentialFromSecretInternal-WebDAV -SecretName $secretName -Logger $Logger
+    if ($null -eq $credential) {
+        return @{ Success = $false; Message = "Failed to retrieve PSCredential from secret '$secretName'." }
+    }
+
+    try {
+        $timeout = if ($TargetSpecificSettings.ContainsKey('RequestTimeoutSec')) { $TargetSpecificSettings.RequestTimeoutSec } else { 30 }
+        $headers = @{"Depth"="0"}
+        Invoke-WebRequest -Uri $webDAVUrl -Method "PROPFIND" -Credential $credential -Headers $headers -TimeoutSec $timeout -ErrorAction Stop -OutNull
+        
+        $successMessage = "Successfully connected to '$webDAVUrl' and received a valid response."
+        & $LocalWriteLog -Message "    - SUCCESS: $successMessage" -Level "SUCCESS"
+        return @{ Success = $true; Message = $successMessage }
+
+    } catch {
+        $errorMessage = "Failed to connect or get a valid response from '$webDAVUrl'. Error: $($_.Exception.Message)"
+        if ($_.Exception.Response) { $errorMessage += " Status: $($_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)" }
+        & $LocalWriteLog -Message "    - FAILED: $errorMessage" -Level "ERROR"
+        return @{ Success = $false; Message = $errorMessage }
+    }
+}
+#endregion
+
 #region --- WebDAV Target Settings Validation Function ---
 function Invoke-PoShBackupWebDAVTargetSettingsValidation {
     [CmdletBinding()]
@@ -530,7 +581,7 @@ function Invoke-PoShBackupTargetTransfer {
                     $instanceKeyToDelete = $instanceEntry.Name
                     & $LocalWriteLog -Message "      - WebDAV Target '{0}': Preparing to delete instance files for '$instanceKeyToDelete' (SortTime: $($instanceEntry.Value.SortTime))." -Level "WARNING"
                     foreach ($remoteFileObjInInstance in $instanceEntry.Value.Files) {
-                        $fileToDeleteUrl = ($BaseWebDAVUrl.TrimEnd("/") + $remoteFileObjInInstance.FullHref).TrimEnd("/") # FullHref from PROPFIND
+                        $fileToDeleteUrl = ($webDAVUrlBase.TrimEnd("/") + $remoteFileObjInInstance.FullHref).TrimEnd("/") # FullHref from PROPFIND
                         if (-not $PSCmdlet.ShouldProcess($fileToDeleteUrl, "Delete Remote WebDAV File/Part (Retention)")) {
                             & $LocalWriteLog -Message ("        - Deletion of '{0}' skipped by user." -f $fileToDeleteUrl) -Level "WARNING"; continue
                         }
@@ -563,4 +614,4 @@ function Invoke-PoShBackupTargetTransfer {
 }
 #endregion
 
-Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupWebDAVTargetSettingsValidation
+Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupWebDAVTargetSettingsValidation, Test-PoShBackupTargetConnectivity

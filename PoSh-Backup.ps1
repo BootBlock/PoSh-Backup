@@ -311,6 +311,10 @@ param (
     [Parameter(ParameterSetName='Diagnostics', Mandatory=$true, HelpMessage="Gathers logs and sanitized configuration into a single zip file for troubleshooting.")]
     [string]$ExportDiagnosticPackage,
 
+    [Parameter(ParameterSetName='TargetTesting', Mandatory=$true, HelpMessage="Tests connectivity and basic settings for a specific Backup Target defined in the configuration.")]
+    [ArgumentCompleter({ Get-PoShBackupTargetNameCompletion @args })]
+    [string]$TestBackupTarget,
+
     # Parameters available to multiple utility sets (Listing, Extraction)
     [Parameter(ParameterSetName='Listing', Mandatory=$false)]
     [Parameter(ParameterSetName='Extraction', Mandatory=$false, HelpMessage="Specifies the SecretManagement secret name for the password of an encrypted archive for utility operations.")]
@@ -509,6 +513,7 @@ try {
                                                 -ConfigFile $ConfigFile `
                                                 -Simulate:$Simulate.IsPresent `
                                                 -TestConfig:$TestConfig.IsPresent `
+                                                -TestBackupTarget $TestBackupTarget `
                                                 -ListBackupLocations:$ListBackupLocations.IsPresent `
                                                 -ListBackupSets:$ListBackupSets.IsPresent `
                                                 -SyncSchedules:$SyncSchedules.IsPresent `

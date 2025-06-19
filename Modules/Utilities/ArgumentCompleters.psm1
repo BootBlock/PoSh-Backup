@@ -8,9 +8,9 @@
     context-aware tab completion for parameters like -BackupLocationName and -RunSet.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Renamed functions to singular nouns and fixed PSSA warnings.
+    Version:        1.2.0 # Added completer for -TestBackupTarget.
     DateCreated:    15-Jun-2025
-    LastModified:   15-Jun-2025
+    LastModified:   18-Jun-2025
     Purpose:        To provide CLI tab-completion for PoSh-Backup parameters.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -102,6 +102,33 @@ function Get-PoShBackupSetNameCompletion {
         [System.Management.Automation.CompletionResult]::new("'$set'", $set, 'ParameterValue', $toolTip)
     }
 }
+
+function Get-PoShBackupTargetNameCompletion {
+    [CmdletBinding()]
+    param(
+        [string]$commandName,
+        [string]$parameterName,
+        [string]$wordToComplete,
+        [System.Management.Automation.Language.CommandAst]$commandAst,
+        [hashtable]$fakeBoundParameters
+    )
+
+    # Acknowledge unused parameters required by the ArgumentCompleter signature.
+    $null = $commandName
+    $null = $parameterName
+    $null = $fakeBoundParameters
+
+    $config = Get-PoShBackupConfigForCompletionInternal -CommandPath $commandAst.CommandElements[0].Value
+    if ($null -eq $config -or -not ($config.BackupTargets -is [hashtable])) { return }
+
+    $targetNames = $config.BackupTargets.Keys
+    $matchingTargets = $targetNames | Where-Object { $_ -like "$wordToComplete*" } | Sort-Object
+
+    foreach ($target in $matchingTargets) {
+        $toolTip = "Backup Target defined in configuration."
+        [System.Management.Automation.CompletionResult]::new("'$target'", $target, 'ParameterValue', $toolTip)
+    }
+}
 #endregion
 
-Export-ModuleMember -Function Get-PoShBackupJobNameCompletion, Get-PoShBackupSetNameCompletion
+Export-ModuleMember -Function Get-PoShBackupJobNameCompletion, Get-PoShBackupSetNameCompletion, Get-PoShBackupTargetNameCompletion

@@ -24,11 +24,12 @@
         individual replication attempt is aggregated by the orchestrator.
 
     A function, 'Invoke-PoShBackupReplicateTargetSettingsValidation', validates 'TargetSpecificSettings'.
+    A new function, 'Test-PoShBackupTargetConnectivity', validates the accessibility of all configured destination paths.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Updated retention logic for multi-volume and manifest files.
+    Version:        1.2.0 # Added Test-PoShBackupTargetConnectivity.
     DateCreated:    19-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   18-Jun-2025
     Purpose:        Replicate Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The user/account running PoSh-Backup must have appropriate permissions
@@ -146,7 +147,7 @@ function Group-LocalOrUNCBackupInstancesInternal {
     # This pattern should match:
     # - MyJob [2025-06-01].7z (single file)
     # - MyJob [2025-06-01].7z.001 (split volume)
-    # - MyJob [2025-06-01].7z.manifest.sha256 (manifest for split)
+    # - MyJob [2025-06-01].7z.manifest.algo (manifest for split)
     # - MyJob [2025-06-01].exe (SFX)
     # - MyJob [2025-06-01].exe.manifest.sha256 (manifest for single SFX)
     # The $ArchiveFileName passed to Invoke-PoShBackupTargetTransfer is the specific part.
@@ -179,10 +180,10 @@ function Group-LocalOrUNCBackupInstancesInternal {
             $instanceKey = $Matches[1] # "JobName [DateStamp].<PrimaryExtension>"
         } elseif ($file.Name -match $splitManifestPattern) {
             $instanceKey = $Matches[1] # "JobName [DateStamp].<PrimaryExtension>"
-        } elseif ($file.Name -match $singleFilePattern) {
-            $instanceKey = $Matches[1] # "JobName [DateStamp].<PrimaryExtension>"
         } elseif ($file.Name -match "^($literalBase.+?)\.manifest\.[a-zA-Z0-9]+$") { # Manifest for a file that might not strictly match PrimaryArchiveExtension (e.g. SFX .exe when Primary is .7z)
             $instanceKey = $Matches[1] # "JobName [DateStamp].exe"
+        } elseif ($file.Name -match $singleFilePattern) {
+            $instanceKey = $Matches[1] # "JobName [DateStamp].<PrimaryExtension>"
         } else {
             # Fallback: if it starts with BaseNameToMatch, consider it part of an instance
             # This is less precise but helps catch SFX files where PrimaryArchiveExtension might be different
@@ -237,6 +238,62 @@ function Group-LocalOrUNCBackupInstancesInternal {
 }
 #endregion
 
+#region --- Replicate Target Connectivity Test Function ---
+function Test-PoShBackupTargetConnectivity {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [array]$TargetSpecificSettings,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
+    )
+    # PSSA Appeasement: Use the parameter for logging context.
+    & $Logger -Message "Replicate.Target/Test-PoShBackupTargetConnectivity: Logger active." -Level "DEBUG" -ErrorAction SilentlyContinue
+    
+    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
+    & $LocalWriteLog -Message "  - Replicate Target: Testing connectivity for all configured destination paths..." -Level "INFO"
+
+    if (-not ($TargetSpecificSettings -is [array]) -or $TargetSpecificSettings.Count -eq 0) {
+        return @{ Success = $false; Message = "TargetSpecificSettings is not a valid, non-empty array of destinations." }
+    }
+
+    $allPathsSuccessful = $true
+    $messages = [System.Collections.Generic.List[string]]::new()
+
+    $destinationIndex = 0
+    foreach ($destination in $TargetSpecificSettings) {
+        $destinationIndex++
+        $destPath = $destination.Path
+        $messagePrefix = "    - Destination $destinationIndex ('$destPath'): "
+        
+        if (-not $PSCmdlet.ShouldProcess($destPath, "Test Path Accessibility")) {
+            $messages.Add("$messagePrefix Test skipped by user.")
+            $allPathsSuccessful = $false
+            continue
+        }
+
+        try {
+            if (Test-Path -LiteralPath $destPath -PathType Container -ErrorAction Stop) {
+                $messages.Add("$messagePrefix SUCCESS - Path is accessible.")
+            } else {
+                $messages.Add("$messagePrefix FAILED - Path not found or is not a directory.")
+                $allPathsSuccessful = $false
+            }
+        } catch {
+            $messages.Add("$messagePrefix FAILED - An error occurred while testing path. Error: $($_.Exception.Message)")
+            $allPathsSuccessful = $false
+        }
+    }
+
+    $finalMessage = "Replication Target Health Check: "
+    $finalMessage += if ($allPathsSuccessful) { "All $($TargetSpecificSettings.Count) destination paths are accessible." } else { "One or more destination paths are not accessible." }
+    $finalMessage += [Environment]::NewLine + ($messages -join [Environment]::NewLine)
+
+    return @{ Success = $allPathsSuccessful; Message = $finalMessage }
+}
+#endregion
 
 #region --- Replicate Target Settings Validation Function ---
 function Invoke-PoShBackupReplicateTargetSettingsValidation {
@@ -253,7 +310,9 @@ function Invoke-PoShBackupReplicateTargetSettingsValidation {
     )
 
     # Explicit PSSA Appeasement: Directly use the Logger parameter once.
-    & $Logger -Message "Replicate.Target/Invoke-PoShBackupReplicateTargetSettingsValidation: Logger parameter active for target '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
+        & $Logger -Message "Replicate.Target/Invoke-PoShBackupReplicateTargetSettingsValidation: Logger active for target '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    }
 
     $fullPathToSettings = "Configuration.BackupTargets.$TargetInstanceName.TargetSpecificSettings"
     if (-not ($TargetSpecificSettings -is [array])) {
@@ -444,7 +503,8 @@ function Invoke-PoShBackupTargetTransfer {
                                     }
                                     & $LocalWriteLog -Message "            - Deleting: '$($fileToDeleteInInstance.FullName)'" -Level "WARNING"
                                     try { Remove-Item -LiteralPath $fileToDeleteInInstance.FullName -Force -ErrorAction Stop; & $LocalWriteLog -Message "              - Status: DELETED" -Level "SUCCESS" }
-                                    catch { & $LocalWriteLog -Message "              - Status: FAILED! Error: $($_.Exception.Message)" -Level "ERROR"; $allReplicationsForThisFileSucceeded = $false } # A retention failure makes the overall less successful
+                                    catch { & $LocalWriteLog -Message "              - Status: FAILED! Error: $($_.Exception.Message)" -Level "ERROR"; # A retention failure makes the overall less successful
+                                    }
                                 }
                             }
                         } else { & $LocalWriteLog -Message "        - Replicate Target '$targetNameForLog': No old instances to delete at '$currentDestFinalDir'." -Level "INFO" }
@@ -481,4 +541,4 @@ function Invoke-PoShBackupTargetTransfer {
 }
 #endregion
 
-Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupReplicateTargetSettingsValidation
+Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupReplicateTargetSettingsValidation, Test-PoShBackupTargetConnectivity

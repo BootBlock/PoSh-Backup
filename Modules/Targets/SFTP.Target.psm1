@@ -4,7 +4,8 @@
     PoSh-Backup Target Provider for SFTP (SSH File Transfer Protocol).
     Handles transferring backup archives to SFTP servers, managing remote retention,
     and supporting various authentication methods via Posh-SSH and PowerShell SecretManagement.
-    Now includes a function for validating its specific TargetSpecificSettings and RemoteRetentionSettings.
+    Now includes a function for validating its specific TargetSpecificSettings and RemoteRetentionSettings,
+    and a new function for testing connectivity.
 
 .DESCRIPTION
     This module implements the PoSh-Backup target provider interface for SFTP destinations.
@@ -20,20 +21,19 @@
     - Ensures the remote target directory (and job-specific subdirectory, if configured) exists,
       creating it if necessary.
     - Uploads the local backup archive to the SFTP server.
-    - If 'RemoteRetentionSettings' (e.g., 'KeepCount') are defined, applies a count-based
+    - If 'RemoteRetentionSettings' (e.g., 'KeepCount') are defined, it applies a count-based
       retention policy to archives for the current job within the final remote directory.
     - Supports simulation mode for all SFTP operations.
     - Returns a detailed status hashtable.
 
-    A new function, 'Invoke-PoShBackupSFTPTargetSettingsValidation', is now included to validate
-    the 'TargetSpecificSettings' and 'RemoteRetentionSettings' specific to this SFTP provider.
-    This function is intended to be called by the PoShBackupValidator module.
+    A function, 'Invoke-PoShBackupSFTPTargetSettingsValidation', validates 'TargetSpecificSettings'.
+    A new function, 'Test-PoShBackupTargetConnectivity', validates the SFTP connection and path.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.7 # Replication manifest thing
+    Version:        1.1.0 # Added Test-PoShBackupTargetConnectivity.
     DateCreated:    22-May-2025
-    LastModified:   27-May-2025
+    LastModified:   18-Jun-2025
     Purpose:        SFTP Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The 'Posh-SSH' module must be installed (Install-Module Posh-SSH).
@@ -104,6 +104,90 @@ function Get-SecretFromVaultInternal-Sftp {
         & $LocalWriteLog -Message ("[ERROR] GetSecret: Failed to retrieve secret '{0}' for {1}. Error: {2}" -f $SecretName, $SecretPurposeForLog, $_.Exception.Message) -Level "ERROR"
     }
     return $null
+}
+#endregion
+
+#region --- SFTP Target Connectivity Test Function ---
+function Test-PoShBackupTargetConnectivity {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$TargetSpecificSettings,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
+    )
+    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
+    
+    $sftpServer = $TargetSpecificSettings.SFTPServerAddress
+    & $LocalWriteLog -Message "  - SFTP Target: Testing connectivity to server '$sftpServer'..." -Level "INFO"
+
+    if (-not (Get-Module -Name Posh-SSH -ListAvailable)) {
+        return @{ Success = $false; Message = "Posh-SSH module is not installed. Please install it using 'Install-Module Posh-SSH'." }
+    }
+    Import-Module Posh-SSH -ErrorAction SilentlyContinue
+    
+    $sftpSessionId = $null
+    $securePassphrase = $null
+    $securePassword = $null
+    
+    try {
+        $sessionParams = @{
+            ComputerName = $sftpServer
+            Port         = if ($TargetSpecificSettings.ContainsKey('SFTPPort')) { $TargetSpecificSettings.SFTPPort } else { 22 }
+            Username     = $TargetSpecificSettings.SFTPUserName
+            ErrorAction  = 'Stop'
+        }
+        if ($TargetSpecificSettings.ContainsKey('SkipHostKeyCheck') -and $TargetSpecificSettings.SkipHostKeyCheck -eq $true) {
+            $sessionParams.AcceptKey = $true
+        }
+
+        $sftpPassword = Get-SecretFromVaultInternal-Sftp -SecretName $TargetSpecificSettings.SFTPPasswordSecretName -Logger $Logger -SecretPurposeForLog "SFTP Password"
+        $sftpKeyFilePath = Get-SecretFromVaultInternal-Sftp -SecretName $TargetSpecificSettings.SFTPKeyFileSecretName -Logger $Logger -SecretPurposeForLog "SFTP Key File Path"
+        $sftpKeyPassphrase = Get-SecretFromVaultInternal-Sftp -SecretName $TargetSpecificSettings.SFTPKeyFilePassphraseSecretName -Logger $Logger -SecretPurposeForLog "SFTP Key Passphrase"
+        
+        if (-not [string]::IsNullOrWhiteSpace($sftpKeyFilePath)) {
+            if (-not (Test-Path -LiteralPath $sftpKeyFilePath -PathType Leaf)) { throw "SFTP Key File not found at path '$sftpKeyFilePath'." }
+            $sessionParams.KeyFile = $sftpKeyFilePath
+            if (-not [string]::IsNullOrWhiteSpace($sftpKeyPassphrase)) {
+                $securePassphrase = ConvertTo-SecureString -String $sftpKeyPassphrase -AsPlainText -Force
+                $sessionParams.KeyPassphrase = $securePassphrase
+            }
+        } elseif (-not [string]::IsNullOrWhiteSpace($sftpPassword)) {
+            $securePassword = ConvertTo-SecureString -String $sftpPassword -AsPlainText -Force
+            $sessionParams.Password = $securePassword
+        } else {
+            throw "No password secret or key file path secret provided for authentication."
+        }
+
+        if (-not $PSCmdlet.ShouldProcess($sftpServer, "Establish SFTP Test Connection")) {
+            return @{ Success = $false; Message = "SFTP connection test skipped by user." }
+        }
+
+        $sftpSession = New-SSHSession @sessionParams
+        if (-not $sftpSession) { throw "Failed to establish SSH session." }
+        $sftpSessionId = $sftpSession.SessionId
+
+        & $LocalWriteLog -Message "    - SUCCESS: SFTP session established successfully (Session ID: $sftpSessionId)." -Level "SUCCESS"
+
+        $remotePath = $TargetSpecificSettings.SFTPRemotePath
+        & $LocalWriteLog -Message "  - SFTP Target: Testing remote path '$remotePath'..." -Level "INFO"
+        if (Test-SFTPPath -SessionId $sftpSessionId -Path $remotePath) {
+            & $LocalWriteLog -Message "    - SUCCESS: Remote path '$remotePath' exists." -Level "SUCCESS"
+            return @{ Success = $true; Message = "Connection successful and remote path exists." }
+        } else {
+            return @{ Success = $false; Message = "Connection successful, but remote path '$remotePath' does not exist." }
+        }
+    } catch {
+        $errorMessage = "SFTP connection test failed. Error: $($_.Exception.Message)"
+        & $LocalWriteLog -Message "    - FAILED: $errorMessage" -Level "ERROR"
+        return @{ Success = $false; Message = $errorMessage }
+    } finally {
+        if ($sftpSessionId) { Remove-SSHSession -SessionId $sftpSessionId -ErrorAction SilentlyContinue }
+        if ($securePassword) { $securePassword.Dispose() }
+        if ($securePassphrase) { $securePassphrase.Dispose() }
+    }
 }
 #endregion
 
@@ -363,7 +447,7 @@ function Invoke-PoShBackupTargetTransfer {
     )
 
     # Defensive PSSA appeasement
-    & $Logger -Message "SFTP.Target/Invoke-PoShBackupTargetTransfer: Logger parameter active for Job '$JobName', Target '$($TargetInstanceConfiguration._TargetInstanceName_)'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "SFTP.Target/Invoke-PoShBackupTargetTransfer: Logger active for Job '$JobName', Target '$($TargetInstanceConfiguration._TargetInstanceName_)'." -Level "DEBUG" -ErrorAction SilentlyContinue
     $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
 
     $targetNameForLog = $TargetInstanceConfiguration._TargetInstanceName_
@@ -506,99 +590,46 @@ function Invoke-PoShBackupTargetTransfer {
 
             $remoteKeepCount = $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount
             & $LocalWriteLog -Message ("  - SFTP Target '{0}': Applying remote retention (KeepCount: {1}) in '{2}'." -f $targetNameForLog, $remoteKeepCount, $remoteFinalDirectory) -Level "INFO"
+            
+            try {
+                $remoteInstances = Group-RemoteSFTPBackupInstancesInternal -SftpSessionIdToUse $sftpSessionId `
+                    -RemoteDirectoryToScan $remoteFinalDirectory `
+                    -BaseNameToMatch $ArchiveBaseName `
+                    -PrimaryArchiveExtension $ArchiveExtension `
+                    -Logger $Logger
 
-            # $literalBaseNameForRemote = $ArchiveBaseName
-            # $remoteFilePattern = "$($literalBaseNameForRemote)*$($ArchiveExtension)"
-
-            # $existingRemoteBackups = Get-SFTPChildItem -SessionId $sftpSessionId -Path $remoteFinalDirectory -ErrorAction SilentlyContinue |
-            # Where-Object { $_.Name -like $remoteFilePattern -and (-not $_.IsDirectory) } |
-            # Sort-Object LastWriteTime -Descending
-
-            if ($IsSimulateMode.IsPresent) {
-                & $LocalWriteLog -Message ("SIMULATE: SFTP Target '{0}': Would scan '{1}', group instances by base '{2}' (primary ext '{3}'), sort, and delete oldest instances' files exceeding {4}." -f $targetNameForLog, $remoteFinalDirectoryForJob, $ArchiveBaseName, $ArchiveExtension, $remoteKeepCount) -Level "SIMULATE"
-            }
-            elseif ($sftpSessionIdForThisFileTransfer) {
-                # Only run if session was established for the file transfer
-                try {
-                    # $ArchiveBaseName is "JobName [DateStamp]"
-                    # $ArchiveExtension is the primary extension (e.g. .7z or .exe for SFX)
-                    $remoteInstances = Group-RemoteSFTPBackupInstancesInternal -SftpSessionIdToUse $sftpSessionIdForThisFileTransfer -RemoteDirectoryToScan $remoteFinalDirectoryForJob -BaseNameToMatch $ArchiveBaseName -PrimaryArchiveExtension $ArchiveExtension -Logger $Logger
-
-                    if ($remoteInstances.Count -gt $remoteKeepCount) {
-                        $sortedInstances = $remoteInstances.GetEnumerator() | Sort-Object { $_.Value.SortTime } -Descending # Posh-SSH uses LastWriteTime, which our helper maps to SortTime
-                        $instancesToDelete = $sortedInstances | Select-Object -Skip $remoteKeepCount
-
-                        & $LocalWriteLog -Message ("    - SFTP Target '{0}': Found {1} remote instances. Will delete files for {2} older instance(s)." -f $targetNameForLog, $remoteInstances.Count, $instancesToDelete.Count) -Level "INFO"
-
-                        foreach ($instanceEntry in $instancesToDelete) {
-                            $instanceIdentifier = $instanceEntry.Name # This is the instance key, e.g., "JobName [DateStamp].7z"
-                            & $LocalWriteLog -Message "      - SFTP Target '{0}': Preparing to delete instance files for '$instanceIdentifier' (SortTime: $($instanceEntry.Value.SortTime)) from '$remoteFinalDirectoryForJob'." -Level "WARNING"
-                            foreach ($remoteFileObjInInstance in $instanceEntry.Value.Files) {
-                                # $remoteFileObjInInstance is an SFTP file object
-                                $fileToDeletePathOnSftp = "$remoteFinalDirectoryForJob/$($remoteFileObjInInstance.Name)"
-                                if (-not $PSCmdlet.ShouldProcess($fileToDeletePathOnSftp, "Delete Remote SFTP File/Part (Retention)")) {
-                                    & $LocalWriteLog -Message ("        - Deletion of '{0}' skipped by user." -f $fileToDeletePathOnSftp) -Level "WARNING"; continue
-                                }
-                                & $LocalWriteLog -Message ("        - Deleting: '{0}' (LastWriteTime: $($remoteFileObjInInstance.LastWriteTime))" -f $fileToDeletePathOnSftp) -Level "WARNING"
-                                try {
-                                    Remove-SFTPItem -SessionId $sftpSessionIdForThisFileTransfer -Path $fileToDeletePathOnSftp -ErrorAction Stop
-                                    & $LocalWriteLog "          - Status: DELETED" -Level "SUCCESS"
-                                }
-                                catch {
-                                    & $LocalWriteLog "          - Status: FAILED to delete! Error: $($_.Exception.Message)" -Level "ERROR"
-                                    # Decide if this individual file deletion failure should mark the overall transfer as failed
-                                    # For now, we'll log it but not change $result.Success for the current file transfer
-                                    # However, we should note the error in the aggregated error messages.
-                                    $retentionDeleteError = "Failed to delete remote SFTP file '$fileToDeletePathOnSftp' for instance '$instanceIdentifier' during retention. Error: $($_.Exception.Message)"
-                                    if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retentionDeleteError }
-                                    else { $result.ErrorMessage += "; $retentionDeleteError" }
-                                    # Consider if $result.Success for the *current file transfer* should be set to $false here.
-                                    # If retention of *old* files fails, it doesn't mean the *current* upload failed.
-                                    # However, it does mean the overall state of the target is not ideal.
-                                    # For now, let's not set $result.Success to $false for the current file transfer due to old retention failure.
-                                }
+                if ($remoteInstances.Count -gt $remoteKeepCount) {
+                    $sortedInstances = $remoteInstances.GetEnumerator() | Sort-Object { $_.Value.SortTime } -Descending
+                    $instancesToDelete = $sortedInstances | Select-Object -Skip $remoteKeepCount
+                    & $LocalWriteLog -Message ("    - SFTP Target '{0}': Found {1} remote instances. Will delete files for {2} older instance(s)." -f $targetNameForLog, $remoteInstances.Count, $instancesToDelete.Count) -Level "INFO"
+                    foreach ($instanceEntry in $instancesToDelete) {
+                        $instanceIdentifier = $instanceEntry.Name
+                        & $LocalWriteLog -Message "      - SFTP Target '{0}': Preparing to delete instance files for '$instanceIdentifier' (SortTime: $($instanceEntry.Value.SortTime))." -Level "WARNING"
+                        foreach ($remoteFileObjInInstance in $instanceEntry.Value.Files) {
+                            $fileToDeletePathOnSftp = "$remoteFinalDirectory/$($remoteFileObjInInstance.Name)"
+                            if (-not $PSCmdlet.ShouldProcess($fileToDeletePathOnSftp, "Delete Remote SFTP File/Part (Retention)")) {
+                                & $LocalWriteLog -Message ("        - Deletion of '{0}' skipped by user." -f $fileToDeletePathOnSftp) -Level "WARNING"; continue
+                            }
+                            & $LocalWriteLog -Message ("        - Deleting: '{0}' (LastWriteTime: $($remoteFileObjInInstance.LastWriteTime))" -f $fileToDeletePathOnSftp) -Level "WARNING"
+                            try {
+                                Remove-SFTPItem -SessionId $sftpSessionId -Path $fileToDeletePathOnSftp -ErrorAction Stop
+                                & $LocalWriteLog "          - Status: DELETED" -Level "SUCCESS"
+                            } catch {
+                                 $retentionErrorMsg = "Failed to delete remote SFTP file '$fileToDeletePathOnSftp' for instance '$instanceIdentifier' during retention. Error: $($_.Exception.Message)"
+                                 & $LocalWriteLog "          - Status: FAILED! $retentionErrorMsg" -Level "ERROR"
+                                 if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retentionErrorMsg }
+                                 else { $result.ErrorMessage += "; $retentionErrorMsg" }
                             }
                         }
                     }
-                    else {
-                        & $LocalWriteLog ("    - SFTP Target '{0}': No old instances to delete based on retention count {1} (Found: $($remoteInstances.Count))." -f $targetNameForLog, $remoteKeepCount) -Level "INFO"
-                    }
-                }
-                catch {
-                    $retError = "Error during SFTP remote retention execution: $($_.Exception.Message)"
-                    & $LocalWriteLog "[WARNING] SFTP Target '$targetNameForLog': $retError" -Level "WARNING"
-                    if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retError } else { $result.ErrorMessage += "; $retError" }
+                } else {
+                    & $LocalWriteLog ("    - SFTP Target '{0}': No old instances to delete based on retention count {1} (Found: $($remoteInstances.Count))." -f $targetNameForLog, $remoteKeepCount) -Level "INFO"
                 }
             }
-            elseif (-not $IsSimulateMode.IsPresent) {
-                # This elseif corresponds to: if ($sftpSessionIdForThisFileTransfer)
-                & $LocalWriteLog -Message ("  - SFTP Target '{0}': Skipping remote retention for file '$ArchiveFileName' as SFTP session was not established or current file transfer failed." -f $targetNameForLog) -Level "WARNING"
-            }
-
-            if (($null -ne $existingRemoteBackups) -and ($existingRemoteBackups.Count -gt $remoteKeepCount)) {
-                $remoteBackupsToDelete = $existingRemoteBackups | Select-Object -Skip $remoteKeepCount
-                & $LocalWriteLog -Message ("    - SFTP Target '{0}': Found {1} remote archives. Will delete {2} older ones." -f $targetNameForLog, $existingRemoteBackups.Count, $remoteBackupsToDelete.Count) -Level "INFO"
-                foreach ($remoteFileObj in $remoteBackupsToDelete) {
-                    $fileToDeletePath = "$remoteFinalDirectory/$($remoteFileObj.Name)"
-                    if (-not $PSCmdlet.ShouldProcess($fileToDeletePath, "Delete Remote SFTP Archive (Retention)")) {
-                        & $LocalWriteLog -Message ("      - SFTP Target '{0}': Deletion of '{1}' skipped by user." -f $targetNameForLog, $fileToDeletePath) -Level "WARNING"
-                        continue
-                    }
-                    & $LocalWriteLog -Message ("      - SFTP Target '{0}': Deleting for retention: '{1}'" -f $targetNameForLog, $fileToDeletePath) -Level "WARNING"
-                    try {
-                        Remove-SFTPItem -SessionId $sftpSessionId -Path $fileToDeletePath -ErrorAction Stop
-                        & $LocalWriteLog -Message "        - Status: DELETED (Remote SFTP Retention)" -Level "SUCCESS"
-                    }
-                    catch {
-                        & $LocalWriteLog -Message ("        - Status: FAILED to delete remote SFTP archive! Error: {0}" -f $_.Exception.Message) -Level "ERROR"
-                        if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = "One or more SFTP retention deletions failed." }
-                        else { $result.ErrorMessage += " Additionally, one or more SFTP retention deletions failed." }
-                        $result.Success = $false
-                    }
-                }
-            }
-            else {
-                & $LocalWriteLog -Message ("    - SFTP Target '{0}': No old remote archives to delete based on retention count {1}." -f $targetNameForLog, $remoteKeepCount) -Level "INFO"
+            catch {
+                $retError = "Error during SFTP remote retention execution: $($_.Exception.Message)"
+                & $LocalWriteLog "[WARNING] SFTP Target '$targetNameForLog': $retError" -Level "WARNING"
+                if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retError } else { $result.ErrorMessage += "; $retError" }
             }
         }
 
@@ -625,4 +656,4 @@ function Invoke-PoShBackupTargetTransfer {
 }
 #endregion
 
-Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupSFTPTargetSettingsValidation
+Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupSFTPTargetSettingsValidation, Test-PoShBackupTargetConnectivity

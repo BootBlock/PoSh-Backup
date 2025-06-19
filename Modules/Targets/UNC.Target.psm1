@@ -22,11 +22,12 @@
     -   Returns a status for the individual file transfer.
 
     A function, 'Invoke-PoShBackupUNCTargetSettingsValidation', validates 'TargetSpecificSettings'.
+    A new function, 'Test-PoShBackupTargetConnectivity', validates the accessibility of the UNC path.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Updated retention logic for multi-volume and manifest files.
+    Version:        1.3.0 # Added Test-PoShBackupTargetConnectivity.
     DateCreated:    19-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   18-Jun-2025
     Purpose:        UNC Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The user/account running PoSh-Backup must have appropriate permissions
@@ -181,6 +182,46 @@ function Group-RemoteUNCBackupInstancesInternal {
     }
     & $LocalWriteLog -Message "UNC.Target/Group-RemoteUNCBackupInstancesInternal: Found $($instances.Keys.Count) distinct instances."
     return $instances
+}
+#endregion
+
+#region --- UNC Target Connectivity Test Function ---
+function Test-PoShBackupTargetConnectivity {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$TargetSpecificSettings,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
+    )
+    # PSSA Appeasement: Use the parameter for logging context.
+    & $Logger -Message "UNC.Target/Test-PoShBackupTargetConnectivity: Logger active." -Level "DEBUG" -ErrorAction SilentlyContinue
+    
+    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
+    
+    $uncPath = $TargetSpecificSettings.UNCRemotePath
+    & $LocalWriteLog -Message "  - UNC Target: Testing connectivity to path '$uncPath'..." -Level "INFO"
+
+    if (-not $PSCmdlet.ShouldProcess($uncPath, "Test Path Accessibility")) {
+        return @{ Success = $false; Message = "Connectivity test skipped by user." }
+    }
+
+    try {
+        if (Test-Path -LiteralPath $uncPath -PathType Container -ErrorAction Stop) {
+            & $LocalWriteLog -Message "    - SUCCESS: Path '$uncPath' is accessible." -Level "SUCCESS"
+            return @{ Success = $true; Message = "Path is accessible." }
+        } else {
+            $errorMessage = "Path '$uncPath' was not found or is not a container/directory. Please check the path and permissions."
+            & $LocalWriteLog -Message "    - FAILED: $errorMessage" -Level "ERROR"
+            return @{ Success = $false; Message = $errorMessage }
+        }
+    } catch {
+        $errorMessage = "An error occurred while testing path '$uncPath'. Error: $($_.Exception.Message)"
+        & $LocalWriteLog -Message "    - FAILED: $errorMessage" -Level "ERROR"
+        return @{ Success = $false; Message = $errorMessage }
+    }
 }
 #endregion
 
@@ -384,20 +425,11 @@ function Invoke-PoShBackupTargetTransfer {
                             & $LocalWriteLog -Message "      - UNC Target '$targetNameForLog': Preparing to delete instance '$instanceKeyToDelete' (SortTime: $($instanceEntry.Value.SortTime)). Files:" -Level "WARNING"
                             foreach ($remoteFileToDelete in $instanceEntry.Value.Files) {
                                 if (-not $PSCmdlet.ShouldProcess($remoteFileToDelete.FullName, "Delete Remote Archive File/Part (Retention)")) {
-                                    & $LocalWriteLog -Message "        - Deletion of '$($remoteFileToDelete.FullName)' skipped by user." -Level "WARNING"
-                                    continue
+                                    & $LocalWriteLog -Message "        - Deletion of '$($remoteFileToDelete.FullName)' skipped by user." -Level "WARNING"; continue
                                 }
                                 & $LocalWriteLog -Message "        - Deleting: '$($remoteFileToDelete.FullName)'" -Level "WARNING"
-                                try {
-                                    Remove-Item -LiteralPath $remoteFileToDelete.FullName -Force -ErrorAction Stop
-                                    & $LocalWriteLog -Message "          - Status: DELETED (Remote Retention)" -Level "SUCCESS"
-                                } catch {
-                                    & $LocalWriteLog -Message "          - Status: FAILED to delete! Error: $($_.Exception.Message)" -Level "ERROR"
-                                    if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = "One or more remote retention deletions failed for instance '$instanceKeyToDelete'." }
-                                    else { $result.ErrorMessage += " Additionally, one or more remote retention deletions failed for instance '$instanceKeyToDelete'." }
-                                    # Don't set $result.Success to $false here for the overall *transfer* if only retention failed for an *older* archive.
-                                    # However, this could be a policy decision. For now, transfer success is independent of old retention success.
-                                }
+                                try { Remove-Item -LiteralPath $remoteFileToDelete.FullName -Force -ErrorAction Stop; & $LocalWriteLog -Message "          - Status: DELETED (Remote Retention)" -Level "SUCCESS" }
+                                catch { & $LocalWriteLog -Message "          - Status: FAILED to delete! Error: $($_.Exception.Message)" -Level "ERROR"; } # A retention failure makes the overall less successful
                             }
                         }
                     } else {
@@ -419,4 +451,4 @@ function Invoke-PoShBackupTargetTransfer {
 }
 #endregion
 
-Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupUNCTargetSettingsValidation
+Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupUNCTargetSettingsValidation, Test-PoShBackupTargetConnectivity

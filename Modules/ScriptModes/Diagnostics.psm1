@@ -9,9 +9,10 @@
     - -TestConfig
     - -GetEffectiveConfig
     - -ExportDiagnosticPackage
+    - -TestBackupTarget
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.1 # Improved -TestConfig output for array-based target settings.
+    Version:        1.2.0 # Added Test-BackupTarget logic.
     DateCreated:    15-Jun-2025
     LastModified:   18-Jun-2025
     Purpose:        To handle diagnostic script execution modes for PoSh-Backup.
@@ -371,6 +372,8 @@ function Invoke-PoShBackupDiagnosticMode {
         [string]$GetEffectiveConfigJobName,
         [Parameter(Mandatory = $false)]
         [string]$ExportDiagnosticPackagePath,
+        [Parameter(Mandatory = $false)]
+        [string]$TestBackupTarget,
         [Parameter(Mandatory = $true)]
         [hashtable]$CliOverrideSettingsInternal,
         [Parameter(Mandatory = $true)]
@@ -392,6 +395,69 @@ function Invoke-PoShBackupDiagnosticMode {
         } else {
             & $Logger -Message $Message -Level $Level
         }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($TestBackupTarget)) {
+        & $LocalWriteLog -Message "`n--- Backup Target Health Check Mode ---" -Level "HEADING"
+        if (-not ($Configuration.BackupTargets -is [hashtable] -and $Configuration.BackupTargets.ContainsKey($TestBackupTarget))) {
+            & $LocalWriteLog -Message "  - ERROR: The specified target '$TestBackupTarget' was not found in the configuration." -Level "ERROR"
+            return $true # Handled (with an error)
+        }
+        $targetConfig = $Configuration.BackupTargets[$TestBackupTarget]
+        $targetType = $targetConfig.Type
+        & $LocalWriteLog -Message "  - Testing Target: '$TestBackupTarget' (Type: $targetType)" -Level "INFO"
+
+        $providerModuleName = "$targetType.Target.psm1"
+        $providerModulePath = Join-Path -Path $Configuration['_PoShBackup_PSScriptRoot'] -ChildPath "Modules\Targets\$providerModuleName"
+        $testFunctionName = "Test-PoShBackupTargetConnectivity"
+
+        if (-not (Test-Path -LiteralPath $providerModulePath -PathType Leaf)) {
+            & $LocalWriteLog -Message "  - ERROR: Cannot test target. The provider module '$providerModuleName' was not found at '$providerModulePath'." -Level "ERROR"
+            return $true
+        }
+        
+        try {
+            $providerModule = Import-Module -Name $providerModulePath -Force -PassThru -ErrorAction Stop
+            $testFunctionCmd = Get-Command -Name $testFunctionName -Module $providerModule.Name -ErrorAction SilentlyContinue
+
+            if (-not $testFunctionCmd) {
+                & $LocalWriteLog -Message "  - INFO: The '$targetType' target provider does not support an automated health check." -Level "INFO"
+                return $true
+            }
+
+            $testParams = @{
+                TargetSpecificSettings = $targetConfig.TargetSpecificSettings
+                Logger                 = $Logger
+                PSCmdlet               = $PSCmdletInstance
+            }
+            if ($targetConfig.ContainsKey('CredentialsSecretName') -and $testFunctionCmd.Parameters.ContainsKey('CredentialsSecretName')) {
+                $testParams.CredentialsSecretName = $targetConfig.CredentialsSecretName
+            }
+
+            & $LocalWriteLog -Message "  - Invoking health check..." -Level "DEBUG"
+            $testResult = & $testFunctionCmd @testParams
+            
+            if ($null -ne $testResult -and $testResult -is [hashtable] -and $testResult.ContainsKey('Success')) {
+                if ($testResult.Success) {
+                    & $LocalWriteLog -Message "  - RESULT: SUCCESS" -Level "SUCCESS"
+                    if (-not [string]::IsNullOrWhiteSpace($testResult.Message)) {
+                        & $LocalWriteLog -Message "    - Details: $($testResult.Message)" -Level "INFO"
+                    }
+                } else {
+                    & $LocalWriteLog -Message "  - RESULT: FAILED" -Level "ERROR"
+                    if (-not [string]::IsNullOrWhiteSpace($testResult.Message)) {
+                        & $LocalWriteLog -Message "    - Details: $($testResult.Message)" -Level "ERROR"
+                    }
+                }
+            } else {
+                & $LocalWriteLog -Message "  - RESULT: UNKNOWN. The health check function did not return a valid result object." -Level "WARNING"
+            }
+        } catch {
+            & $LocalWriteLog -Message "  - ERROR: An exception occurred while trying to test target '$TestBackupTarget'. Error: $($_.Exception.Message)" -Level "ERROR"
+        }
+        
+        & $LocalWriteLog -Message "`n--- Health Check Finished ---" -Level "HEADING"
+        return $true # Mode was handled
     }
 
     if (-not [string]::IsNullOrWhiteSpace($ExportDiagnosticPackagePath)) {
@@ -464,7 +530,6 @@ function Invoke-PoShBackupDiagnosticMode {
                 $targetConf = $Configuration.BackupTargets[$targetNameKey]
                 & $LocalWriteLog -Message ("    Target: {0} (Type: {1})" -f $targetNameKey, $targetConf.Type) -Level "CONFIG_TEST"
                 if ($targetConf.TargetSpecificSettings) {
-                    # Check if the settings object is an array (for providers like 'Replicate')
                     if ($targetConf.TargetSpecificSettings -is [array]) {
                         & $LocalWriteLog -Message ("      -> TargetSpecificSettings (List of Destinations):") -Level "CONFIG_TEST"
                         $destinationIndex = 0
@@ -472,9 +537,7 @@ function Invoke-PoShBackupDiagnosticMode {
                              $destinationIndex++
                              & $LocalWriteLog -Message ("         [Destination $destinationIndex]") -Level "CONFIG_TEST"
                              if ($destinationItem -is [hashtable]) {
-                                 # Iterate through the settings of this specific destination
                                  $destinationItem.GetEnumerator() | ForEach-Object {
-                                     # Handle nested hashtables (like RetentionSettings) for cleaner display
                                      $destSettingValue = if ($_.Value -is [hashtable]) { '(...)' } else { $_.Value }
                                      & $LocalWriteLog -Message ("           - $($_.Name.PadRight(25)) = $destSettingValue") -Level "CONFIG_TEST"
                                  }
@@ -483,7 +546,6 @@ function Invoke-PoShBackupDiagnosticMode {
                              }
                         }
                     }
-                    # Handle standard hashtable-based settings (for providers like UNC, SFTP, WebDAV, S3)
                     elseif ($targetConf.TargetSpecificSettings -is [hashtable]) {
                         $targetConf.TargetSpecificSettings.GetEnumerator() | ForEach-Object {
                             & $LocalWriteLog -Message ("      -> $($_.Name.PadRight(25)) : $($_.Value)") -Level "CONFIG_TEST"

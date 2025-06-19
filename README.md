@@ -614,6 +614,12 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     ```
     (This is very useful after making changes to `User.psd1`. If this job has dependencies, they will be processed first according to the defined order.)
 
+*   **Test a specific remote backup target's configuration and connectivity:**
+    ```powershell
+    .\PoSh-Backup.ps1 -TestBackupTarget "MyMainUNCShare"
+    ```
+    (Replace `"MyMainUNCShare"` with the name of a target defined in your `BackupTargets` configuration. This will check if the UNC path is accessible, the SFTP server can be logged into, etc.)
+
 *   **List all defined backup jobs and their basic details:**
     ```powershell
     .\PoSh-Backup.ps1 -ListBackupLocations
@@ -798,6 +804,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.
 *   `-ExportDiagnosticPackage <FilePath.zip>`: A utility parameter. Gathers a comprehensive diagnostic report into a single .zip package at the specified path. This includes: sanitized configuration files, a human-readable diff of user changes, recent logs, system/module/7-Zip versions, disk space information, and key directory permissions (ACLs). This is extremely useful for support and troubleshooting.
 *   `-GetEffectiveConfig <JobName>`: A utility parameter. Displays the fully resolved, effective configuration for a given job name, including all global, set, and CLI overrides, then exits. Does not run a backup.
+*   `-TestBackupTarget <TargetName>`: A utility parameter to test connectivity and basic settings for a specific Backup Target defined in your configuration. This does not run a backup but will attempt to connect to the remote endpoint (UNC, SFTP, WebDAV, S3, etc.) using the configured credentials and path to verify the settings are correct.
 
 ### Pinning Backups to Prevent Deletion
 PoSh-Backup includes a feature to "pin" a specific backup archive, which makes it immune to automatic deletion by local or remote retention policies. This is useful for preserving important milestone backups, such as the first backup of a new system, a backup from before a major upgrade, or a known-good full backup that you want to keep as a baseline.

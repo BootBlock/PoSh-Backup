@@ -58,6 +58,8 @@ function Invoke-PoShBackupCoreSetup {
         [switch]$Simulate,
         [Parameter(Mandatory = $true)]
         [switch]$TestConfig,
+        [Parameter(Mandatory = $false)]
+        [string]$TestBackupTarget,
         [Parameter(Mandatory = $true)]
         [switch]$ListBackupLocations,
         [Parameter(Mandatory = $true)]
@@ -108,7 +110,7 @@ function Invoke-PoShBackupCoreSetup {
     # --- 2. Configuration Loading and Validation ---
     $configLoadParams = @{
         UserSpecifiedPath            = $ConfigFile
-        IsTestConfigMode             = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent) -or ($SyncSchedules.IsPresent) -or ($RunVerificationJobs.IsPresent))
+        IsTestConfigMode             = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent) -or ($SyncSchedules.IsPresent) -or ($RunVerificationJobs.IsPresent) -or (-not [string]::IsNullOrWhiteSpace($CliOverrideSettings.TestBackupTarget)))
         MainScriptPSScriptRoot       = $PSScriptRoot
         Logger                       = $LoggerScriptBlock
         SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
@@ -134,8 +136,9 @@ function Invoke-PoShBackupCoreSetup {
         ListBackupLocationsSwitch   = $ListBackupLocations.IsPresent
         ListBackupSetsSwitch        = $ListBackupSets.IsPresent
         TestConfigSwitch            = $TestConfig.IsPresent
+        TestBackupTarget            = $TestBackupTarget
         RunVerificationJobsSwitch   = $RunVerificationJobs.IsPresent
-        CheckForUpdateSwitch        = $CheckForUpdate.IsPresent # NEW: Pass the value
+        CheckForUpdateSwitch        = $CheckForUpdate.IsPresent
         VersionSwitch               = $Version.IsPresent
         PinBackupPath               = $CliOverrideSettings.PinBackup
         UnpinBackupPath             = $CliOverrideSettings.UnpinBackup
@@ -161,7 +164,10 @@ function Invoke-PoShBackupCoreSetup {
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\ScheduleManager.psm1") -Force -ErrorAction Stop
         Sync-PoShBackupSchedule -Configuration $Configuration -PSScriptRoot $PSScriptRoot -Logger $LoggerScriptBlock -PSCmdlet $PSCmdlet; exit 0
     }
-    $null = Invoke-PoShBackupScriptMode @scriptModeParams
+
+    if (Invoke-PoShBackupScriptMode @scriptModeParams) {
+        exit 0
+    }
 
     # --- 4. Check for Maintenance Mode (if not in a utility mode) ---
     if (-not $Maintenance.HasValue) {

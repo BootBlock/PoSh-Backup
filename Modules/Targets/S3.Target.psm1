@@ -14,11 +14,12 @@
 
     The 'Invoke-PoShBackupS3TargetSettingsValidation' function validates the
     'TargetSpecificSettings' for S3 targets in the main configuration.
+    A new function, 'Test-PoShBackupTargetConnectivity', validates the S3 connection and settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.5 # Fixed incorrect variable in debug log message.
+    Version:        1.1.0 # Added Test-PoShBackupTargetConnectivity.
     DateCreated:    17-Jun-2025
-    LastModified:   17-Jun-2025
+    LastModified:   18-Jun-2025
     Purpose:        S3-Compatible Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The 'AWS.Tools.S3' module must be installed (`Install-Module AWS.Tools.S3`).
@@ -118,6 +119,68 @@ function Group-RemoteS3BackupInstancesInternal {
         }
     }
     return $instances
+}
+#endregion
+
+#region --- S3 Target Connectivity Test Function ---
+function Test-PoShBackupTargetConnectivity {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$TargetSpecificSettings,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
+    )
+    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
+    
+    $bucketName = $TargetSpecificSettings.BucketName
+    & $LocalWriteLog -Message "  - S3 Target: Testing connectivity to bucket '$bucketName'..." -Level "INFO"
+
+    if (-not (Get-Module -Name AWS.Tools.S3 -ListAvailable)) {
+        return @{ Success = $false; Message = "AWS.Tools.S3 module is not installed. Please install it using 'Install-Module AWS.Tools.S3'." }
+    }
+    Import-Module AWS.Tools.S3 -ErrorAction SilentlyContinue
+
+    $accessKey = $null; $secretKey = $null
+    try {
+        $accessKey = Get-SecretFromVaultInternal-S3 -SecretName $TargetSpecificSettings.AccessKeySecretName -Logger $Logger -SecretPurposeForLog "S3 Access Key"
+        $secretKey = Get-SecretFromVaultInternal-S3 -SecretName $TargetSpecificSettings.SecretKeySecretName -Logger $Logger -SecretPurposeForLog "S3 Secret Key"
+        if ([string]::IsNullOrWhiteSpace($accessKey) -or [string]::IsNullOrWhiteSpace($secretKey)) { throw "Failed to retrieve valid S3 credentials from SecretManagement." }
+
+        $s3CommonParams = @{
+            AccessKey      = $accessKey
+            SecretKey      = $secretKey
+            Region         = $TargetSpecificSettings.Region
+            EndpointUrl    = $TargetSpecificSettings.ServiceUrl
+            ForcePathStyle = $true
+            ErrorAction    = 'Stop'
+        }
+        
+        $getBucketParams = $s3CommonParams.Clone()
+        $getBucketParams.BucketName = $bucketName
+
+        if (-not $PSCmdlet.ShouldProcess($bucketName, "Test S3 Bucket Accessibility")) {
+            return @{ Success = $false; Message = "S3 bucket accessibility test skipped by user." }
+        }
+
+        Get-S3Bucket @getBucketParams | Out-Null
+        
+        $successMessage = "Successfully connected to S3 endpoint and accessed bucket '$bucketName'."
+        & $LocalWriteLog -Message "    - SUCCESS: $successMessage" -Level "SUCCESS"
+        return @{ Success = $true; Message = $successMessage }
+
+    } catch {
+        $errorMessage = "S3 connection test failed. Error: $($_.Exception.Message)"
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+             $errorMessage += " Status Code: $($_.Exception.Response.StatusCode)."
+        }
+        & $LocalWriteLog -Message "    - FAILED: $errorMessage" -Level "ERROR"
+        return @{ Success = $false; Message = $errorMessage }
+    } finally {
+        $accessKey = $null; $secretKey = $null; [System.GC]::Collect()
+    }
 }
 #endregion
 
@@ -336,4 +399,4 @@ function Invoke-PoShBackupTargetTransfer {
 }
 #endregion
 
-Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupS3TargetSettingsValidation
+Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupS3TargetSettingsValidation, Test-PoShBackupTargetConnectivity
