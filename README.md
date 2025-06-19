@@ -560,6 +560,11 @@ Instead of backing up files directly from the live VM's file system, PoSh-Backup
 Once your `Config\User.psd1` is configured with at least one backup job, you can run PoSh-Backup from a PowerShell console located in the script's root directory:
 
 > **Tip:** You can use the `Tab` key to auto-complete job and set names for parameters like `-BackupLocationName` and `-RunSet`.
+*   **Run interactively and choose from a menu:**
+    ```powershell
+    .\PoSh-Backup.ps1
+    ```
+    (If no specific job or set is provided on the command line, and multiple options are defined in your configuration, this will display a two-column menu of all available jobs and sets for you to choose from.)
 
 *   **Enable Maintenance Mode (prevents jobs from running):**
     ```powershell
@@ -724,8 +729,8 @@ VerificationJobs = @{
 
         # The name of the BackupLocation whose archives you want to test.
         # This job *must* have 'GenerateContentsManifest = $true' set.
-        TargetJobName = "Projects" 
-        
+        TargetJobName = "Projects"
+
         # If the target archive is encrypted, provide the secret name.
         ArchivePasswordSecretName = "MyArchivePassword" # Optional
 
@@ -744,7 +749,7 @@ VerificationJobs = @{
         # - "VerifyChecksums": Parses the contents manifest and verifies the existence,
         #   size, modification date, and CRC checksum for every restored file.
         VerificationSteps = @("TestArchive", "VerifyChecksums")
-        
+
         # How many of the most recent backup instances for the TargetJobName to test.
         # '1' will test only the very latest backup. '3' will test the latest three.
         TestLatestCount = 1

@@ -63,12 +63,12 @@
     "   - **Conditional Dependency Checker:** The dependency check in `CoreSetupManager.psm1` was refactored to be context-aware. It runs *after* jobs are resolved and only checks for modules required by the jobs *actually being run*. This prevents errors for users who have not installed optional modules (like `Posh-SSH`) for features they are not using.",
     "Standardised Exit Codes: Centralised all script exit codes into a global map in `InitialisationManager.psm1` for consistency and easier automation. Updated `FinalisationManager.psm1` and `PoSh-Backup.ps1` to use these new codes. Documented in `README.md`.",
     "   - **Parameter Set Management:** Implementing the various utility modes (`-ListArchiveContents`, `-PinBackup`, etc.) required a significant refactoring of the `param()` block in `PoSh-Backup.ps1` into distinct, mutually exclusive parameter sets (`Execution`, `Pinning`, `Listing`, etc.) to resolve ambiguity.",
-    "",
+    "Interactive Job/Set Selection: When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets instead of erroring out. The menu is colour-coded and allows the user to run an item by number or quit.",
     "--- Current Status ---",
     "The most recent refactoring decomposed the large `CoreSetupManager.psm1` into a facade and several smaller, single-responsibility sub-modules under `Modules\Managers\CoreSetupManager`. This included fixing several module scoping issues related to `Get-ConfigValue` and other functions not being available in the new sub-modules' scopes."
   )
 
-  main_script_poSh_backup_version = "1.29.2 # Standardised Exit Codes."
+  main_script_poSh_backup_version = "1.29.3 # Added interactive job selection menu."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
