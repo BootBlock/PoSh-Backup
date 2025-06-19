@@ -156,6 +156,42 @@ function Invoke-PoShBackupDependencyCheck {
                 }
                 return $false # Condition not met, skip check.
             }
+        },
+        @{
+            ModuleName  = 'BurntToast'
+            RequiredFor = 'Desktop (Toast) Notification Provider on PowerShell 7+'
+            InstallHint = 'Install-Module BurntToast -Scope CurrentUser'
+            Condition   = {
+                param($Config, $ActiveJobs)
+                
+                # This dependency is only relevant on PowerShell 7+
+                if ($PSVersionTable.PSVersion.Major -lt 6) {
+                    return $false 
+                }
+
+                # Check if any active job uses a Desktop notification profile.
+                if ($Config.ContainsKey('NotificationProfiles') -and $Config.NotificationProfiles -is [hashtable]) {
+                    foreach ($jobName in $ActiveJobs) {
+                        if (-not $Config.BackupLocations.ContainsKey($jobName)) { continue }
+                        $jobConf = $Config.BackupLocations[$jobName]
+                        
+                        # We must check the effective settings, considering set-level overrides too.
+                        # This simplified check looks at the job's direct config. A full implementation
+                        # would need the final effective notification settings. For now, this is a good heuristic.
+                        $notificationSettings = $jobConf.NotificationSettings
+                        if ($notificationSettings -is [hashtable] -and $notificationSettings.Enabled -eq $true -and -not [string]::IsNullOrWhiteSpace($notificationSettings.ProfileName)) {
+                            $profileName = $notificationSettings.ProfileName
+                            if ($Config.NotificationProfiles.ContainsKey($profileName)) {
+                                $notificationProfile = $Config.NotificationProfiles[$profileName]
+                                if ($notificationProfile -is [hashtable] -and $notificationProfile.Type -eq 'Desktop') {
+                                    return $true # Condition met, check is required.
+                                }
+                            }
+                        }
+                    }
+                }
+                return $false # Condition not met, skip check.
+            }
         }
     )
 

@@ -79,7 +79,8 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
 *   **Posh-SSH Module:** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).
 *   **PowerShell SecretManagement & SecretStore:** Required for storing any credentials (for archives, targets, or email). The script assumes you are using the default `Microsoft.PowerShell.SecretStore` vault provider.
-*   **AWS.Tools.S3 Module:** Required if you plan to use the S3-Compatible Backup Target feature. Install via PowerShell: `Install-Module AWS.Tools.S3 -Scope CurrentUser`.
+*   **BurntToast Module (for PowerShell 7+):** Required for the Desktop (Toast) Notification provider *if you are running on PowerShell 7 or newer*. Install via PowerShell 7: `Install-Module BurntToast -Scope CurrentUser`.
+*   **Modern Windows OS (for Desktop Notifications):** The native desktop "toast" notification feature requires Windows 10, Windows 11, or Windows Server 2016 and newer.
 *   **Administrator Privileges:** Required if you plan to use the Volume Shadow Copy Service (VSS) feature for backing up open/locked files, and potentially for some Post-Run System Actions (e.g., Shutdown, Restart, Hibernate).
 *   **Hyper-V Module:** Required if you plan to use the Hyper-V Snapshot Orchestration feature. On Windows Client OS, this is installed via "Turn Windows features on or off". On Windows Server, it's installed as a server role.
 *   **(WebDAV):** The WebDAV target provider uses built-in PowerShell cmdlets (`Invoke-WebRequest`) and does not require an additional external module for its core functionality.
@@ -291,10 +292,25 @@ A powerful, modular PowerShell script for backing up your files and folders usin
                         Method               = "POST"
                         # BodyTemplate is a here-string containing the JSON payload.
                         # Placeholders like {JobName}, {Status}, {ErrorMessage}, etc., will be replaced.
-                        BodyTemplate         = @'
+                        BodyTemplate         = "PoSh-Backup Job: {JobName}, {Status}"
+                    }
+                }
+
+                # Example for the native Windows Desktop (Toast) Notification provider
+                "MyDesktopAlerts" = @{
+                    Type             = "Desktop"
+                    ProviderSettings = @{
+                        # No specific settings are needed for the native provider yet.
+                        # This section is reserved for future customisations.
                     }
                 }
             }
+
+        > **Note on Desktop Notifications:** This feature uses a version-aware approach.
+
+        * On **Windows PowerShell 5.1**, it uses native Windows APIs to display notifications.
+        * On **PowerShell 7+**, it requires the BurntToast module.
+        In both cases, the first time a desktop notification is used, the script will automatically create a shortcut for itself in your Start Menu (PoSh-Backup.lnk). This one-time setup is required by Windows to allow the script to send notifications.
             ```
         *   **`DefaultNotificationSettings`**: These are the default notification settings for all jobs/sets.
             ```powershell

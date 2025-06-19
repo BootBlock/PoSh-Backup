@@ -55,7 +55,7 @@
             Type     = "hashtable"
             Required = $true
             Schema   = @{
-                Type             = @{ Type = 'string'; Required = $true; AllowedValues = @("Email", "Webhook") }
+                Type             = @{ Type = 'string'; Required = $true; AllowedValues = @("Email", "Webhook", "Desktop") }
                 ProviderSettings = @{ Type = 'hashtable'; Required = $true } # Specific validation will be handled by the provider itself.
             }
         }

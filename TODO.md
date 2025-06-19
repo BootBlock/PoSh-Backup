@@ -1086,12 +1086,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** Review path handling in `Modules\Managers\7ZipManager.psm1`, `Modules\Operations\LocalArchiveProcessor.psm1`, `Modules\Targets\*` (for remote paths), and utility functions.
     *   **Acceptance Criteria:** Backups and transfers involving long paths complete successfully where the OS and 7-Zip support it.
 
-133. **Feature: Configurable Action on "Source Path Not Found"**
-    *   **Goal:** Allow users to define how a job behaves if one or more of its specified source paths are not found.
-    *   **Description:** Options could be "FailJob" (current default), "WarnAndContinue" (skip missing path and back up others), "SkipJob".
-    *   **Scope & Impact:** `Config\Default.psd1` (job-level `OnSourcePathNotFound`), `Modules\Core\Operations\JobPreProcessor.psm1` (or where source paths are initially validated).
-    *   **Acceptance Criteria:** Job behaves as configured when a source path is missing.
-
 134. **Enhancement: More Robust Check for 7-Zip Executable during `-TestConfig`**
     *   **Goal:** Ensure that `-TestConfig` explicitly verifies the `SevenZipPath` not just for existence but also tries to get its version.
     *   **Description:** Currently, `ConfigLoader` validates the path. `-TestConfig` could go a step further and attempt to run `7z.exe` with a simple command (like `i`) to confirm it's a working 7-Zip.
@@ -1428,12 +1422,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** New CLI mode, functions to parse, modify, and save PSD1 data programmatically (carefully!).
     *   **Acceptance Criteria:** Users can modify common job settings via a guided CLI interface.
 
-198. **Feature: Visualizer for Job Dependencies (`-TestConfig` Enhancement)**
-    *   **Goal:** When running `-TestConfig`, optionally output a simple text-based graph or indented list showing job dependencies.
-    *   **Description:** Helps users visualize the execution order and how jobs relate. E.g., `JobC -> JobB -> JobA`.
-    *   **Scope & Impact:** `Modules\ScriptModeHandler.psm1`, `Modules\Managers\JobDependencyManager.psm1` (to provide structured dependency info).
-    *   **Acceptance Criteria:** `-TestConfig` can display a visual representation of job dependencies.
-
 199. **Feature: "Best Practices" Configuration Analyzer**
     *   **Goal:** A mode that analyzes the current configuration and suggests improvements or points out potentially risky settings based on common best practices.
     *   **Description:** E.g., "Warning: Job 'X' has no remote target defined." or "Info: Consider enabling VSS for job 'Y' if source files might be open." or "Warning: PlainText password used for job Z."
@@ -1453,12 +1441,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Description:** Useful if the user suddenly needs system resources for another task.
     *   **Scope & Impact:** **Complex.** Requires ability to suspend/resume `7z.exe` process (if possible via OS calls) or for target transfers, manage state and restart. Might be easier for chunked transfers.
     *   **Acceptance Criteria:** A running job can be paused and later resumed.
-
-202. **Feature: Desktop Notifications for Job Completion (Toast Notifications)**
-    *   **Goal:** Provide native desktop notifications (Windows toast notifications, or equivalents on other OS if cross-platform) on job completion or critical failure.
-    *   **Description:** Useful when PoSh-Backup is running in the background.
-    *   **Scope & Impact:** `Modules\Managers\FinalisationManager.psm1`. Use modules like `BurntToast` or direct OS APIs.
-    *   **Acceptance Criteria:** Desktop notifications appear for job completion/failure.
 
 203. **Enhancement: More Granular `-Simulate` Output Levels**
     *   **Goal:** Allow different levels of verbosity for simulation.

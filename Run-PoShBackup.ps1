@@ -1,5 +1,5 @@
 # Run-PoShBackup.ps1 - Wrapper script to unlock the vault and run a backup set.
-# Don't use this if you're not working with a secrets vault.
+# Don't use this if you're not working with a secrets vault that may be locked.
 
 # --- Configuration ---
 $PoShBackupScriptPath = "C:\Scripts\PoSh-Backup\PoSh-Backup.ps1"

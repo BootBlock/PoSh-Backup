@@ -7,7 +7,7 @@
     "CRITICAL (AI): VERIFY LINE COUNTS AND COMMENT INTEGRITY. EXTREME VIGILANCE REQUIRED.",
     "CRITICAL (AI): Ensure no extraneous trailing whitespace.",
     "CRITICAL (AI): When modifying existing files, EXPLICITLY CONFIRM THE BASELINE VERSION/CONTENT. If errors persist, switch to diffs/patches or manual user changes.",
-    "CRITICAL (AI STRATEGY): When a fix causes a regression or a similar error, STOP. Perform a deeper root cause analysis instead of iterative, surface-level fixes. The scheduling feature is a key example of this failure.",
+    "CRITICAL (AI STRATEGY): When a fix causes a regression or a similar error, STOP. Perform a deeper root cause analysis instead of iterative, surface-level fixes. The scheduling and notification features are key examples of this failure.",
     "CRITICAL (SYNTAX - ScheduledTasks): The `ScheduledTasks` module was BUGGY and has specific requirements:",
     "  - **RandomDelay:** The `-RandomDelay` parameter on `New-ScheduledTaskTrigger` is broken. The ONLY reliable method is to create the task definition *without* the delay, use `Export-ScheduledTask` to get the XML, manually inject the ISO 8601 string (e.g., `<RandomDelay>PT15M</RandomDelay>`), and then register the task using `Register-ScheduledTask -Xml`.",
     "  - **Finding Tasks:** `Get-ScheduledTask -TaskName 'MyTask' -TaskPath '\MyFolder'` is UNRELIABLE. The correct method is to get all tasks in the folder using a wildcard (`Get-ScheduledTask -TaskPath '\MyFolder\*'`) and then filter the results in PowerShell.",
@@ -35,40 +35,48 @@
 
   conversation_summary            = @(
     "--- Project Overview & Status ---",
-    "Development of a comprehensive, modular PowerShell backup solution (PoSh-Backup v1.29.1).",
+    "Development of a comprehensive, modular PowerShell backup solution (PoSh-Backup v1.29.4).",
     "The project is heavily modularised into `Core`, `Managers`, `Utilities`, `Operations`, `Reporting`, and `Targets`.",
     "Bundler script `Generate-ProjectBundleForAI.ps1` (v__BUNDLER_VERSION_PLACEHOLDER__) is used to maintain session context.",
     "",
+    "--- Feature: Desktop (Toast) Notifications (Current Session) ---",
+    "   - Goal: Add a 'Desktop' notification provider for native Windows toast notifications.",
+    "   - Stage 1 (Initial Native API): Attempted to use WinRT APIs directly via `[Windows.UI.Notifications.ToastNotificationManager,...]`. This FAILED in PowerShell 5.1 with a `Cannot find an overload for ToString and the argument count: 1` error due to a known parser bug.",
+    "   - Stage 2 (BurntToast Module): Reverted to using the `BurntToast` module. This also FAILED in PowerShell 5.1 because the module internally calls the same buggy WinRT APIs.",
+    "   - Stage 3 (Final Hybrid Solution):",
+    "     - Implemented version-aware logic in `Modules\\Managers\\NotificationManager.psm1` (v1.4.1).",
+    "     - **For Windows PowerShell 5.1:** It now uses `[System.Type]::GetType()` to load WinRT APIs directly, bypassing the parser bug.",
+    "     - **For PowerShell 7+:** It uses the `BurntToast` module, which is the standard for modern PowerShell.",
+    "     - A one-time setup creates a `PoSh-Backup.lnk` in the Start Menu to register the necessary AppID for notifications.",
+    "   - Configured `Config\\Default.psd1` and `ConfigSchema.psd1` to add the 'Desktop' provider.",
+    "   - Updated `Modules\\Managers\\CoreSetupManager\\DependencyChecker.psm1` to conditionally require `BurntToast` only when running on PowerShell 7+ and a Desktop profile is in use.",
+    "   - Updated `README.md` to document the feature and its conditional dependency.",
+    "",
     "--- Key Architectural Concepts & Patterns ---",
-    "   - **Facade Modules:** Key modules like `Utils.psm1`, `ConfigManager.psm1`, `Operations.psm1`, `7ZipManager.psm1`, and `ScriptModeHandler.psm1` act as facades, orchestrating calls to more specialised sub-modules. This keeps the high-level logic clean and separates concerns.",
-    "   - **Provider Model:** Backup targets (UNC, SFTP, WebDAV, S3, Replicate) and infrastructure snapshots (Hyper-V) are implemented as pluggable providers, making the system extensible.",
-    "   - **Script Mode Handling:** Non-backup operations (`-ListJobs`, `-TestConfig`, `-PinBackup`, etc.) are delegated to specialised modules under `Modules\ScriptModes\` to keep `PoSh-Backup.ps1` focused on orchestration.",
+    "   - **Facade Modules:** Key modules like `Utils.psm1`, `ConfigManager.psm1`, `Operations.psm1`, `7ZipManager.psm1`, and `ScriptModeHandler.psm1` act as facades, orchestrating calls to more specialised sub-modules.",
+    "   - **Provider Model:** Backup targets (UNC, SFTP, WebDAV, S3, Replicate), infrastructure snapshots (Hyper-V), and notifications (Email, Webhook, Desktop) are implemented as pluggable providers.",
+    "   - **Script Mode Handling:** Non-backup operations (`-ListJobs`, `-TestConfig`, `-PinBackup`, etc.) are delegated to specialised modules under `Modules\ScriptModes\`.",
     "   - **Configuration:** A layered configuration system uses `Default.psd1` for all settings and `User.psd1` for user-specific overrides. A schema (`ConfigSchema.psd1`) is used for advanced validation.",
     "",
     "--- Completed Core Features (Stable) ---",
-    "   - **Archive Creation:** Standard, multi-volume (split), and self-extracting (SFX) archives. Split archives override SFX creation.",
+    "   - **Archive Creation:** Standard, multi-volume (split), and self-extracting (SFX) archives.",
     "   - **Archive Management:** Listing contents, extracting files, and pinning/unpinning archives from retention.",
     "   - **7-Zip Control:** CPU affinity, custom temporary directory, include/exclude list files, and granular compression settings.",
-    "   - **Data Integrity:** Checksum generation (single file or multi-volume manifest) and optional verification. Optional pre-delete archive testing.",
+    "   - **Data Integrity:** Checksum generation (single file or multi-volume manifest) and optional verification.",
     "   - **Job Control:** Job dependencies/chaining, `Enabled = $false` flag, and configurable action on missing source paths (`FailJob`, `WarnAndContinue`, `SkipJob`).",
     "   - **System Integration:** Post-run system actions (shutdown, restart), integrated scheduling with Windows Task Scheduler, and a global maintenance mode.",
     "   - **Automated Verification:** A framework to automatically restore backups to a sandbox and verify their contents against a generated manifest.",
-    "   - **Notifications:** A provider-based system supporting Email and Webhooks.",
-    "   - **Usability:** CLI tab-completion for job/set names and numerous CLI override switches for troubleshooting and control.",
+    "   - **Usability:** CLI tab-completion for job/set names and an interactive job selection menu.",
     "   - **Reporting & Logging:** Multi-format reports (HTML, JSON, CSV, etc.) and robust log file management with automated retention/compression.",
     "",
     "--- Important Implementation Patterns & Learnings to Retain ---",
-    "   - **Pester Testing:** Found two successful patterns for testing module functions: **A)** Direct `Import-Module` with careful `$script:` scoping for data and function references. **B)** Copying logic into the `.Tests.ps1` file, dot-sourcing it, and then mocking its dependencies (like `Write-LogMessage`). Mocking `Write-LogMessage` is done via a dummy function that gets replaced by `Mock`. This context is critical for future test development.",
-    "   - **Hyper-V Snapshots:** This was a complex implementation. **A critical finding was the need to use a `$Global:` variable (`$Global:PoShBackup_SnapshotManager_ActiveSessions`) to track the snapshot session across different module scopes.** A module-scoped `$Script:` variable was insufficient because the cleanup function was called from a different scope than the creation function. This pattern is essential if adding other stateful providers.",
-    "   - **Conditional Dependency Checker:** The dependency check in `CoreSetupManager.psm1` was refactored to be context-aware. It runs *after* jobs are resolved and only checks for modules required by the jobs *actually being run*. This prevents errors for users who have not installed optional modules (like `Posh-SSH`) for features they are not using.",
-    "Standardised Exit Codes: Centralised all script exit codes into a global map in `InitialisationManager.psm1` for consistency and easier automation. Updated `FinalisationManager.psm1` and `PoSh-Backup.ps1` to use these new codes. Documented in `README.md`.",
-    "   - **Parameter Set Management:** Implementing the various utility modes (`-ListArchiveContents`, `-PinBackup`, etc.) required a significant refactoring of the `param()` block in `PoSh-Backup.ps1` into distinct, mutually exclusive parameter sets (`Execution`, `Pinning`, `Listing`, etc.) to resolve ambiguity.",
-    "Interactive Job/Set Selection: When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets instead of erroring out. The menu is colour-coded and allows the user to run an item by number or quit.",
-    "--- Current Status ---",
-    "The most recent refactoring decomposed the large `CoreSetupManager.psm1` into a facade and several smaller, single-responsibility sub-modules under `Modules\Managers\CoreSetupManager`. This included fixing several module scoping issues related to `Get-ConfigValue` and other functions not being available in the new sub-modules' scopes."
+    "   - **Pester Testing:** Found two successful patterns for testing module functions: **A)** Direct `Import-Module` with careful `$script:` scoping for data and function references. **B)** Copying logic into the `.Tests.ps1` file, dot-sourcing it, and then mocking its dependencies.",
+    "   - **Hyper-V Snapshots:** A critical finding was the need to use a `$Global:` variable (`$Global:PoShBackup_SnapshotManager_ActiveSessions`) to track the snapshot session across different module scopes.",
+    "   - **Conditional Dependency Checker:** The dependency check in `CoreSetupManager.psm1` is context-aware. It runs *after* jobs are resolved and only checks for modules required by the jobs *actually being run*.",
+    "   - **Interactive Job/Set Selection:** When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets. This is accomplished via `Modules\ConfigManagement\JobResolver.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.29.3 # Added interactive job selection menu."
+  main_script_poSh_backup_version = "1.29.4 # Added version-aware Desktop Toast Notifications."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
@@ -103,8 +111,9 @@
       "shutdown.exe (Windows utility - for Shutdown, Restart, LogOff actions)"
     )
     powershell_modules = @(
-      "Posh-SSH (for SFTP target provider)" # Assuming this is still a direct dependency for SFTP.Target.psm1
-      # Microsoft.PowerShell.SecretManagement is a system component, not typically listed as an external module to *bundle*.
+      "Posh-SSH (for SFTP target provider)",
+      "BurntToast (for Desktop notifications on PowerShell 7+)",
+      "AWS.Tools.S3 (for S3-Compatible target provider)"
     )
   }
 }

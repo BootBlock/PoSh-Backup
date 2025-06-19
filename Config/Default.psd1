@@ -206,6 +206,14 @@
 '@
             }
         }
+
+        "Desktop" = @{
+            Type             = "Desktop"
+            ProviderSettings = @{
+                # No specific settings are needed for the native provider yet.
+                # This section is reserved for future customisations (e.g., custom sounds, icons).
+            }
+        }
     }
 
     # Define the default behaviour for notifications.
@@ -611,8 +619,8 @@
             # --- Notification Settings for this Job ---
             # These settings override the DefaultNotificationSettings.
             NotificationSettings = @{
-                Enabled         = $false                              # Set to $true to enable alerts for this specific job.
-                ProfileName     = ""                                  # Which profile from NotificationProfiles to use.
+                Enabled         = $true                               # Set to $true to enable alerts for this specific job.
+                ProfileName     = "Desktop"                           # Which profile from NotificationProfiles to use.
                 #ToAddress       = @("your_email@example.com")        # For Email provider
                 TriggerOnStatus = @("ANY")                            # Notify regardless of whether this job succeeds, warns, or fails.
             }
