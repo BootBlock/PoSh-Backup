@@ -73,12 +73,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     - **Scope & Impact:** `Config\Default.psd1`, `Modules\PoShBackupValidator.psm1`, `Modules\Managers\7ZipManager.psm1` (argument builder).
     - **Acceptance Criteria:** Users can specify presets; archives are split accordingly.
 
-2. **Feature: Post-Archive Creation Script Hook (Local)**
-    - **Goal:** Allow a script to run immediately after local archive creation/testing but before any remote transfers or local retention.
-    - **Description:** Useful for custom local validation, moving the archive to a different local staging area, or triggering another local process that depends on the archive existing locally.
-    - **Scope & Impact:** `Config\Default.psd1` (new hook type `PostLocalArchiveScriptPath`), `Modules\Managers\HookManager.psm1`, `Modules\Core\Operations\JobExecutor.psm1`.
-    - **Acceptance Criteria:** Script executes at the specified point in the lifecycle.
-
 4. **Enhancement: Granular Control over VSS Writers**
     - **Goal:** Allow excluding specific VSS writers during shadow copy creation.
     - **Description:** Some VSS writers can cause issues or are unnecessary for certain backups. diskshadow supports excluding writers.
