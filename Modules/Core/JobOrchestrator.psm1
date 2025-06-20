@@ -427,7 +427,7 @@ $cliOverridesString
             }
         }
 
-        # --- NEW: Email Notification Logic ---
+        # --- Email Notification Logic ---
         if (Get-Command Send-PoShBackupEmailNotification -ErrorAction SilentlyContinue) {
             $defaultEmailSettings = Get-ConfigValue -ConfigObject $Configuration -Key 'DefaultEmailNotification' -DefaultValue @{}
             $jobEmailSettings = Get-ConfigValue -ConfigObject $jobConfigFromMainConfig -Key 'EmailNotification' -DefaultValue @{}
@@ -456,7 +456,7 @@ $cliOverridesString
                     -CurrentSetName $CurrentSetName
             }
         }
-        # --- END NEW: Email Notification Logic ---
+        # --- END Email Notification Logic ---
 
         if ($Global:GlobalEnableFileLogging -and (-not [string]::IsNullOrWhiteSpace($Global:GlobalLogDirectory))) {
             $finalLogRetentionCountForJob = $null

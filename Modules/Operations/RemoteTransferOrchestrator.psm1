@@ -18,9 +18,9 @@
     after the local archive has been successfully created and (optionally) verified.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.1 # Fixed bug calling non-existent function for TransferSizeFormatted.
+    Version:        1.2.0 # Fixed logic to correctly find and transfer all sidecar files (e.g., .contents.manifest, .pinned).
     DateCreated:    24-May-2025
-    LastModified:   17-Jun-2025
+    LastModified:   20-Jun-2025
     Purpose:        To modularise remote target transfer orchestration from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the parent 'Modules' directory.
@@ -45,7 +45,7 @@ function Invoke-RemoteTargetTransferOrchestration {
         [string]$LocalFinalArchivePath,
         [Parameter(Mandatory = $true)]
         [string]$JobName,
-        [Parameter(Mandatory = $true)] # Base archive name (e.g., MyJob [Date].7z or MyJob [Date].exe)
+        [Parameter(Mandatory = $true)] # Base archive name (e.g., MyJob [DateStamp].7z or MyJob [DateStamp].exe)
         [string]$ArchiveFileNameOnly, 
         [Parameter(Mandatory = $true)]
         [ref]$JobReportDataRef,
@@ -67,12 +67,11 @@ function Invoke-RemoteTargetTransferOrchestration {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $Logger -Message "RemoteTransferOrchestrator/Invoke-RemoteTargetTransferOrchestration: Logger active for job '$($EffectiveJobConfig.JobName)'." -Level "DEBUG"
+    & $Logger -Message "RemoteTransferOrchestrator/Invoke-RemoteTargetTransferOrchestration: Logger active for job '$JobName'." -Level "DEBUG"
 
     $reportData = $JobReportDataRef.Value
     $allTargetTransfersSuccessfulOverall = $true 
     $localFilesToTransfer = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
-    $localManifestFile = $null
 
     if ($EffectiveJobConfig.ResolvedTargetInstances.Count -eq 0) {
         & $LocalWriteLog -Message "[INFO] RemoteTransferOrchestrator: No remote targets configured for job '$jobName'. Skipping remote transfers." -Level "INFO"
@@ -81,17 +80,17 @@ function Invoke-RemoteTargetTransferOrchestration {
 
     & $LocalWriteLog -Message "`n[INFO] RemoteTransferOrchestrator: Starting remote target transfers for job '$jobName'..." -Level "INFO"
 
-    # --- Identify all local files to transfer (volumes and manifest) ---
-    $baseArchiveNameForManifestAndVolumes = "$($EffectiveJobConfig.BaseFileName) [$($ReportData.ScriptStartTime | Get-Date -Format $EffectiveJobConfig.JobArchiveDateFormat)]$($EffectiveJobConfig.InternalArchiveExtension)"
+    # --- Identify all local files to transfer (volumes and sidecar files) ---
     $localArchiveDirectory = Split-Path -Path $LocalFinalArchivePath -Parent
-
+    $archiveInstanceBaseName = "$($EffectiveJobConfig.BaseFileName) [$($ReportData.ScriptStartTime | Get-Date -Format $EffectiveJobConfig.JobArchiveDateFormat)]$($EffectiveJobConfig.InternalArchiveExtension)"
+    
+    # Add primary archive file(s)
     if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize)) {
         # Find all volumes: e.g., "basename.7z.001", "basename.7z.002", ...
-        $volumePattern = [regex]::Escape($baseArchiveNameForManifestAndVolumes) + "\.\d{3,}"
+        $volumePattern = [regex]::Escape($archiveInstanceBaseName) + "\.\d{3,}"
         Get-ChildItem -Path $localArchiveDirectory -File | Where-Object { $_.Name -match $volumePattern } | ForEach-Object { $localFilesToTransfer.Add($_) }
         if ($localFilesToTransfer.Count -eq 0) {
             & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Local staged archive (first volume) '$LocalFinalArchivePath' was expected, but no volume parts found matching pattern '$volumePattern' in '$localArchiveDirectory'. Cannot proceed with remote target transfers." -Level "ERROR"
-            # Add entries to TargetTransfers indicating failure for all targets
             foreach ($targetInstanceCfg in $EffectiveJobConfig.ResolvedTargetInstances) {
                 $reportData.TargetTransfers.Add(@{ TargetName = $targetInstanceCfg._TargetInstanceName_; TargetType = $targetInstanceCfg.Type; Status = "Skipped"; ErrorMessage = "Local archive volumes not found."})
             }
@@ -110,25 +109,32 @@ function Invoke-RemoteTargetTransferOrchestration {
             return @{ AllTransfersSuccessful = $false }
         }
     }
+    
+    # --- Identify all associated sidecar files (manifests, checksums, pins) ---
+    # The base name for sidecar files is the name of the archive instance itself.
+    $sidecarFileBaseName = if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize)) { $archiveInstanceBaseName } else { $ArchiveFileNameOnly }
+    & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Scanning for sidecar files matching base name '$sidecarFileBaseName'..." -Level "DEBUG"
+    
+    # Define the exact file names we are looking for based on the base name
+    $expectedSidecarFileNames = @(
+        "$sidecarFileBaseName.contents.manifest",
+        "$sidecarFileBaseName.manifest.$($EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant())",
+        "$sidecarFileBaseName.$($EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant())", # For single files
+        "$sidecarFileBaseName.pinned"
+    ) | Select-Object -Unique
 
-    # Check for and add manifest file if it exists and is configured
-    if ($EffectiveJobConfig.GenerateSplitArchiveManifest -or ($EffectiveJobConfig.GenerateArchiveChecksum -and $localFilesToTransfer.Count -eq 1)) {
-        $manifestBaseName = if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize)) { $baseArchiveNameForManifestAndVolumes } else { $ArchiveFileNameOnly }
-        $expectedManifestFileName = "$($manifestBaseName).manifest.$($EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant())"
-        if ($EffectiveJobConfig.GenerateArchiveChecksum -and $localFilesToTransfer.Count -eq 1 -and -not $EffectiveJobConfig.GenerateSplitArchiveManifest) { # Single file checksum
-             $expectedManifestFileName = "$($ArchiveFileNameOnly).$($EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant())"
-        }
+    $existingFileNamesInList = $localFilesToTransfer | ForEach-Object { $_.Name }
 
-        $potentialManifestPath = Join-Path -Path $localArchiveDirectory -ChildPath $expectedManifestFileName
-        if (Test-Path -LiteralPath $potentialManifestPath -PathType Leaf) {
-            $localManifestFile = Get-Item -LiteralPath $potentialManifestPath
-            $localFilesToTransfer.Add($localManifestFile) # Add manifest to the list of files to transfer
-            & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Identified manifest file '$($localManifestFile.Name)' for transfer." -Level "DEBUG"
-        } elseif ($EffectiveJobConfig.GenerateSplitArchiveManifest) {
-             & $LocalWriteLog -Message "[WARNING] RemoteTransferOrchestrator: Manifest generation was enabled, but manifest file '$expectedManifestFileName' not found at '$localArchiveDirectory'." -Level "WARNING"
+    foreach ($expectedFileName in $expectedSidecarFileNames) {
+        $fullPath = Join-Path -Path $localArchiveDirectory -ChildPath $expectedFileName
+        if ((Test-Path -LiteralPath $fullPath -PathType Leaf) -and ($expectedFileName -notin $existingFileNamesInList)) {
+            $fileInfo = Get-Item -LiteralPath $fullPath
+            $localFilesToTransfer.Add($fileInfo)
+            & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Identified associated sidecar file '$($fileInfo.Name)' for transfer." -Level "DEBUG"
         }
     }
-    
+    # --- END LOGIC ---
+
     if ($localFilesToTransfer.Count -eq 0) {
         & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: No local files (archive parts or manifest) identified for transfer for job '$jobName'." -Level "ERROR"
         return @{ AllTransfersSuccessful = $false }
@@ -166,7 +172,7 @@ function Invoke-RemoteTargetTransferOrchestration {
                 $currentTransferReport = @{
                     TargetName            = $targetInstanceName
                     TargetType            = $targetInstanceType
-                    FileTransferred       = $currentFileNameOnly # New field to identify which part/manifest
+                    FileTransferred       = $currentFileNameOnly
                     Status                = "Skipped"
                     RemotePath            = "N/A"
                     ErrorMessage          = "Provider module load/call failed for this file."
@@ -179,12 +185,12 @@ function Invoke-RemoteTargetTransferOrchestration {
                 $fileCreationTimestampForTransfer = $fileToTransferInfo.CreationTime
 
                 $transferParams = @{
-                    LocalArchivePath            = $currentFileLocalPath # Path to the specific file (volume or manifest)
+                    LocalArchivePath            = $currentFileLocalPath
                     TargetInstanceConfiguration = $targetInstanceConfig
                     JobName                     = $jobName
-                    ArchiveFileName             = $currentFileNameOnly    # Name of the specific file being transferred
+                    ArchiveFileName             = $currentFileNameOnly
                     ArchiveBaseName             = $EffectiveJobConfig.BaseFileName 
-                    ArchiveExtension            = $EffectiveJobConfig.JobArchiveExtension # Primary extension
+                    ArchiveExtension            = $EffectiveJobConfig.JobArchiveExtension
                     IsSimulateMode              = $IsSimulateMode.IsPresent
                     Logger                      = $Logger
                     EffectiveJobConfig          = $EffectiveJobConfig
@@ -200,7 +206,7 @@ function Invoke-RemoteTargetTransferOrchestration {
                 $currentTransferReport.ErrorMessage = $transferOutcome.ErrorMessage
                 $currentTransferReport.TransferDuration = if ($null -ne $transferOutcome.TransferDuration) { $transferOutcome.TransferDuration.ToString() } else { "N/A" }
                 $currentTransferReport.TransferSize = $transferOutcome.TransferSize
-                $currentTransferReport.TransferSizeFormatted = $transferOutcome.TransferSizeFormatted # FIXED: Use the value from the provider
+                $currentTransferReport.TransferSizeFormatted = $transferOutcome.TransferSizeFormatted
 
                 if ($transferOutcome.ContainsKey('ReplicationDetails') -and $transferOutcome.ReplicationDetails -is [array] -and $transferOutcome.ReplicationDetails.Count -gt 0) {
                     $currentTransferReport.ReplicationDetails = $transferOutcome.ReplicationDetails 
@@ -213,11 +219,10 @@ function Invoke-RemoteTargetTransferOrchestration {
                     & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Transfer of file '$currentFileNameOnly' to Target '$targetInstanceName' SUCCEEDED. Remote Path: $($transferOutcome.RemotePath)" -Level "SUCCESS"
                 }
                 $reportData.TargetTransfers.Add($currentTransferReport)
-                if (-not $allTargetTransfersSuccessfulOverall) { break } # If one part fails for a target, stop trying other parts for that target
-            } # End foreach fileToTransferInfo
+                if (-not $allTargetTransfersSuccessfulOverall) { break }
+            }
         } catch {
             & $LocalWriteLog -Message "[ERROR] RemoteTransferOrchestrator: Critical error during transfer processing for Target '$targetInstanceName' (Type: '$targetInstanceType'). Error: $($_.Exception.ToString())" -Level "ERROR"
-            # Add a general failure entry for this target if not already added for a specific file
             if (-not ($reportData.TargetTransfers | Where-Object {$_.TargetName -eq $targetInstanceName -and $_.Status -like "Failure*"})) {
                  $reportData.TargetTransfers.Add(@{ TargetName = $targetInstanceName; TargetType = $targetInstanceType; FileTransferred = "N/A"; Status = "Failure (Orchestration Exception)"; ErrorMessage = $_.Exception.ToString()})
             }
@@ -225,9 +230,9 @@ function Invoke-RemoteTargetTransferOrchestration {
         }
         if (-not $allTargetTransfersSuccessfulOverall) {
              & $LocalWriteLog -Message "  - RemoteTransferOrchestrator: Halting further transfers to other targets for job '$jobName' due to failure with target '$targetInstanceName'." -Level "WARNING"
-            break # Stop processing other targets if one target failed completely for any file
+            break
         }
-    } # End foreach targetInstanceConfig
+    }
 
     if ($allTargetTransfersSuccessfulOverall -and $EffectiveJobConfig.ResolvedTargetInstances.Count -gt 0) {
         & $LocalWriteLog -Message "[INFO] RemoteTransferOrchestrator: All attempted remote target transfers for job '$jobName' (all parts and manifest if applicable) completed successfully." -Level "SUCCESS"
@@ -235,7 +240,6 @@ function Invoke-RemoteTargetTransferOrchestration {
         & $LocalWriteLog -Message "[WARNING] RemoteTransferOrchestrator: One or more remote target transfers for job '$jobName' FAILED or were skipped due to errors." -Level "WARNING"
     }
 
-    # Delete local staged files (all volumes and manifest) if all transfers to all targets were successful
     if ($EffectiveJobConfig.DeleteLocalArchiveAfterSuccessfulTransfer -and $allTargetTransfersSuccessfulOverall -and $EffectiveJobConfig.ResolvedTargetInstances.Count -gt 0) {
         & $LocalWriteLog -Message "[INFO] RemoteTransferOrchestrator: Deleting local staged archive files as all target transfers succeeded and DeleteLocalArchiveAfterSuccessfulTransfer is true." -Level "INFO"
         foreach($localFileToDeleteInfo in $localFilesToTransfer) {

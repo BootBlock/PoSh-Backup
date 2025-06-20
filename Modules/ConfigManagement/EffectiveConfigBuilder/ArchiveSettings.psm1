@@ -110,12 +110,8 @@ function Resolve-ArchiveConfiguration {
     $resolvedSettings.ChecksumAlgorithm = Get-ConfigValue -ConfigObject $JobConfig -Key 'ChecksumAlgorithm' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultChecksumAlgorithm' -DefaultValue "SHA256")
     $resolvedSettings.VerifyArchiveChecksumOnTest = Get-ConfigValue -ConfigObject $JobConfig -Key 'VerifyArchiveChecksumOnTest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVerifyArchiveChecksumOnTest' -DefaultValue $false)
 
-    # Split Archive Manifest Setting
     $resolvedSettings.GenerateSplitArchiveManifest = Get-ConfigValue -ConfigObject $JobConfig -Key 'GenerateSplitArchiveManifest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultGenerateSplitArchiveManifest' -DefaultValue $false)
-    
-    # NEW: Contents Manifest Setting
     $resolvedSettings.GenerateContentsManifest = Get-ConfigValue -ConfigObject $JobConfig -Key 'GenerateContentsManifest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultGenerateContentsManifest' -DefaultValue $false)
-
 
     # If splitting and manifest generation is enabled, GenerateArchiveChecksum (for single file) is effectively false.
     if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.SplitVolumeSize) -and $resolvedSettings.GenerateSplitArchiveManifest) {

@@ -68,7 +68,7 @@ function Invoke-PoShBackupPostRunActionHandler {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
 
-        [Parameter(Mandatory = $false)] # Not mandatory for ResolveOnly mode
+        [Parameter(Mandatory = $false)]     # Not mandatory for ResolveOnly mode
         [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
 
         [Parameter(Mandatory = $false)]
@@ -78,7 +78,7 @@ function Invoke-PoShBackupPostRunActionHandler {
         [string]$JobNameForLog,
 
         [Parameter(Mandatory = $false)]
-        [switch]$ResolveOnly # NEW: If true, just resolve the action and return it.
+        [switch]$ResolveOnly                # If true, just resolve the action and return it.
     )
 
     $LocalWriteLog = {

@@ -35,11 +35,11 @@ function Find-BackupArchiveInstance {
         [Parameter(Mandatory = $true)]
         [string]$DestinationDirectory,
         [Parameter(Mandatory = $true)]
-        [string]$ArchiveBaseFileName, # e.g., "JobName" (without date stamp)
+        [string]$ArchiveBaseFileName,       # e.g., "JobName" (without date stamp)
         [Parameter(Mandatory = $true)]
-        [string]$ArchiveExtension,    # e.g., ".7z" or ".exe" (primary extension before .001 for splits)
+        [string]$ArchiveExtension,          # e.g., ".7z" or ".exe" (primary extension before .001 for splits)
         [Parameter(Mandatory = $true)]
-        [string]$ArchiveDateFormat,   # NEW: The .NET date format string, e.g., "yyyy-MM-dd_HH-mm-ss"
+        [string]$ArchiveDateFormat,         # The .NET date format string, e.g., "yyyy-MM-dd_HH-mm-ss"
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )

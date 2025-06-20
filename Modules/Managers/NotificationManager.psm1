@@ -117,7 +117,7 @@ public static class ShortcutHelper {
             fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"),
             pid = 5
         };
-        
+
         PropVariant propVar = new PropVariant();
         propVar.vt = (ushort)VarEnum.VT_LPWSTR;
         propVar.pszVal = Marshal.StringToCoTaskMemUni(appId);
@@ -195,6 +195,8 @@ function Register-PoshBackupAppId {
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
 
+    & $Logger -Message "NotificationManager/Register-PoshBackupAppId: Logger active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
     $appId = "BootBlock.PoSh-Backup"
     $startMenuPath = Join-Path -Path $env:APPDATA -ChildPath "Microsoft\Windows\Start Menu\Programs"
@@ -218,7 +220,7 @@ function Register-PoshBackupAppId {
         if (-not (Test-Path -LiteralPath $startMenuPath -PathType Container)) {
             New-Item -Path $startMenuPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
         }
-        
+
         # Step 1: Create the basic shortcut file
         $wshShell = New-Object -ComObject WScript.Shell
         $shortcut = $wshShell.CreateShortcut($shortcutPath)
@@ -259,8 +261,9 @@ function Send-DesktopNotificationInternal {
         [Parameter(Mandatory = $true)] [switch]$IsSimulateMode,
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
+    & $Logger -Message "NotificationManager/Send-DesktopNotificationInternal: Logger active for job '$($JobReportData.JobName)'." -Level "DEBUG" -ErrorAction SilentlyContinue
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
-    
+
     # PSSA Appeasement
     $null = $ProviderSettings
     $null = $NotificationSettings
@@ -287,7 +290,7 @@ function Send-DesktopNotificationInternal {
         try {
             $title = "PoSh-Backup: $($JobReportData.JobName)"
             $status = $JobReportData.OverallStatus
-        
+
             # Safely determine the duration string
             $durationString = ""
             if ($JobReportData.TotalDuration -is [System.TimeSpan]) {
@@ -334,7 +337,7 @@ function Send-DesktopNotificationInternal {
 "@
             $xmlDoc = [Activator]::CreateInstance($xmlDocType)
             $xmlDoc.LoadXml($xmlPayload)
-            
+
             $toast = [Activator]::CreateInstance($toastNotificationType, $xmlDoc)
             $notifier = $toastManagerType::CreateToastNotifier($appId)
             $notifier.Show($toast)
@@ -362,8 +365,10 @@ function Send-EmailNotificationInternal {
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet,
         [Parameter(Mandatory = $false)] [string]$CurrentSetName
     )
-    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
     
+    & $Logger -Message "NotificationManager/Send-DesktopNotificationInternal: Logger active for job '$($JobReportData.JobName)'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
+
     # Construct Email Subject
     $setNameForSubject = if ([string]::IsNullOrWhiteSpace($CurrentSetName)) { '(None)' } else { $CurrentSetName }
     $subject = $NotificationSettings.Subject -replace '\{JobName\}', $JobReportData.JobName `

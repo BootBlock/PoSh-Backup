@@ -147,7 +147,7 @@ function Invoke-CsvReport {
         }
     } else { & $LocalWriteLog -Message "  - No target transfer data. Target Transfers CSV not generated." -Level "DEBUG" }
 
-    # --- NEW: Manifest Details CSV Report ---
+    # --- Manifest Details CSV Report ---
     $generateManifest = $ReportData.GenerateSplitArchiveManifest -is [boolean] ? $ReportData.GenerateSplitArchiveManifest : ($ReportData.GenerateSplitArchiveManifest -eq $true)
     $hasManifestVerificationResults = $ReportData.ContainsKey('ManifestVerificationResults') -and $null -ne $ReportData.ManifestVerificationResults -and $ReportData.ManifestVerificationResults -is [array] -and $ReportData.ManifestVerificationResults.Count -gt 0
     $hasVolumeChecksums = $ReportData.ContainsKey('VolumeChecksums') -and $null -ne $ReportData.VolumeChecksums -and $ReportData.VolumeChecksums -is [array] -and $ReportData.VolumeChecksums.Count -gt 0
@@ -193,7 +193,7 @@ function Invoke-CsvReport {
              & $LocalWriteLog -Message "  - Manifest generation not enabled or no manifest data. Manifest Details CSV not generated for job '$JobName'." -Level "DEBUG"
         }
     }
-    # --- END NEW: Manifest Details CSV Report ---
+    # --- END Manifest Details CSV Report ---
 
     & $LocalWriteLog -Message "[INFO] CSV Report generation process finished for job '$JobName'." -Level "INFO"
 }

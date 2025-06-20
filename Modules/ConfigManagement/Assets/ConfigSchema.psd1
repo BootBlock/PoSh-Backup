@@ -177,7 +177,7 @@
         }
     }
 
-    # NEW: Section for Automated Backup Verification Jobs
+    # Section for Automated Backup Verification Jobs
     VerificationJobs = @{
         Type             = 'hashtable'
         Required         = $false

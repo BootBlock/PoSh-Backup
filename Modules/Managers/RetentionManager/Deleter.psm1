@@ -112,7 +112,7 @@ function Remove-OldBackupArchiveInstance {
 
         & $LocalWriteLog -Message "   - RetentionManager/Deleter: Preparing to delete backup instance '$instanceIdentifierToDelete' (Sorted by Time: $instanceSortTime)." -Level "WARNING"
 
-        # --- NEW: Test Before Delete Logic ---
+        # --- Test Before Delete Logic ---
         if ($EffectiveJobConfig.TestArchiveBeforeDeletion) {
             & $LocalWriteLog -Message "     - TestArchiveBeforeDeletion is TRUE. Performing integrity test before deleting instance '$instanceIdentifierToDelete'." -Level "INFO"
             
@@ -161,7 +161,7 @@ function Remove-OldBackupArchiveInstance {
 
             & $LocalWriteLog -Message "       - Deleting: $($fileToDeleteInfo.FullName) (Created: $($fileToDeleteInfo.CreationTime))" -Level "WARNING"
             
-            # --- NEW: Retry loop for deletion ---
+            # --- Retry loop for deletion ---
             $maxDeleteRetries = 3
             $deleteRetryDelaySeconds = 2
 

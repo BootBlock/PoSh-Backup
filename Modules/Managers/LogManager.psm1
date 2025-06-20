@@ -40,23 +40,23 @@ function Write-LogMessage {
     $consoleMessage = $Message
     $logMessage = if ($NoTimestampToLogFile) { $Message } else { "$timestamp [$Level] $Message" }
 
-    # --- NEW, MORE ROBUST COLOR LOGIC ---
+    # --- MORE ROBUST COLOUR LOGIC ---
     $effectiveConsoleColour = $null
 
-    # Priority 1: An explicitly passed color.
+    # Priority 1: An explicitly passed colour.
     if ($PSBoundParameters.ContainsKey('ForegroundColour')) {
         $effectiveConsoleColour = $ForegroundColour
     }
-    # Priority 2: A color mapped to the Level.
+    # Priority 2: A colour mapped to the Level.
     elseif ($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
         $effectiveConsoleColour = $Global:StatusToColourMap[$Level.ToUpperInvariant()]
     }
 
-    # Priority 3: Fallback to the host's current color if no other color was determined.
+    # Priority 3: Fallback to the host's current colour if no other colour was determined.
     if ($null -eq $effectiveConsoleColour) {
         $effectiveConsoleColour = $Host.UI.RawUI.ForegroundColor
     }
-    # --- END NEW LOGIC ---
+    # --- END LOGIC ---
 
     # Safety check: If $effectiveConsoleColour somehow became an empty string, default it.
     if (($effectiveConsoleColour -is [string] -and [string]::IsNullOrWhiteSpace($effectiveConsoleColour))) {

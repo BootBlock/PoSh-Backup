@@ -235,8 +235,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.29.3 # Pass CheckForUpdate switch to CoreSetupManager.
-    Date:           17-Jun-2025
+    Version:        1.29.5 # Added RoboCopy.exe for UNC transfers
+    Date:           20-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.

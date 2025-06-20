@@ -580,7 +580,7 @@ function Invoke-PoShBackupDiagnosticMode {
             }
         } else { & $LocalWriteLog -Message "`n  --- Defined Backup Sets ---`n    No Backup Sets defined." -Level "CONFIG_TEST" }
 
-        # --- NEW DEPENDENCY GRAPH SECTION ---
+        # --- DEPENDENCY GRAPH SECTION ---
         & $LocalWriteLog -Message "`n  --- Job Dependency Graph ---" -Level "CONFIG_TEST"
         try {
             if (Get-Command Get-PoShBackupJobDependencyMap -ErrorAction SilentlyContinue) {
@@ -595,7 +595,7 @@ function Invoke-PoShBackupDiagnosticMode {
         } catch {
             & $LocalWriteLog -Message "    (An error occurred while generating the dependency graph: $($_.Exception.Message))" -Level "CONFIG_TEST"
         }
-        # --- END NEW SECTION ---
+        # --- END SECTION ---
 
         if (Get-Command Invoke-PoShBackupPostRunActionHandler -ErrorAction SilentlyContinue) {
             $postRunResolution = Invoke-PoShBackupPostRunActionHandler -OverallStatus "SIMULATED_COMPLETE" `

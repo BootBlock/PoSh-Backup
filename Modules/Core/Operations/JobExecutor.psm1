@@ -131,7 +131,7 @@ function Invoke-PoShBackupJob {
         $finalLocalArchivePath = $localBackupResult.FinalLocalArchivePath
         $archiveFileNameOnly = $localBackupResult.ArchiveFileNameOnly
         $VSSPathsToCleanUp = $localBackupResult.VSSPathsToCleanUp
-        $snapshotSessionToCleanUp = $localBackupResult.SnapshotSession # NEW: Capture the session for cleanup
+        $snapshotSessionToCleanUp = $localBackupResult.SnapshotSession
         $plainTextPasswordToClearAfterJob = $localBackupResult.PlainTextPasswordToClear
         $skipRemoteTransfersDueToLocalVerificationFailure = $localBackupResult.SkipRemoteTransfersDueToLocalVerification
 
@@ -199,7 +199,7 @@ function Invoke-PoShBackupJob {
         Write-Error -Message $errorMessageText -Exception $_.Exception -ErrorAction Continue
     }
     finally {
-        # NEW: Snapshot cleanup (must run BEFORE VSS cleanup)
+        # Snapshot cleanup (must run BEFORE VSS cleanup)
         Invoke-PoShBackupSnapshotCleanup -SnapshotSession $snapshotSessionToCleanUp `
             -JobName $JobName `
             -Logger $Logger `

@@ -59,7 +59,7 @@ function Invoke-BackupRetentionPolicy {
         [bool]$VBAssemblyLoaded,
         [switch]$IsSimulateMode,
         [Parameter(Mandatory=$true)]
-        [hashtable]$EffectiveJobConfig, # NEW: Pass the full effective config
+        [hashtable]$EffectiveJobConfig,
         [Parameter(Mandatory=$true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
@@ -132,7 +132,7 @@ function Invoke-BackupRetentionPolicy {
         if ($pinnedInstances.Count -gt 0) {
             & $LocalWriteLog -Message "   - RetentionManager (Facade): Found $($pinnedInstances.Count) pinned backup instance(s) which are exempt from retention: $($pinnedInstances.Keys -join ', ')" -Level "INFO"
         }
-        # --- END NEW ---
+        # --- END ---
 
         & $LocalWriteLog -Message "RetentionManager (Facade): Attempting to sort $($unpinnedInstances.Count) unpinned instance(s)..." -Level "DEBUG"
         $sortedInstances = $null

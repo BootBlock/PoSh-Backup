@@ -39,7 +39,7 @@
     "The project is heavily modularised into `Core`, `Managers`, `Utilities`, `Operations`, `Reporting`, and `Targets`.",
     "Bundler script `Generate-ProjectBundleForAI.ps1` (v__BUNDLER_VERSION_PLACEHOLDER__) is used to maintain session context.",
     "",
-    "--- Feature: Desktop (Toast) Notifications (Current Session) ---",
+    "--- Feature: Desktop (Toast) Notifications (Completed in Previous Session) ---",
     "   - Goal: Add a 'Desktop' notification provider for native Windows toast notifications.",
     "   - Stage 1 (Initial Native API): Attempted to use WinRT APIs directly via `[Windows.UI.Notifications.ToastNotificationManager,...]`. This FAILED in PowerShell 5.1 with a `Cannot find an overload for ToString and the argument count: 1` error due to a known parser bug.",
     "   - Stage 2 (BurntToast Module): Reverted to using the `BurntToast` module. This also FAILED in PowerShell 5.1 because the module internally calls the same buggy WinRT APIs.",
@@ -51,6 +51,16 @@
     "   - Configured `Config\\Default.psd1` and `ConfigSchema.psd1` to add the 'Desktop' provider.",
     "   - Updated `Modules\\Managers\\CoreSetupManager\\DependencyChecker.psm1` to conditionally require `BurntToast` only when running on PowerShell 7+ and a Desktop profile is in use.",
     "   - Updated `README.md` to document the feature and its conditional dependency.",
+    "",
+    "--- Feature: Resilient UNC Transfers with Robocopy (Current Session) ---",
+    "   - Goal: Provide a more robust alternative to `Copy-Item` for network transfers.",
+    "   - `Config\\Default.psd1` (v1.9.5 -> v1.9.6): Added `UseRobocopy` (boolean) and a `RobocopySettings` hashtable to the UNC target's `TargetSpecificSettings` to allow for highly customisable transfers.",
+    "   - `Modules\\Targets\\UNC.Target.psm1` (v1.3.0 -> v1.4.0):",
+    "     - Added internal functions `Build-RobocopyArgumentsInternal` and `Invoke-RobocopyTransferInternal`.",
+    "     - `Invoke-PoShBackupTargetTransfer` now conditionally uses Robocopy if `UseRobocopy` is enabled in the target's configuration.",
+    "     - `Invoke-PoShBackupUNCTargetSettingsValidation` updated to recognise the new Robocopy keys.",
+    "   - `README.md`: Updated to document the new feature, its prerequisites (`Robocopy.exe`), and configuration options.",
+    "   - Fixed PSSA warnings for unused `Logger` parameters in `NotificationManager.psm1` and `UNC.Target.psm1`.",
     "",
     "--- Key Architectural Concepts & Patterns ---",
     "   - **Facade Modules:** Key modules like `Utils.psm1`, `ConfigManager.psm1`, `Operations.psm1`, `7ZipManager.psm1`, and `ScriptModeHandler.psm1` act as facades, orchestrating calls to more specialised sub-modules.",
@@ -76,7 +86,7 @@
     "   - **Interactive Job/Set Selection:** When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets. This is accomplished via `Modules\ConfigManagement\JobResolver.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.29.4 # Added version-aware Desktop Toast Notifications."
+  main_script_poSh_backup_version = "1.29.5 # Added RoboCopy.exe for UNC transfers."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

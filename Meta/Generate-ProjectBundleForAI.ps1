@@ -201,7 +201,7 @@ try {
         Write-Warning "Release Packager script 'Meta\Package-PoShBackupRelease.ps1' not found. It will not be included in the bundle."
     }
 
-  # --- NEW: Add Version.psd1 from Meta folder ---
+  # --- Add Version.psd1 from Meta folder ---
     $versionMetaFile = Join-Path -Path $PSScriptRoot -ChildPath "Version.psd1"
     if (Test-Path -LiteralPath $versionMetaFile -PathType Leaf) {
         $versionMetaFileObject = Get-Item -LiteralPath $versionMetaFile
@@ -217,9 +217,8 @@ try {
     else {
         Write-Warning "Meta Version file 'Meta\Version.psd1' not found. It will not be included in the bundle."
     }
-    # --- END NEW ---
 
-    # --- NEW: Add apply_update.ps1 from Meta folder ---
+    # --- Add apply_update.ps1 from Meta folder ---
     $applyUpdateScriptFile = Join-Path -Path $PSScriptRoot -ChildPath "apply_update.ps1"
     if (Test-Path -LiteralPath $applyUpdateScriptFile -PathType Leaf) {
         $applyUpdateScriptFileObject = Get-Item -LiteralPath $applyUpdateScriptFile
@@ -234,7 +233,6 @@ try {
     else {
         Write-Warning "Apply Update script 'Meta\apply_update.ps1' not found. It will not be included in the bundle."
     }
-    # --- END NEW ---
 
     # Add Bundler Modules
     $bundlerModulesDir = Join-Path -Path $PSScriptRoot -ChildPath "BundlerModules"

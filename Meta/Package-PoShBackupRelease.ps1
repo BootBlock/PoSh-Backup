@@ -213,7 +213,7 @@ try {
     exit 1
 }
 
-# --- NEW: Scan for all script/module versions ---
+# --- Scan for all script/module versions ---
 Write-Host "Scanning project for individual script/module versions..."
 $allScriptVersions = @{} # Initialize an empty hashtable to store script paths and their versions
 
@@ -269,7 +269,7 @@ foreach ($file in $scriptFilesToScan) {
     Write-Host "  - Found: $relativePath (Version: $fileVersion)" -ForegroundColor DarkGray
 }
 Write-Host "Script version scanning complete. Found $($allScriptVersions.Keys.Count) script versions."
-# --- END NEW ---
+# --- END ---
 
 # --- Prepare for Packaging ---
 $zipFileName = "PoSh-Backup-v$($extractedVersion).zip" # Use extracted version

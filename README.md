@@ -23,7 +23,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Backup Job Chaining / Dependencies:** Define prerequisite jobs for a backup job using the `DependsOnJobs` array setting in the configuration. A job will only execute if all its specified prerequisite jobs have completed successfully. Success for a prerequisite is determined by its final status, taking into account its specific `TreatSevenZipWarningsAsSuccess` setting (i.e., a status of "SUCCESS", "SIMULATED_COMPLETE", or "WARNINGS" if that job treats warnings as success, will allow dependent jobs to proceed). The script automatically builds a valid execution order for the targeted job(s) and their dependencies, and will detect and report circular dependencies during configuration testing (`-TestConfig`) or before a run.
 *   **Backup Sets:** Group multiple jobs to run. If jobs within a set have dependencies defined via `DependsOnJobs`, they will be ordered accordingly within the set's execution. The set-level error handling (`OnErrorInJob`: "StopSet" or "ContinueSet") interacts with both operational job failures and jobs skipped due to failed prerequisites. For example, if `OnErrorInJob` is "StopSet", a critical prerequisite failure that causes a dependent job to be skipped can halt the entire set. Set-level post-run actions are also supported.
 *   **Extensible Backup Target Providers:** A modular system (located in `Modules\Targets\`) allows for adding support for various remote storage types.
-    *   **UNC Provider:** Transfers archives to standard network shares.
+    *   **UNC Provider:** Transfers archives to standard network shares. Can use the standard `Copy-Item` or the more resilient `robocopy.exe` for transfers, with configurable retry and performance settings.
     *   **Replicate Provider:** Copies an archive to multiple specified local or UNC paths, with individual retention settings per destination.
     *   **SFTP Provider (via Posh-SSH module):** Transfers archives to SFTP servers, supporting password and key-based authentication.
     *   **S3-Compatible Object Storage Provider (via AWS.Tools.S3 module):** Transfers archives to any S3-compatible service, including Amazon S3, MinIO, Backblaze B2, and more. See `UnlockVaultAndRun-PoShBackup.ps1` if you need automatic vault unlocking.
@@ -77,6 +77,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 ### 1. Prerequisites
 *   **PowerShell:** Version 5.1 or higher.
 *   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
+*   **Robocopy.exe:** Required if you plan to use the Robocopy transfer method for the UNC Backup Target. This is standard on modern Windows operating systems.
 *   **Posh-SSH Module:** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).
 *   **PowerShell SecretManagement & SecretStore:** Required for storing any credentials (for archives, targets, or email). The script assumes you are using the default `Microsoft.PowerShell.SecretStore` vault provider.
 *   **BurntToast Module (for PowerShell 7+):** Required for the Desktop (Toast) Notification provider *if you are running on PowerShell 7 or newer*. Install via PowerShell 7: `Install-Module BurntToast -Scope CurrentUser`.
@@ -178,9 +179,27 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 
                 "MyMainUNCShare" = @{
                     Type = "UNC" # Refers to Modules\Targets\UNC.Target.psm1
+
                     TargetSpecificSettings = @{
-                        UNCRemotePath = "\\fileserver01\backups\MyPoShBackups"
-                        CreateJobNameSubdirectory = $false # Optional, default is $false
+                        UNCRemotePath = "\\fileserver01\backups\MyPoShBackups" # Base path on the UNC share
+                        CreateJobNameSubdirectory = $false, # Optional, default is $false
+                        
+                        # --- Robocopy Settings for UNC Target ---
+                        # To use Robocopy instead of the default Copy-Item for more resilient transfers, set UseRobocopy to $true.
+                        UseRobocopy = $false, # Default: $false. Set to $true to enable Robocopy for this target.
+                        
+                        # Customise Robocopy's behaviour. If a setting is not present, Robocopy's own default is used.
+                        RobocopySettings = @{
+                            # Retries = 5                # /R:n - Number of retries on failed copies. Default is 1 million.
+                            # WaitTime = 15              # /W:n - Wait time in seconds between retries. Default is 30.
+                            # MultiThreadedCount = 8     # /MT:n - Use n threads for copying. Recommended values are 8 to 128.
+                            # InterPacketGap = 0         # /IPG:n - Inter-Packet Gap in milliseconds to throttle bandwidth. 0 = no gap.
+                            # CopyFlags = "DAT"          # /COPY:copyflags - What to copy. D=Data, A=Attributes, T=Timestamps.
+                            # DirectoryCopyFlags = "T"   # /DCOPY:copyflags - What to copy for directories. T=Timestamps.
+                            # UnbufferedIO = $true       # /J - Use unbuffered I/O (recommended for large files).
+                            # Verbose = $false           # /V - Produce verbose output, showing skipped files.
+                            # LogPlus = $true            # /LOG+:file - Append to log file. The provider will manage the log file path.
+                        }
                     }
                     # Optional: RemoteRetentionSettings = @{ KeepCount = 7 }
                 }

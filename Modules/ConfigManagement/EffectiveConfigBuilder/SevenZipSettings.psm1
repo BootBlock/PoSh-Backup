@@ -65,7 +65,7 @@ function Resolve-SevenZipConfiguration {
     $resolvedSettings.JobAdditionalExclusions = @(Get-ConfigValue -ConfigObject $JobConfig -Key 'AdditionalExclusions' -DefaultValue @())
     $resolvedSettings.FollowSymbolicLinks = Get-ConfigValue -ConfigObject $JobConfig -Key 'FollowSymbolicLinks' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultFollowSymbolicLinks' -DefaultValue $false)
 
-    # NEW: Resolve Temp Directory
+    # Resolve Temp Directory
     $resolvedSettings.JobSevenZipTempDirectory = Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipTempDirectory' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipTempDirectory' -DefaultValue "")
     if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.JobSevenZipTempDirectory)) {
         & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Temp Directory resolved to: '$($resolvedSettings.JobSevenZipTempDirectory)'." -Level "DEBUG"

@@ -62,7 +62,6 @@ function Resolve-OperationalConfiguration {
     $resolvedSettings.SnapshotProviderName = Get-ConfigValue -ConfigObject $JobConfig -Key 'SnapshotProviderName' -DefaultValue $null
     $resolvedSettings.SourceIsVMName = Get-ConfigValue -ConfigObject $JobConfig -Key 'SourceIsVMName' -DefaultValue $false
 
-    # NEW: On Source Path Not Found
     $resolvedSettings.OnSourcePathNotFound = Get-ConfigValue -ConfigObject $JobConfig -Key 'OnSourcePathNotFound' -DefaultValue "FailJob"
 
     # Local Retention settings

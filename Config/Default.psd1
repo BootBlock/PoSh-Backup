@@ -382,6 +382,22 @@
                 # $false (default): Archive saved directly into UNCRemotePath (e.g., \\server\share\archive.7z)
                 # $true: Archive saved into UNCRemotePath\JobName\ (e.g., \\server\share\JobName\archive.7z)
                 CreateJobNameSubdirectory = $false
+
+                # To use Robocopy instead of the default Copy-Item for more resilient transfers, set UseRobocopy to $true.
+                UseRobocopy = $false # Default: $false. Set to $true to enable Robocopy for this target.
+                
+                # Customise Robocopy's behaviour. If a setting is not present, Robocopy's own default is used.
+                RobocopySettings = @{
+                    # Retries = 5                # /R:n - Number of retries on failed copies. Default is 1 million.
+                    # WaitTime = 15              # /W:n - Wait time in seconds between retries. Default is 30.
+                    # MultiThreadedCount = 8     # /MT:n - Use n threads for copying. Recommended values are 8 to 128.
+                    # InterPacketGap = 0         # /IPG:n - Inter-Packet Gap in milliseconds to throttle bandwidth. 0 = no gap.
+                    # CopyFlags = "DAT"          # /COPY:copyflags - What to copy. D=Data, A=Attributes, T=Timestamps.
+                    # DirectoryCopyFlags = "T"   # /DCOPY:copyflags - What to copy for directories. T=Timestamps.
+                    # UnbufferedIO = $true       # /J - Use unbuffered I/O (recommended for large files).
+                    # Verbose = $false           # /V - Produce verbose output, showing skipped files.
+                    # LogPlus = $true            # /LOG+:file - Append to log file. The provider will manage the log file path.
+                }
             }
             # Optional: For UNC, if alternate credentials are needed to write to the share.
             # CredentialsSecretName = "UNCFileServer01Creds" # Name of a Generic Credentials secret in PowerShell SecretManagement.
@@ -510,7 +526,7 @@
     }
     #endregion
 
-    #region --- NEW: Automated Backup Verification ---
+    #region --- Automated Backup Verification ---
     # Define automated verification jobs. These run independently of backup jobs via a new CLI switch.
     VerificationJobs = @{
         # Example verification job.
@@ -619,7 +635,7 @@
             # --- Notification Settings for this Job ---
             # These settings override the DefaultNotificationSettings.
             NotificationSettings = @{
-                Enabled         = $true                               # Set to $true to enable alerts for this specific job.
+                Enabled         = $false                              # Set to $true to enable alerts for this specific job.
                 ProfileName     = "Desktop"                           # Which profile from NotificationProfiles to use.
                 #ToAddress       = @("your_email@example.com")        # For Email provider
                 TriggerOnStatus = @("ANY")                            # Notify regardless of whether this job succeeds, warns, or fails.

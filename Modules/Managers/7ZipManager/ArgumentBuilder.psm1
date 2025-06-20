@@ -79,7 +79,7 @@ function Get-PoShBackup7ZipArgument {
             $sevenZipArgs.Add("-snl")
         }
 
-        # NEW: Add custom temporary directory switch (-w) if configured and valid
+        # Add custom temporary directory switch (-w) if configured and valid
         if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipTempDirectory)) {
             $tempDirPath = $EffectiveConfig.JobSevenZipTempDirectory
             if (Test-Path -LiteralPath $tempDirPath -PathType Container) {

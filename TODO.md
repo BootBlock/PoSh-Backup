@@ -1094,12 +1094,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XXXII. Backup Target Enhancements (Practical)**
 
-136. **Enhancement: UNC Target - Option to Use Robocopy for Transfers**
-    *   **Goal:** Provide a more resilient option for UNC transfers, especially over less stable networks.
-    *   **Description:** Allow configuring the UNC target provider to use `Robocopy.exe` instead of `Copy-Item` for the actual file transfer, leveraging Robocopy's retry and logging capabilities.
-    *   **Scope & Impact:** `Modules\Targets\UNC.Target.psm1`, `Config\Default.psd1` (new setting in `TargetSpecificSettings` for UNC, e.g., `UseRobocopy = $true`, `RobocopySwitches`).
-    *   **Acceptance Criteria:** UNC transfers can use Robocopy; Robocopy output/status is captured.
-
 137. **Enhancement: Standardized Transfer Retry Mechanism for Target Providers**
     *   **Goal:** Implement a consistent, configurable retry mechanism for the *transfer phase* within target providers.
     *   **Description:** Currently, 7-Zip operations have retries. This would add retries for network copy/upload operations if they fail (e.g., temporary network blip).

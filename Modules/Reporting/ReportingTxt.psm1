@@ -151,7 +151,7 @@ function Invoke-TxtReport {
         $null = $reportContent.AppendLine($separatorLine)
     }
 
-    # --- NEW: Archive Manifest & Volume Verification Section ---
+    # --- Archive Manifest & Volume Verification Section ---
     $generateManifest = $ReportData.GenerateSplitArchiveManifest -is [boolean] ? $ReportData.GenerateSplitArchiveManifest : ($ReportData.GenerateSplitArchiveManifest -eq $true)
     $hasManifestFile = $ReportData.ContainsKey('ArchiveChecksumFile') -and -not [string]::IsNullOrWhiteSpace($ReportData.ArchiveChecksumFile) -and $ReportData.ArchiveChecksumFile -ne "N/A"
     $hasManifestVerificationResults = $ReportData.ContainsKey('ManifestVerificationResults') -and $null -ne $ReportData.ManifestVerificationResults -and $ReportData.ManifestVerificationResults -is [array] -and $ReportData.ManifestVerificationResults.Count -gt 0
@@ -194,7 +194,7 @@ function Invoke-TxtReport {
         }
         $null = $reportContent.AppendLine($separatorLine)
     }
-    # --- END NEW ---
+    # --- END ---
 
     if ($ReportData.ContainsKey('LogEntries') -and $null -ne $ReportData.LogEntries -and $ReportData.LogEntries.Count -gt 0) {
         $null = $reportContent.AppendLine("DETAILED LOG:")
