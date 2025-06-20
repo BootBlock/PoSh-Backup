@@ -79,19 +79,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     - **Scope & Impact:** `Config\Default.psd1` (job-level `VSSExcludeWriters` array), `Modules\Managers\VssManager.psm1` (modify diskshadow script generation).
     - **Acceptance Criteria:** Specified VSS writers are excluded during shadow copy creation.
 
-5. Modularise existing files, including splitting functionally complete files into sub-modules that are named after the original "master" file; for example, `ConfigLoader.psm1` would be split into further modules named as such `ConfigLoader.submodule.psm1`, `ConfigLoader.another.psm1`, etc, as deemed necessary. The reasons being that it's easier to manage and AI generation will only have to modify the sub-modules most of the time instead of regenerating the entire file and having issues not truncating the output.
-
-6.  **Feature: Allow User-Defined Custom 7-Zip Command-Line Parameters**
-    *   **Goal:** Enable users to pass arbitrary, custom command-line switches and parameters directly to the `7z.exe` process for a specific backup job.
-    *   **Description:** This provides maximum flexibility for advanced users who want to leverage 7-Zip features or options not explicitly exposed through PoSh-Backup's existing configuration settings. The script will not attempt to validate these custom parameters but will pass them through to 7-Zip.
-    *   **Scope & Impact:**
-        *   `Config\Default.psd1`: Add a new job-level setting, e.g., `CustomSevenZipSwitches` (array of strings or a single string).
-        *   `Modules\PoShBackupValidator.psm1`: Add schema validation for `CustomSevenZipSwitches`.
-        *   `Modules\7ZipManager.psm1`: Modify `Get-PoShBackup7ZipArgument` to append parameters.
-        *   `README.md`: Document with warnings about conflicts and misconfiguration.
-    *   **Key Technical Considerations:** Parameter order, potential conflicts with PoSh-Backup managed switches, security implications of arbitrary parameters, quoting/escaping for complex switches. An array of strings for `CustomSevenZipSwitches` is likely safest.
-    *   **Acceptance Criteria:** User-defined switches are correctly passed to `7z.exe`; feature is documented with appropriate caveats.
-
 7.  **Feature: 7-Zip Archive Update Modes**
     *   **Goal:** Allow different update modes when an archive with the same name already exists.
     *   **Description:** Enables scenarios like synchronisation or freshening beyond simple overwriting.
@@ -265,15 +252,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
     - **Acceptance Criteria:** Config can be exported and re-imported (with validation).
 
-6. **Feature: More Robust Archive Testing Options (Deep Test)**
-    *   **Goal:** Provide a more thorough archive verification beyond `7z t`.
-    *   **Description:** Full extraction to a temporary location for critical archives.
-    *   **Scope & Impact:**
-        *   `Config\Default.psd1`: Job-level `EnableDeepArchiveTest` (boolean).
-        *   `Modules\7ZipManager.psm1` / `Operations.psm1`: Logic to extract to temp dir. Resource-intensive. Critical cleanup.
-    *   **Technical Considerations:** Disk space/time. Secure temp location.
-    *   **Acceptance Criteria:** Archive fully extracted to temp location for test; temp location cleaned up.
-
 7. **Feature: Job Execution Time Limits / Timeouts**
     *   **Goal:** Define a maximum execution time for a backup job.
     *   **Description:** Prevents runaway jobs.
@@ -334,15 +312,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** `Modules\7ZipManager.psm1`: **Major complexity.** Asynchronous STDOUT reading, parsing progress.
     *   **Technical Considerations:** `System.Diagnostics.Process` `OutputDataReceived` event. Regex for 7-Zip progress. User noted previous attempt was problematic.
     *   **Acceptance Criteria:** Console shows periodic progress updates for hidden 7-Zip operations.
-
-36. **Feature: Centralised Logging / Syslog / Windows Event Log Integration**
-    *   **Goal:** Option to send PoSh-Backup logs to centralised systems.
-    *   **Description:** For enterprise auditing and monitoring (Syslog, Event Log, SIEMs).
-    *   **Scope & Impact:**
-        *   `Config\Default.psd1`: Global settings for log forwarding.
-        *   `Modules\Utils.psm1`: `Write-LogMessage` to forward messages.
-    *   **Technical Considerations:** Cmdlets/ .NET classes for Syslog/Event Log.
-    *   **Acceptance Criteria:** Logs appear in the configured centralised system.
 
 38. **Feature: Customisable Report Templates (Advanced HTML)**
     *   **Goal:** Allow users to provide their own HTML template files for reports.
