@@ -883,10 +883,12 @@
     # Backup Sets allow grouping multiple BackupLocations (defined above) to run sequentially
     # when PoSh-Backup.ps1 is called with the -RunSet <SetName> command-line parameter.
     BackupSets                      = @{
-        "Daily_Critical_Backups" = @{
+        "Test_Backups" = @{
             JobNames     = @(
+                "Projects",             # Same backup job repeated, but this is just for testing.
                 "Projects",
-                "HyperV_VM_Backup_Example"
+                "Projects",
+                "Projects"
             )
             OnErrorInJob = "StopSet"
             LogRetentionCount = 7 # Logs for jobs run as part of this set will keep only 7 files, overriding their individual or global settings.

@@ -8,9 +8,9 @@
     context-aware tab completion for parameters like -BackupLocationName and -RunSet.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Added completer for -TestBackupTarget.
+    Version:        1.2.1 # Added completer for -VerificationJobName.
     DateCreated:    15-Jun-2025
-    LastModified:   18-Jun-2025
+    LastModified:   20-Jun-2025
     Purpose:        To provide CLI tab-completion for PoSh-Backup parameters.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -131,4 +131,29 @@ function Get-PoShBackupTargetNameCompletion {
 }
 #endregion
 
-Export-ModuleMember -Function Get-PoShBackupJobNameCompletion, Get-PoShBackupSetNameCompletion, Get-PoShBackupTargetNameCompletion
+function Get-PoShBackupVerificationJobNameCompletion {
+    [CmdletBinding()]
+    param(
+        [string]$commandName,
+        [string]$parameterName,
+        [string]$wordToComplete,
+        [System.Management.Automation.Language.CommandAst]$commandAst,
+        [hashtable]$fakeBoundParameters
+    )
+
+    # Acknowledge unused parameters
+    $null = $commandName, $parameterName, $fakeBoundParameters
+
+    $config = Get-PoShBackupConfigForCompletionInternal -CommandPath $commandAst.CommandElements[0].Value
+    if ($null -eq $config -or -not ($config.VerificationJobs -is [hashtable])) { return }
+
+    $vjobNames = $config.VerificationJobs.Keys
+    $matchingVJobs = $vjobNames | Where-Object { $_ -like "$wordToComplete*" } | Sort-Object
+
+    foreach ($vjob in $matchingVJobs) {
+        $toolTip = "Verification job defined in configuration."
+        [System.Management.Automation.CompletionResult]::new("'$vjob'", $vjob, 'ParameterValue', $toolTip)
+    }
+}
+
+Export-ModuleMember -Function Get-PoShBackupJobNameCompletion, Get-PoShBackupSetNameCompletion, Get-PoShBackupTargetNameCompletion, Get-PoShBackupVerificationJobNameCompletion

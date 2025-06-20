@@ -10,7 +10,7 @@
     sub-module located in '.\Modules\ScriptModes\'.
 
     The sub-modules it manages are:
-    - Diagnostics.psm1: For -TestConfig, -GetEffectiveConfig, -ExportDiagnosticPackage, -TestBackupTarget.
+    - Diagnostics.psm1: For -TestConfig, -GetEffectiveConfig, -ExportDiagnosticPackage, -TestBackupTarget, -PreFlightCheck.
     - Listing.psm1: For -ListBackupLocations, -ListBackupSets, -Version.
     - ArchiveManagement.psm1: For -ListArchiveContents, -ExtractFromArchive, -PinBackup, -UnpinBackup.
     - MaintenanceAndVerification.psm1: For -Maintenance, -RunVerificationJobs, and -VerificationJobName.
@@ -18,7 +18,7 @@
     If a sub-module successfully handles a mode, this script will exit with a code of 0.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.2.0 # Added VerificationJobName parameter.
+    Version:        2.3.0 # Added PreFlightCheck parameter.
     DateCreated:    24-May-2025
     LastModified:   20-Jun-2025
     Purpose:        To orchestrate and delegate informational/utility script execution modes.
@@ -49,12 +49,14 @@ function Invoke-PoShBackupScriptMode {
         [bool]$ListBackupSetsSwitch,
         [Parameter(Mandatory = $true)]
         [bool]$TestConfigSwitch,
+        [Parameter(Mandatory = $true)] # NEW
+        [bool]$PreFlightCheckSwitch,
         [Parameter(Mandatory = $true)]
         [bool]$RunVerificationJobsSwitch,
-        [Parameter(Mandatory = $false)] # NEW
+        [Parameter(Mandatory = $false)]
         [string]$VerificationJobName,
         [Parameter(Mandatory = $true)]
-        [bool]$CheckForUpdateSwitch, # Note: This is handled before this module is called, but passed for completeness.
+        [bool]$CheckForUpdateSwitch,
         [Parameter(Mandatory = $true)]
         [bool]$VersionSwitch,
         [Parameter(Mandatory = $false)]
@@ -92,7 +94,11 @@ function Invoke-PoShBackupScriptMode {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $false)]
-        [System.Management.Automation.PSCmdlet]$PSCmdletInstance
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
+        [Parameter(Mandatory = $false)] # NEW for PreFlight scope
+        [string]$BackupLocationNameForScope,
+        [Parameter(Mandatory = $false)] # NEW for PreFlight scope
+        [string]$RunSetForScope
     )
 
     # PSSA Appeasement: Directly use the Logger parameter once.
@@ -101,6 +107,7 @@ function Invoke-PoShBackupScriptMode {
     # --- Delegate to Diagnostic Modes Handler ---
     $diagParams = @{
         TestConfigSwitch            = $TestConfigSwitch
+        PreFlightCheckSwitch        = $PreFlightCheckSwitch # Pass new switch
         GetEffectiveConfigJobName   = $GetEffectiveConfigJobName
         ExportDiagnosticPackagePath = $ExportDiagnosticPackagePath
         TestBackupTarget            = $TestBackupTarget
@@ -110,6 +117,8 @@ function Invoke-PoShBackupScriptMode {
         ConfigLoadResult            = $ConfigLoadResult
         Logger                      = $Logger
         PSCmdletInstance            = $PSCmdletInstance
+        BackupLocationNameForScope  = $BackupLocationNameForScope # Pass scope
+        RunSetForScope              = $RunSetForScope # Pass scope
     }
 
     if (Invoke-PoShBackupDiagnosticMode @diagParams) {
@@ -153,7 +162,7 @@ function Invoke-PoShBackupScriptMode {
     # --- Delegate to Maintenance and Verification Modes Handler ---
     $maintAndVerifyParams = @{
         RunVerificationJobsSwitch = $RunVerificationJobsSwitch
-        VerificationJobName       = $VerificationJobName # Pass new parameter
+        VerificationJobName       = $VerificationJobName
         Configuration             = $Configuration
         Logger                    = $Logger
         PSCmdletInstance          = $PSCmdletInstance

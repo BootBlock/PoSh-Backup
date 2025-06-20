@@ -1543,3 +1543,132 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Description (Updated for TO-DO list item I.1):** "Modularise existing files by grouping logically related functions into distinct modules or sub-modules. The primary goals are to enhance maintainability, improve code clarity, ensure each module has a well-defined responsibility, and keep individual file sizes manageable for both AI-assisted development (reducing truncation issues) and human comprehension. Avoid over-splitting into trivially small files if it does not significantly contribute to these goals. Focus on clear interfaces between modules."
     *   **Scope & Impact:** This is a refinement of an existing TO-DO item's description, guiding future refactoring efforts.
     *   **Acceptance Criteria:** Modularisation efforts follow these clearer guidelines.
+
+
+### PoSh-Backup: Comprehensive Minor Enhancements `TODO` List
+#### **Console Experience & CLI Usability (UX)**
+
+*   **UX:** Add a `Description` field to `BackupLocations` and `BackupSets` to be displayed in the `-List...` modes for better context.
+*   **UX:** In the `-ListBackupSets` output, display the total number of jobs in each set, e.g., `Jobs in Set (3):`.
+*   **UX:** In the `-ListBackupLocations` output, display the configured `ArchiveType` (e.g., .7z, .zip) for each job.
+*   **UX:** In `-TestConfig` output, add a "Notes" column to the job list to flag things like "No Remote Targets" or "VSS Disabled".
+*   **UX:** When a user makes a typo in a job/set name, suggest the closest valid name (e.g., "Did you mean 'Projects'?").
+*   **UX:** Add a `-BeepOnCompletion` switch that plays a system sound on success or failure.
+*   **UX:** In the final summary, show a count of jobs that succeeded, failed, or had warnings.
+*   **UX:** When pausing on exit, state the reason (e.g., "Pausing due to 'OnFailure' setting...").
+*   **UX:** Color-code the `[PASS]` and `[FAIL]` tags in the `-PreFlightCheck` output for better visibility.
+*   **UX:** Add a `-NoBanner` switch to suppress just the initial ASCII art banner without enabling full `-Quiet` mode.
+*   **UX:** When `-Quiet` is used, the final summary should still print, but only the one-line status and duration.
+*   **UX:** Add a progress bar for the individual file copy operation in the `UNC.Target.psm1` provider for very large files.
+*   **UX:** In interactive job selection menu, display job descriptions next to job names if they exist.
+*   **UX:** In interactive menu, allow selecting multiple jobs/sets with comma-separated input (e.g., "1, 3, 8").
+*   **UX:** Add a `-ShowConfigPath` switch to print the path(s) to the loaded configuration files and exit.
+*   **UX:** When `Sync-Schedules` runs, output the full command that will be executed by the scheduled task.
+*   **UX:** The interactive prompt for `User.psd1` creation should time out after a period in non-interactive sessions.
+*   **UX:** When a dependency fails, explicitly list which subsequent jobs were skipped as a direct result.
+*   **UX:** Add a `-Minimal` output switch that only shows banners, final status, and errors.
+*   **UX:** The `-Version` switch should also output the versions of key modules like `7ZipManager` and `Operations`.
+*   **UX:** When using `-GetEffectiveConfig`, display the source of the setting (e.g., "Global", "Set", "Job", "CLI").
+*   **UX:** Add a `-ListPins` command to show all currently pinned archives for a given job or destination.
+*   **UX:** The `-PinBackup` command should support wildcards to pin multiple archives at once.
+*   **UX:** Add a `-WhatIf` parameter alias for `-Simulate` for standard PowerShell consistency.
+*   **UX:** When a job is disabled, show its name in gray in the `-ListBackupLocations` output.
+*   **UX:** The interactive menu should have a "Run All" option.
+*   **UX:** The `-ForceRunInMaintenanceMode` switch should produce a prominent warning in the log.
+*   **UX:** When a scheduled task is created, log the `next run time`.
+*   **UX:** Add a `-RunSet` and `-BackupLocationName` argument completer for the `-SkipJob` parameter.
+
+#### **Reporting & Logging**
+
+*   **Reporting:** Add the computer name to the default report filenames (e.g., `JobName_ComputerName_Timestamp.html`).
+*   **Reporting:** Add a direct link to the generated log file (if file logging is enabled) in the HTML report footer.
+*   **Reporting:** Make the log level filter checkbox states (`DEBUG`, `INFO`, etc.) in the HTML report persist between page loads using `localStorage`.
+*   **Reporting:** Add a "Copy Configuration" button to the HTML report to easily copy the key-value pairs of the job config.
+*   **Reporting:** In the HTML report, make the "Status" cell in the Summary table a link that jumps down to the Detailed Log section.
+*   **Reporting:** Add the total size of all backup files (for the current job) to the HTML report summary.
+*   **Reporting:** Add a "Dark Mode" toggle button directly within the HTML report that switches between Light and Dark themes.
+*   **Reporting:** In the HTML report, display the `Description` field for the job in the Summary section.
+*   **Reporting:** The HTML report's `<title>` tag should lead with the job name for better browser tab identification.
+*   **Reporting:** Add a "Copy Shareable Link" button to the HTML report that creates a link with a hash to a specific log line.
+*   **Reporting:** In the text report, add a "TABLE OF CONTENTS" at the top.
+*   **Reporting:** For CSV reports, generate a single manifest CSV that lists all other CSV files created for that run.
+*   **Reporting:** The JSON report should include a top-level key for the script version it was generated with.
+*   **Reporting:** Add a `TotalFilesBackedUp` count to the summary data and reports.
+*   **Reporting:** In the HTML report, make the table headers "sticky" so they stay visible when scrolling through long tables.
+*   **Reporting:** Add a "Print Report" button to the HTML report that triggers the browser's print dialogue.
+*   **Reporting:** Add a "Time to First Byte" metric to remote target transfer reports.
+*   **Reporting:** Log the PowerShell version (`$PSVersionTable`) at the start of every log file.
+*   **Reporting:** In the HTML report, the search keyword should be highlighted in the log timestamp/level as well as the message.
+*   **Logging:** Sanitize the `$JobName` variable when creating log file names to prevent issues with special characters, just like we do for scheduled tasks.
+*   **Logging:** At the start of a log file, record the full command-line arguments used to invoke the script.
+*   **Logging:** Add a specific log level for retention actions to make them easier to filter.
+*   **Logging:** When a file is deleted by retention, log its size.
+*   **Logging:** Log the calculated checksum of a local archive *before* it is transferred to a remote target.
+*   **Logging:** When a hook script is skipped because the file doesn't exist, log it as `INFO` instead of `WARNING`.
+*   **Logging:** Add an option to log to the Windows Event Log in addition to a text file.
+*   **Logging:** When a VSS shadow is created, log its unique ID.
+*   **Logging:** When `-Quiet` is active, still log `ERROR` level messages to the console.
+*   **Logging:** Add a `-LogToHost` parameter to force all log levels to the console, overriding `-Quiet`.
+
+#### **Configuration & Job Control**
+
+*   **Config:** Add an `-EnableJob` and `-DisableJob` command-line switch to quickly change the `Enabled` flag for a job in `User.psd1`.
+*   **Config:** In `-TestConfig` mode, add a warning if a job is defined but not included in any `BackupSet`.
+*   **Config:** In `-TestConfig` mode, validate that the `TargetJobName` in a `VerificationJob` actually exists in `BackupLocations`.
+*   **Config:** Add a `DelayBetweenJobsSeconds` setting to `BackupSets` to introduce a pause between each job execution in a set.
+*   **Config:** Add a `-RetentionConfirmDelete` CLI switch to override the configuration setting for a single run.
+*   **Config:** Add a `-SkipVSS` CLI switch to force VSS to be disabled for a specific run, even if enabled in the config.
+*   **Config:** Add a `DefaultSourcePathNotFound` global setting to control the default behaviour for all jobs.
+*   **Config:** Allow `TargetNames` to be defined at the `BackupSets` level, applying to all jobs within that set.
+*   **Config:** Add a `MaxLogSizeMB` setting to trigger log file rotation based on size in addition to count.
+*   **Config:** Add `PreSetScriptPath` and `PostSetScriptPath` hooks to `BackupSets`.
+*   **Config:** Allow a job to have a `DependsOnSets` key to make an entire set a prerequisite.
+*   **Config:** Add a global `ExcludePaths` array in the config that applies to all backup jobs.
+*   **Config:** In `-TestConfig`, warn if a `NotificationProfile` is defined but never used by any job or set.
+*   **Config:** Allow the use of environment variables within configuration string values (e.g., `DestinationDir = "%USERPROFILE%\Backups"`).
+*   **Config:** Add a `-SkipJobDependencies` switch to run a job without running its prerequisites.
+*   **Config:** Add a `-SkipPostRunAction` switch to prevent any post-run system action for the current run.
+*   **Config:** Allow a job to specify a `RetentionProfile` by name, defined in a new global `RetentionProfiles` section.
+*   **Config:** Add support for a `-ConfigFile` parameter that accepts an array of paths, merging them in order.
+*   **Config:** In `VerificationJobs`, add a `TargetRemoteName` key to allow verifying a backup on a remote target.
+*   **Config:** Add a `RunOnlyIfPathExists` boolean to `BackupLocations` to automatically skip a job if its primary source path is missing.
+
+#### **Minor Features & Enhancements**
+
+*   **Feature:** Add a `-GetLastBackupPath <JobName>` switch that finds and prints the full path to the most recent archive for a given job.
+*   **Feature:** Add a `-GetTotalSize <JobName>` switch that calculates and displays the total disk space used by all archives for a given job.
+*   **Feature:** Add a `-scs` (character set) switch to the 7-Zip arguments, configurable per-job, for specifying archive comment character sets (e.g., `-scsUTF-8`).
+*   **Feature:** Add an `-ArchiveComment` setting to jobs to embed a comment into the 7-Zip archive.
+*   **Enhancement:** In the `UNC.Target.psm1` module, add a simple retry loop around the `Copy-Item` command to handle transient network errors.
+*   **Enhancement:** Add a `-TestHook <FilePath>` utility switch that runs a specified script with dummy parameters to validate that it's executable.
+*   **Enhancement:** The `-PinBackup` command should automatically find the base archive name if a user provides the path to a `.002` volume part.
+*   **Enhancement:** The `-Pin` switch should log which specific archive file path was pinned.
+*   **Enhancement:** Allow `Test-BackupTarget` to test all defined targets if no specific name is given.
+*   **Enhancement:** When creating an SFX, log which specific `.sfx` module file (e.g., `7zCon.sfx`) was used.
+*   **Enhancement:** The `Replicate.Target` should have an option to continue replicating to other destinations if one fails.
+*   **Enhancement:** Add a `-ClearRemoteTarget <TargetName>` utility to delete all backups from a specific remote target (with confirmation).
+*   **Enhancement:** The `-CheckForUpdate` feature should also check for updates to its external dependencies (e.g., Posh-SSH).
+*   **Enhancement:** Add a `-BackupConfig` switch to create a quick backup of just the `Config` directory.
+*   **Enhancement:** The `-ExportDiagnosticPackage` should include a list of all running processes.
+*   **Enhancement:** The `SystemStateManager` should log which user initiated the shutdown/restart action.
+*   **Enhancement:** The `-PinBackup` command should allow adding a comment to the `.pinned` file (e.g., `-PinBackup C:\... -Reason "Pre-upgrade"`).
+
+#### **Robustness & Error Handling**
+
+*   **Robustness:** When `Initialize-RemotePathInternal` fails, include the specific user account it was running as in the error message.
+*   **Robustness:** In `PasswordManager.psm1`, add a check and a clear warning if a user selects the `PlainText` password method.
+*   **Robustness:** At script startup, check for write permissions on the configured `LogDirectory` and warn the user if permissions are insufficient.
+*   **Robustness:** When `Get-Secret` fails, provide a more user-friendly error suggesting they check if the vault is locked.
+*   **Robustness:** The `-ExportDiagnosticPackage` should gracefully handle a missing `Logs` or `Config` directory.
+*   **Robustness:** If a hook script fails, include its exit code in the error message.
+*   **Robustness:** Add a timeout to the `Invoke-WebRequest` calls in the `WebDAV.Target` provider.
+*   **Robustness:** If `7z.exe` is not found, the error message should list the locations that were checked.
+*   **Robustness:** In `-PreFlightCheck`, the write test should use a unique filename per instance to avoid conflicts.
+*   **Robustness:** If a remote retention policy fails to delete a file, it should not prevent subsequent files from being deleted.
+*   **Robustness:** The script should gracefully handle a read-only configuration file.
+*   **Robustness:** Add a check for extremely long file paths and warn the user if they might exceed system limits.
+*   **Robustness:** If a VSS snapshot fails, the error message should include the VSS error code.
+*   **Robustness:** The `ScheduleManager` should validate that the `RunAsUser` account has "Log on as a batch job" rights.
+*   **Robustness:** When a circular dependency is detected, list the full chain of jobs that form the loop.
+*   **Robustness:** If `User.psd1` is malformed and cannot be parsed, the script should warn the user and proceed with just `Default.psd1`.
+*   **Robustness:** The script should check for a minimum required PowerShell version at startup.

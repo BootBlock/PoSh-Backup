@@ -212,7 +212,8 @@ function Invoke-HtmlReport {
     if ($reportShowLogEntries -and $ReportData.ContainsKey('LogEntries') -and $ReportData.LogEntries.Count -gt 0) {
         $sbFilters = [System.Text.StringBuilder]::new("<div class='log-level-filters-container'><strong>Filter by Level:</strong>"); 
         ($ReportData.LogEntries.Level | Select-Object -Unique | Sort-Object | Where-Object {-not [string]::IsNullOrWhiteSpace($_)}) | ForEach-Object { $sL = ConvertTo-SafeHtml $_; $null=$sbFilters.Append("<label><input type='checkbox' class='log-level-filter' value='$sL' checked> $sL</label>") }; 
-        $null=$sbFilters.Append("<div class='log-level-toggle-buttons'><button type='button' id='logFilterSelectAll'>Select All</button><button type='button' id='logFilterDeselectAll'>Deselect All</button></div></div>"); 
+        # CORRECTED: Added the 'Copy Full Log' button inside the same button container for proper alignment.
+        $null=$sbFilters.Append("<div class='log-level-toggle-buttons'><button type='button' id='logFilterSelectAll'>Select All</button><button type='button' id='logFilterDeselectAll'>Deselect All</button><button type='button' id='copyFullLogBtn'>Copy Full Log</button></div></div>"); 
         $logLevelFiltersControlsHtml = $sbFilters.ToString();
         $sbLogs = [System.Text.StringBuilder]::new(); 
         $ReportData.LogEntries | ForEach-Object { $eC="log-$(ConvertTo-SafeHtml $_.Level)"; $null=$sbLogs.Append("<div class='log-entry $eC' data-level='$(ConvertTo-SafeHtml $_.Level)'><strong>$(ConvertTo-SafeHtml $_.Timestamp) [$(ConvertTo-SafeHtml $_.Level)]</strong> <span>$(ConvertTo-SafeHtml $_.Message)</span></div>") }; 

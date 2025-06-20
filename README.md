@@ -1,7 +1,7 @@
 # PoSh-Backup
-A powerful, modular PowerShell script for backing up your files and folders using the free [7-Zip](https://www.7-zip.org/) compression software. Now with extensible support for remote Backup Targets, optional post-run system actions, optional archive checksum generation/verification, optional Self-Extracting Archive (SFX) creation, optional 7-Zip CPU core affinity (with validation and CLI override), optional verification of local archives before remote transfer, configurable log file retention, support for 7-Zip include/exclude list files, backup job chaining/dependencies, multi-volume (split) archive creation (with CLI override), and a global maintenance mode.
+PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution for backing up files, folders, and even live virtual machines using the free [7-Zip](https://www.7-zip.org/) compression software. Designed with both robustness for server environments and flexibility for power users in mind, it offers enterprise-grade features such as application-consistent backups via VSS and Hyper-V, schedulable automated backup verification, a pre-flight checker to ensure environmental readiness, and an extensible system for transferring archives to multiple remote targets like UNC shares, SFTP, and S3.
 
-> **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development.
+> **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development. The output during execution is much noisier than I'd like.
 
 > **Notice:** Additionally, this `ReadMe.md` will eventually be broken down into proper documentation, as opposed to being one large file.
 
@@ -51,9 +51,10 @@ A powerful, modular PowerShell script for backing up your files and folders usin
         *   **Copy to Clipboard:** Easily copy the output of executed hook scripts using a dedicated button.
         *   **Scroll to Top Button:** Appears on long reports for quick navigation back to the top of the page.
         *   **Configurable Favicon:** Display a custom icon in the browser tab for the report.
-        *   **Print-Optimized:** Includes basic print-specific CSS for better paper output (e.g., hides interactive elements, ensures content is visible).
+        *   **Print-Optimised:** Includes basic print-specific CSS for better paper output (e.g., hides interactive elements, ensures content is visible).
         *   **Simulation Banner:** Clearly distinguishes reports generated from simulation runs.
     *   **Other Formats:** CSV, JSON, XML (CliXml), Plain Text (TXT), and Markdown (MD) also supported for data export and integration, updated to include target transfer and checksum details where appropriate.
+    *   **Pre-Flight Check:** Validate environmental readiness before running a backup. This checks for source path accessibility, destination write permissions, remote target connectivity, and hook script existence to prevent common failures during a run.
 *   **Comprehensive Logging:** Get detailed, colour-coded console output and optional per-job text file logs for easy monitoring and troubleshooting of both local operations and remote transfers.
 *   **Log File Retention:** Automatically manage the number of log files kept per job. Configurable globally, per job, or per backup set, with a CLI override. A setting of `0` means infinite retention. Old logs can either be deleted or **compressed into a single archive** to save space while preserving history. This prevents the `Logs/` directory from growing indefinitely.
 *   **Report File Retention:** Automatically manages the retention of generated report files (`.html`, `.csv`, etc.) in the same way as log files. Old reports can be deleted or compressed into a single archive to prevent the `Reports/` directory from growing indefinitely.
@@ -470,7 +471,7 @@ A powerful, modular PowerShell script for backing up your files and folders usin
             }
             ```
     *   **`PostRunActionDefaults` (Global Post-Run System Action Settings):**
-        *   Located in `Config\Default.psd1` (and copied to `User.psd1`), this section defines the default behavior for actions to take after the script finishes processing a job or set.
+        *   Located in `Config\Default.psd1` (and copied to `User.psd1`), this section defines the default behaviour for actions to take after the script finishes processing a job or set.
         *   Example structure in `PostRunActionDefaults`:
             ```powershell
             PostRunActionDefaults = @{
@@ -648,6 +649,11 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     .\PoSh-Backup.ps1 -TestConfig
     ```
     (This is very useful after making changes to `User.psd1`. If this job has dependencies, they will be processed first according to the defined order.)
+
+*   **Perform a pre-flight check on all jobs in a set to ensure paths and targets are ready:**
+    ```powershell
+    .\PoSh-Backup.ps1 -PreFlightCheck -RunSet "DailyCriticalBackups"
+    ```
 
 *   **Test a specific remote backup target's configuration and connectivity:**
     ```powershell
@@ -849,7 +855,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-SyncSchedules`: Synchronises job schedules (for both backup and verification jobs) from the configuration file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits. Requires Administrator privileges.
 *   `-CheckForUpdate`: Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.
-*   `-ExportDiagnosticPackage <FilePath.zip>`: A utility parameter. Gathers a comprehensive diagnostic report into a single .zip package at the specified path. This includes: sanitized configuration files, a human-readable diff of user changes, recent logs, system/module/7-Zip versions, disk space information, and key directory permissions (ACLs). This is extremely useful for support and troubleshooting.
+*   `-ExportDiagnosticPackage <FilePath.zip>`: A utility parameter. Gathers a comprehensive diagnostic report into a single .zip package at the specified path. This includes: sanitised configuration files, a human-readable diff of user changes, recent logs, system/module/7-Zip versions, disk space information, and key directory permissions (ACLs). This is extremely useful for support and troubleshooting.
 *   `-GetEffectiveConfig <JobName>`: A utility parameter. Displays the fully resolved, effective configuration for a given job name, including all global, set, and CLI overrides, then exits. Does not run a backup.
 *   `-TestBackupTarget <TargetName>`: A utility parameter to test connectivity and basic settings for a specific Backup Target defined in your configuration. This does not run a backup but will attempt to connect to the remote endpoint (UNC, SFTP, WebDAV, S3, etc.) using the configured credentials and path to verify the settings are correct.
 

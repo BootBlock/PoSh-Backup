@@ -40,6 +40,10 @@
     "The project is heavily modularised into `Core`, `Managers`, `Utilities`, `Operations`, `Reporting`, and `Targets`.",
     "Bundler script `Generate-ProjectBundleForAI.ps1` (v__BUNDLER_VERSION_PLACEHOLDER__) is used to maintain session context.",
     "",
+    "Note: The `-Quiet` flag no longer works and requires fixing.",
+    "Added additional parameters to Write-NameValue; try and make use of them.",
+    ""
+    "",
     "--- Feature: Desktop (Toast) Notifications (Completed in Previous Session) ---",
     "   - Goal: Add a 'Desktop' notification provider for native Windows toast notifications.",
     "   - Stage 1 (Initial Native API): Attempted to use WinRT APIs directly via `[Windows.UI.Notifications.ToastNotificationManager,...]`. This FAILED in PowerShell 5.1 with a `Cannot find an overload for ToString and the argument count: 1` error due to a known parser bug.",
@@ -63,7 +67,7 @@
     "   - `README.md`: Updated to document the new feature, its prerequisites (`Robocopy.exe`), and configuration options.",
     "   - Fixed PSSA warnings for unused `Logger` parameters in `NotificationManager.psm1` and `UNC.Target.psm1`.",
     "",
-    "--- Feature: Scheduling for Verification Jobs (Current Session) ---",
+    "--- Feature: Scheduling for Verification Jobs (Completed in Previous Session) ---",
     "   - Goal: Allow automated, scheduled execution of backup verification jobs.",
     "   - Config\\Default.psd1 (v1.9.5 -> v1.9.6): Added a 'Schedule' block to the example verification job definition.",
     "   - Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1: Updated the schema to validate the new 'Schedule' block within 'VerificationJobs'.",
@@ -71,6 +75,16 @@
     "   - Modules\\ScriptModeHandler.psm1 (v2.1.0 -> v2.2.0) & Modules\\ScriptModes\\MaintenanceAndVerification.psm1 (v1.0.0 -> v1.1.0): Updated to handle the new '-VerificationJobName' parameter.",
     "   - Modules\\Managers\\ScheduleManager.psm1 (v1.0.8 -> v1.1.1): Significantly refactored to process schedules for both backup and verification jobs and to fix PSScriptAnalyzer warnings.",
     "   - README.md: Updated to document the new feature and its configuration.",
+    "",
+    "--- Feature: Pre-Flight Check Mode (Current Session) ---",
+    "   - Goal: Add a '-PreFlightCheck' mode to validate environmental readiness before a backup.",
+    "   - PoSh-Backup.ps1 (v1.30.0 -> v1.31.0): Added the '-PreFlightCheck' parameter and assigned it to a new 'PreFlight' parameter set.",
+    "   - Modules\\Managers\\CliManager.psm1 (v1.3.0 -> v1.3.1): Updated to recognise the new parameter.",
+    "   - Modules\\Managers\\CoreSetupManager.psm1 (v2.1.2 -> v2.2.0): Updated to accept and pass through the new parameter (includes a bug fix where the parameter was initially missing).",
+    "   - Modules\\ScriptModeHandler.psm1 (v2.2.0 -> v2.3.0): Updated to delegate the new mode to the diagnostics sub-module.",
+    "   - Modules\\ScriptModes\\Diagnostics.psm1 (v1.2.0 -> v1.3.0): Updated to orchestrate the pre-flight check by calling a new, dedicated checker module.",
+    "   - New Module: 'Modules\\ScriptModes\\PreFlightChecker.psm1' (v1.0.0) created to contain the core logic for checking source/destination paths, hook scripts, and remote target connectivity.",
+    "   - README.md: Updated to document the new -PreFlightCheck feature and its usage.",
     "",
     "--- Key Architectural Concepts & Patterns ---",
     "   - **Facade Modules:** Key modules like `Utils.psm1`, `ConfigManager.psm1`, `Operations.psm1`, `7ZipManager.psm1`, and `ScriptModeHandler.psm1` act as facades, orchestrating calls to more specialised sub-modules.",
@@ -96,7 +110,7 @@
     "   - **Interactive Job/Set Selection:** When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets. This is accomplished via `Modules\ConfigManagement\JobResolver.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.30.0 # Added -VerificationJobName parameter for scheduled verification."
+  main_script_poSh_backup_version = "1.31.0 # Added -PreFlightCheck mode."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

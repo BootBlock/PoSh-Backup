@@ -128,15 +128,52 @@ function Write-ConsoleBanner {
     if ($AppendNewLine) { Write-Host }
 }
 
+<#
+.SYNOPSIS
+    Writes a formatted name-value pair to the console.
+.DESCRIPTION
+    A helper function for console output that displays a name and its corresponding value in a
+    consistent 'Name: Value' format with customisable colours. It supports optional padding
+    for the name part to allow for aligned, table-like output and provides a default for
+    empty values.
+.PARAMETER name
+    The name (or label) for the key-value pair to be displayed.
+.PARAMETER value
+    The value to be displayed for the corresponding name.
+.PARAMETER namePadding
+    An optional integer that specifies the total character width to which the 'name' string
+    should be right-padded with spaces. This is useful for aligning columns of name-value pairs.
+.PARAMETER defaultValue
+    An optional string to display if the provided 'value' is null or empty. Defaults to '-'.
+.EXAMPLE
+    Write-NameValue -name "Status" -value "Success"
+    # Output:   Status: Success
+
+    Write-NameValue -name "Longer Name" -value "Some Value" -namePadding 20
+    # Output:   Longer Name         : Some Value
+    
+    Write-NameValue -name "Empty Value" -value $null -namePadding 20
+    # Output:   Empty Value         : -
+#>
 function Write-NameValue {
     param(
         [Parameter(Mandatory)][string]$name,
-        [Parameter(Mandatory)][string]$value
+        [Parameter(Mandatory=$false)][string]$value,
+        [Int16]$namePadding = 0,
+        [string]$defaultValue = '-',
+        [string]$nameForegroundColor = "DarkGray",
+        [string]$valueForegroundColor = "Gray"
     )
 
-    Write-Host "  $($name): " -NoNewline -ForegroundColor "DarkGray"
-    Write-Host $value -ForegroundColor "Gray"
-}
+    $nameText = $name
+    $valueToDisplay = if ([string]::IsNullOrWhiteSpace($value)) { $defaultValue } else { $value }
 
+    if ($namePadding -gt 0) {
+        $nameText = $name.PadRight($namePadding, " ")
+    }
+
+    Write-Host "  $($nameText): " -NoNewline -ForegroundColor $nameForegroundColor
+    Write-Host $valueToDisplay -ForegroundColor $valueForegroundColor
+}
 
 Export-ModuleMember -Function Write-ConsoleBanner, Write-NameValue

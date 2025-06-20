@@ -41,6 +41,7 @@ function Get-PoShBackupCliOverride {
     $cliOverrideSettings.Maintenance                         = if ($BoundParameters.ContainsKey('Maintenance')) { $BoundParameters['Maintenance'] } else { $null }
     $cliOverrideSettings.ForceRunInMaintenanceMode           = if ($BoundParameters.ContainsKey('ForceRunInMaintenanceMode')) { $true } else { $null }
     $cliOverrideSettings.ForceExtract                        = if ($BoundParameters.ContainsKey('ForceExtract')) { $true } else { $null }
+    $cliOverrideSettings.PreFlightCheck                      = if ($BoundParameters.ContainsKey('PreFlightCheck')) { $true } else { $null }
     $cliOverrideSettings.RunVerificationJobs                 = if ($BoundParameters.ContainsKey('RunVerificationJobs')) { $true } else { $null }
     $cliOverrideSettings.SkipJob                             = if ($BoundParameters.ContainsKey('SkipJob')) { $BoundParameters['SkipJob'] } else { $null }
 

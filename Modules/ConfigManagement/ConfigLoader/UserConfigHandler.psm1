@@ -73,7 +73,9 @@ function Invoke-UserConfigCreationPromptInternal {
     if (-not (Test-Path -LiteralPath $DefaultUserConfigPathInternal -PathType Leaf)) {
         if (Test-Path -LiteralPath $DefaultBaseConfigPathInternal -PathType Leaf) {
             & $LocalWriteLogInternal -Message "[INFO] ConfigLoader/UserConfigHandler: User configuration file ('$DefaultUserConfigPathInternal') not found." -Level "INFO"
-            if ($Host.Name -eq "ConsoleHost" -and `
+
+            # The $Global:IsQuietMode flag is set by InitialisationManager.psm1
+            if ($Host.Name -eq "ConsoleHost" -and ($Global:IsQuietMode -ne $true) -and `
                 -not $IsTestConfigModeSwitchInternal -and `
                 -not $IsSimulateModeSwitchInternal -and `
                 -not $ListBackupLocationsSwitchInternal -and `

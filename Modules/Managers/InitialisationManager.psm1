@@ -5,13 +5,13 @@
 .DESCRIPTION
     This module provides a function to initialise global settings such as colour
     palettes, status maps, default logging variables, and standardised exit codes.
-    It also displays the initial script banner. This centralises the startup
-    configuration and presentation logic.
+    It also displays the initial script banner, but respects the -Quiet flag to suppress it.
+    This centralises the startup configuration and presentation logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added centralised Exit Code map.
+    Version:        1.1.1 # Banner display now respects -Quiet mode.
     DateCreated:    01-Jun-2025
-    LastModified:   18-Jun-2025
+    LastModified:   20-Jun-2025
     Purpose:        To centralise initial script setup and banner display.
     Prerequisites:  PowerShell 5.1+.
                     Requires Modules\Utilities\ConsoleDisplayUtils.psm1 to be available.
@@ -89,62 +89,75 @@ function Invoke-PoShBackupInitialSetup {
     $Global:GlobalJobLogEntries                 = $null
     $Global:GlobalJobHookScriptData             = $null
 
-    # --- Display Starting Banner ---
-    if (Get-Command Write-ConsoleBanner -ErrorAction SilentlyContinue) {
-        $scriptVersionForBanner = "vN/A" # Default
-        try {
-            $mainScriptContentForVersion = Get-Content -LiteralPath $MainScriptPath -Raw -ErrorAction SilentlyContinue
-            if (-not [string]::IsNullOrWhiteSpace($mainScriptContentForVersion)) {
-                $regexMatch = [regex]::Match($mainScriptContentForVersion, '(?im)^\s*Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
-                if ($regexMatch.Success) {
-                    $extractedVersion = $regexMatch.Groups[1].Value.Trim()
-                    if (-not [string]::IsNullOrWhiteSpace($extractedVersion) -and $extractedVersion -ne "N/A") {
-                        $scriptVersionForBanner = "v$extractedVersion"
-                    }
-                } else {
-                    $regexMatch = [regex]::Match($mainScriptContentForVersion, '(?s)\.NOTES(?:.|\s)*?Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
+    # --- Respect Quiet Mode ---
+    # This global flag is checked by Write-LogMessage and other console output functions.
+    # We must check for the parameter in the *calling* script's bound parameters.
+    # A simple way is to check the global variable that should be set by the main script.
+    if ($PSBoundParameters.ContainsKey('Quiet') -and $PSBoundParameters['Quiet'].IsPresent) {
+        $Global:IsQuietMode = $true
+    } else {
+        $Global:IsQuietMode = $false
+    }
+
+
+    # --- Display Starting Banner (only if not in Quiet mode) ---
+    if ($Global:IsQuietMode -ne $true) {
+        if (Get-Command Write-ConsoleBanner -ErrorAction SilentlyContinue) {
+            $scriptVersionForBanner = "vN/A" # Default
+            try {
+                $mainScriptContentForVersion = Get-Content -LiteralPath $MainScriptPath -Raw -ErrorAction SilentlyContinue
+                if (-not [string]::IsNullOrWhiteSpace($mainScriptContentForVersion)) {
+                    $regexMatch = [regex]::Match($mainScriptContentForVersion, '(?im)^\s*Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
                     if ($regexMatch.Success) {
                         $extractedVersion = $regexMatch.Groups[1].Value.Trim()
                         if (-not [string]::IsNullOrWhiteSpace($extractedVersion) -and $extractedVersion -ne "N/A") {
                             $scriptVersionForBanner = "v$extractedVersion"
                         }
+                    } else {
+                        $regexMatch = [regex]::Match($mainScriptContentForVersion, '(?s)\.NOTES(?:.|\s)*?Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
+                        if ($regexMatch.Success) {
+                            $extractedVersion = $regexMatch.Groups[1].Value.Trim()
+                            if (-not [string]::IsNullOrWhiteSpace($extractedVersion) -and $extractedVersion -ne "N/A") {
+                                $scriptVersionForBanner = "v$extractedVersion"
+                            }
+                        }
                     }
                 }
             }
+            catch {
+                Write-Host "[DEBUG] InitialisationManager.psm1: Error during dynamic version extraction for banner: $($_.Exception.Message). Version will show as 'vN/A'." -ForegroundColor $Global:ColourDebug
+            }
+
+            Write-ConsoleBanner -NameText "PoSh Backup" `
+                                -NameForegroundColor '$Global:ColourInfo' `
+                                -ValueText $scriptVersionForBanner `
+                                -ValueForegroundColor '$Global:ColourValue' `
+                                -BannerWidth 78 `
+                                -BorderForegroundColor '$Global:ColourHeading' `
+                                -CenterText `
+                                -PrependNewLine
+
+            # Author Information
+            if ($Global:IsQuietMode -ne $true) {
+                $authorName = "Joe Cox"
+                $githubLink = "https://github.com/BootBlock/PoSh-Backup"
+                $websiteLink = "https://bootblock.co.uk"
+                $authorInfoColor = $Global:ColourDebug
+
+                Write-Host # Blank line for spacing
+                Write-Host "        $authorName" -ForegroundColor White -NoNewline
+                Write-Host " : " -ForegroundColor $Global:ColourHeading -NoNewline
+                Write-Host $githubLink -ForegroundColor $authorInfoColor
+
+                Write-Host "    " -ForegroundColor $authorInfoColor -NoNewline
+                Write-Host "            : " -ForegroundColor $Global:ColourHeading -NoNewline
+                Write-Host $websiteLink -ForegroundColor $authorInfoColor
+                Write-Host # Blank line after author info
+            }
         }
-        catch {
-            Write-Host "[DEBUG] InitialisationManager.psm1: Error during dynamic version extraction for banner: $($_.Exception.Message). Version will show as 'vN/A'." -ForegroundColor $Global:ColourDebug
+        else {
+            Write-Warning "InitialisationManager.psm1: Write-ConsoleBanner command not found. Skipping banner display."
         }
-
-        Write-ConsoleBanner -NameText "PoSh Backup" `
-                            -NameForegroundColor '$Global:ColourInfo' `
-                            -ValueText $scriptVersionForBanner `
-                            -ValueForegroundColor '$Global:ColourValue' `
-                            -BannerWidth 78 `
-                            -BorderForegroundColor '$Global:ColourHeading' `
-                            -CenterText `
-                            -PrependNewLine
-
-        # Author Information
-        if ($Global:IsQuietMode -ne $true) {
-            $authorName = "Joe Cox"
-            $githubLink = "https://github.com/BootBlock/PoSh-Backup"
-            $websiteLink = "https://bootblock.co.uk"
-            $authorInfoColor = $Global:ColourDebug
-
-            Write-Host # Blank line for spacing
-            Write-Host "        $authorName" -ForegroundColor White -NoNewline
-            Write-Host " : " -ForegroundColor $Global:ColourHeading -NoNewline
-            Write-Host $githubLink -ForegroundColor $authorInfoColor
-
-            Write-Host "    " -ForegroundColor $authorInfoColor -NoNewline
-            Write-Host "            : " -ForegroundColor $Global:ColourHeading -NoNewline
-            Write-Host $websiteLink -ForegroundColor $authorInfoColor
-            Write-Host # Blank line after author info
-        }
-    }
-    else {
-        Write-Warning "InitialisationManager.psm1: Write-ConsoleBanner command not found. Skipping banner display."
     }
 }
 

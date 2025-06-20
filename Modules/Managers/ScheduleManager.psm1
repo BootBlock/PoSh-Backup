@@ -186,7 +186,7 @@ function Sync-PoShBackupSchedule  {
     # --- Step 1: Process and synchronise backup jobs defined in the configuration ---
     foreach ($jobName in $allDefinedJobNames) {
         $jobConfig = $Configuration.BackupLocations[$jobName]
-        $taskName = "PoSh-Backup - $jobName"
+        $taskName = "PoSh-Backup - $($jobName -replace '[\\/:*?"<>|]', '_')"
         $taskArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$mainScriptPath`" -BackupLocationName `"$jobName`" -Quiet"
         Invoke-ScheduledItemSyncInternal -ItemName $jobName -ItemConfig $jobConfig -TaskName $taskName -TaskArguments $taskArguments -ExistingTask ($allTasksInPoshBackupFolder | Where-Object { $_.TaskName -eq $taskName }) -TaskFolder $taskFolder -CreatedTasks ([ref]$createdTasks) -UpdatedTasks ([ref]$updatedTasks) -RemovedTasks ([ref]$removedTasks) -SkippedTasks ([ref]$skippedTasks) -Logger $Logger -PSCmdlet $PSCmdlet
     }
@@ -194,7 +194,7 @@ function Sync-PoShBackupSchedule  {
     # --- Step 2: Process and synchronise verification jobs defined in the configuration ---
     foreach ($vJobName in $allDefinedVJobNames) {
         $vJobConfig = $Configuration.VerificationJobs[$vJobName]
-        $taskName = "PoSh-Backup Verification - $vJobName"
+        $taskName = "PoSh-Backup Verification - $($vJobName -replace '[\\/:*?"<>|]', '_')"
         $taskArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$mainScriptPath`" -VerificationJobName `"$vJobName`" -Quiet"
         Invoke-ScheduledItemSyncInternal -ItemName $vJobName -ItemConfig $vJobConfig -TaskName $taskName -TaskArguments $taskArguments -ExistingTask ($allTasksInPoshBackupFolder | Where-Object { $_.TaskName -eq $taskName }) -TaskFolder $taskFolder -CreatedTasks ([ref]$createdTasks) -UpdatedTasks ([ref]$updatedTasks) -RemovedTasks ([ref]$removedTasks) -SkippedTasks ([ref]$skippedTasks) -Logger $Logger -PSCmdlet $PSCmdlet
     }

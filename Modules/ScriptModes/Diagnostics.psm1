@@ -10,11 +10,12 @@
     - -GetEffectiveConfig
     - -ExportDiagnosticPackage
     - -TestBackupTarget
+    - -PreFlightCheck
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Added Test-BackupTarget logic.
+    Version:        1.3.0 # Added -PreFlightCheck logic.
     DateCreated:    15-Jun-2025
-    LastModified:   18-Jun-2025
+    LastModified:   20-Jun-2025
     Purpose:        To handle diagnostic script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -26,8 +27,10 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Core\PostRunActionOrchestrator.psm1") -Force -ErrorAction Stop
-    # Import JobDependencyManager to ensure its functions are available for the dependency graph
     Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
+    # NEW: Import the PreFlightChecker module
+    Import-Module -Name (Join-Path -Path $PSScriptRoot "PreFlightChecker.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Warning "ScriptModes\Diagnostics.psm1: Could not import a manager module. Specific modes may be unavailable. Error: $($_.Exception.Message)"
@@ -185,7 +188,7 @@ function Invoke-ExportDiagnosticPackageInternal {
         $systemInfo = [System.Text.StringBuilder]::new()
         $null = $systemInfo.AppendLine("PoSh-Backup Diagnostic Information")
         $null = $systemInfo.AppendLine("Generated on: $(Get-Date -Format 'o')")
-        $null = $systemInfo.AppendLine(("-"*40))
+        $null = $systemInfo.AppendLine(("-" * 40))
 
         $mainScriptVersion = Get-ScriptVersionFromContent -ScriptContent (Get-Content (Join-Path $PSScriptRoot "PoSh-Backup.ps1") -Raw)
         $null = $systemInfo.AppendLine("PoSh-Backup Version: $mainScriptVersion")
@@ -194,17 +197,18 @@ function Invoke-ExportDiagnosticPackageInternal {
         $null = $systemInfo.AppendLine("Culture            : $((Get-Culture).Name)")
         $null = $systemInfo.AppendLine("Execution Policy   : $(Get-ExecutionPolicy)")
         $null = $systemInfo.AppendLine("Admin Rights       : $(Test-AdminPrivilege -Logger $Logger)")
-        $null = $systemInfo.AppendLine(("-"*40))
+        $null = $systemInfo.AppendLine(("-" * 40))
 
         $sevenZipPathForDiag = Find-SevenZipExecutable -Logger $Logger
         if ($sevenZipPathForDiag) {
             $sevenZipVersionInfo = (& $sevenZipPathForDiag | Select-Object -First 2) -join " "
             $null = $systemInfo.AppendLine("7-Zip Path    : $sevenZipPathForDiag")
             $null = $systemInfo.AppendLine("7-Zip Version : $sevenZipVersionInfo")
-        } else {
+        }
+        else {
             $null = $systemInfo.AppendLine("7-Zip Info    : Not found or configured.")
         }
-        $null = $systemInfo.AppendLine(("-"*40))
+        $null = $systemInfo.AppendLine(("-" * 40))
 
         $null = $systemInfo.AppendLine("External PowerShell Module Status:")
         $poshSshModule = Get-Module -Name Posh-SSH -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1
@@ -215,12 +219,14 @@ function Invoke-ExportDiagnosticPackageInternal {
             $vaults = Get-SecretVault -ErrorAction SilentlyContinue
             if ($vaults) {
                 $vaults | ForEach-Object { $null = $systemInfo.AppendLine("   - Vault Found: Name '$($_.Name)', Module '$($_.ModuleName)', Default: $($_.DefaultVault)") }
-            } else {
+            }
+            else {
                 $null = $systemInfo.AppendLine("   - Vaults: No secret vaults found or registered.")
             }
-        } catch { $null = $systemInfo.AppendLine("   - Vaults: Error checking for vaults: $($_.Exception.Message)") }
+        }
+        catch { $null = $systemInfo.AppendLine("   - Vaults: Error checking for vaults: $($_.Exception.Message)") }
 
-        $null = $systemInfo.AppendLine(("-"*40))
+        $null = $systemInfo.AppendLine(("-" * 40))
         $null = $systemInfo.AppendLine("PoSh-Backup Project File Versions:")
         $rootUri = [uri]($PSScriptRoot + [System.IO.Path]::DirectorySeparatorChar)
         Get-ChildItem -Path $PSScriptRoot -Include "*.psm1", "*.ps1" -Recurse -Exclude "Tests\*" | Sort-Object FullName | ForEach-Object {
@@ -234,7 +240,7 @@ function Invoke-ExportDiagnosticPackageInternal {
             $null = $systemInfo.AppendLine(" - $($relativePath.PadRight(76)) $versionString")
         }
 
-        $null = $systemInfo.AppendLine(("-"*40))
+        $null = $systemInfo.AppendLine(("-" * 40))
         $null = $systemInfo.AppendLine("Disk Space Report:")
         try {
             Get-PSDrive -PSProvider FileSystem | ForEach-Object {
@@ -246,7 +252,8 @@ function Invoke-ExportDiagnosticPackageInternal {
                     $null = $systemInfo.AppendLine(" - Drive $($drive.Name): Total: $($totalSizeGB) GB, Free: $($freeSpaceGB) GB ($($percentFree)%)")
                 }
             }
-        } catch { $null = $systemInfo.AppendLine(" - Error gathering disk space information: $($_.Exception.Message)") }
+        }
+        catch { $null = $systemInfo.AppendLine(" - Error gathering disk space information: $($_.Exception.Message)") }
 
         $systemInfo.ToString() | Set-Content -Path (Join-Path $tempDir "SystemInfo.txt") -Encoding UTF8
 
@@ -266,10 +273,12 @@ function Invoke-ExportDiagnosticPackageInternal {
                 $diffOutput = Compare-PoShBackupConfigsInternal -UserConfig $userData -DefaultConfig $defaultData -Logger $Logger
                 if ($diffOutput.Count -eq 0) {
                     "No differences found between Default.psd1 and User.psd1." | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
-                } else {
-                    ("User.psd1 Overrides and Additions:" + [Environment]::NewLine + ("-"*40)) + [Environment]::NewLine + ($diffOutput -join [Environment]::NewLine) | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
                 }
-            } catch {
+                else {
+                    ("User.psd1 Overrides and Additions:" + [Environment]::NewLine + ("-" * 40)) + [Environment]::NewLine + ($diffOutput -join [Environment]::NewLine) | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
+                }
+            }
+            catch {
                 "Error generating config diff: $($_.Exception.Message)" | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
             }
         }
@@ -324,22 +333,25 @@ function Invoke-ExportDiagnosticPackageInternal {
             }
             if ($configForAcl.DefaultDestinationDir) { $pathsToAclCheck += $configForAcl.DefaultDestinationDir }
             if ($configForAcl.BackupLocations) { $configForAcl.BackupLocations.Values | ForEach-Object { if ($_.DestinationDir) { $pathsToAclCheck += $_.DestinationDir } } }
-        } catch {
+        }
+        catch {
             & $LocalWriteLog -Message "  - Diagnostic ACL Check: Could not load config to find destination paths. Error: $($_.Exception.Message)" -Level "DEBUG"
         }
 
         foreach ($path in ($pathsToAclCheck | Select-Object -Unique)) {
-            $null = $aclReport.AppendLine(("="*60))
+            $null = $aclReport.AppendLine(("=" * 60))
             $null = $aclReport.AppendLine("ACL for: $path")
-            $null = $aclReport.AppendLine(("="*60))
+            $null = $aclReport.AppendLine(("=" * 60))
             if (Test-Path -LiteralPath $path) {
                 try {
                     $aclOutput = (Get-Acl -LiteralPath $path | Format-List | Out-String).Trim()
                     $null = $aclReport.AppendLine($aclOutput)
-                } catch {
+                }
+                catch {
                     $null = $aclReport.AppendLine("ERROR retrieving ACL: $($_.Exception.Message)")
                 }
-            } else {
+            }
+            else {
                 $null = $aclReport.AppendLine("Path does not exist.")
             }
             $null = $aclReport.AppendLine()
@@ -351,9 +363,11 @@ function Invoke-ExportDiagnosticPackageInternal {
         Compress-Archive -Path "$tempDir\*" -DestinationPath $OutputPath -Force -ErrorAction Stop
         & $LocalWriteLog -Message "  - Diagnostic package created successfully." -Level "SUCCESS"
 
-    } catch {
+    }
+    catch {
         & $LocalWriteLog -Message "[ERROR] Failed to create diagnostic package. Error: $($_.Exception.Message)" -Level "ERROR"
-    } finally {
+    }
+    finally {
         # --- 6. Cleanup ---
         if (Test-Path -LiteralPath $tempDir) {
             & $LocalWriteLog -Message "  - Cleaning up temporary directory..." -Level "DEBUG"
@@ -368,6 +382,8 @@ function Invoke-PoShBackupDiagnosticMode {
     param(
         [Parameter(Mandatory = $true)]
         [bool]$TestConfigSwitch,
+        [Parameter(Mandatory = $true)]
+        [bool]$PreFlightCheckSwitch,
         [Parameter(Mandatory = $false)]
         [string]$GetEffectiveConfigJobName,
         [Parameter(Mandatory = $false)]
@@ -385,16 +401,54 @@ function Invoke-PoShBackupDiagnosticMode {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdletInstance
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
+        [Parameter(Mandatory = $false)]
+        [string]$BackupLocationNameForScope,
+        [Parameter(Mandatory = $false)]
+        [string]$RunSetForScope
     )
     
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
+    }
+
+    if ($PreFlightCheckSwitch) {
+        & $LocalWriteLog -Message "`n--- Pre-Flight Check Mode ---" -Level "HEADING"
+        $jobsToRun = @()
+        if (-not [string]::IsNullOrWhiteSpace($BackupLocationNameForScope)) {
+            $jobsToRun = @($BackupLocationNameForScope)
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($RunSetForScope)) {
+            if ($Configuration.BackupSets.ContainsKey($RunSetForScope)) {
+                $jobsToRun = @($Configuration.BackupSets[$RunSetForScope].JobNames)
+            }
+            else {
+                & $LocalWriteLog -Message "  - ERROR: Specified set '$RunSetForScope' not found in configuration." -Level "ERROR"
+            }
+        }
+        else {
+            & $LocalWriteLog -Message "  - Checking all enabled backup jobs defined in the configuration..." -Level "INFO"
+            $jobsToRun = @($Configuration.BackupLocations.Keys)
+        }
+        
+        if ($jobsToRun.Count -gt 0) {
+            $checkResult = Invoke-PoShBackupPreFlightCheck -JobsToCheck $jobsToRun `
+                -Configuration $Configuration `
+                -CliOverrideSettings $CliOverrideSettingsInternal `
+                -Logger $Logger `
+                -PSCmdletInstance $PSCmdletInstance
+            
+            & $LocalWriteLog -Message "`n--- Pre-Flight Check Finished ---" -Level "HEADING"
+            $finalStatus = if ($checkResult) { "SUCCESS" } else { "FAILURE" }
+            & $LocalWriteLog -Message "Overall Pre-Flight Check Status: $finalStatus" -Level $finalStatus
+        }
+        return $true # Mode handled
     }
 
     if (-not [string]::IsNullOrWhiteSpace($TestBackupTarget)) {
@@ -443,16 +497,19 @@ function Invoke-PoShBackupDiagnosticMode {
                     if (-not [string]::IsNullOrWhiteSpace($testResult.Message)) {
                         & $LocalWriteLog -Message "    - Details: $($testResult.Message)" -Level "INFO"
                     }
-                } else {
+                }
+                else {
                     & $LocalWriteLog -Message "  - RESULT: FAILED" -Level "ERROR"
                     if (-not [string]::IsNullOrWhiteSpace($testResult.Message)) {
                         & $LocalWriteLog -Message "    - Details: $($testResult.Message)" -Level "ERROR"
                     }
                 }
-            } else {
+            }
+            else {
                 & $LocalWriteLog -Message "  - RESULT: UNKNOWN. The health check function did not return a valid result object." -Level "WARNING"
             }
-        } catch {
+        }
+        catch {
             & $LocalWriteLog -Message "  - ERROR: An exception occurred while trying to test target '$TestBackupTarget'. Error: $($_.Exception.Message)" -Level "ERROR"
         }
         
@@ -469,161 +526,143 @@ function Invoke-PoShBackupDiagnosticMode {
     }
 
     if (-not [string]::IsNullOrWhiteSpace($GetEffectiveConfigJobName)) {
-        & $LocalWriteLog -Message "`n--- Get Effective Job Configuration Mode ---" -Level "HEADING"
+        Write-ConsoleBanner -NameText "Effective Configuration For Job" -ValueText $GetEffectiveConfigJobName -CenterText -PrependNewLine
+        Write-Host
         if (-not $Configuration.BackupLocations.ContainsKey($GetEffectiveConfigJobName)) {
             & $LocalWriteLog -Message "  - ERROR: The specified job name '$GetEffectiveConfigJobName' was not found in the configuration." -Level "ERROR"
             return $true # Handled
         }
         try {
-            & $LocalWriteLog -Message "  - Resolving effective configuration for job: '$GetEffectiveConfigJobName'..." -Level "INFO"
             $jobConfigForReport = $Configuration.BackupLocations[$GetEffectiveConfigJobName]
             $dummyReportDataRef = [ref]@{ JobName = $GetEffectiveConfigJobName }
 
             $effectiveConfigParams = @{
-                JobConfig                  = $jobConfigForReport
-                GlobalConfig               = $Configuration
-                CliOverrides               = $CliOverrideSettingsInternal
-                JobReportDataRef           = $dummyReportDataRef
-                Logger                     = $Logger
+                JobConfig        = $jobConfigForReport
+                GlobalConfig     = $Configuration
+                CliOverrides     = $CliOverrideSettingsInternal
+                JobReportDataRef = $dummyReportDataRef
+                Logger           = $Logger
             }
             $effectiveConfigResult = Get-PoShBackupJobEffectiveConfiguration @effectiveConfigParams
+            Write-Host
 
-            & $LocalWriteLog -Message "`n--- Effective Configuration for Job: '$GetEffectiveConfigJobName' ---`n" -Level "NONE"
-            $effectiveConfigResult | Format-List | Out-String | ForEach-Object { & $LocalWriteLog -Message $_ -Level "NONE" }
-            & $LocalWriteLog -Message "`n--- End of Effective Configuration ---" -Level "NONE"
+            foreach ($key in ($effectiveConfigResult.Keys | Sort-Object)) {
+                # Skip the GlobalConfigRef as it's huge and not useful for display here
+                if ($key -eq 'GlobalConfigRef') { continue }
+            
+                $value = $effectiveConfigResult[$key]
+                $valueDisplay = if ($value -is [array]) {
+                    "@($($value -join ', '))"
+                }
+                elseif ($value -is [hashtable]) {
+                    # Simple display for hashtables, could be expanded if needed
+                    "(Hashtable with $($value.Count) keys)"
+                }
+                else {
+                    $value
+                }
+                Write-NameValue -name $key -value $valueDisplay -namePadding 42
+            }
 
-        } catch {
+        }
+        catch {
             & $LocalWriteLog -Message "[FATAL] ScriptModes/Diagnostics: An error occurred while resolving the effective configuration for job '$GetEffectiveConfigJobName'. Error: $($_.Exception.Message)" -Level "ERROR"
         }
+        Write-ConsoleBanner -NameText "End of Effective Configuration" -BorderForegroundColor "White" -CenterText -PrependNewLine -AppendNewLine
         return $true
     }
 
     if ($TestConfigSwitch) {
-        & $LocalWriteLog -Message "`n[INFO] --- Configuration Test Mode Summary ---" -Level "CONFIG_TEST"
-        & $LocalWriteLog -Message "[SUCCESS] Configuration file(s) loaded and validated successfully from '$($ActualConfigFile)'" -Level "CONFIG_TEST"
+        Write-ConsoleBanner -NameText "Configuration Test Mode" -ValueText "Summary" -CenterText -PrependNewLine
+
+        & $LocalWriteLog -Message "  Configuration file(s) loaded and validated successfully from:" -Level "SUCCESS"
+        & $LocalWriteLog -Message "    $($ActualConfigFile)" -Level "SUCCESS"
         if ($ConfigLoadResult.UserConfigLoaded) {
-            & $LocalWriteLog -Message "          (User overrides from '$($ConfigLoadResult.UserConfigPath)')" -Level "CONFIG_TEST"
+            & $LocalWriteLog -Message "          (User overrides from '$($ConfigLoadResult.UserConfigPath)')" -Level "INFO"
         }
-        & $LocalWriteLog -Message "`n  --- Key Global Settings ---" -Level "CONFIG_TEST"
-        $sevenZipPathDisplay = if($Configuration.ContainsKey('SevenZipPath')){ $Configuration.SevenZipPath } else { 'N/A' }
-        & $LocalWriteLog -Message ("    7-Zip Path              : {0}" -f $sevenZipPathDisplay) -Level "CONFIG_TEST"
-        $defaultDestDirDisplay = if($Configuration.ContainsKey('DefaultDestinationDir')){ $Configuration.DefaultDestinationDir } else { 'N/A' }
-        & $LocalWriteLog -Message ("    Default Staging Dir     : {0}" -f $defaultDestDirDisplay) -Level "CONFIG_TEST"
-        $delLocalArchiveDisplay = if($Configuration.ContainsKey('DeleteLocalArchiveAfterSuccessfulTransfer')){ $Configuration.DeleteLocalArchiveAfterSuccessfulTransfer } else { '$true (default)' }
-        & $LocalWriteLog -Message ("    Del. Local Post Transfer: {0}" -f $delLocalArchiveDisplay) -Level "CONFIG_TEST"
-        $logDirDisplay = if($Configuration.ContainsKey('LogDirectory')){ $Configuration.LogDirectory } else { 'N/A (File Logging Disabled)' }
-        & $LocalWriteLog -Message ("    Log Directory           : {0}" -f $logDirDisplay) -Level "CONFIG_TEST"
-        $htmlReportDirDisplay = if($Configuration.ContainsKey('HtmlReportDirectory')){ $Configuration.HtmlReportDirectory } else { 'N/A' }
-        & $LocalWriteLog -Message ("    Default Report Dir (HTML): {0}" -f $htmlReportDirDisplay) -Level "CONFIG_TEST"
-        $vssEnabledDisplayGlobal = if($Configuration.ContainsKey('EnableVSS')){ $Configuration.EnableVSS } else { $false }
-        & $LocalWriteLog -Message ("    Default VSS Enabled     : {0}" -f $vssEnabledDisplayGlobal) -Level "CONFIG_TEST"
-        $retriesEnabledDisplayGlobal = if($Configuration.ContainsKey('EnableRetries')){ $Configuration.EnableRetries } else { $false }
-        & $LocalWriteLog -Message ("    Default Retries Enabled : {0}" -f $retriesEnabledDisplayGlobal) -Level "CONFIG_TEST"
-        $treatWarningsAsSuccessDisplayGlobal = if($Configuration.ContainsKey('TreatSevenZipWarningsAsSuccess')){ $Configuration.TreatSevenZipWarningsAsSuccess } else { $false }
-        & $LocalWriteLog -Message ("    Treat 7-Zip Warns as OK : {0}" -f $treatWarningsAsSuccessDisplayGlobal) -Level "CONFIG_TEST"
-        $pauseExitDisplayGlobal = if($Configuration.ContainsKey('PauseBeforeExit')){ $Configuration.PauseBeforeExit } else { 'OnFailureOrWarning' }
-        & $LocalWriteLog -Message ("    Pause Before Exit       : {0}" -f $pauseExitDisplayGlobal) -Level "CONFIG_TEST"
+
+        Write-ConsoleBanner -NameText "Key Global Settings" -BannerWidth 78 -CenterText -PrependNewLine
+        $sevenZipPathDisplay = if ($Configuration.ContainsKey('SevenZipPath')) { $Configuration.SevenZipPath } else { 'N/A' }
+        Write-NameValue "7-Zip Path                " $sevenZipPathDisplay
+        $defaultDestDirDisplay = if ($Configuration.ContainsKey('DefaultDestinationDir')) { $Configuration.DefaultDestinationDir } else { 'N/A' }
+        Write-NameValue "Default Staging Dir       " $defaultDestDirDisplay
+        $delLocalArchiveDisplay = if ($Configuration.ContainsKey('DeleteLocalArchiveAfterSuccessfulTransfer')) { $Configuration.DeleteLocalArchiveAfterSuccessfulTransfer } else { '$true (default)' }
+        Write-NameValue "Delete Local Post Transfer" $delLocalArchiveDisplay
+        $logDirDisplay = if ($Configuration.ContainsKey('LogDirectory')) { $Configuration.LogDirectory } else { 'N/A (File Logging Disabled)' }
+        Write-NameValue "Log Directory             " $logDirDisplay
+        $vssEnabledDisplayGlobal = if ($Configuration.ContainsKey('EnableVSS')) { $Configuration.EnableVSS } else { $false }
+        Write-NameValue "Default VSS Enabled       " $vssEnabledDisplayGlobal
+        $treatWarningsAsSuccessDisplayGlobal = if ($Configuration.ContainsKey('TreatSevenZipWarningsAsSuccess')) { $Configuration.TreatSevenZipWarningsAsSuccess } else { $false }
+        Write-NameValue "Treat 7-Zip Warns as OK   " $treatWarningsAsSuccessDisplayGlobal
 
         if ($Configuration.ContainsKey('BackupTargets') -and $Configuration.BackupTargets -is [hashtable] -and $Configuration.BackupTargets.Count -gt 0) {
-            & $LocalWriteLog -Message "`n  --- Defined Backup Targets ---" -Level "CONFIG_TEST"
+            Write-ConsoleBanner -NameText "Defined Backup Targets" -BannerWidth 78 -CenterText -PrependNewLine
             foreach ($targetNameKey in ($Configuration.BackupTargets.Keys | Sort-Object)) {
-                $targetConf = $Configuration.BackupTargets[$targetNameKey]
-                & $LocalWriteLog -Message ("    Target: {0} (Type: {1})" -f $targetNameKey, $targetConf.Type) -Level "CONFIG_TEST"
-                if ($targetConf.TargetSpecificSettings) {
-                    if ($targetConf.TargetSpecificSettings -is [array]) {
-                        & $LocalWriteLog -Message ("      -> TargetSpecificSettings (List of Destinations):") -Level "CONFIG_TEST"
-                        $destinationIndex = 0
-                        foreach ($destinationItem in $targetConf.TargetSpecificSettings) {
-                             $destinationIndex++
-                             & $LocalWriteLog -Message ("         [Destination $destinationIndex]") -Level "CONFIG_TEST"
-                             if ($destinationItem -is [hashtable]) {
-                                 $destinationItem.GetEnumerator() | ForEach-Object {
-                                     $destSettingValue = if ($_.Value -is [hashtable]) { '(...)' } else { $_.Value }
-                                     & $LocalWriteLog -Message ("           - $($_.Name.PadRight(25)) = $destSettingValue") -Level "CONFIG_TEST"
-                                 }
-                             } else {
-                                  & $LocalWriteLog -Message ("           - $destinationItem") -Level "CONFIG_TEST"
-                             }
-                        }
-                    }
-                    elseif ($targetConf.TargetSpecificSettings -is [hashtable]) {
-                        $targetConf.TargetSpecificSettings.GetEnumerator() | ForEach-Object {
-                            & $LocalWriteLog -Message ("      -> $($_.Name.PadRight(25)) : $($_.Value)") -Level "CONFIG_TEST"
-                        }
-                    }
-                }
+                $targetConfType = $Configuration.BackupTargets[$targetNameKey].Type
+                Write-NameValue "  Target" "$targetNameKey (Type: $targetConfType)"
             }
-        } else { & $LocalWriteLog -Message "`n  --- Defined Backup Targets ---`n    <none defined>" -Level "CONFIG_TEST" }
+        }
 
         if ($Configuration.BackupLocations -is [hashtable] -and $Configuration.BackupLocations.Count -gt 0) {
-            & $LocalWriteLog -Message "`n  --- Defined Backup Locations (Jobs) ---" -Level "CONFIG_TEST"
+            Write-ConsoleBanner -NameText "Defined Backup Jobs" -BannerWidth 78 -CenterText -PrependNewLine
             foreach ($jobNameKey in ($Configuration.BackupLocations.Keys | Sort-Object)) {
                 $jobConf = $Configuration.BackupLocations[$jobNameKey]
-                & $LocalWriteLog -Message ("    Job: {0}" -f $jobNameKey) -Level "CONFIG_TEST"
-                $sourcePathsDisplay = if ($jobConf.Path -is [array]) { $jobConf.Path -join "; " } else { $jobConf.Path }; & $LocalWriteLog -Message ("      Source(s)    : {0}" -f $sourcePathsDisplay) -Level "CONFIG_TEST"
-                $destDirDisplayJob = if ($jobConf.ContainsKey('DestinationDir')) { $jobConf.DestinationDir } elseif ($Configuration.ContainsKey('DefaultDestinationDir')) { $Configuration.DefaultDestinationDir } else { 'N/A' }; & $LocalWriteLog -Message ("      Staging Dir  : {0}" -f $destDirDisplayJob) -Level "CONFIG_TEST"
-                if ($jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array] -and $jobConf.TargetNames.Count -gt 0) { & $LocalWriteLog -Message ("      Remote Targets: {0}" -f ($jobConf.TargetNames -join ", ")) -Level "CONFIG_TEST" }
-                $archiveNameDisplayJob = if ($jobConf.ContainsKey('Name')) { $jobConf.Name } else { 'N/A (Uses Job Name)' }; & $LocalWriteLog -Message ("      Archive Name : {0}" -f $archiveNameDisplayJob) -Level "CONFIG_TEST"
-                $vssEnabledDisplayJob = if ($jobConf.ContainsKey('EnableVSS')) { $jobConf.EnableVSS } elseif ($Configuration.ContainsKey('EnableVSS')) { $Configuration.EnableVSS } else { $false }; & $LocalWriteLog -Message ("      VSS Enabled  : {0}" -f $vssEnabledDisplayJob) -Level "CONFIG_TEST"
-                $treatWarnDisplayJob = if ($jobConf.ContainsKey('TreatSevenZipWarningsAsSuccess')) { $jobConf.TreatSevenZipWarningsAsSuccess } elseif ($Configuration.ContainsKey('TreatSevenZipWarningsAsSuccess')) { $Configuration.TreatSevenZipWarningsAsSuccess } else { $false }; & $LocalWriteLog -Message ("      Treat Warn OK: {0}" -f $treatWarnDisplayJob) -Level "CONFIG_TEST"
-                $retentionDisplayJob = if ($jobConf.ContainsKey('LocalRetentionCount')) { $jobConf.LocalRetentionCount } else { 'N/A' }; & $LocalWriteLog -Message ("      LocalRetain  : {0}" -f $retentionDisplayJob) -Level "CONFIG_TEST"
+                $isEnabled = Get-ConfigValue -ConfigObject $jobConf -Key 'Enabled' -DefaultValue $true
+                $jobNameColor = if ($isEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
+                & $LocalWriteLog -Message ("`n  Job: {0}" -f $jobNameKey) -Level "NONE" -ForegroundColour $jobNameColor
+                $sourcePathsDisplay = if ($jobConf.Path -is [array]) { $jobConf.Path -join "; " } else { $jobConf.Path }; & $LocalWriteLog -Message ("    Source(s)      : {0}" -f $sourcePathsDisplay) -Level "NONE"
+                if ($jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array] -and $jobConf.TargetNames.Count -gt 0) { & $LocalWriteLog -Message ("    Remote Targets : {0}" -f ($jobConf.TargetNames -join ", ")) -Level "NONE" }
+                $dependsOn = @(Get-ConfigValue -ConfigObject $jobConf -Key 'DependsOnJobs' -DefaultValue @()); if ($dependsOn.Count -gt 0) { & $LocalWriteLog -Message ("    Depends On     : {0}" -f ($dependsOn -join ", ")) -Level "NONE" }
             }
-        } else { & $LocalWriteLog -Message "`n  --- Defined Backup Locations (Jobs) ---`n    No Backup Locations defined." -Level "CONFIG_TEST" }
+        }
 
         if ($Configuration.BackupSets -is [hashtable] -and $Configuration.BackupSets.Count -gt 0) {
-            & $LocalWriteLog -Message "`n  --- Defined Backup Sets ---" -Level "CONFIG_TEST"
+            Write-ConsoleBanner -NameText "Defined Backup Sets" -BannerWidth 78 -CenterText -PrependNewLine
             foreach ($setNameKey in ($Configuration.BackupSets.Keys | Sort-Object)) {
                 $setConf = $Configuration.BackupSets[$setNameKey]
-                & $LocalWriteLog -Message ("    Set: {0}" -f $setNameKey) -Level "CONFIG_TEST"
-                $jobsInSetDisplay = if ($setConf.JobNames -is [array]) { $setConf.JobNames -join ", " } else { "None listed" }; & $LocalWriteLog -Message ("      Jobs in Set  : {0}" -f $jobsInSetDisplay) -Level "CONFIG_TEST"
-                $onErrorDisplaySet = if ($setConf.ContainsKey('OnErrorInJob')) { $setConf.OnErrorInJob } else { 'StopSet' }; & $LocalWriteLog -Message ("      On Error     : {0}" -f $onErrorDisplaySet) -Level "CONFIG_TEST"
+                & $LocalWriteLog -Message ("`n  Set: {0}" -f $setNameKey) -Level "NONE"
+                $jobsInSetDisplay = if ($setConf.JobNames -is [array]) { $setConf.JobNames -join ", " } else { "None listed" }; & $LocalWriteLog -Message ("    Jobs in Set: {0}" -f $jobsInSetDisplay) -Level "NONE"
             }
-        } else { & $LocalWriteLog -Message "`n  --- Defined Backup Sets ---`n    No Backup Sets defined." -Level "CONFIG_TEST" }
+        }
 
-        # --- DEPENDENCY GRAPH SECTION ---
-        & $LocalWriteLog -Message "`n  --- Job Dependency Graph ---" -Level "CONFIG_TEST"
+        Write-ConsoleBanner -NameText "Job Dependency Graph" -BannerWidth 78 -CenterText -PrependNewLine
         try {
             if (Get-Command Get-PoShBackupJobDependencyMap -ErrorAction SilentlyContinue) {
                 $dependencyMapData = Get-PoShBackupJobDependencyMap -AllBackupLocations $Configuration.BackupLocations
                 $graphLines = Format-DependencyGraphInternal -DependencyMap $dependencyMapData
-                foreach ($line in $graphLines) {
-                    & $LocalWriteLog -Message $line -Level "CONFIG_TEST"
-                }
-            } else {
-                 & $LocalWriteLog -Message "    (Could not generate graph: Get-PoShBackupJobDependencyMap function not found.)" -Level "CONFIG_TEST"
+                foreach ($line in $graphLines) { & $LocalWriteLog -Message $line -Level "NONE" }
             }
-        } catch {
-            & $LocalWriteLog -Message "    (An error occurred while generating the dependency graph: $($_.Exception.Message))" -Level "CONFIG_TEST"
+            else { & $LocalWriteLog -Message "    (Could not generate graph: Get-PoShBackupJobDependencyMap function not found.)" -Level "NONE" }
         }
-        # --- END SECTION ---
+        catch { & $LocalWriteLog -Message "    (An error occurred while generating the dependency graph: $($_.Exception.Message))" -Level "NONE" }
 
         if (Get-Command Invoke-PoShBackupPostRunActionHandler -ErrorAction SilentlyContinue) {
+            Write-ConsoleBanner -NameText "Effective Post-Run Action" -BannerWidth 78 -CenterText -PrependNewLine
             $postRunResolution = Invoke-PoShBackupPostRunActionHandler -OverallStatus "SIMULATED_COMPLETE" `
-                -CliOverrideSettings $CliOverrideSettingsInternal `
-                -SetSpecificPostRunAction $null `
-                -JobSpecificPostRunActionForNonSet $null `
-                -GlobalConfig $Configuration `
-                -IsSimulateMode $true `
-                -TestConfigIsPresent $true `
-                -Logger $Logger `
-                -ResolveOnly
-
+                -CliOverrideSettings $CliOverrideSettingsInternal -SetSpecificPostRunAction $null -JobSpecificPostRunActionForNonSet $null `
+                -GlobalConfig $Configuration -IsSimulateMode $true -TestConfigIsPresent $true `
+                -Logger $Logger -ResolveOnly
             if ($null -ne $postRunResolution) {
-                & $LocalWriteLog -Message "`n  --- Effective Post-Run Action ---" -Level "CONFIG_TEST"
-                & $LocalWriteLog -Message ("    Action          : {0}" -f $postRunResolution.Action) -Level "CONFIG_TEST"
-                & $LocalWriteLog -Message ("    Source          : {0}" -f $postRunResolution.Source) -Level "CONFIG_TEST"
+                Write-NameValue "Action" $postRunResolution.Action
+                Write-NameValue "Source" $postRunResolution.Source
                 if ($postRunResolution.Action -ne 'None') {
-                    & $LocalWriteLog -Message ("    Trigger On      : {0}" -f $postRunResolution.TriggerOnStatus) -Level "CONFIG_TEST"
-                    & $LocalWriteLog -Message ("    Delay (seconds) : {0}" -f $postRunResolution.DelaySeconds) -Level "CONFIG_TEST"
-                    & $LocalWriteLog -Message ("    Force Action    : {0}" -f $postRunResolution.ForceAction) -Level "CONFIG_TEST"
+                    Write-NameValue "Trigger On" $postRunResolution.TriggerOnStatus
+                    Write-NameValue "Delay (seconds)" $postRunResolution.DelaySeconds
+                    Write-NameValue "Force Action" $postRunResolution.ForceAction
                 }
             }
-        } else {
-            & $LocalWriteLog -Message "`n  --- Effective Post-Run Action ---" -Level "CONFIG_TEST"
-            & $LocalWriteLog -Message "    (Could not be determined as PostRunActionOrchestrator was not available)" -Level "CONFIG_TEST"
+        }
+        else {
+            Write-ConsoleBanner -NameText "Effective Post-Run Action" -BannerWidth 78 -CenterText -PrependNewLine
+            & $LocalWriteLog -Message "    (Could not be determined as PostRunActionOrchestrator was not available)" -Level "NONE"
         }
 
-        & $LocalWriteLog -Message "`n[INFO] --- Configuration Test Mode Finished ---" -Level "CONFIG_TEST"
+        $validationMessages = $ConfigLoadResult.ValidationMessages
+        if ($null -eq $validationMessages -or $validationMessages.Count -eq 0) {
+            & $LocalWriteLog -Message "`n[SUCCESS] All configuration checks passed." -Level "SUCCESS"
+        }
+    
+        Write-ConsoleBanner -NameText "Configuration Test Mode Finished" -BorderForegroundColor "White" -CenterText -PrependNewLine -AppendNewLine
         return $true
     }
     

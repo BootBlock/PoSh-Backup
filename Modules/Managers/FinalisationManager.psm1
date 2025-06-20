@@ -15,9 +15,9 @@
     - Terminating the script with an appropriate exit code based on the overall status.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.1 # Made report retention deletion more efficient and less verbose.
+    Version:        1.2.0 # Improved final summary output formatting.
     DateCreated:    01-Jun-2025
-    LastModified:   14-Jun-2025
+    LastModified:   20-Jun-2025
     Purpose:        To centralise script finalisation, summary, and exit logic.
     Prerequisites:  PowerShell 5.1+.
                     Requires Modules\Utilities\ConsoleDisplayUtils.psm1 and
@@ -28,6 +28,7 @@
 #region --- Module Dependencies ---
 # $PSScriptRoot here is Modules\Managers
 try {
+    # CORRECTED: Added ConsoleDisplayUtils to use its formatting functions
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Core\PostRunActionOrchestrator.psm1") -Force -ErrorAction Stop
 }
@@ -234,14 +235,24 @@ function Invoke-PoShBackupFinalisation {
         & $LoggerScriptBlock -Message "--- All PoSh Backup Operations Completed ---" -Level "HEADING"
     }
 
-    $finalScriptEndTime = Get-Date
+    # --- Final Summary Output ---
+    $overallScriptStatusForegroundColor = $Global:ColourSuccess
 
-    # TODO: Make this look nicer.
-    & $LoggerScriptBlock -Message "  Overall Script Status: $effectiveOverallStatus" -Level $effectiveOverallStatus
-    & $LoggerScriptBlock -Message "  Script started       : $ScriptStartTime" -Level "INFO"
-    & $LoggerScriptBlock -Message "  Script ended         : $finalScriptEndTime" -Level "INFO"
-    & $LoggerScriptBlock -Message "  Total duration       : $($finalScriptEndTime - $ScriptStartTime)" -Level "INFO"
-    & $LoggerScriptBlock -Message "" -Level "INFO"
+    if ($effectiveOverallStatus -eq "FAILURE") {
+        $overallScriptStatusForegroundColor = $Global:ColourError
+    } elseif ($effectiveOverallStatus -eq "WARNINGS") {
+        $overallScriptStatusForegroundColor = $Global:ColourWarning
+    } elseif ($IsSimulateMode.IsPresent -and $effectiveOverallStatus -ne "FAILURE" -and $effectiveOverallStatus -ne "WARNINGS") {
+        $overallScriptStatusForegroundColor = $Global:ColourSimulate
+    }
+
+    $finalScriptEndTime = Get-Date
+    $namePadding = 22 # Set padding for alignment
+    Write-NameValue -name "Overall Script Status" -value $effectiveOverallStatus -namePadding $namePadding -valueForegroundColor $overallScriptStatusForegroundColor
+    Write-NameValue -name "Script started" -value $ScriptStartTime -namePadding $namePadding
+    Write-NameValue -name "Script ended" -value $finalScriptEndTime -namePadding $namePadding
+    Write-NameValue -name "Total duration" -value ($finalScriptEndTime - $ScriptStartTime) -namePadding $namePadding
+    Write-Host
 
     # --- Pause Behaviour ---
     $_pauseDefaultFromScript = "OnFailureOrWarning"

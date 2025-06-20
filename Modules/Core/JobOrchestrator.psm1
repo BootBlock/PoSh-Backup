@@ -89,7 +89,14 @@ function Invoke-PoShBackupRun {
     $jobSpecificPostRunActionForSingleJob = $null
     $jobEffectiveSuccessState = @{} # Stores effective success ($true/$false) of each job for dependency checks
 
+    $totalJobsInRun = $JobsToProcess.Count
+    $jobCounter = 0
+
     foreach ($currentJobName in $JobsToProcess) {
+        $jobCounter++
+        if ($CurrentSetName) {
+            Write-Progress -Activity "Processing Backup Set: '$CurrentSetName'" -Status "Job $jobCounter of ${$totalJobsInRun}: '$currentJobName'" -PercentComplete (($jobCounter / $totalJobsInRun) * 100)
+        }
 
         $jobConfigForEnableCheck = $Configuration.BackupLocations[$currentJobName] # Assumes $currentJobName is valid and exists
         $isJobEnabledForExecution = Get-ConfigValue -ConfigObject $jobConfigForEnableCheck -Key 'Enabled' -DefaultValue $true
@@ -493,6 +500,8 @@ $cliOverridesString
             }
         }
     }
+
+    if ($CurrentSetName) { Write-Progress -Activity "Processing Backup Set: '$CurrentSetName'" -Completed }
 
     return @{
         OverallSetStatus                  = $overallSetStatus

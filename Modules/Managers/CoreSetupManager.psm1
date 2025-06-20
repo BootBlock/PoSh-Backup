@@ -15,9 +15,9 @@
     This facade also continues to call other key managers like ConfigLoader and ScriptModeHandler.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.1.2 # Correctly plumbed CheckForUpdateSwitch through to ScriptModeHandler.
+    Version:        2.2.0 # Added PreFlightCheck parameter.
     DateCreated:    01-Jun-2025
-    LastModified:   17-Jun-2025
+    LastModified:   20-Jun-2025
     Purpose:        To orchestrate core script setup and configuration/job resolution.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -58,6 +58,8 @@ function Invoke-PoShBackupCoreSetup {
         [switch]$Simulate,
         [Parameter(Mandatory = $true)]
         [switch]$TestConfig,
+        [Parameter(Mandatory = $true)] # NEW
+        [switch]$PreFlightCheck,
         [Parameter(Mandatory = $false)]
         [string]$TestBackupTarget,
         [Parameter(Mandatory = $true)]
@@ -68,11 +70,13 @@ function Invoke-PoShBackupCoreSetup {
         [switch]$SyncSchedules,
         [Parameter(Mandatory = $false)]
         [switch]$RunVerificationJobs,
+        [Parameter(Mandatory = $false)]
+        [string]$VerificationJobName,
         [Parameter(Mandatory = $true)]
         [switch]$SkipUserConfigCreation,
         [Parameter(Mandatory = $true)]
         [switch]$Version,
-        [Parameter(Mandatory = $true)] # NEW PARAMETER
+        [Parameter(Mandatory = $true)]
         [switch]$CheckForUpdate,
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet,
@@ -110,7 +114,7 @@ function Invoke-PoShBackupCoreSetup {
     # --- 2. Configuration Loading and Validation ---
     $configLoadParams = @{
         UserSpecifiedPath            = $ConfigFile
-        IsTestConfigMode             = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent) -or ($SyncSchedules.IsPresent) -or ($RunVerificationJobs.IsPresent) -or (-not [string]::IsNullOrWhiteSpace($CliOverrideSettings.TestBackupTarget)))
+        IsTestConfigMode             = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent) -or ($SyncSchedules.IsPresent) -or ($RunVerificationJobs.IsPresent) -or ($PreFlightCheck.IsPresent) -or (-not [string]::IsNullOrWhiteSpace($CliOverrideSettings.TestBackupTarget)))
         MainScriptPSScriptRoot       = $PSScriptRoot
         Logger                       = $LoggerScriptBlock
         SkipUserConfigCreationSwitch = [bool]$SkipUserConfigCreation.IsPresent
@@ -136,8 +140,10 @@ function Invoke-PoShBackupCoreSetup {
         ListBackupLocationsSwitch   = $ListBackupLocations.IsPresent
         ListBackupSetsSwitch        = $ListBackupSets.IsPresent
         TestConfigSwitch            = $TestConfig.IsPresent
+        PreFlightCheckSwitch        = $PreFlightCheck.IsPresent # NEW
         TestBackupTarget            = $TestBackupTarget
         RunVerificationJobsSwitch   = $RunVerificationJobs.IsPresent
+        VerificationJobName         = $VerificationJobName
         CheckForUpdateSwitch        = $CheckForUpdate.IsPresent
         VersionSwitch               = $Version.IsPresent
         PinBackupPath               = $CliOverrideSettings.PinBackup
@@ -156,6 +162,8 @@ function Invoke-PoShBackupCoreSetup {
         ConfigLoadResult            = $configResult
         Logger                      = $LoggerScriptBlock
         PSCmdletInstance            = $PSCmdlet
+        BackupLocationNameForScope  = $BackupLocationName # NEW
+        RunSetForScope              = $RunSet # NEW
     }
     if ($PSBoundParameters.ContainsKey('Maintenance') -and $null -ne $Maintenance) {
         $scriptModeParams.MaintenanceSwitchValue = $Maintenance

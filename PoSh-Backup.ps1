@@ -13,8 +13,8 @@
     (split) archive creation (with CLI override), an update checking mechanism, the
     ability to pin backups to prevent retention policy deletion, integrated backup
     job scheduling via Windows Task Scheduler (for both backup and verification jobs),
-    a global maintenance mode, automated backup verification jobs, and CLI tab-completion
-    for job and set names.
+    a global maintenance mode, automated backup verification jobs, a pre-flight check mode
+    to validate environmental readiness, and CLI tab-completion for job and set names.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -34,6 +34,7 @@
     - Automatic Retry Mechanism, CPU Priority Control, Extensible Script Hooks.
     - Multi-Format Reporting (Interactive HTML with filtering/sorting, CSV, JSON, XML, TXT, MD).
     - Comprehensive Logging, Simulation Mode, Configuration Test Mode.
+    - Pre-Flight Check: Validate source/destination paths, remote target connectivity, and permissions before a run.
     - Proactive Free Space Check, Archive Integrity Verification (7z t and optional checksums).
     - Flexible 7-Zip Warning Handling, Exit Pause Control.
     - Post-Run System Actions: Optionally perform actions like shutdown, restart, hibernate, etc.,
@@ -70,11 +71,11 @@
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
-    If this job has dependencies, they will be processed first.
+    If this job has dependencies, they will be processed first. Can be used with -PreFlightCheck.
 
 .PARAMETER RunSet
     Optional. The name of a Backup Set to process. Jobs within the set will be ordered
-    based on any defined dependencies.
+    based on any defined dependencies. Can be used with -PreFlightCheck.
 
 .PARAMETER SkipJob
     Optional. A job name or list of job names to exclude from the current run.
@@ -148,6 +149,11 @@
 .PARAMETER TestConfig
     Optional. A switch parameter. If present, loads, validates configuration (including job dependencies),
     prints summary, then exits. Post-run system actions will be logged as if they would occur but not executed.
+
+.PARAMETER PreFlightCheck
+    Optional. A switch parameter. Performs a "pre-flight check" to validate environmental readiness
+    (e.g., source/destination path access, remote target connectivity) without performing a backup.
+    Can be used with -BackupLocationName or -RunSet to check a specific scope, otherwise checks all enabled jobs.
 
 .PARAMETER ListBackupLocations
     Optional. A switch parameter. If present, lists defined Backup Locations (jobs) and exits.
@@ -233,6 +239,10 @@
     Runs only the single, specified verification job.
 
 .EXAMPLE
+    .\PoSh-Backup.ps1 -PreFlightCheck -RunSet "DailyCriticalBackups"
+    Checks environmental readiness for all jobs in the 'DailyCriticalBackups' set.
+
+.EXAMPLE
     .\PoSh-Backup.ps1 -Maintenance $true
     Enables maintenance mode by creating the '.maintenance' flag file in the script root.
 
@@ -242,11 +252,11 @@
 
 .EXAMPLE
     .\PoSh-Backup.ps1 -RunSet "DailyCriticalBackups" -ForceRunInMaintenanceMode
-    Runs the specified backup set even if maintenance mode is currently active.
+    Runs the specified backup set even if maintenance mode is active.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.30.0 # Added -VerificationJobName parameter for scheduled verification.
+    Version:        1.31.1 # Fixed -Quiet mode parameter handling.
     Date:           20-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -261,10 +271,12 @@
 param (
     # Execution Parameter Set: For running backups
     [Parameter(ParameterSetName='Execution', Position=0, Mandatory=$false, HelpMessage="Optional. Name of a single backup location to process.")]
+    [Parameter(ParameterSetName='PreFlight')] # Also available for PreFlight
     [ArgumentCompleter({ Get-PoShBackupJobNameCompletion @args })]
     [string]$BackupLocationName,
 
     [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="Optional. Name of a Backup Set (defined in config) to process.")]
+    [Parameter(ParameterSetName='PreFlight')] # Also available for PreFlight
     [ArgumentCompleter({ Get-PoShBackupSetNameCompletion @args })]
     [string]$RunSet,
 
@@ -311,18 +323,23 @@ param (
     [switch]$RunVerificationJobs,
 
     [Parameter(ParameterSetName='VerificationExecution', Mandatory=$true, HelpMessage="The name of a single verification job to run.")]
+    [ArgumentCompleter({ Get-PoShBackupVerificationJobNameCompletion @args })]
     [string]$VerificationJobName,
 
     # Maintenance Mode Parameter Set
     [Parameter(ParameterSetName='Maintenance', Mandatory=$true, HelpMessage="Utility to enable/disable maintenance mode via the on-disk flag file.")]
     [Nullable[bool]]$Maintenance,
 
+    # Pre-Flight Check Parameter Set
+    [Parameter(ParameterSetName='PreFlight', Mandatory=$true, HelpMessage="Performs a pre-flight check of environmental readiness.")]
+    [switch]$PreFlightCheck,
+
     # Effective configuration Parameter Set
     [Parameter(ParameterSetName='EffectiveConfig', Mandatory=$true, HelpMessage="Display the fully resolved configuration for a specific job and exit.")]
     [ArgumentCompleter({ Get-PoShBackupJobNameCompletion @args })]
     [string]$GetEffectiveConfig,
 
-    [Parameter(ParameterSetName='Diagnostics', Mandatory=$true, HelpMessage="Gathers logs and sanitized configuration into a single zip file for troubleshooting.")]
+    [Parameter(ParameterSetName='Diagnostics', Mandatory=$true, HelpMessage="Gathers logs and sanitised configuration into a single zip file for troubleshooting.")]
     [string]$ExportDiagnosticPackage,
 
     [Parameter(ParameterSetName='TargetTesting', Mandatory=$true, HelpMessage="Tests connectivity and basic settings for a specific Backup Target defined in the configuration.")]
@@ -441,12 +458,18 @@ param (
 #endregion
 
 #region --- Initial Script Setup & Module Import ---
+# CORRECTED: Set Quiet Mode flag immediately after parameters are bound.
+# This ensures all subsequent functions and modules can respect it.
+$Global:IsQuietMode = if ($PSBoundParameters.ContainsKey('Quiet')) { $PSBoundParameters['Quiet'].IsPresent } else { $false }
+
 # Import InitialisationManager first to set up globals and display banner
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\InitialisationManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utilities\ArgumentCompleters.psm1") -Force -ErrorAction Stop
+    # Pass the already-determined quiet mode status to the initialiser
     Invoke-PoShBackupInitialSetup -MainScriptPath $PSCommandPath
 } catch {
+    # Don't use the logger here as it might not be available. Write directly to host.
     Write-Host "[FATAL] Failed to import or run CRITICAL InitialisationManager.psm1 module." -ForegroundColor Red
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
     exit 11
@@ -527,11 +550,13 @@ try {
                                                 -ConfigFile $ConfigFile `
                                                 -Simulate:$Simulate.IsPresent `
                                                 -TestConfig:$TestConfig.IsPresent `
+                                                -PreFlightCheck:$PreFlightCheck.IsPresent `
                                                 -TestBackupTarget $TestBackupTarget `
                                                 -ListBackupLocations:$ListBackupLocations.IsPresent `
                                                 -ListBackupSets:$ListBackupSets.IsPresent `
                                                 -SyncSchedules:$SyncSchedules.IsPresent `
                                                 -RunVerificationJobs:$RunVerificationJobs.IsPresent `
+                                                -VerificationJobName $VerificationJobName `
                                                 -SkipUserConfigCreation:$SkipUserConfigCreation.IsPresent `
                                                 -Version:$Version.IsPresent `
                                                 -CheckForUpdate:$CheckForUpdate.IsPresent `
@@ -613,5 +638,6 @@ Invoke-PoShBackupFinalisation -OverallSetStatus $overallSetStatus `
                               -PSCmdletInstance $PSCmdlet `
                               -CurrentSetNameForLog $currentSetName `
                               -JobsToProcess $jobsToProcess
-# The Invoke-PoShBackupFinalisation function will call exit internally.
+
+                              # The Invoke-PoShBackupFinalisation function will call exit internally.
 #endregion

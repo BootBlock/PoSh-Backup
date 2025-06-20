@@ -11,9 +11,9 @@
     - -Version
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.1 # Further improved output formatting for list modes.
     DateCreated:    15-Jun-2025
-    LastModified:   15-Jun-2025
+    LastModified:   20-Jun-2025
     Purpose:        To handle informational listing script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -22,9 +22,10 @@
 # $PSScriptRoot here is Modules\ScriptModes\
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\..\Modules\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Modules\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Warning "ScriptModes\Listing.psm1: Could not import Utils.psm1. Error: $($_.Exception.Message)"
+    Write-Warning "ScriptModes\Listing.psm1: Could not import required modules. Error: $($_.Exception.Message)"
 }
 #endregion
 
@@ -71,9 +72,9 @@ function Invoke-PoShBackupListingMode {
     }
 
     if ($ListBackupLocationsSwitch) {
-        & $LocalWriteLog -Message "`n--- Defined Backup Locations (Jobs) from '$($ActualConfigFile)' ---" -Level "HEADING"
+        Write-ConsoleBanner -NameText "Defined Backup Locations (Jobs)" -ValueText $ActualConfigFile -CenterText -PrependNewLine
         if ($ConfigLoadResult.UserConfigLoaded) {
-            & $LocalWriteLog -Message "    (Includes overrides from '$($ConfigLoadResult.UserConfigPath)')" -Level "INFO"
+            & $LocalWriteLog -Message "(Includes overrides from '$($ConfigLoadResult.UserConfigPath)')" -Level "INFO"
         }
         if ($Configuration.BackupLocations -is [hashtable] -and $Configuration.BackupLocations.Count -gt 0) {
             $Configuration.BackupLocations.GetEnumerator() | Sort-Object Name | ForEach-Object {
@@ -136,54 +137,50 @@ function Invoke-PoShBackupListingMode {
         } else {
             & $LocalWriteLog -Message "No Backup Locations are defined in the configuration." -Level "WARNING"
         }
-        & $LocalWriteLog -Message "`n--- Listing Complete ---" -Level "HEADING"
+        Write-ConsoleBanner -NameText "Listing Complete" -BorderForegroundColor "White" -CenterText -PrependNewLine -AppendNewLine
         return $true # Handled
     }
 
     if ($ListBackupSetsSwitch) {
-        & $LocalWriteLog -Message "`n--- Defined Backup Sets from '$($ActualConfigFile)' ---" -Level "HEADING"
+        Write-ConsoleBanner -NameText "Defined Backup Sets" -ValueText $ActualConfigFile -CenterText -PrependNewLine
         if ($ConfigLoadResult.UserConfigLoaded) {
-            & $LocalWriteLog -Message "    (Includes overrides from '$($ConfigLoadResult.UserConfigPath)')" -Level "INFO"
+            & $LocalWriteLog -Message "(Includes overrides from '$($ConfigLoadResult.UserConfigPath)')" -Level "INFO"
         }
         if ($Configuration.BackupSets -is [hashtable] -and $Configuration.BackupSets.Count -gt 0) {
             $Configuration.BackupSets.GetEnumerator() | Sort-Object Name | ForEach-Object {
                 $setConf = $_.Value
                 $setName = $_.Name
-                & $LocalWriteLog -Message ("`n  Set Name     : " + $setName) -Level "NONE"
+                & $LocalWriteLog -Message ("`n  Set Name   : " + $setName) -Level "NONE" -ForegroundColor "Cyan"
 
                 $onErrorDisplay = Get-ConfigValue -ConfigObject $setConf -Key 'OnErrorInJob' -DefaultValue 'StopSet'
-                & $LocalWriteLog -Message ("  On Error     : " + $onErrorDisplay) -Level "NONE"
+                & $LocalWriteLog -Message ("  On Error   : " + $onErrorDisplay) -Level "NONE"
 
                 $jobsInSet = @(Get-ConfigValue -ConfigObject $setConf -Key 'JobNames' -DefaultValue @())
                 if ($jobsInSet.Count -gt 0) {
-                    $firstJobName = $jobsInSet[0]
-                    $firstJobColor = $Global:ColourInfo # Default color
-                    $firstJobDisplayName = $firstJobName
-                    if ($Configuration.BackupLocations.ContainsKey($firstJobName)) {
-                        $firstJobConf = $Configuration.BackupLocations[$firstJobName]
-                        $isFirstJobEnabled = Get-ConfigValue -ConfigObject $firstJobConf -Key 'Enabled' -DefaultValue $true
-                        $firstJobColor = if ($isFirstJobEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
-                    } else {
-                        $firstJobDisplayName += " <not found>"
-                        $firstJobColor = $Global:ColourWarning
-                    }
-                    & $LocalWriteLog -Message ("  Jobs in Set  : " + $firstJobDisplayName) -Level "NONE" -ForegroundColour $firstJobColor
+                    & $LocalWriteLog -Message ("  Jobs in Set: ") -Level "NONE" -NoNewline
+                    
+                    # Improved job listing with status
+                    foreach ($jobNameInSet in $jobsInSet) {
+                        $jobColor = $Global:ColourInfo # Default color
+                        $jobDisplayName = $jobNameInSet
+                        $statusText = ""
 
-                    if ($jobsInSet.Count -gt 1) {
-                        $jobsInSet | Select-Object -Skip 1 | ForEach-Object {
-                            $jobNameInSet = $_
-                            $jobColor = $Global:ColourInfo # Default
-                            $jobDisplayName = $jobNameInSet
-                            if ($Configuration.BackupLocations.ContainsKey($jobNameInSet)) {
-                                $jobConfInSet = $Configuration.BackupLocations[$jobNameInSet]
-                                $isJobEnabled = Get-ConfigValue -ConfigObject $jobConfInSet -Key 'Enabled' -DefaultValue $true
-                                $jobColor = if ($isJobEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
+                        if ($Configuration.BackupLocations.ContainsKey($jobNameInSet)) {
+                            $jobConfInSet = $Configuration.BackupLocations[$jobNameInSet]
+                            $isJobEnabled = Get-ConfigValue -ConfigObject $jobConfInSet -Key 'Enabled' -DefaultValue $true
+                            if ($isJobEnabled) {
+                                $jobColor = $Global:ColourSuccess
+                                $statusText = " (Enabled)"
                             } else {
-                                $jobDisplayName += " <not found>"
-                                $jobColor = $Global:ColourWarning
+                                $jobColor = $Global:ColourError
+                                $statusText = " (DISABLED)"
                             }
-                            & $LocalWriteLog -Message ("                 " + $jobDisplayName) -Level "NONE" -ForegroundColour $jobColor
+                        } else {
+                            $jobDisplayName += " <not found>"
+                            $jobColor = $Global:ColourWarning
                         }
+                        # Print each job on its own line for clarity
+                        & $LocalWriteLog -Message ("               - " + $jobDisplayName + $statusText) -Level "NONE" -ForegroundColour $jobColor
                     }
                 } else {
                     & $LocalWriteLog -Message ("  Jobs in Set  : <none listed>") -Level "NONE"
@@ -192,7 +189,7 @@ function Invoke-PoShBackupListingMode {
         } else {
             & $LocalWriteLog -Message "No Backup Sets are defined in the configuration." -Level "WARNING"
         }
-        & $LocalWriteLog -Message "`n--- Listing Complete ---" -Level "HEADING"
+        Write-ConsoleBanner -NameText "Listing Complete" -BorderForegroundColor "White" -CenterText -PrependNewLine -AppendNewLine
         return $true # Handled
     }
 
