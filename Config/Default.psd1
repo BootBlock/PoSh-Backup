@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.9.5: Added OnSourcePathNotFound setting.
+# Version 1.9.6: Added Schedule block to VerificationJobs.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -301,10 +301,10 @@
     #endregion
 
     #region --- Archive Integrity Test Settings (Global Default) ---
-    DefaultTestArchiveAfterCreation = $false                          # Global default. $true to automatically test the integrity of newly created archives using '7z t'.
+    DefaultTestArchiveAfterCreation           = $false                          # Global default. $true to automatically test the integrity of newly created archives using '7z t'.
                                                                       # Can be overridden per job or by the -TestArchive command-line parameter.
 
-    DefaultVerifyLocalArchiveBeforeTransfer = $false                  # Global default. $true to test local archive integrity (and checksum if enabled) *before* any remote transfers.
+    DefaultVerifyLocalArchiveBeforeTransfer   = $false                  # Global default. $true to test local archive integrity (and checksum if enabled) *before* any remote transfers.
                                                                       # If this test fails, remote transfers for the job will be skipped.
     #endregion
 
@@ -530,12 +530,12 @@
     # Define automated verification jobs. These run independently of backup jobs via a new CLI switch.
     VerificationJobs = @{
         # Example verification job.
-        "Verify_Pojects" = @{
+        "Verify_Projects" = @{
             # Master switch for this verification job. Set to $true to enable.
             Enabled = $true
 
             # The name of the backup job (from BackupLocations) whose archives you want to test.
-            TargetJobName = "projects"
+            TargetJobName = "Projects"
             
             # The name of the secret (in PowerShell SecretManagement) that holds the password for the
             # archive, if it's encrypted. This is required if the target job creates encrypted archives.
@@ -563,6 +563,31 @@
             # How many of the most recent backup instances for the TargetJobName to test.
             # '1' will test only the very latest backup. '3' will test the latest three.
             TestLatestCount = 1
+            
+            # --- Integrated Scheduling Settings for this Verification Job ---
+            Schedule = @{
+                # Set to $true to enable scheduling for this verification job.
+                Enabled = $false
+
+                # Type of schedule: 'Daily', 'Weekly', 'Monthly', 'Once', 'OnLogon', 'OnStartup'.
+                Type = 'Weekly'
+
+                # Time to run (24-hour format). Required for Daily/Weekly/Monthly/Once.
+                Time = '03:00'
+
+                # Days for a 'Weekly' schedule.
+                # Valid: "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+                DaysOfWeek = @('Wednesday')
+
+                # User to run the task as. 'SYSTEM' is powerful but may lack network permissions. 'Author' is the user who runs -SyncSchedules.
+                RunAsUser = 'Author'
+
+                # Set to $true if the sandbox is in a location that requires admin rights.
+                HighestPrivileges = $true
+
+                # If $true, will try to wake the computer from sleep to run the verification.
+                WakeToRun = $true
+            }
         }
     }
     #endregion

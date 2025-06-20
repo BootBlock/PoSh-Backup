@@ -13,14 +13,14 @@
     - Diagnostics.psm1: For -TestConfig, -GetEffectiveConfig, -ExportDiagnosticPackage, -TestBackupTarget.
     - Listing.psm1: For -ListBackupLocations, -ListBackupSets, -Version.
     - ArchiveManagement.psm1: For -ListArchiveContents, -ExtractFromArchive, -PinBackup, -UnpinBackup.
-    - MaintenanceAndVerification.psm1: For -Maintenance, -RunVerificationJobs.
+    - MaintenanceAndVerification.psm1: For -Maintenance, -RunVerificationJobs, and -VerificationJobName.
 
     If a sub-module successfully handles a mode, this script will exit with a code of 0.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.1.0 # Added TestBackupTarget parameter.
+    Version:        2.2.0 # Added VerificationJobName parameter.
     DateCreated:    24-May-2025
-    LastModified:   18-Jun-2025
+    LastModified:   20-Jun-2025
     Purpose:        To orchestrate and delegate informational/utility script execution modes.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -51,6 +51,8 @@ function Invoke-PoShBackupScriptMode {
         [bool]$TestConfigSwitch,
         [Parameter(Mandatory = $true)]
         [bool]$RunVerificationJobsSwitch,
+        [Parameter(Mandatory = $false)] # NEW
+        [string]$VerificationJobName,
         [Parameter(Mandatory = $true)]
         [bool]$CheckForUpdateSwitch, # Note: This is handled before this module is called, but passed for completeness.
         [Parameter(Mandatory = $true)]
@@ -151,6 +153,7 @@ function Invoke-PoShBackupScriptMode {
     # --- Delegate to Maintenance and Verification Modes Handler ---
     $maintAndVerifyParams = @{
         RunVerificationJobsSwitch = $RunVerificationJobsSwitch
+        VerificationJobName       = $VerificationJobName # Pass new parameter
         Configuration             = $Configuration
         Logger                    = $Logger
         PSCmdletInstance          = $PSCmdletInstance

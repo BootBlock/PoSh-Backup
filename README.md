@@ -10,9 +10,9 @@ A powerful, modular PowerShell script for backing up your files and folders usin
 *   **Infrastructure Snapshot Orchestration (Hyper-V):** Perform application-consistent backups of live Hyper-V virtual machines with minimal performance impact. PoSh-Backup orchestrates the creation of a VM checkpoint, mounts the snapshot's virtual disk(s) to the host, backs up the data from the static snapshot, and then automatically cleans up the checkpoint and mount points. This allows for reliable backups of entire VMs or specific folders within them.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
 *   **Maintenance Mode:** A global flag (either in the configuration file or via a simple on-disk `.maintenance` file) can prevent any new backup jobs from starting. This is ideal for performing system maintenance without generating failed job reports. The mode can be easily toggled via a command-line switch (`-Maintenance $true/$false`) and bypassed for a specific run if needed (`-ForceRunInMaintenanceMode`).
-*   **Automated Backup Verification:** Define and run verification jobs that automatically restore a backup to a temporary "sandbox" location and perform integrity checks. This includes verifying file sizes, modification dates, and CRC checksums against a manifest created during the original backup, providing a high degree of confidence that backups are restorable and uncorrupted.
+*   **Automated and Schedulable Backup Verification:** Define and run verification jobs that automatically restore a backup to a temporary "sandbox" location and perform integrity checks. This includes verifying file sizes, modification dates, and CRC checksums against a manifest created during the original backup, providing a high degree of confidence that backups are restorable and uncorrupted. These verification jobs can now be scheduled to run automatically, just like regular backup jobs.
 *   **Configurable Source Path Not Found Behaviour:** For jobs with multiple source paths, you can now define what happens if a path is not found (e.g., a network drive is offline). Options include failing the job (default), logging a warning and continuing with other valid paths, or skipping the job entirely. This enhances the reliability of automated backups.
-*   **Integrated Backup Scheduling:** Define backup schedules directly within your job configurations. A simple command (`-SyncSchedules`) synchronises these settings with the Windows Task Scheduler, creating, updating, or removing tasks as needed for a true "set and forget" experience.
+*   **Integrated Backup Scheduling:** Define backup schedules directly within your job configurations for both backup jobs and verification jobs. A simple command (`-SyncSchedules`) synchronises these settings with the Windows Task Scheduler, creating, updating, or removing tasks as needed for a true "set and forget" experience.
 *   **Flexible Notifications (Email & Webhooks):** Automatically send notifications upon job or set completion. Configure multiple notification profiles, choosing between providers like "Email" (for standard SMTP alerts) or "Webhook" (for sending formatted messages to platforms like Microsoft Teams, Slack, or Discord).
 *   **Local and Remote Backups:**
     *   Archives are initially created directly in the directory specified by the effective `DestinationDir` setting for the job.
@@ -705,7 +705,7 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     (This will connect to the internet to check for a newer version of the script and inform you of the result. It will not perform any backup operations.)
 
     ### Integrated Backup Scheduling
-    PoSh-Backup now includes a powerful feature to manage scheduled backups directly from your configuration file, providing a true "set and forget" capability. This works by translating schedule settings in your `User.psd1` into tasks within the native Windows Task Scheduler.
+    PoSh-Backup now includes a powerful feature to manage scheduled backups directly from your configuration file, providing a true "set and forget" capability. This works by translating `Schedule` blocks within your `User.psd1` file—for both regular backup jobs and verification jobs—into tasks within the native Windows Task Scheduler.
 
     **How it Works:**
     1.  **Configure:** You define a `Schedule` block within any backup job in your `User.psd1` file.
@@ -749,7 +749,7 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     }
 
 ### Automated Backup Verification
-PoSh-Backup includes a powerful feature to automate the verification of your backups, providing a high degree of confidence that they are valid and restorable. This works by defining "Verification Jobs" that restore an archive to a temporary "sandbox" location and then check the restored files against a manifest that was created during the original backup.
+PoSh-Backup includes a powerful feature to automate the verification of your backups, providing a high degree of confidence that they are valid and restorable. This works by defining "Verification Jobs" that restore an archive to a temporary "sandbox" location and then check the restored files against a manifest that was created during the original backup. These verification jobs can be run for all enabled configurations via the `-RunVerificationJobs` switch, individually via the `-VerificationJobName <name>` parameter, or scheduled to run automatically.
 
 **How it Works:**
 1.  **Enable Manifest Creation:** For any backup job you wish to verify, you must first enable the creation of a contents manifest. In your `User.psd1`, add `GenerateContentsManifest = $true` to the job's definition. This creates a `.contents.manifest` file alongside the backup archive, listing every file's path, size, modification date, attributes, and CRC checksum.
@@ -794,6 +794,17 @@ VerificationJobs = @{
         # How many of the most recent backup instances for the TargetJobName to test.
         # '1' will test only the very latest backup. '3' will test the latest three.
         TestLatestCount = 1
+
+        # --- Integrated Scheduling for this Verification Job ---
+        Schedule = @{
+            Enabled = $true
+            # Example: Run this verification every Wednesday at 3 AM.
+            Type = 'Weekly'
+            Time = '03:00'
+            DaysOfWeek = @('Wednesday')
+            RunAsUser = 'Author'
+            HighestPrivileges = $true # Recommended if sandbox is in a protected location
+        }
     }
 }
 ```
@@ -827,14 +838,15 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-PinBackup <FilePath>`: Pins the backup archive specified by `<FilePath>`, protecting it from retention policies. This creates a `.pinned` marker file alongside the archive.
 *   `-UnpinBackup <FilePath>`: Unpins the backup archive specified by `<FilePath>`, making it subject to retention policies again. This removes the `.pinned` marker file.
 *   `-ListArchiveContents <FilePath>`: Lists the contents of the backup archive specified by `<FilePath>`. This is a utility mode and does not run a backup.
-*   `-RunVerificationJobs`: A switch to run all enabled automated backup verification jobs defined in the configuration. This performs a restore to a temporary sandbox location and verifies the integrity of the restored files against a manifest created during the backup. This is a standalone mode and will not perform any regular backup jobs.
+*   `-RunVerificationJobs`: A switch to run all enabled automated backup verification jobs defined in the configuration. This performs a restore to a temporary sandbox location and verifies the integrity of the restored files against a manifest created during the backup. This is a standalone mode and will not perform any regular backup jobs. This parameter is mutually exclusive with `-VerificationJobName`.
+*   `-VerificationJobName <JobName>`: Runs a single, specific verification job as defined in the `VerificationJobs` section of your configuration. This is primarily intended for use by the Windows Task Scheduler for running individual scheduled verification tasks. This parameter is mutually exclusive with `-RunVerificationJobs`.
 *   `-ArchivePasswordSecretName <SecretName>`: For use with utility modes like `-ListArchiveContents`. Specifies the name of the secret in PowerShell SecretManagement that holds the password for an encrypted archive.
 *   `-ExtractFromArchive <FilePath>`: Extracts files from the backup archive specified by `<FilePath>`. Must be used with `-ExtractToDirectory`.
 *   `-ExtractToDirectory <DirectoryPath>`: The destination directory where files will be extracted.
 *   `-ItemsToExtract <String[]>`: Optional. An array of specific file or folder paths inside the archive to extract. If omitted, the entire archive is extracted.
 *   `-ForceExtract`: Optional. A switch. If present, extraction will overwrite existing files in the destination directory without prompting.
 *   `-SkipJob <JobName>` or `-SkipJob <JobName1>,<JobName2>`: A utility parameter to temporarily exclude one or more jobs from a run, which is particularly useful when running a large backup set.
-*   `-SyncSchedules`: Synchronises job schedules from the configuration file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits. Requires Administrator privileges.
+*   `-SyncSchedules`: Synchronises job schedules (for both backup and verification jobs) from the configuration file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits. Requires Administrator privileges.
 *   `-CheckForUpdate`: Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.
 *   `-ExportDiagnosticPackage <FilePath.zip>`: A utility parameter. Gathers a comprehensive diagnostic report into a single .zip package at the specified path. This includes: sanitized configuration files, a human-readable diff of user changes, recent logs, system/module/7-Zip versions, disk space information, and key directory permissions (ACLs). This is extremely useful for support and troubleshooting.

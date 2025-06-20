@@ -144,15 +144,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         - PoSh-Backup.ps1: CLI options to search catalog.
     - **Acceptance Criteria:** Users can search for files and identify containing archives.
 
-3. **Feature: Backup Verification Scheduling**
-    - **Goal:** Allow scheduling of archive verification (test or deep test) independently of backup creation.
-    - **Description:** Regularly verify integrity of stored backups.
-    - **Scope & Impact:**
-        - Config\Default.psd1: New section for verification jobs/schedules.
-        - PoSh-Backup.ps1: New mode (e.g., -VerifyArchivesOnly) to trigger these jobs.
-        - Logic to find and test archives based on schedule/criteria.
-    - **Acceptance Criteria:** Scheduled verification jobs run and report status.
-
 4. **Feature: Incremental/Differential Backups (7-Zip Advanced)**
     *   **Goal:** Implement incremental or differential backup strategies.
     *   **Description:** Reduces backup time and storage by backing up only changes.

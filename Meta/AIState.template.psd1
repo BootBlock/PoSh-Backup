@@ -28,6 +28,7 @@
     "STRUCTURE: Respect modular design (Core, Managers, Utilities, Operations, etc.). `Write-LogMessage` is now in `Managers\\LogManager.psm1`.",
     "SCOPE: Global color/status map variables in `PoSh-Backup.ps1` (now initialised by `InitialisationManager.psm1`) must be accessible for `Write-LogMessage` (via `Utils.psm1` facade from `Managers\\LogManager.psm1`).",
     "SYNTAX (PSSA): `$null` should be on the left side of equality comparisons (e.g., `if (`$null -eq `$variable)`).",
+    "SYNTAX (PSSA): Ensure all functions use approved PowerShell verbs (e.g., Invoke-, Get-, Set-).",
     "MODULE_SCOPE (IMPORTANT): Functions from modules imported by a 'manager' or 'orchestrator' module are not automatically available to other modules called by that manager/orchestrator, nor to the script that called the manager. The module needing the function must typically import the provider of that function directly, or the calling script must import modules whose functions it will call directly after the manager/orchestrator returns. Using `-Global` on imports is a workaround but generally less desirable.",
     "CRITICAL (MODULE_STATE): Module-scoped variables (e.g., `$Script:MyVar`) are NOT shared across different imports of the same module within a single script run. If state must be maintained (like tracking active snapshot sessions), use a global variable (`$Global:MyVar`) and ensure its name is unique to the module's purpose.",
     "SYNTAX (CMDLET BEHAVIOR): Cmdlets that create or modify objects (e.g., Checkpoint-VM, New-ScheduledTaskTrigger) may not return the object by default. Always check if a -Passthru switch is needed to capture the result in a variable."
@@ -52,7 +53,7 @@
     "   - Updated `Modules\\Managers\\CoreSetupManager\\DependencyChecker.psm1` to conditionally require `BurntToast` only when running on PowerShell 7+ and a Desktop profile is in use.",
     "   - Updated `README.md` to document the feature and its conditional dependency.",
     "",
-    "--- Feature: Resilient UNC Transfers with Robocopy (Current Session) ---",
+    "--- Feature: Resilient UNC Transfers with Robocopy (Completed in Previous Session) ---",
     "   - Goal: Provide a more robust alternative to `Copy-Item` for network transfers.",
     "   - `Config\\Default.psd1` (v1.9.5 -> v1.9.6): Added `UseRobocopy` (boolean) and a `RobocopySettings` hashtable to the UNC target's `TargetSpecificSettings` to allow for highly customisable transfers.",
     "   - `Modules\\Targets\\UNC.Target.psm1` (v1.3.0 -> v1.4.0):",
@@ -61,6 +62,15 @@
     "     - `Invoke-PoShBackupUNCTargetSettingsValidation` updated to recognise the new Robocopy keys.",
     "   - `README.md`: Updated to document the new feature, its prerequisites (`Robocopy.exe`), and configuration options.",
     "   - Fixed PSSA warnings for unused `Logger` parameters in `NotificationManager.psm1` and `UNC.Target.psm1`.",
+    "",
+    "--- Feature: Scheduling for Verification Jobs (Current Session) ---",
+    "   - Goal: Allow automated, scheduled execution of backup verification jobs.",
+    "   - Config\\Default.psd1 (v1.9.5 -> v1.9.6): Added a 'Schedule' block to the example verification job definition.",
+    "   - Modules\\ConfigManagement\\Assets\\ConfigSchema.psd1: Updated the schema to validate the new 'Schedule' block within 'VerificationJobs'.",
+    "   - PoSh-Backup.ps1 (v1.29.5 -> v1.30.0): Added a new '-VerificationJobName' parameter to allow scheduled tasks to target a single verification job.",
+    "   - Modules\\ScriptModeHandler.psm1 (v2.1.0 -> v2.2.0) & Modules\\ScriptModes\\MaintenanceAndVerification.psm1 (v1.0.0 -> v1.1.0): Updated to handle the new '-VerificationJobName' parameter.",
+    "   - Modules\\Managers\\ScheduleManager.psm1 (v1.0.8 -> v1.1.1): Significantly refactored to process schedules for both backup and verification jobs and to fix PSScriptAnalyzer warnings.",
+    "   - README.md: Updated to document the new feature and its configuration.",
     "",
     "--- Key Architectural Concepts & Patterns ---",
     "   - **Facade Modules:** Key modules like `Utils.psm1`, `ConfigManager.psm1`, `Operations.psm1`, `7ZipManager.psm1`, and `ScriptModeHandler.psm1` act as facades, orchestrating calls to more specialised sub-modules.",
@@ -86,7 +96,7 @@
     "   - **Interactive Job/Set Selection:** When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets. This is accomplished via `Modules\ConfigManagement\JobResolver.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.29.5 # Added RoboCopy.exe for UNC transfers."
+  main_script_poSh_backup_version = "1.30.0 # Added -VerificationJobName parameter for scheduled verification."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

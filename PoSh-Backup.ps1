@@ -12,8 +12,9 @@
     7-Zip include/exclude list files, backup job chaining/dependencies, multi-volume
     (split) archive creation (with CLI override), an update checking mechanism, the
     ability to pin backups to prevent retention policy deletion, integrated backup
-    job scheduling via Windows Task Scheduler, a global maintenance mode, automated
-    backup verification jobs, and CLI tab-completion for job and set names.
+    job scheduling via Windows Task Scheduler (for both backup and verification jobs),
+    a global maintenance mode, automated backup verification jobs, and CLI tab-completion
+    for job and set names.
 
 .DESCRIPTION
     The PoSh Backup ("PowerShell Backup") script provides an enterprise-grade, modular backup solution.
@@ -59,13 +60,13 @@
     - Pin Backups: Protect specific backup archives from automatic deletion by retention policies.
       This can be done by pinning an existing archive via `-PinBackup <path>` or by pinning the
       result of the current run via the `-Pin` switch.
-    - Integrated Scheduling: Define backup schedules directly in the configuration file. A simple
-      `-SyncSchedules` command synchronises these schedules with the Windows Task Scheduler,
-      creating, updating, or removing tasks as needed for fully automated "set and forget" backups.
+    - Integrated Scheduling: Define backup schedules directly in the configuration file for both
+      backup jobs and verification jobs. A simple `-SyncSchedules` command synchronises these
+      schedules with the Windows Task Scheduler.
     - Maintenance Mode: A global flag (in config or via an on-disk file) can prevent any new
       backup jobs from starting, useful for system maintenance.
     - Automated Backup Verification: Define and run verification jobs that restore archives
-      to a sandbox and perform integrity checks to ensure backups are viable.
+      to a sandbox and perform integrity checks to ensure backups are viable. These can now be scheduled.
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
@@ -157,7 +158,13 @@
 .PARAMETER RunVerificationJobs
     Switch. Runs all enabled automated backup verification jobs defined in the configuration.
     This performs a restore to a temporary sandbox location and verifies the integrity
-    of the restored files against a manifest created during the backup.
+    of the restored files against a manifest created during the backup. This parameter is
+    mutually exclusive with -VerificationJobName.
+
+.PARAMETER VerificationJobName
+    Optional. The name of a single verification job (defined in 'VerificationJobs') to run.
+    This is primarily intended for use by scheduled tasks. This parameter is mutually
+    exclusive with -RunVerificationJobs.
 
 .PARAMETER GetEffectiveConfig
     A utility parameter. Displays the fully resolved, effective configuration for a given job name,
@@ -169,9 +176,9 @@
     for support and troubleshooting. The script will exit after creating the package.
 
 .PARAMETER SyncSchedules
-    Optional. A switch parameter. If present, synchronises job schedules from the configuration
-    file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits.
-    Requires Administrator privileges.
+    Optional. A switch parameter. If present, synchronises job schedules (for both backup and
+    verification jobs) from the configuration file with the Windows Task Scheduler, creating,
+    updating, or removing tasks as needed, then exits. Requires Administrator privileges.
 
 .PARAMETER Maintenance
     Utility switch. Enables or disables maintenance mode by creating or deleting the on-disk
@@ -222,6 +229,10 @@
     Runs all enabled automated backup verification jobs defined in the configuration.
 
 .EXAMPLE
+    .\PoSh-Backup.ps1 -VerificationJobName "Verify_Projects_Backup"
+    Runs only the single, specified verification job.
+
+.EXAMPLE
     .\PoSh-Backup.ps1 -Maintenance $true
     Enables maintenance mode by creating the '.maintenance' flag file in the script root.
 
@@ -235,7 +246,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.29.5 # Added RoboCopy.exe for UNC transfers
+    Version:        1.30.0 # Added -VerificationJobName parameter for scheduled verification.
     Date:           20-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -296,8 +307,11 @@ param (
     [switch]$SyncSchedules,
 
     # Verification Parameter Set
-    [Parameter(ParameterSetName='Verification', Mandatory=$true, HelpMessage="Switch. Runs all enabled automated backup verification jobs defined in the configuration.")]
+    [Parameter(ParameterSetName='VerificationExecution', Mandatory=$true, HelpMessage="Switch. Runs all enabled automated backup verification jobs defined in the configuration.")]
     [switch]$RunVerificationJobs,
+
+    [Parameter(ParameterSetName='VerificationExecution', Mandatory=$true, HelpMessage="The name of a single verification job to run.")]
+    [string]$VerificationJobName,
 
     # Maintenance Mode Parameter Set
     [Parameter(ParameterSetName='Maintenance', Mandatory=$true, HelpMessage="Utility to enable/disable maintenance mode via the on-disk flag file.")]

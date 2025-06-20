@@ -6,11 +6,12 @@
 .DESCRIPTION
     This module provides the core functionality for the Automated Backup Verification feature.
     It is designed to be invoked by the ScriptModeHandler when the -RunVerificationJobs
-    switch is used.
+    or -VerificationJobName switch is used.
 
     The main exported function, 'Invoke-PoShBackupVerification', performs the following:
     - Reads the 'VerificationJobs' from the configuration.
-    - For each enabled verification job, it finds the latest backup(s) of the target backup job.
+    - If a specific job name is provided, it will run only that job. Otherwise, it runs all enabled jobs.
+    - For each job to be run, it finds the latest backup(s) of the target backup job.
     - It prepares a temporary "sandbox" directory for the restore.
     - It restores the archive to the sandbox.
     - It performs the configured verification steps, which can include:
@@ -21,9 +22,9 @@
     - It cleans up the sandbox directory after the verification is complete.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.1 # Verification logic now correctly handles directories and hidden files.
+    Version:        1.3.0 # Added SpecificVerificationJobName parameter for scheduled execution.
     DateCreated:    12-Jun-2025
-    LastModified:   12-Jun-2025
+    LastModified:   20-Jun-2025
     Purpose:        To orchestrate the automated verification of backup archives.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils, RetentionManager, 7ZipManager, and PasswordManager modules.
@@ -190,20 +191,36 @@ function Invoke-PoShBackupVerification {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet
+        [System.Management.Automation.PSCmdlet]$PSCmdlet,
+        [Parameter(Mandatory = $false)]
+        [string]$SpecificVerificationJobName
     )
 
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
     & $LocalWriteLog -Message "VerificationManager: Starting automated backup verification process." -Level "HEADING"
 
-    $verificationJobs = $Configuration.VerificationJobs
-    if ($null -eq $verificationJobs -or $verificationJobs.Count -eq 0) {
+    $allVerificationJobsFromConfig = $Configuration.VerificationJobs
+    if ($null -eq $allVerificationJobsFromConfig -or $allVerificationJobsFromConfig.Count -eq 0) {
         & $LocalWriteLog -Message "VerificationManager: No 'VerificationJobs' defined in configuration. Nothing to do." -Level "INFO"
         return
     }
 
-    foreach ($vJobName in ($verificationJobs.Keys | Sort-Object)) {
-        $vJobConfig = $verificationJobs[$vJobName]
+    $jobsToProcess = [System.Collections.Generic.List[string]]::new()
+    if (-not [string]::IsNullOrWhiteSpace($SpecificVerificationJobName)) {
+        & $LocalWriteLog -Message "VerificationManager: A specific verification job was requested: '$SpecificVerificationJobName'." -Level "INFO"
+        if ($allVerificationJobsFromConfig.ContainsKey($SpecificVerificationJobName)) {
+            $jobsToProcess.Add($SpecificVerificationJobName)
+        } else {
+            & $LocalWriteLog -Message "VerificationManager: The requested verification job '$SpecificVerificationJobName' was not found in the configuration." -Level "ERROR"
+            return
+        }
+    } else {
+        & $LocalWriteLog -Message "VerificationManager: No specific job requested. Processing all enabled verification jobs." -Level "INFO"
+        $allVerificationJobsFromConfig.Keys | Sort-Object | ForEach-Object { $jobsToProcess.Add($_) }
+    }
+
+    foreach ($vJobName in $jobsToProcess) {
+        $vJobConfig = $allVerificationJobsFromConfig[$vJobName]
         $isEnabled = Get-ConfigValue -ConfigObject $vJobConfig -Key 'Enabled' -DefaultValue $false
 
         Write-ConsoleBanner -NameText "Processing Verification Job" -ValueText $vJobName -CenterText -PrependNewLine

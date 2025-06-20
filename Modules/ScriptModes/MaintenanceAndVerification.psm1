@@ -7,11 +7,12 @@
     for the following command-line switches:
     - -Maintenance
     - -RunVerificationJobs
+    - -VerificationJobName
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Added logic for -VerificationJobName.
     DateCreated:    15-Jun-2025
-    LastModified:   15-Jun-2025
+    LastModified:   20-Jun-2025
     Purpose:        To handle maintenance and verification script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -32,6 +33,8 @@ function Invoke-PoShBackupMaintenanceAndVerificationMode {
         [Parameter(Mandatory = $true)]
         [bool]$RunVerificationJobsSwitch,
         [Parameter(Mandatory = $false)]
+        [string]$VerificationJobName,
+        [Parameter(Mandatory = $false)]
         [Nullable[bool]]$MaintenanceSwitchValue,
         [Parameter(Mandatory = $true)]
         [hashtable]$Configuration,
@@ -50,7 +53,7 @@ function Invoke-PoShBackupMaintenanceAndVerificationMode {
         }
     }
 
-    if ($RunVerificationJobsSwitch) {
+    if ($RunVerificationJobsSwitch -or (-not [string]::IsNullOrWhiteSpace($VerificationJobName))) {
         & $LocalWriteLog -Message "`n--- Automated Backup Verification Mode ---" -Level "HEADING"
         $verificationManagerPath = Join-Path -Path $PSScriptRoot -ChildPath "..\Managers\VerificationManager.psm1"
         try {
@@ -67,10 +70,16 @@ function Invoke-PoShBackupMaintenanceAndVerificationMode {
                 Logger        = $Logger
                 PSCmdlet      = $PSCmdletInstance
             }
+
+            if (-not [string]::IsNullOrWhiteSpace($VerificationJobName)) {
+                # Add the specific job name to the parameters if it was provided
+                $verificationParams.Add('SpecificVerificationJobName', $VerificationJobName)
+            }
+
             Invoke-PoShBackupVerification @verificationParams
 
         } catch {
-            & $LocalWriteLog -Message "[FATAL] ScriptModes/MaintenanceAndVerification: Error during -RunVerificationJobs mode. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message "[FATAL] ScriptModes/MaintenanceAndVerification: Error during verification job mode. Error: $($_.Exception.Message)" -Level "ERROR"
         }
         & $LocalWriteLog -Message "`n--- Verification Run Finished ---" -Level "HEADING"
         return $true # Handled
