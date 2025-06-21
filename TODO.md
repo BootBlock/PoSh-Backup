@@ -1649,17 +1649,14 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Robustness:** When `Initialize-RemotePathInternal` fails, include the specific user account it was running as in the error message.
 *   **Robustness:** In `PasswordManager.psm1`, add a check and a clear warning if a user selects the `PlainText` password method.
 *   **Robustness:** At script startup, check for write permissions on the configured `LogDirectory` and warn the user if permissions are insufficient.
-*   **Robustness:** When `Get-Secret` fails, provide a more user-friendly error suggesting they check if the vault is locked.
 *   **Robustness:** The `-ExportDiagnosticPackage` should gracefully handle a missing `Logs` or `Config` directory.
 *   **Robustness:** If a hook script fails, include its exit code in the error message.
 *   **Robustness:** Add a timeout to the `Invoke-WebRequest` calls in the `WebDAV.Target` provider.
 *   **Robustness:** If `7z.exe` is not found, the error message should list the locations that were checked.
 *   **Robustness:** In `-PreFlightCheck`, the write test should use a unique filename per instance to avoid conflicts.
-*   **Robustness:** If a remote retention policy fails to delete a file, it should not prevent subsequent files from being deleted.
 *   **Robustness:** The script should gracefully handle a read-only configuration file.
 *   **Robustness:** Add a check for extremely long file paths and warn the user if they might exceed system limits.
 *   **Robustness:** If a VSS snapshot fails, the error message should include the VSS error code.
 *   **Robustness:** The `ScheduleManager` should validate that the `RunAsUser` account has "Log on as a batch job" rights.
 *   **Robustness:** When a circular dependency is detected, list the full chain of jobs that form the loop.
 *   **Robustness:** If `User.psd1` is malformed and cannot be parsed, the script should warn the user and proceed with just `Default.psd1`.
-*   **Robustness:** The script should check for a minimum required PowerShell version at startup.

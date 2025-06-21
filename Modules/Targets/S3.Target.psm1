@@ -29,7 +29,7 @@
 #region --- Private Helper: Format Bytes ---
 function Format-BytesInternal-S3 {
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [long]$Bytes
     )
     if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
@@ -70,7 +70,9 @@ function Get-SecretFromVaultInternal-S3 {
         }
     }
     catch {
-        & $LocalWriteLog -Message ("[ERROR] GetSecret: Failed to retrieve secret '{0}' for {1}. Error: {2}" -f $SecretName, $SecretPurposeForLog, $_.Exception.Message) -Level "ERROR"
+        $userFriendlyError = "Failed to retrieve secret '{0}' for {1}. This can often happen if the Secret Vault is locked. Try running `Unlock-SecretStore` before executing the script." -f $SecretName, $SecretPurposeForLog
+        & $LocalWriteLog -Message "[ERROR] $userFriendlyError" -Level "ERROR"
+        & $LocalWriteLog -Message "  - Underlying SecretManagement Error: $($_.Exception.Message)" -Level "DEBUG"
     }
     return $null
 }
@@ -171,14 +173,16 @@ function Test-PoShBackupTargetConnectivity {
         & $LocalWriteLog -Message "    - SUCCESS: $successMessage" -Level "SUCCESS"
         return @{ Success = $true; Message = $successMessage }
 
-    } catch {
+    }
+    catch {
         $errorMessage = "S3 connection test failed. Error: $($_.Exception.Message)"
         if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
-             $errorMessage += " Status Code: $($_.Exception.Response.StatusCode)."
+            $errorMessage += " Status Code: $($_.Exception.Response.StatusCode)."
         }
         & $LocalWriteLog -Message "    - FAILED: $errorMessage" -Level "ERROR"
         return @{ Success = $false; Message = $errorMessage }
-    } finally {
+    }
+    finally {
         $accessKey = $null; $secretKey = $null; [System.GC]::Collect()
     }
 }
@@ -217,7 +221,7 @@ function Invoke-PoShBackupS3TargetSettingsValidation {
     
     # ServiceUrl is optional for AWS S3, but required for MinIO etc.
     if ($TargetSpecificSettings.ContainsKey('ServiceUrl') -and -not ($TargetSpecificSettings.ServiceUrl -is [string])) {
-         $ValidationMessagesListRef.Value.Add("S3 Target '$TargetInstanceName': 'ServiceUrl' in 'TargetSpecificSettings' must be a string if defined. Path: '$fullPathToSettings.ServiceUrl'.")
+        $ValidationMessagesListRef.Value.Add("S3 Target '$TargetInstanceName': 'ServiceUrl' in 'TargetSpecificSettings' must be a string if defined. Path: '$fullPathToSettings.ServiceUrl'.")
     }
 
     foreach ($s3Key in @('Region', 'BucketName', 'AccessKeySecretName', 'SecretKeySecretName')) {
@@ -249,29 +253,29 @@ function Invoke-PoShBackupS3TargetSettingsValidation {
 function Invoke-PoShBackupTargetTransfer {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$LocalArchivePath,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [hashtable]$TargetInstanceConfiguration,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$JobName,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$ArchiveFileName,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$ArchiveBaseName,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$ArchiveExtension,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [switch]$IsSimulateMode,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [hashtable]$EffectiveJobConfig,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [long]$LocalArchiveSizeBytes,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [datetime]$LocalArchiveCreationTimestamp,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [bool]$PasswordInUse,
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet
@@ -289,8 +293,8 @@ function Invoke-PoShBackupTargetTransfer {
     & $LocalWriteLog -Message ("`n[INFO] S3 Target: Starting transfer for Job '{0}' to Target '{1}'." -f $JobName, $targetNameForLog) -Level "INFO"
 
     $result = @{
-        Success               = $false; RemotePath          = $null; ErrorMessage        = $null
-        TransferSize          = 0;      TransferDuration    = New-TimeSpan; TransferSizeFormatted = "N/A"
+        Success = $false; RemotePath = $null; ErrorMessage = $null
+        TransferSize = 0; TransferDuration = New-TimeSpan; TransferSizeFormatted = "N/A"
     }
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
@@ -378,20 +382,24 @@ function Invoke-PoShBackupTargetTransfer {
                             $removeS3Params.Force = $true
                             Remove-S3Object @removeS3Params
                             & $LocalWriteLog "          - Status: DELETED" -Level "SUCCESS"
-                        } catch {
-                             $retentionErrorMsg = "Failed to delete remote S3 object '$($s3ObjectToDelete.Key)'. Error: $($_.Exception.Message)"
-                             & $LocalWriteLog "          - Status: FAILED! $retentionErrorMsg" -Level "ERROR"
-                             if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retentionErrorMsg } else { $result.ErrorMessage += "; $retentionErrorMsg" }
+                        }
+                        catch {
+                            $retentionErrorMsg = "Failed to delete remote S3 object '$($s3ObjectToDelete.Key)'. Error: $($_.Exception.Message)"
+                            & $LocalWriteLog "          - Status: FAILED! $retentionErrorMsg" -Level "ERROR"
+                            if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retentionErrorMsg } else { $result.ErrorMessage += "; $retentionErrorMsg" }
                         }
                     }
                 }
-            } else { & $LocalWriteLog ("    - S3 Target '{0}': No old instances to delete based on retention count {1}." -f $targetNameForLog, $remoteKeepCount) -Level "INFO" }
+            }
+            else { & $LocalWriteLog ("    - S3 Target '{0}': No old instances to delete based on retention count {1}." -f $targetNameForLog, $remoteKeepCount) -Level "INFO" }
         }
 
-    } catch {
+    }
+    catch {
         $result.ErrorMessage = "S3 Target '$targetNameForLog': Operation failed. Error: $($_.Exception.Message)"
         & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"; $result.Success = $false
-    } finally {
+    }
+    finally {
         $accessKey = $null; $secretKey = $null; [System.GC]::Collect()
     }
 

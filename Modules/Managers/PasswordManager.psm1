@@ -54,7 +54,7 @@ catch {
 function ConvertTo-PlainTextSecureStringInternal {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [System.Security.SecureString]$SecureString
     )
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureString)
@@ -115,16 +115,16 @@ function Get-PoShBackupArchivePassword {
           password (e.g., "Interactive (Get-Credential)", "SecretManagement", "None (Not Configured)").
     #>
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [hashtable]$JobConfigForPassword,
 
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$JobName,
 
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory = $false)]
         [switch]$IsSimulateMode,
 
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
 
@@ -137,7 +137,8 @@ function Get-PoShBackupArchivePassword {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -166,12 +167,14 @@ function Get-PoShBackupArchivePassword {
             if ($IsSimulateMode.IsPresent) {
                 & $LocalWriteLog -Message "SIMULATE: Would prompt for password interactively for job '$JobName' (username hint: '$userNameHint')." -Level SIMULATE
                 $plainTextPassword = "SimulatedPasswordInteractive123!" # Placeholder for simulation
-            } else {
+            }
+            else {
                 $cred = Get-Credential -UserName $userNameHint -Message "Enter password for 7-Zip archive of job: '$JobName'"
                 if ($null -ne $cred) {
                     $plainTextPassword = $cred.GetNetworkCredential().Password
                     & $LocalWriteLog -Message "   - Credentials obtained interactively for job '$JobName'." -Level SUCCESS
-                } else {
+                }
+                else {
                     # User cancelled Get-Credential prompt
                     & $LocalWriteLog -Message "FATAL: Password entry via Get-Credential was cancelled by the user for job '$JobName'." -Level ERROR
                     throw "Password entry cancelled for job '$JobName'."
@@ -195,7 +198,8 @@ function Get-PoShBackupArchivePassword {
             if ($IsSimulateMode.IsPresent) {
                 & $LocalWriteLog -Message "SIMULATE: Would attempt to retrieve secret '$secretName'$vaultInfoString from PowerShell SecretManagement." -Level SIMULATE
                 $plainTextPassword = "SimulatedPasswordSecret123!" # Placeholder for simulation
-            } else {
+            }
+            else {
                 try {
                     if (-not (Get-Command Get-Secret -ErrorAction SilentlyContinue)) {
                         throw "The PowerShell SecretManagement module (Microsoft.PowerShell.SecretManagement) does not appear to be available or its cmdlets are not found. Please ensure it and a vault provider (e.g., Microsoft.PowerShell.SecretStore) are installed and configured."
@@ -210,20 +214,26 @@ function Get-PoShBackupArchivePassword {
                         if ($secretObject.Secret -is [System.Security.SecureString]) {
                             $plainTextPassword = ConvertTo-PlainTextSecureStringInternal -SecureString $secretObject.Secret
                             & $LocalWriteLog -Message "   - Password (SecureString) successfully retrieved from SecretManagement for '$secretName'$vaultInfoString and converted." -Level SUCCESS
-                        } elseif ($secretObject.Secret -is [string]) {
+                        }
+                        elseif ($secretObject.Secret -is [string]) {
                             $plainTextPassword = $secretObject.Secret # If vault stores it as plain text (less common)
                             & $LocalWriteLog -Message "   - Password (plain text string) successfully retrieved from SecretManagement for '$secretName'$vaultInfoString." -Level SUCCESS
-                        } else {
-                             & $LocalWriteLog -Message "FATAL: Secret '$secretName'$vaultInfoString retrieved, but its content was not a SecureString or a plain String. Type found: $($secretObject.Secret.GetType().FullName)" -Level ERROR
-                             throw "Invalid secret type for '$secretName' from SecretManagement."
                         }
-                    } else {
+                        else {
+                            & $LocalWriteLog -Message "FATAL: Secret '$secretName'$vaultInfoString retrieved, but its content was not a SecureString or a plain String. Type found: $($secretObject.Secret.GetType().FullName)" -Level ERROR
+                            throw "Invalid secret type for '$secretName' from SecretManagement."
+                        }
+                    }
+                    else {
                         & $LocalWriteLog -Message "FATAL: Secret '$secretName'$vaultInfoString not found or could not be retrieved using Get-Secret (returned null)." -Level ERROR
                         throw "Secret '$secretName' not found or Get-Secret returned null from SecretManagement."
                     }
-                } catch {
-                    & $LocalWriteLog -Message "FATAL: Failed to retrieve secret '$secretName'$vaultInfoString using SecretManagement. Error: $($_.Exception.Message)" -Level ERROR
-                    throw "Failed to retrieve secret for job '$JobName' via SecretManagement: $($_.Exception.Message)"
+                }
+                catch {
+                    $userFriendlyError = "Failed to retrieve secret '$secretName'$vaultInfoString. This can often happen if the Secret Vault is locked. Try running `Unlock-SecretStore` before executing the script."
+                    & $LocalWriteLog -Message "[ERROR] $userFriendlyError" -Level "ERROR"
+                    & $LocalWriteLog -Message "  - Underlying SecretManagement Error: $($_.Exception.Message)" -Level "DEBUG"
+                    throw $userFriendlyError
                 }
             }
         }
@@ -245,17 +255,20 @@ function Get-PoShBackupArchivePassword {
             if ($IsSimulateMode.IsPresent) {
                 & $LocalWriteLog -Message "SIMULATE: Would read and decrypt password from SecureStringFile '$secureStringPath'." -Level SIMULATE
                 $plainTextPassword = "SimulatedPasswordFile123!" # Placeholder for simulation
-            } else {
+            }
+            else {
                 try {
                     $secureString = Import-Clixml -LiteralPath $secureStringPath -ErrorAction Stop
                     if ($secureString -is [System.Security.SecureString]) {
                         $plainTextPassword = ConvertTo-PlainTextSecureStringInternal -SecureString $secureString
                         & $LocalWriteLog -Message "   - Password successfully retrieved from SecureStringFile '$secureStringPath' and converted." -Level SUCCESS
-                    } else {
+                    }
+                    else {
                         & $LocalWriteLog -Message "FATAL: File '$secureStringPath' for job '$JobName' did not contain a valid SecureString object. It contained type: $($secureString.GetType().FullName)" -Level ERROR
                         throw "Invalid content in SecureStringFile: '$secureStringPath'."
                     }
-                } catch {
+                }
+                catch {
                     & $LocalWriteLog -Message "FATAL: Failed to read or decrypt SecureStringFile '$secureStringPath' for job '$JobName'. Ensure the file was created correctly and is accessible by the current user. Error: $($_.Exception.Message)" -Level ERROR
                     throw "Failed to process SecureStringFile for job '$JobName': $($_.Exception.Message)"
                 }
@@ -272,7 +285,7 @@ function Get-PoShBackupArchivePassword {
             }
             & $LocalWriteLog -Message "[SECURITY WARNING] Using PLAIN TEXT password from configuration for job '$JobName'. This is INSECURE and NOT RECOMMENDED for production environments." -Level WARNING
             if ($IsSimulateMode.IsPresent) {
-                 & $LocalWriteLog -Message "SIMULATE: Would use plain text password directly from configuration for job '$JobName'." -Level SIMULATE
+                & $LocalWriteLog -Message "SIMULATE: Would use plain text password directly from configuration for job '$JobName'." -Level SIMULATE
             }
         }
 

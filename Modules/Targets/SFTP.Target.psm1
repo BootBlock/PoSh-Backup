@@ -101,7 +101,9 @@ function Get-SecretFromVaultInternal-Sftp {
         }
     }
     catch {
-        & $LocalWriteLog -Message ("[ERROR] GetSecret: Failed to retrieve secret '{0}' for {1}. Error: {2}" -f $SecretName, $SecretPurposeForLog, $_.Exception.Message) -Level "ERROR"
+        $userFriendlyError = "Failed to retrieve secret '{0}' for {1}. This can often happen if the Secret Vault is locked. Try running `Unlock-SecretStore` before executing the script." -f $SecretName, $SecretPurposeForLog
+        & $LocalWriteLog -Message "[ERROR] $userFriendlyError" -Level "ERROR"
+        & $LocalWriteLog -Message "  - Underlying SecretManagement Error: $($_.Exception.Message)" -Level "DEBUG"
     }
     return $null
 }
@@ -154,10 +156,12 @@ function Test-PoShBackupTargetConnectivity {
                 $securePassphrase = ConvertTo-SecureString -String $sftpKeyPassphrase -AsPlainText -Force
                 $sessionParams.KeyPassphrase = $securePassphrase
             }
-        } elseif (-not [string]::IsNullOrWhiteSpace($sftpPassword)) {
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($sftpPassword)) {
             $securePassword = ConvertTo-SecureString -String $sftpPassword -AsPlainText -Force
             $sessionParams.Password = $securePassword
-        } else {
+        }
+        else {
             throw "No password secret or key file path secret provided for authentication."
         }
 
@@ -176,14 +180,17 @@ function Test-PoShBackupTargetConnectivity {
         if (Test-SFTPPath -SessionId $sftpSessionId -Path $remotePath) {
             & $LocalWriteLog -Message "    - SUCCESS: Remote path '$remotePath' exists." -Level "SUCCESS"
             return @{ Success = $true; Message = "Connection successful and remote path exists." }
-        } else {
+        }
+        else {
             return @{ Success = $false; Message = "Connection successful, but remote path '$remotePath' does not exist." }
         }
-    } catch {
+    }
+    catch {
         $errorMessage = "SFTP connection test failed. Error: $($_.Exception.Message)"
         & $LocalWriteLog -Message "    - FAILED: $errorMessage" -Level "ERROR"
         return @{ Success = $false; Message = $errorMessage }
-    } finally {
+    }
+    finally {
         if ($sftpSessionId) { Remove-SSHSession -SessionId $sftpSessionId -ErrorAction SilentlyContinue }
         if ($securePassword) { $securePassword.Dispose() }
         if ($securePassphrase) { $securePassphrase.Dispose() }
@@ -267,9 +274,9 @@ function Group-RemoteSFTPBackupInstancesInternal {
         [Parameter(Mandatory = $true)]
         [string]$RemoteDirectoryToScan,
         [Parameter(Mandatory = $true)]
-        [string]$BaseNameToMatch,               # e.g., "JobName [DateStamp]"
+        [string]$BaseNameToMatch, # e.g., "JobName [DateStamp]"
         [Parameter(Mandatory = $true)]
-        [string]$PrimaryArchiveExtension,       # e.g., ".7z" (the one used for .001, .002, or the manifest base)
+        [string]$PrimaryArchiveExtension, # e.g., ".7z" (the one used for .001, .002, or the manifest base)
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
@@ -328,8 +335,8 @@ function Group-RemoteSFTPBackupInstancesInternal {
                     if ($basePlusExtMatch) {
                         $potentialKey = $Matches[1]
                         if ($fileName -match ([regex]::Escape($potentialKey) + "\.\d{3,}") -or `
-                            $fileName -match ([regex]::Escape($potentialKey) + "\.manifest\.[a-zA-Z0-9]+$") -or `
-                            $fileName -eq $potentialKey) {
+                                $fileName -match ([regex]::Escape($potentialKey) + "\.manifest\.[a-zA-Z0-9]+$") -or `
+                                $fileName -eq $potentialKey) {
                             $instanceKey = $potentialKey
                         }
                     }
@@ -368,7 +375,8 @@ function Group-RemoteSFTPBackupInstancesInternal {
                     if ($firstVolumeFile.LastWriteTime -lt $instances[$keyToRefine].SortTime) {
                         $instances[$keyToRefine].SortTime = $firstVolumeFile.LastWriteTime
                     }
-                } elseif ($instances[$keyToRefine].Files.Count -gt 0) {
+                }
+                elseif ($instances[$keyToRefine].Files.Count -gt 0) {
                     $earliestFileInGroup = $instances[$keyToRefine].Files | Sort-Object LastWriteTime | Select-Object -First 1
                     if ($earliestFileInGroup -and $earliestFileInGroup.LastWriteTime -lt $instances[$keyToRefine].SortTime) {
                         $instances[$keyToRefine].SortTime = $earliestFileInGroup.LastWriteTime
@@ -586,15 +594,17 @@ function Invoke-PoShBackupTargetTransfer {
                             try {
                                 Remove-SFTPItem -SessionId $sftpSessionId -Path $fileToDeletePathOnSftp -ErrorAction Stop
                                 & $LocalWriteLog "          - Status: DELETED" -Level "SUCCESS"
-                            } catch {
-                                 $retentionErrorMsg = "Failed to delete remote SFTP file '$fileToDeletePathOnSftp' for instance '$instanceIdentifier' during retention. Error: $($_.Exception.Message)"
-                                 & $LocalWriteLog "          - Status: FAILED! $retentionErrorMsg" -Level "ERROR"
-                                 if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retentionErrorMsg }
-                                 else { $result.ErrorMessage += "; $retentionErrorMsg" }
+                            }
+                            catch {
+                                $retentionErrorMsg = "Failed to delete remote SFTP file '$fileToDeletePathOnSftp' for instance '$instanceIdentifier' during retention. Error: $($_.Exception.Message)"
+                                & $LocalWriteLog "          - Status: FAILED! $retentionErrorMsg" -Level "ERROR"
+                                if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retentionErrorMsg }
+                                else { $result.ErrorMessage += "; $retentionErrorMsg" }
                             }
                         }
                     }
-                } else {
+                }
+                else {
                     & $LocalWriteLog ("    - SFTP Target '{0}': No old instances to delete based on retention count {1} (Found: $($remoteInstances.Count))." -f $targetNameForLog, $remoteKeepCount) -Level "INFO"
                 }
             }
