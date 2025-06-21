@@ -1561,7 +1561,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **UX:** When `-Quiet` is used, the final summary should still print, but only the one-line status and duration.
 *   **UX:** Add a progress bar for the individual file copy operation in the `UNC.Target.psm1` provider for very large files.
 *   **UX:** In interactive job selection menu, display job descriptions next to job names if they exist.
-*   **UX:** In interactive menu, allow selecting multiple jobs/sets with comma-separated input (e.g., "1, 3, 8").
 *   **UX:** Add a `-ShowConfigPath` switch to print the path(s) to the loaded configuration files and exit.
 *   **UX:** When `Sync-Schedules` runs, output the full command that will be executed by the scheduled task.
 *   **UX:** When a dependency fails, explicitly list which subsequent jobs were skipped as a direct result.

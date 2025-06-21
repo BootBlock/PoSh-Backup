@@ -11,15 +11,16 @@
     - If neither is specified:
         - If only one job is defined in the configuration, it returns that job.
         - If multiple jobs/sets are defined, it presents an interactive, two-column menu for the user to choose.
+          This menu now accepts single or multiple comma-separated selections.
         - Otherwise, it returns an error.
     - It filters out any jobs that are disabled (`Enabled = $false`) or specified via the -SkipJob CLI parameter.
     It also determines the 'StopSetOnError' policy and 'PostRunAction' for the resolved set.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.2 # Refined interactive menu layout to be sequential and two-column.
+    Version:        1.4.0 # Interactive menu now accepts multiple, comma-separated selections.
     DateCreated:    24-May-2025
-    LastModified:   18-Jun-2025
+    LastModified:   21-Jun-2025
     Purpose:        To modularise job/set resolution logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the parent 'Modules' directory for Get-ConfigValue.
@@ -147,8 +148,8 @@ function Get-JobsToProcess {
         }
     }
     else {
-        $allDefinedJobs = if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable]) { @($Config.BackupLocations.Keys) } else { @() }
-        $allDefinedSets = if ($Config.ContainsKey('BackupSets') -and $Config['BackupSets'] -is [hashtable]) { @($Config.BackupSets.Keys) } else { @() }
+        $allDefinedJobs = if ($Config.ContainsKey('BackupLocations') -and $Config.BackupLocations -is [hashtable]) { @($Config.BackupLocations.Keys) } else { @() }
+        $allDefinedSets = if ($Config.ContainsKey('BackupSets') -and $Config.BackupSets -is [hashtable]) { @($Config.BackupSets.Keys) } else { @() }
         
         if ($allDefinedJobs.Count -eq 1 -and $allDefinedSets.Count -eq 0) {
             $initialJobsToConsider.Add($allDefinedJobs[0])
@@ -212,43 +213,58 @@ function Get-JobsToProcess {
                 }
             }
             
-            # --- Get User Input ---
+            # --- Get User Input (New Logic) ---
             Write-Host
             Write-Host ("   0. Quit") -ForegroundColor $menuQuitColour
             Write-Host
 
-            $userDecisionIndex = -1
             while ($true) {
-                try {
-                    $userInput = Read-Host "Enter selection number (or press Enter to quit)"
-                    if ([string]::IsNullOrWhiteSpace($userInput) -or $userInput -eq '0') {
-                        & $LocalWriteLog -Message "JobResolver: User chose to quit from interactive menu." -Level "INFO"
-                        exit 0
-                    }
-                    $userDecisionIndex = [int]$userInput
-                    if ($menuMap.ContainsKey($userDecisionIndex)) {
-                        break # Valid selection
-                    } else {
-                        Write-Warning "Invalid selection. Please enter a number from the menu."
-                    }
-                } catch {
-                    Write-Warning "Invalid input. Please enter a number."
+                $userInput = Read-Host "Enter selection(s), comma-separated (or press Enter to quit)"
+                if ([string]::IsNullOrWhiteSpace($userInput) -or $userInput -eq '0') {
+                    & $LocalWriteLog -Message "JobResolver: User chose to quit from interactive menu." -Level "INFO"
+                    exit 0
                 }
-            }
 
-            $selectedItem = $menuMap[$userDecisionIndex]
-            if ($selectedItem.Type -eq 'Job') {
-                $initialJobsToConsider.Add($selectedItem.Name)
-                & $LocalWriteLog -Message "`n[INFO] JobResolver: Single Backup Location selected by user: '$($selectedItem.Name)'" -Level "INFO"
-            }
-            elseif ($selectedItem.Type -eq 'Set') {
-                $setName = $selectedItem.Name
-                & $LocalWriteLog -Message "`n[INFO] JobResolver: Backup Set selected by user: '$setName'" -Level "INFO"
-                $setDefinition = $Config.BackupSets[$setName]
-                $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @())
-                $jobNamesInSet | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) { $initialJobsToConsider.Add($_.Trim()) } }
-                $stopSetOnErrorPolicy = if (((Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue "StopSet") -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
-                if ($setDefinition.ContainsKey('PostRunAction')) { $setPostRunAction = $setDefinition.PostRunAction }
+                $selectionStrings = $userInput.Split(',') | ForEach-Object { $_.Trim() }
+                $validSelections = [System.Collections.Generic.List[object]]::new()
+                $invalidInputs = [System.Collections.Generic.List[string]]::new()
+
+                foreach ($selectionStr in $selectionStrings) {
+                    if ($selectionStr -match '^\d+$') {
+                        $index = [int]$selectionStr
+                        if ($menuMap.ContainsKey($index)) {
+                            $validSelections.Add($menuMap[$index])
+                        } else {
+                            $invalidInputs.Add($selectionStr)
+                        }
+                    } else {
+                        $invalidInputs.Add($selectionStr)
+                    }
+                }
+
+                if ($invalidInputs.Count -gt 0) {
+                    Write-Warning "Invalid or out-of-range selection(s): $($invalidInputs -join ', ')"
+                }
+
+                if ($validSelections.Count -gt 0) {
+                    foreach ($selectedItem in ($validSelections | Select-Object -Unique)) {
+                        if ($selectedItem.Type -eq 'Job') {
+                            $initialJobsToConsider.Add($selectedItem.Name)
+                            & $LocalWriteLog -Message "`n[INFO] JobResolver: Backup Location '$($selectedItem.Name)' added to run list by user." -Level "INFO"
+                        } elseif ($selectedItem.Type -eq 'Set') {
+                            $setName = $selectedItem.Name
+                            & $LocalWriteLog -Message "`n[INFO] JobResolver: Backup Set '$setName' selected by user. Adding its jobs to the run list." -Level "INFO"
+                            $setDefinition = $Config.BackupSets[$setName]
+                            $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @())
+                            $jobNamesInSet | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) { $initialJobsToConsider.Add($_.Trim()) } }
+                            # For simplicity, if multiple sets are chosen, the policy of the *last* set selected will apply.
+                            $stopSetOnErrorPolicy = if (((Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue "StopSet") -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
+                            if ($setDefinition.ContainsKey('PostRunAction')) { $setPostRunAction = $setDefinition.PostRunAction }
+                        }
+                    }
+                    break # Exit the while loop as we have processed the user's valid input
+                }
+                # If no valid selections, the loop continues and re-prompts.
             }
         }
     }
