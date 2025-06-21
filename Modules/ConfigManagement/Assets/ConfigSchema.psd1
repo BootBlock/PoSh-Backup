@@ -360,6 +360,7 @@
                 Description             = @{ Type = 'string'; Required = $false }
                 JobNames                = @{ Type = 'array'; Required = $true; ItemSchema = @{ Type = 'string' } }
                 OnErrorInJob            = @{ Type = 'string'; Required = $false; AllowedValues = @("StopSet", "ContinueSet") }
+                DelayBetweenJobsSeconds = @{ Type = 'int'; Required = $false; Min = 0 }
                 LogRetentionCount       = @{ Type = 'int'; Required = $false; Min = 0 }
                 SevenZipIncludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }
                 SevenZipExcludeListFile = @{ Type = 'string'; Required = $false; ValidateScript = { if ([string]::IsNullOrWhiteSpace($_)) { return $true }; Test-Path -LiteralPath $_ -PathType Leaf } }

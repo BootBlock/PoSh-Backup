@@ -909,7 +909,8 @@
                 "Projects"
             )
             OnErrorInJob = "StopSet"
-            LogRetentionCount = 7 # Logs for jobs run as part of this set will keep only 7 files, overriding their individual or global settings.
+            DelayBetweenJobsSeconds = 2 # Optional: Pause for 2 seconds before starting the next job in this set.
+            LogRetentionCount = 7       # Logs for jobs run as part of this set will keep only 7 files, overriding their individual or global settings.
             SevenZipIncludeListFile = "C:\BackupConfig\Set_DailyCritical_Includes.txt"
             SevenZipExcludeListFile = "C:\BackupConfig\Set_DailyCritical_Excludes.txt"
 
@@ -948,6 +949,7 @@
         "Nightly_Full_System_Simulate" = @{
             JobNames = @("Projects", "AnExample_WithRemoteTarget", "HyperV_VM_Backup_Example")
             OnErrorInJob = "ContinueSet"
+            DelayBetweenJobsSeconds = 0         # Example: No delay for this set.
             SevenZipIncludeListFile = ""
             SevenZipExcludeListFile = ""
             # Note: To run this set in simulation mode, you would use:

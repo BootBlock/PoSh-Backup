@@ -16,6 +16,8 @@
     - Invokes the core backup operation for the job (via Operations.psm1).
     - Records the effective success status of the executed job for subsequent dependency checks.
     - Manages the overall status of a set if multiple jobs are run.
+    - If a 'DelayBetweenJobsSeconds' is configured for a set, it will pause for that duration
+      before starting the next job in the set (but not after the last job).
     - Triggers report generation for each job (including skipped jobs).
     - Triggers email notification for each job if configured.
     - Implements the "stop set on error" policy, considering both operational failures
@@ -23,9 +25,9 @@
     - Applies log file retention policy for the completed job.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.1 # Fixed PowerShell 5.1 incompatible inline 'if' statement.
+    Version:        1.3.0 # Added DelayBetweenJobsSeconds for backup sets.
     DateCreated:    25-May-2025
-    LastModified:   09-Jun-2025
+    LastModified:   21-Jun-2025
     Purpose:        To centralise the main job/set processing loop from PoSh-Backup.ps1.
     Prerequisites:  PowerShell 5.1+.
                     Depends on ConfigManager.psm1, Operations.psm1, Reporting.psm1, and Utils.psm1.
@@ -91,6 +93,16 @@ function Invoke-PoShBackupRun {
 
     $totalJobsInRun = $JobsToProcess.Count
     $jobCounter = 0
+    
+    # Get the delay setting for the set before the loop starts.
+    $delayBetweenJobs = 0
+    if (-not [string]::IsNullOrWhiteSpace($CurrentSetName) -and $Configuration.BackupSets.ContainsKey($CurrentSetName)) {
+        $setConf = $Configuration.BackupSets[$CurrentSetName]
+        $delayBetweenJobs = Get-ConfigValue -ConfigObject $setConf -Key 'DelayBetweenJobsSeconds' -DefaultValue 0
+        if ($delayBetweenJobs -gt 0) {
+            & $LocalWriteLog -Message "  - JobOrchestrator: A delay of $delayBetweenJobs second(s) will be applied between each job in this set." -Level "INFO"
+        }
+    }
 
     foreach ($currentJobName in $JobsToProcess) {
         $jobCounter++
@@ -216,7 +228,7 @@ function Invoke-PoShBackupRun {
             }
             $effectiveJobConfigForThisJob = Get-PoShBackupJobEffectiveConfiguration @effectiveConfigParams
 
-            # --- Initialise Log File with Enriched Header ---
+            # --- Initialize Log File with Enriched Header ---
             $Global:GlobalLogFile = $null
             if ($Global:GlobalEnableFileLogging) {
                 $logDate = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
@@ -434,7 +446,7 @@ $cliOverridesString
             }
         }
 
-        # --- Email Notification Logic ---
+        # --- RE-INSTATED Email Notification Logic ---
         if (Get-Command Send-PoShBackupEmailNotification -ErrorAction SilentlyContinue) {
             $defaultEmailSettings = Get-ConfigValue -ConfigObject $Configuration -Key 'DefaultEmailNotification' -DefaultValue @{}
             $jobEmailSettings = Get-ConfigValue -ConfigObject $jobConfigFromMainConfig -Key 'EmailNotification' -DefaultValue @{}
@@ -489,6 +501,12 @@ $cliOverridesString
             else {
                 & $LocalWriteLog -Message "[WARNING] Log Retention for job '$currentJobName': Could not determine a final retention count. Skipping log retention." -Level "WARNING"
             }
+        }
+
+        # Check if this is not the last job and if a delay is configured for the set.
+        if (($jobCounter -lt $totalJobsInRun) -and ($delayBetweenJobs -gt 0)) {
+            & $LocalWriteLog -Message "`n[INFO] Pausing for $delayBetweenJobs second(s) before starting the next job in the set..." -Level "INFO"
+            Start-Sleep -Seconds $delayBetweenJobs
         }
 
         if ($CurrentSetName -and $StopSetOnErrorPolicy) {
