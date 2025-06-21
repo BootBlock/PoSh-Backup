@@ -19,6 +19,7 @@
     EnableAdvancedSchemaValidation            = @{ Type = 'boolean'; Required = $false }
     TreatSevenZipWarningsAsSuccess            = @{ Type = 'boolean'; Required = $false }
     RetentionConfirmDelete                    = @{ Type = 'boolean'; Required = $false }
+    UserPromptTimeoutSeconds                  = @{ Type = 'int'; Required = $false; Min = 0 }
     EnableFileLogging                         = @{ Type = 'boolean'; Required = $false }
     LogDirectory                              = @{ Type = 'string'; Required = $false }
     DefaultLogRetentionCount                  = @{ Type = 'int'; Required = $false; Min = 0 }

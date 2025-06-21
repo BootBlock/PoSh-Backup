@@ -1548,6 +1548,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 ### PoSh-Backup: Comprehensive Minor Enhancements `TODO` List
 #### **Console Experience & CLI Usability (UX)**
 
+*   **UX:** When running `-ExportDiagnosticPackage`, don't prompt the user to create `User.psd1`.
 *   **UX:** Add a `Description` field to `BackupLocations` and `BackupSets` to be displayed in the `-List...` modes for better context.
 *   **UX:** In the `-ListBackupSets` output, display the total number of jobs in each set, e.g., `Jobs in Set (3):`.
 *   **UX:** In the `-ListBackupLocations` output, display the configured `ArchiveType` (e.g., .7z, .zip) for each job.
@@ -1564,7 +1565,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **UX:** In interactive menu, allow selecting multiple jobs/sets with comma-separated input (e.g., "1, 3, 8").
 *   **UX:** Add a `-ShowConfigPath` switch to print the path(s) to the loaded configuration files and exit.
 *   **UX:** When `Sync-Schedules` runs, output the full command that will be executed by the scheduled task.
-*   **UX:** The interactive prompt for `User.psd1` creation should time out after a period in non-interactive sessions.
 *   **UX:** When a dependency fails, explicitly list which subsequent jobs were skipped as a direct result.
 *   **UX:** Add a `-Minimal` output switch that only shows banners, final status, and errors.
 *   **UX:** The `-Version` switch should also output the versions of key modules like `7ZipManager` and `Operations`.

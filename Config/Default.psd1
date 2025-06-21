@@ -86,6 +86,11 @@
                                                                       # Set to $false to automatically delete without prompting (useful for scheduled tasks).
                                                                       # This is overridden by -Confirm:$false on the PoSh-Backup.ps1 command line.
                                                                       # Can also be overridden per job.
+
+    UserPromptTimeoutSeconds        = 30                              # When running in a non-interactive console (e.g., a scheduled task with a visible window), this is the number of seconds
+                                                                      # to wait for a user to respond to the 'Create User.psd1?' prompt. After the timeout, 'No' is assumed.
+                                                                      # A value of 0 or less disables the timeout, causing the prompt to wait forever.
+                                                                      # This has no effect in a truly interactive session (like a standard PowerShell window).
     #endregion
 
     #region --- Logging Settings ---
@@ -385,7 +390,7 @@
 
                 # To use Robocopy instead of the default Copy-Item for more resilient transfers, set UseRobocopy to $true.
                 UseRobocopy = $false # Default: $false. Set to $true to enable Robocopy for this target.
-                
+
                 # Customise Robocopy's behaviour. If a setting is not present, Robocopy's own default is used.
                 RobocopySettings = @{
                     # Retries = 5                # /R:n - Number of retries on failed copies. Default is 1 million.
@@ -429,7 +434,7 @@
         }
         "ExampleReplicatedStorage" = @{
             Type = "Replicate" # Provider module 'Modules\Targets\Replicate.Target.psm1' will handle this
-            
+
             # If $true, the provider will attempt to replicate to all destinations, even if one or more fail.
             # If $false (default), the provider will stop replicating to further destinations after the first failure.
             # The overall status will be 'Failure' if any destination fails, regardless of this setting.
@@ -543,7 +548,7 @@
             # The name of the backup job (from BackupLocations) whose archives you want to test.
             # This job *must* have 'GenerateContentsManifest = $true' set.
             TargetJobName = "Projects"
-            
+
             # The name of the secret (in PowerShell SecretManagement) that holds the password for the
             # archive, if it's encrypted. This is required if the target job creates encrypted archives.
             #ArchivePasswordSecretName = "VMBackupPassword"
@@ -566,11 +571,11 @@
             # - "CompareFileCount": A basic check to ensure the number of restored files/folders matches
             #   the count from the archive's listing.
             VerificationSteps = @("TestArchive", "VerifyChecksums")
-            
+
             # How many of the most recent backup instances for the TargetJobName to test.
             # '1' will test only the very latest backup. '3' will test the latest three.
             TestLatestCount = 1
-            
+
             # --- Integrated Scheduling Settings for this Verification Job ---
             Schedule = @{
                 # Set to $true to enable scheduling for this verification job.
@@ -602,7 +607,7 @@
     #region --- Backup Locations (Job Definitions) ---
     # Define individual backup jobs here. Each key in this hashtable represents a unique job name.
     BackupLocations                   = @{
-        "Projects"  = @{  
+        "Projects"  = @{
             Path                      = "P:\Images\*"                 # Path(s) to back up. Can be a single string or an array of strings for multiple sources.
             Name                      = "Projects"                    # Base name for the archive file (date stamp and extension will be appended).
             DestinationDir            = "D:\Backups"                  # Specific directory for this job. If remote targets are specified, this acts as a LOCAL STAGING area.
