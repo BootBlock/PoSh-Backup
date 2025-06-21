@@ -7,12 +7,13 @@
     checking the 'SevenZipPath' in the provided configuration. If the path is not set
     or invalid, it attempts to auto-detect 7z.exe using 'Find-SevenZipExecutable'
     (from the main 7ZipManager module). It updates the configuration object with the
-    resolved path and adds validation messages if a valid path cannot be determined.
+    resolved path and adds detailed validation messages if a valid path cannot be
+    determined, including a list of all locations that were checked.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Error message now includes list of checked locations.
     DateCreated:    29-May-2025
-    LastModified:   29-May-2025
+    LastModified:   21-Jun-2025
     Purpose:        7-Zip path resolution and validation logic for ConfigLoader.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 (for Get-ConfigValue) and 7ZipManager.psm1 (for Find-SevenZipExecutable).
@@ -90,21 +91,23 @@ function Resolve-SevenZipPath {
             return # Cannot proceed without it
         }
 
-        $foundPath = Find-SevenZipExecutable -Logger $Logger
-        if ($null -ne $foundPath) {
-            $Configuration.SevenZipPath = $foundPath # Update the configuration object directly
+        $discoveryResult = Find-SevenZipExecutable -Logger $Logger
+        if ($null -ne $discoveryResult.FoundPath) {
+            $Configuration.SevenZipPath = $discoveryResult.FoundPath # Update the configuration object directly
             $sevenZipPathSource = if ($initialPathIsEmpty) { "auto-detected (config was empty)" } else { "auto-detected (configured path was invalid)" }
-            & $LocalWriteLog -Message "[INFO] ConfigLoader/SevenZipPathResolver: Successfully auto-detected and using 7-Zip Path: '$foundPath'." -Level "INFO"
+            & $LocalWriteLog -Message "[INFO] ConfigLoader/SevenZipPathResolver: Successfully auto-detected and using 7-Zip Path: '$($discoveryResult.FoundPath)'." -Level "INFO"
             if ($IsTestConfigMode) {
-                & $LocalWriteLog -Message "  - ConfigLoader/SevenZipPathResolver: Effective 7-Zip Path set to: '$foundPath' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
+                & $LocalWriteLog -Message "  - ConfigLoader/SevenZipPathResolver: Effective 7-Zip Path set to: '$($discoveryResult.FoundPath)' (Source: $sevenZipPathSource)." -Level "CONFIG_TEST"
             }
         }
         else {
             $errorMsg = if ($initialPathIsEmpty) {
-                "CRITICAL: ConfigLoader/SevenZipPathResolver: 'SevenZipPath' empty and auto-detection failed. PoSh-Backup cannot function."
+                "CRITICAL: ConfigLoader/SevenZipPathResolver: 'SevenZipPath' is empty and auto-detection failed. PoSh-Backup cannot function."
             } else {
-                "CRITICAL: ConfigLoader/SevenZipPathResolver: Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') invalid, and auto-detection failed. PoSh-Backup cannot function."
+                "CRITICAL: ConfigLoader/SevenZipPathResolver: Configured 'SevenZipPath' ('$sevenZipPathFromConfigOriginal') is invalid, and auto-detection also failed. PoSh-Backup cannot function."
             }
+            $errorMsg += " The following locations were checked:"
+            $discoveryResult.CheckedPaths | ForEach-Object { $errorMsg += "`n  - $_" }
             if (-not $ValidationMessagesListRef.Value.Contains($errorMsg)) { $ValidationMessagesListRef.Value.Add($errorMsg) }
         }
     }

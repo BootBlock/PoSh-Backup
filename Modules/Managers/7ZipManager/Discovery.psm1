@@ -5,11 +5,13 @@
 .DESCRIPTION
     This module contains the 'Find-SevenZipExecutable' function, responsible for
     locating the 7z.exe executable in common installation paths or the system PATH.
+    It now returns a hashtable containing the found path and a list of all locations
+    that were checked, to provide more detailed error messages.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Function now returns a hashtable with checked paths.
     DateCreated:    29-May-2025
-    LastModified:   29-May-2025
+    LastModified:   21-Jun-2025
     Purpose:        7-Zip executable discovery logic for 7ZipManager.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 (for logger functionality if used directly, though logger is passed).
@@ -46,23 +48,27 @@ function Find-SevenZipExecutable {
     }
 
     & $LocalWriteLog -Message "  - 7ZipManager/Discovery: Attempting to auto-detect 7z.exe..." -Level "DEBUG"
+    
+    $checkedLocations = [System.Collections.Generic.List[string]]::new()
     $commonPaths = @(
         (Join-Path -Path $env:ProgramFiles -ChildPath "7-Zip\7z.exe"),
         (Join-Path -Path ${env:ProgramFiles(x86)} -ChildPath "7-Zip\7z.exe")
     )
 
     foreach ($pathAttempt in $commonPaths) {
+        $checkedLocations.Add($pathAttempt)
         if ($null -ne $pathAttempt -and (Test-Path -LiteralPath $pathAttempt -PathType Leaf)) {
             & $LocalWriteLog -Message "    - 7ZipManager/Discovery: Auto-detected 7z.exe at '$pathAttempt' (common installation location)." -Level "INFO"
-            return $pathAttempt
+            return @{ FoundPath = $pathAttempt; CheckedPaths = $checkedLocations }
         }
     }
 
     try {
+        $checkedLocations.Add("System PATH")
         $pathFromCommand = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
         if (-not [string]::IsNullOrWhiteSpace($pathFromCommand) -and (Test-Path -LiteralPath $pathFromCommand -PathType Leaf)) {
             & $LocalWriteLog -Message "    - 7ZipManager/Discovery: Auto-detected 7z.exe at '$pathFromCommand' (found in system PATH)." -Level "INFO"
-            return $pathFromCommand
+            return @{ FoundPath = $pathFromCommand; CheckedPaths = $checkedLocations }
         }
     }
     catch {
@@ -70,7 +76,7 @@ function Find-SevenZipExecutable {
     }
 
     & $LocalWriteLog -Message "    - 7ZipManager/Discovery: Auto-detection failed to find 7z.exe in common locations or system PATH. Please ensure 'SevenZipPath' is set in the configuration." -Level "DEBUG"
-    return $null
+    return @{ FoundPath = $null; CheckedPaths = $checkedLocations }
 }
 #endregion
 

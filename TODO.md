@@ -1651,7 +1651,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Robustness:** At script startup, check for write permissions on the configured `LogDirectory` and warn the user if permissions are insufficient.
 *   **Robustness:** The `-ExportDiagnosticPackage` should gracefully handle a missing `Logs` or `Config` directory.
 *   **Robustness:** Add a timeout to the `Invoke-WebRequest` calls in the `WebDAV.Target` provider.
-*   **Robustness:** If `7z.exe` is not found, the error message should list the locations that were checked.
 *   **Robustness:** In `-PreFlightCheck`, the write test should use a unique filename per instance to avoid conflicts.
 *   **Robustness:** The script should gracefully handle a read-only configuration file.
 *   **Robustness:** Add a check for extremely long file paths and warn the user if they might exceed system limits.
