@@ -225,10 +225,11 @@
         DynamicKeySchema = @{
             Type = "hashtable"; Required = $true
             Schema = @{
+                Name                                      = @{ Type = 'string'; Required = $true }
+                Description                               = @{ Type = 'string'; Required = $false }
                 Path                                      = @{ Type = 'string_or_array'; Required = $true }
                 SourceIsVMName                            = @{ Type = 'boolean'; Required = $false }
                 SnapshotProviderName                      = @{ Type = 'string'; Required = $false }
-                Name                                      = @{ Type = 'string'; Required = $true }
                 DestinationDir                            = @{ Type = 'string'; Required = $false }
                 Enabled                                   = @{ Type = 'boolean'; Required = $false }
                 PinOnCreation                             = @{ Type = 'boolean'; Required = $false }
@@ -356,6 +357,7 @@
         DynamicKeySchema = @{
             Type = "hashtable"; Required = $true
             Schema = @{
+                Description             = @{ Type = 'string'; Required = $false }
                 JobNames                = @{ Type = 'array'; Required = $true; ItemSchema = @{ Type = 'string' } }
                 OnErrorInJob            = @{ Type = 'string'; Required = $false; AllowedValues = @("StopSet", "ContinueSet") }
                 LogRetentionCount       = @{ Type = 'int'; Required = $false; Min = 0 }

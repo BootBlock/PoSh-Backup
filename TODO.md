@@ -1549,7 +1549,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 #### **Console Experience & CLI Usability (UX)**
 
 *   **UX:** When running `-ExportDiagnosticPackage`, don't prompt the user to create `User.psd1`.
-*   **UX:** Add a `Description` field to `BackupLocations` and `BackupSets` to be displayed in the `-List...` modes for better context.
 *   **UX:** In the `-ListBackupSets` output, display the total number of jobs in each set, e.g., `Jobs in Set (3):`.
 *   **UX:** In the `-ListBackupLocations` output, display the configured `ArchiveType` (e.g., .7z, .zip) for each job.
 *   **UX:** In `-TestConfig` output, add a "Notes" column to the job list to flag things like "No Remote Targets" or "VSS Disabled".

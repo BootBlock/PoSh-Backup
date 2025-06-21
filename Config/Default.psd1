@@ -608,12 +608,13 @@
     # Define individual backup jobs here. Each key in this hashtable represents a unique job name.
     BackupLocations                   = @{
         "Projects"  = @{
-            Path                      = "P:\Images\*"                 # Path(s) to back up. Can be a single string or an array of strings for multiple sources.
             Name                      = "Projects"                    # Base name for the archive file (date stamp and extension will be appended).
+            Description               = "A sample job to back up images."
+            Path                      = "P:\Images\*"                 # Path(s) to back up. Can be a single string or an array of strings for multiple sources.
             DestinationDir            = "D:\Backups"                  # Specific directory for this job. If remote targets are specified, this acts as a LOCAL STAGING area.
             Enabled                   = $true                         # Set to $false to disable this job without deleting its configuration.
             PinOnCreation             = $false                        # Set to $true to automatically pin the archive created by this job, protecting it from retention.
-            #TargetNames              = @("")                          # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
+            #TargetNames              = @("")                         # OPTIONAL: Array of target names from 'BackupTargets'. E.g., @("ExampleUNCShare")
                                                                       # If no remote targets, this is the FINAL BACKUP DESTINATION.
                                                                       # If empty or not present, this job is local-only to DestinationDir.
             DeleteLocalArchiveAfterSuccessfulTransfer = $true         # Job-specific override. Only effective if TargetNames are specified.
@@ -688,8 +689,9 @@
             Schedule = @{ Enabled = $false } # Placeholder for this job
         }
         "AnExample_WithRemoteTarget" = @{
-            Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
             Name                       = "MyImportantDocuments"
+            Description                = "An example job that uses a remote UNC target and creates a split ZIP archive."
+            Path                       = "C:\Users\YourUser\Documents\ImportantDocs\*"
             DestinationDir             = "D:\Backups\LocalStage"      # LOCAL STAGING directory, as TargetNames are specified below. Archive is created here first.
             Enabled                    = $true                        # Set to $false to disable this job without deleting its configuration.
             PinOnCreation              = $false                       # Set to $true to automatically pin the archive created by this job.
@@ -735,6 +737,8 @@
         }
         "HyperV_VM_Backup_Example" = @{
             # --- Snapshot Orchestration Example ---
+            Description              = "An example job showing how to back up specific folders from a Hyper-V VM snapshot."
+
             # When using a SnapshotProvider with 'SourceIsVMName = $true', 'Path' becomes an array where:
             # - Element 0 is the Name of the Virtual Machine to be snapshotted.
             # - Subsequent elements (optional) are the specific paths *inside* the VM to back up.
@@ -896,6 +900,8 @@
     # when PoSh-Backup.ps1 is called with the -RunSet <SetName> command-line parameter.
     BackupSets                      = @{
         "Test_Backups" = @{
+            Description  = "A sample set used for testing purposes."
+
             JobNames     = @(
                 "Projects",             # Same backup job repeated, but this is just for testing.
                 "Projects",

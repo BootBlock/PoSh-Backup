@@ -11,9 +11,9 @@
     - -Version
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.1 # Further improved output formatting for list modes.
+    Version:        1.2.0 # Added Description field to list outputs.
     DateCreated:    15-Jun-2025
-    LastModified:   20-Jun-2025
+    LastModified:   21-Jun-2025
     Purpose:        To handle informational listing script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -87,6 +87,11 @@ function Invoke-PoShBackupListingMode {
 
                 & $LocalWriteLog -Message ("  Enabled       : " + $isEnabled) -Level "NONE"
 
+                $jobDescription = Get-ConfigValue -ConfigObject $jobConf -Key 'Description' -DefaultValue ''
+                if (-not [string]::IsNullOrWhiteSpace($jobDescription)) {
+                    & $LocalWriteLog -Message ("  Description   : " + $jobDescription) -Level "NONE"
+                }
+
                 if ($jobConf.Path -is [array]) {
                     if ($jobConf.Path.Count -gt 0) {
                         & $LocalWriteLog -Message ('  Source Path(s): "{0}"' -f $jobConf.Path[0]) -Level "NONE"
@@ -152,12 +157,17 @@ function Invoke-PoShBackupListingMode {
                 $setName = $_.Name
                 & $LocalWriteLog -Message ("`n  Set Name   : " + $setName) -Level "NONE" -ForegroundColor "Cyan"
 
+                $setDescription = Get-ConfigValue -ConfigObject $setConf -Key 'Description' -DefaultValue ''
+                if (-not [string]::IsNullOrWhiteSpace($setDescription)) {
+                    & $LocalWriteLog -Message ("  Description: " + $setDescription) -Level "NONE"
+                }
+
                 $onErrorDisplay = Get-ConfigValue -ConfigObject $setConf -Key 'OnErrorInJob' -DefaultValue 'StopSet'
                 & $LocalWriteLog -Message ("  On Error   : " + $onErrorDisplay) -Level "NONE"
 
                 $jobsInSet = @(Get-ConfigValue -ConfigObject $setConf -Key 'JobNames' -DefaultValue @())
                 if ($jobsInSet.Count -gt 0) {
-                    & $LocalWriteLog -Message ("  Jobs in Set ($($jobsInSet.Count)): " + $jobsInSetDisplay) -Level "NONE"
+                    & $LocalWriteLog -Message ("  Jobs in Set ($($jobsInSet.Count)): ") -Level "NONE" -NoNewline
                     
                     # Improved job listing with status
                     foreach ($jobNameInSet in $jobsInSet) {
