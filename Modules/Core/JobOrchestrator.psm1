@@ -7,6 +7,7 @@
     This module contains the primary loop for iterating through backup jobs determined
     and ordered by the main PoSh-Backup script (considering dependencies via JobDependencyManager).
     For each job in the ordered list, it:
+    - Checks if the job should be skipped because 'RunOnlyIfPathExists' is true and the primary source path is missing.
     - Checks if its prerequisite jobs (if any, defined in 'DependsOnJobs') completed successfully.
       A prerequisite is considered successful if its status was 'SUCCESS', 'SIMULATED_COMPLETE',
       or 'WARNINGS' if its 'TreatSevenZipWarningsAsSuccess' setting was true.
@@ -25,7 +26,7 @@
     - Applies log file retention policy for the completed job.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Added DelayBetweenJobsSeconds for backup sets.
+    Version:        1.4.0 # Added RunOnlyIfPathExists job setting.
     DateCreated:    25-May-2025
     LastModified:   21-Jun-2025
     Purpose:        To centralise the main job/set processing loop from PoSh-Backup.ps1.
@@ -111,8 +112,28 @@ function Invoke-PoShBackupRun {
         }
 
         $jobConfigForEnableCheck = $Configuration.BackupLocations[$currentJobName] # Assumes $currentJobName is valid and exists
-        $isJobEnabledForExecution = Get-ConfigValue -ConfigObject $jobConfigForEnableCheck -Key 'Enabled' -DefaultValue $true
+        
+        # --- Pre-check for RunOnlyIfPathExists ---
+        $runOnlyIfPathExists = Get-ConfigValue -ConfigObject $jobConfigForEnableCheck -Key 'RunOnlyIfPathExists' -DefaultValue $false
+        if ($runOnlyIfPathExists) {
+            $primarySourcePath = if ($jobConfigForEnableCheck.Path -is [array]) { $jobConfigForEnableCheck.Path[0] } else { $jobConfigForEnableCheck.Path }
+            if ([string]::IsNullOrWhiteSpace($primarySourcePath) -or -not (Test-Path -Path $primarySourcePath)) {
+                & $LocalWriteLog -Message "[INFO] JobOrchestrator: Job '$currentJobName' SKIPPED because 'RunOnlyIfPathExists' is true and primary source path '$primarySourcePath' was not found." -Level "WARNING"
+                $currentJobReportData = [ordered]@{ JobName = $currentJobName; ScriptStartTime = Get-Date }
+                $currentJobReportData.OverallStatus = "SKIPPED_PATH_MISSING"
+                $currentJobReportData.ErrorMessage = "Job skipped because primary source path '$primarySourcePath' was not found and 'RunOnlyIfPathExists' is enabled."
+                $jobEffectiveSuccessState[$currentJobName] = $false
+                if ($CurrentSetName -and $StopSetOnErrorPolicy) {
+                    & $LocalWriteLog -Message "[WARNING] Job '$currentJobName' in set '$CurrentSetName' was skipped due to missing primary source. Stopping set as 'OnErrorInJob' policy is 'StopSet'." -Level "WARNING"
+                    if ($overallSetStatus -ne "FAILURE") { $overallSetStatus = "WARNINGS" }
+                    break
+                }
+                continue # Move to the next job
+            }
+        }
+        # --- End Pre-check ---
 
+        $isJobEnabledForExecution = Get-ConfigValue -ConfigObject $jobConfigForEnableCheck -Key 'Enabled' -DefaultValue $true
         if (-not $isJobEnabledForExecution) {
             & $LocalWriteLog -Message "[INFO] JobOrchestrator: Job '$currentJobName' is marked as disabled in its configuration. Skipping execution." -Level "INFO"
             $currentJobReportData = [ordered]@{ JobName = $currentJobName; ScriptStartTime = Get-Date } # Basic report data for skipped job
@@ -503,11 +524,13 @@ $cliOverridesString
             }
         }
 
+        # --- NEW DELAY LOGIC ---
         # Check if this is not the last job and if a delay is configured for the set.
         if (($jobCounter -lt $totalJobsInRun) -and ($delayBetweenJobs -gt 0)) {
             & $LocalWriteLog -Message "`n[INFO] Pausing for $delayBetweenJobs second(s) before starting the next job in the set..." -Level "INFO"
             Start-Sleep -Seconds $delayBetweenJobs
         }
+        # --- END NEW DELAY LOGIC ---
 
         if ($CurrentSetName -and $StopSetOnErrorPolicy) {
             if ($currentJobIndividualStatus -eq "FAILURE" -or $skipJobDueToDependencyFailure -or $currentJobIndividualStatus -eq "SKIPPED_SOURCE_MISSING") {

@@ -1616,18 +1616,15 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Config:** Add a `-SkipVSS` CLI switch to force VSS to be disabled for a specific run, even if enabled in the config.
 *   **Config:** Add a `DefaultSourcePathNotFound` global setting to control the default behaviour for all jobs.
 *   **Config:** Allow `TargetNames` to be defined at the `BackupSets` level, applying to all jobs within that set.
-*   **Config:** Add a `MaxLogSizeMB` setting to trigger log file rotation based on size in addition to count.
 *   **Config:** Add `PreSetScriptPath` and `PostSetScriptPath` hooks to `BackupSets`.
 *   **Config:** Allow a job to have a `DependsOnSets` key to make an entire set a prerequisite.
 *   **Config:** Add a global `ExcludePaths` array in the config that applies to all backup jobs.
-*   **Config:** In `-TestConfig`, warn if a `NotificationProfile` is defined but never used by any job or set.
 *   **Config:** Allow the use of environment variables within configuration string values (e.g., `DestinationDir = "%USERPROFILE%\Backups"`).
 *   **Config:** Add a `-SkipJobDependencies` switch to run a job without running its prerequisites.
 *   **Config:** Add a `-SkipPostRunAction` switch to prevent any post-run system action for the current run.
 *   **Config:** Allow a job to specify a `RetentionProfile` by name, defined in a new global `RetentionProfiles` section.
 *   **Config:** Add support for a `-ConfigFile` parameter that accepts an array of paths, merging them in order.
 *   **Config:** In `VerificationJobs`, add a `TargetRemoteName` key to allow verifying a backup on a remote target.
-*   **Config:** Add a `RunOnlyIfPathExists` boolean to `BackupLocations` to automatically skip a job if its primary source path is missing.
 
 #### **Minor Features & Enhancements**
 

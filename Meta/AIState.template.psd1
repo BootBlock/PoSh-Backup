@@ -92,6 +92,26 @@
     "   - **Script Mode Handling:** Non-backup operations (`-ListJobs`, `-TestConfig`, `-PinBackup`, etc.) are delegated to specialised modules under `Modules\ScriptModes\`.",
     "   - **Configuration:** A layered configuration system uses `Default.psd1` for all settings and `User.psd1` for user-specific overrides. A schema (`ConfigSchema.psd1`) is used for advanced validation.",
     "",
+    "--- UX & Reliability Polish (Current Session) ---",
+    "   - Goal: A series of minor enhancements to improve usability and robustness.",
+    "   - Feature: Replicate Target 'ContinueOnError':",
+    "     - Added a 'ContinueOnError' boolean setting to the Replicate target provider in `Config\\Default.psd1` and `ConfigSchema.psd1`.",
+    "     - `Replicate.Target.psm1` was updated to use this setting, allowing it to continue replicating to other destinations even if one fails.",
+    "     - This required a refactor of the validation contract in `PoShBackupValidator.psm1` to pass the entire target instance to provider validators, allowing them to see settings outside of `TargetSpecificSettings`.",
+    "     - All other target providers (`UNC`, `SFTP`, `S3`, `WebDAV`) were updated to conform to the new validation contract.",
+    "   - Feature: Timed User Config Prompt:",
+    "     - Added `UserPromptTimeoutSeconds` to `Config\\Default.psd1` and `ConfigSchema.psd1`.",
+    "     - `UserConfigHandler.psm1` updated with logic for a timed prompt, preventing hangs in semi-interactive sessions.",
+    "   - Feature: Interactive Menu Multi-Select:",
+    "     - `JobResolver.psm1` updated to allow selection of multiple comma-separated jobs/sets from the interactive menu.",
+    "   - Feature: Job/Set Descriptions:",
+    "     - Added an optional `Description` field to `BackupLocations` and `BackupSets` in `Config\\Default.psd1` and `ConfigSchema.psd1`.",
+    "     - `Listing.psm1` updated to display these descriptions in the `-ListBackupLocations` and `-ListBackupSets` modes.",
+    "   - Bug Fixes:",
+    "     - Corrected a parameter set definition error in `PoSh-Backup.ps1` that caused `-VerificationJobName` to incorrectly prompt for `-RunVerificationJobs`.",
+    "     - Fixed a regression in `UserConfigHandler.psm1` where the interactive prompt was being incorrectly skipped by using a more reliable check for an interactive host.",
+    "     - Fixed a bug in `JobResolver.psm1` where selecting an ad-hoc job from the menu could incorrectly inherit the name and properties of a predefined set.",
+    "",
     "--- Completed Core Features (Stable) ---",
     "   - **Archive Creation:** Standard, multi-volume (split), and self-extracting (SFX) archives.",
     "   - **Archive Management:** Listing contents, extracting files, and pinning/unpinning archives from retention.",
@@ -110,7 +130,7 @@
     "   - **Interactive Job/Set Selection:** When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets. This is accomplished via `Modules\ConfigManagement\JobResolver.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.31.0 # Added -PreFlightCheck mode."
+  main_script_poSh_backup_version = "1.32.0 # Added RunOnlyIfPathExists to config"
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

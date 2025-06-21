@@ -18,7 +18,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.0 # Interactive menu now accepts multiple, comma-separated selections.
+    Version:        1.4.1 # Correctly handles ad-hoc job selections from the interactive menu.
     DateCreated:    24-May-2025
     LastModified:   21-Jun-2025
     Purpose:        To modularise job/set resolution logic from the main ConfigManager module.
@@ -247,31 +247,48 @@ function Get-JobsToProcess {
                 }
 
                 if ($validSelections.Count -gt 0) {
-                    foreach ($selectedItem in ($validSelections | Select-Object -Unique)) {
-                        if ($selectedItem.Type -eq 'Job') {
-                            $initialJobsToConsider.Add($selectedItem.Name)
-                            & $LocalWriteLog -Message "`n[INFO] JobResolver: Backup Location '$($selectedItem.Name)' added to run list by user." -Level "INFO"
-                        } elseif ($selectedItem.Type -eq 'Set') {
-                            $setName = $selectedItem.Name
-                            & $LocalWriteLog -Message "`n[INFO] JobResolver: Backup Set '$setName' selected by user. Adding its jobs to the run list." -Level "INFO"
-                            $setDefinition = $Config.BackupSets[$setName]
-                            $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @())
-                            $jobNamesInSet | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) { $initialJobsToConsider.Add($_.Trim()) } }
-                            # For simplicity, if multiple sets are chosen, the policy of the *last* set selected will apply.
-                            $stopSetOnErrorPolicy = if (((Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue "StopSet") -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
-                            if ($setDefinition.ContainsKey('PostRunAction')) { $setPostRunAction = $setDefinition.PostRunAction }
+                    $uniqueSelections = $validSelections | Select-Object -Unique # De-duplicate the selections
+                    
+                    if ($uniqueSelections.Count -eq 1 -and $uniqueSelections[0].Type -eq 'Set') {
+                        # --- SCENARIO 1: User selected exactly one set ---
+                        $selectedItem = $uniqueSelections[0]
+                        $setName = $selectedItem.Name
+                        & $LocalWriteLog -Message "`n[INFO] JobResolver: Single Backup Set '$setName' selected by user." -Level "INFO"
+                        $setDefinition = $Config.BackupSets[$setName]
+                        $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @())
+                        $jobNamesInSet | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) { $initialJobsToConsider.Add($_.Trim()) } }
+                        $stopSetOnErrorPolicy = if (((Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue "StopSet") -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
+                        if ($setDefinition.ContainsKey('PostRunAction')) { $setPostRunAction = $setDefinition.PostRunAction }
+                    } else {
+                        # --- SCENARIO 2: User selected one or more jobs, or a mix ---
+                        # This is an ad-hoc run. We just collect the jobs.
+                        # Set a transient name for logging/display purposes.
+                        $setName = "(Interactive Selection)" 
+                        $stopSetOnErrorPolicy = $true # Safest default for ad-hoc runs is to stop on error.
+                        $setPostRunAction = $null # No set-level action for ad-hoc.
+                        
+                        & $LocalWriteLog -Message "`n[INFO] JobResolver: Ad-hoc collection of jobs/sets selected by user." -Level "INFO"
+                        foreach ($selectedItem in $uniqueSelections) {
+                            if ($selectedItem.Type -eq 'Job') {
+                                $initialJobsToConsider.Add($selectedItem.Name)
+                                & $LocalWriteLog -Message "  - Job '$($selectedItem.Name)' added to run list." -Level "DEBUG"
+                            } else { # It's a set
+                                $setDefinition = $Config.BackupSets[$selectedItem.Name]
+                                $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @())
+                                $jobNamesInSet | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) { $initialJobsToConsider.Add($_.Trim()) } }
+                                & $LocalWriteLog -Message "  - Jobs from Set '$($selectedItem.Name)' added to run list." -Level "DEBUG"
+                            }
                         }
                     }
-                    break # Exit the while loop as we have processed the user's valid input
+                    break # Exit the while loop
                 }
-                # If no valid selections, the loop continues and re-prompts.
             }
         }
     }
 
     # --- Filter out disabled jobs ---
     $enabledJobs = [System.Collections.Generic.List[string]]::new()
-    foreach ($jobNameCandidate in $initialJobsToConsider) {
+    foreach ($jobNameCandidate in ($initialJobsToConsider | Select-Object -Unique)) {
         if ($Config.BackupLocations.ContainsKey($jobNameCandidate)) {
             $jobConfForEnableCheck = $Config.BackupLocations[$jobNameCandidate]
             $isJobEnabled = Get-ConfigValue -ConfigObject $jobConfForEnableCheck -Key 'Enabled' -DefaultValue $true

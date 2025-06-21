@@ -634,6 +634,8 @@
             # "SkipJob": A warning is logged, and the entire job is skipped (status will be SKIPPED), but the backup set (if any) continues.
             OnSourcePathNotFound      = "FailJob"
 
+            RunOnlyIfPathExists       = $true                        # If $true, the job will be automatically skipped if the *first* path listed in 'Path' does not exist.
+
             ArchivePasswordMethod     = "None"                        # Password method: "None", "Interactive", "SecretManagement", "SecureStringFile", "PlainText". See instructions at top.
             # CredentialUserNameHint  = "ProjectBackupUser"           # For "Interactive" method.
             # ArchivePasswordSecretName = ""                          # For "SecretManagement" method.
