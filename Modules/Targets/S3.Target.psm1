@@ -17,9 +17,9 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the S3 connection and settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added Test-PoShBackupTargetConnectivity.
+    Version:        1.2.0 # Updated validation function to receive entire target instance.
     DateCreated:    17-Jun-2025
-    LastModified:   18-Jun-2025
+    LastModified:   21-Jun-2025
     Purpose:        S3-Compatible Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The 'AWS.Tools.S3' module must be installed (`Install-Module AWS.Tools.S3`).
@@ -189,13 +189,11 @@ function Invoke-PoShBackupS3TargetSettingsValidation {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [hashtable]$TargetSpecificSettings,
+        [hashtable]$TargetInstanceConfiguration, # CHANGED
         [Parameter(Mandatory = $true)]
         [string]$TargetInstanceName,
         [Parameter(Mandatory = $true)]
         [ref]$ValidationMessagesListRef,
-        [Parameter(Mandatory = $false)]
-        [hashtable]$RemoteRetentionSettings,
         [Parameter(Mandatory = $false)]
         [scriptblock]$Logger
     )
@@ -203,6 +201,11 @@ function Invoke-PoShBackupS3TargetSettingsValidation {
     if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
         & $Logger -Message "S3.Target/Invoke-PoShBackupS3TargetSettingsValidation: Logger active. Validating settings for S3 Target '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
     }
+
+    # --- NEW: Extract settings from the main instance configuration ---
+    $TargetSpecificSettings = $TargetInstanceConfiguration.TargetSpecificSettings
+    $RemoteRetentionSettings = $TargetInstanceConfiguration.RemoteRetentionSettings
+    # --- END NEW ---
 
     $fullPathToSettings = "Configuration.BackupTargets.$TargetInstanceName.TargetSpecificSettings"
     $fullPathToRetentionSettings = "Configuration.BackupTargets.$TargetInstanceName.RemoteRetentionSettings"
@@ -229,7 +232,7 @@ function Invoke-PoShBackupS3TargetSettingsValidation {
         }
     }
 
-    if ($PSBoundParameters.ContainsKey('RemoteRetentionSettings') -and ($null -ne $RemoteRetentionSettings)) {
+    if ($null -ne $RemoteRetentionSettings) {
         if (-not ($RemoteRetentionSettings -is [hashtable])) {
             $ValidationMessagesListRef.Value.Add("S3 Target '$TargetInstanceName': 'RemoteRetentionSettings' must be a Hashtable if defined. Path: '$fullPathToRetentionSettings'.")
         }
@@ -287,8 +290,7 @@ function Invoke-PoShBackupTargetTransfer {
 
     $result = @{
         Success               = $false; RemotePath          = $null; ErrorMessage        = $null
-        TransferSize          = 0;      TransferDuration    = New-TimeSpan
-        TransferSizeFormatted = "N/A"
+        TransferSize          = 0;      TransferDuration    = New-TimeSpan; TransferSizeFormatted = "N/A"
     }
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 

@@ -23,15 +23,14 @@
     - Supports simulation mode for all WebDAV operations.
     - Returns a detailed status hashtable for each file transfer attempt.
 
-    A function, 'Invoke-PoShBackupWebDAVTargetSettingsValidation', is included to validate
-    the 'TargetSpecificSettings' and 'RemoteRetentionSettings' specific to this WebDAV provider.
+    A function, 'Invoke-PoShBackupWebDAVTargetSettingsValidation', validates the entire target configuration.
     A new function, 'Test-PoShBackupTargetConnectivity', validates the WebDAV connection and path.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        0.3.0 # Added Test-PoShBackupTargetConnectivity.
+    Version:        0.4.0 # Updated validation function to receive entire target instance.
     DateCreated:    05-Jun-2025
-    LastModified:   18-Jun-2025
+    LastModified:   21-Jun-2025
     Purpose:        WebDAV Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     PowerShell SecretManagement configured if using secrets for credentials.
@@ -384,19 +383,22 @@ function Invoke-PoShBackupWebDAVTargetSettingsValidation {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [hashtable]$TargetSpecificSettings,
+        [hashtable]$TargetInstanceConfiguration, # CHANGED
         [Parameter(Mandatory = $true)]
         [string]$TargetInstanceName,
         [Parameter(Mandatory = $true)]
         [ref]$ValidationMessagesListRef,
         [Parameter(Mandatory = $false)]
-        [hashtable]$RemoteRetentionSettings,
-        [Parameter(Mandatory = $false)]
         [scriptblock]$Logger
     )
 
     # PSSA Appeasement: Use the Logger parameter
-    & $Logger -Message "WebDAV.Target/Get-PSCredentialFromSecretInternal-WebDAV: Logger active for secret '$SecretName', purpose '$SecretPurposeForLog'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "WebDAV.Target/Invoke-PoShBackupWebDAVTargetSettingsValidation: Logger active for '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    # --- NEW: Extract settings from the main instance configuration ---
+    $TargetSpecificSettings = $TargetInstanceConfiguration.TargetSpecificSettings
+    $RemoteRetentionSettings = $TargetInstanceConfiguration.RemoteRetentionSettings
+    # --- END NEW ---
 
     $fullPathToSettings = "Configuration.BackupTargets.$TargetInstanceName.TargetSpecificSettings"
     $fullPathToRetentionSettings = "Configuration.BackupTargets.$TargetInstanceName.RemoteRetentionSettings"
@@ -435,7 +437,7 @@ function Invoke-PoShBackupWebDAVTargetSettingsValidation {
         $ValidationMessagesListRef.Value.Add("WebDAV Target '$TargetInstanceName': 'RequestTimeoutSec' in 'TargetSpecificSettings' must be a positive integer if defined. Path: '$fullPathToSettings.RequestTimeoutSec'.")
     }
 
-    if ($PSBoundParameters.ContainsKey('RemoteRetentionSettings') -and ($null -ne $RemoteRetentionSettings)) {
+    if ($null -ne $RemoteRetentionSettings) {
         if (-not ($RemoteRetentionSettings -is [hashtable])) {
             $ValidationMessagesListRef.Value.Add("WebDAV Target '$TargetInstanceName': 'RemoteRetentionSettings' must be a Hashtable if defined. Path: '$fullPathToRetentionSettings'.")
         }
@@ -482,9 +484,6 @@ function Invoke-PoShBackupTargetTransfer {
 
     # PSSA Appeasement: Use the Logger and other parameters
     if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
-        # The JobName variable is defined by the param block of Invoke-PoShBackupTargetTransfer
-        # The TargetInstanceConfiguration variable is defined by the param block of Invoke-PoShBackupTargetTransfer
-        # The ArchiveFileName variable is defined by the param block of Invoke-PoShBackupTargetTransfer
         & $Logger -Message ("WebDAV.Target/Invoke-PoShBackupTargetTransfer: Logger active for Job '{0}', Target '{1}', File '{2}'." -f $JobName, $TargetInstanceConfiguration._TargetInstanceName_, $ArchiveFileName) -Level "DEBUG" -ErrorAction SilentlyContinue
         
         # Ensure these parameters are used in a way PSSA recognizes

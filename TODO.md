@@ -29,7 +29,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   [XXI. User Interface & User Experience (Beyond Home User)](#xxi-user-interface--user-experience-beyond-home-user)
 *   [XXII. AI & Intelligent Operations](#xxii-ai--intelligent-operations)
 *   [XXIII. Extreme Resilience & Business Continuity](#xxiii-extreme-resilience--business-continuity)
-*   [XXIV. Specialized Data & Application Support (Continued)](#xxiv-specialized-data--application-support-continued)
+*   [XXIV. Specialised Data & Application Support (Continued)](#xxiv-specialised-data--application-support-continued)
 *   [XXV. Ecosystem & Integrations (Continued)](#xxv-ecosystem--integrations-continued)
 *   [XXVI. Autonomous & Self-Healing Operations](#xxvi-autonomous--self-healing-operations)
 *   [XXVII. Quantum-Resistant Encryption & Future-Proofing](#xxvii-quantum-resistant-encryption--future-proofing)
@@ -930,7 +930,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Acceptance Criteria:** Data from designated IoT devices/edge systems is backed up to a central location.
 
 117. **Feature: Scientific/Research Data Sets (Large, Specialised Formats)**
-    *   **Goal:** Optimized handling for very large scientific data formats (e.g., HDF5, NetCDF, FITS) or genomics data.
+    *   **Goal:** Optimised handling for very large scientific data formats (e.g., HDF5, NetCDF, FITS) or genomics data.
     *   **Description:** May involve understanding the structure of these files for more intelligent incremental backups (if possible) or integration with tools specific to these domains.
     *   **Scope & Impact:** Research into specific file formats. Potential for custom pre/post processing hooks or specialised 7-Zip settings.
     *   **Acceptance Criteria:** Large scientific datasets are backed up efficiently and verifiably.
@@ -997,7 +997,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 **XXVIII. Decentralised & Trustless Backup Paradigms**
 
 126. **Feature: Fully Decentralised Backup Network (Blockchain-Assisted)**
-    *   **Goal:** Enable backups to be stored across a decentralised network of participating nodes (potentially incentivized via cryptocurrency), with integrity and ownership verified via blockchain.
+    *   **Goal:** Enable backups to be stored across a decentralised network of participating nodes (potentially incentivised via cryptocurrency), with integrity and ownership verified via blockchain.
     *   **Description:** No central point of failure or control. Data is sharded, encrypted, and distributed.
     *   **Scope & Impact:** **Massive R&D.** Blockchain integration, peer-to-peer networking, advanced cryptography, tokenomics.
     *   **Acceptance Criteria:** Backups are securely stored and retrievable from a decentralised network.
@@ -1031,7 +1031,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Acceptance Criteria:** Backup jobs can be scheduled to align with periods of cleaner energy availability.
 
 131. **Feature: Power-Efficient Backup Modes**
-    *   **Goal:** Options to run backups in a "low power" mode that minimizes CPU/disk usage, extending battery life for laptops or reducing energy consumption for servers during non-critical backup windows.
+    *   **Goal:** Options to run backups in a "low power" mode that minimises CPU/disk usage, extending battery life for laptops or reducing energy consumption for servers during non-critical backup windows.
     *   **Description:** Aggressive throttling, potentially using less CPU-intensive compression algorithms for these specific runs.
     *   **Scope & Impact:** `Config\Default.psd1` settings, `Modules\Managers\7ZipManager.psm1`, `Modules\Core\Operations.psm1`.
     *   **Acceptance Criteria:** A measurable reduction in power consumption during "power-efficient" backup runs.
@@ -1054,7 +1054,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XXXII. Backup Target Enhancements (Practical)**
 
-137. **Enhancement: Standardized Transfer Retry Mechanism for Target Providers**
+137. **Enhancement: Standardised Transfer Retry Mechanism for Target Providers**
     *   **Goal:** Implement a consistent, configurable retry mechanism for the *transfer phase* within target providers.
     *   **Description:** Currently, 7-Zip operations have retries. This would add retries for network copy/upload operations if they fail (e.g., temporary network blip).
     *   **Scope & Impact:** `Config\Default.psd1` (per-target `TransferRetryAttempts`, `TransferRetryDelaySeconds`), all target provider modules would need to incorporate this retry loop.
@@ -1489,7 +1489,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 216. **Enhancement: Consistent Date/Time Formatting in All Outputs**
     *   **Goal:** Ensure all dates and times displayed in logs, reports, and console messages use a consistent, user-friendly, and unambiguous format.
-    *   **Description:** Review all `Get-Date -Format` calls. Consider ISO 8601 (e.g., `yyyy-MM-dd HH:mm:ss`) for logs, and perhaps a more localized friendly format for HTML reports if desired (though ISO 8601 is often preferred for clarity).
+    *   **Description:** Review all `Get-Date -Format` calls. Consider ISO 8601 (e.g., `yyyy-MM-dd HH:mm:ss`) for logs, and perhaps a more localised friendly format for HTML reports if desired (though ISO 8601 is often preferred for clarity).
     *   **Scope & Impact:** Code review across all modules.
     *   **Acceptance Criteria:** Date and time displays are consistent and clear.
 
@@ -1599,7 +1599,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Reporting:** Add a "Time to First Byte" metric to remote target transfer reports.
 *   **Reporting:** Log the PowerShell version (`$PSVersionTable`) at the start of every log file.
 *   **Reporting:** In the HTML report, the search keyword should be highlighted in the log timestamp/level as well as the message.
-*   **Logging:** Sanitize the `$JobName` variable when creating log file names to prevent issues with special characters, just like we do for scheduled tasks.
+*   **Logging:** Sanitise the `$JobName` variable when creating log file names to prevent issues with special characters, just like we do for scheduled tasks.
 *   **Logging:** At the start of a log file, record the full command-line arguments used to invoke the script.
 *   **Logging:** Add a specific log level for retention actions to make them easier to filter.
 *   **Logging:** When a file is deleted by retention, log its size.
@@ -1638,14 +1638,12 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Feature:** Add a `-GetLastBackupPath <JobName>` switch that finds and prints the full path to the most recent archive for a given job.
 *   **Feature:** Add a `-GetTotalSize <JobName>` switch that calculates and displays the total disk space used by all archives for a given job.
 *   **Feature:** Add a `-scs` (character set) switch to the 7-Zip arguments, configurable per-job, for specifying archive comment character sets (e.g., `-scsUTF-8`).
-*   **Feature:** Add an `-ArchiveComment` setting to jobs to embed a comment into the 7-Zip archive.
 *   **Enhancement:** In the `UNC.Target.psm1` module, add a simple retry loop around the `Copy-Item` command to handle transient network errors.
 *   **Enhancement:** Add a `-TestHook <FilePath>` utility switch that runs a specified script with dummy parameters to validate that it's executable.
 *   **Enhancement:** The `-PinBackup` command should automatically find the base archive name if a user provides the path to a `.002` volume part.
 *   **Enhancement:** The `-Pin` switch should log which specific archive file path was pinned.
 *   **Enhancement:** Allow `Test-BackupTarget` to test all defined targets if no specific name is given.
 *   **Enhancement:** When creating an SFX, log which specific `.sfx` module file (e.g., `7zCon.sfx`) was used.
-*   **Enhancement:** The `Replicate.Target` should have an option to continue replicating to other destinations if one fails.
 *   **Enhancement:** Add a `-ClearRemoteTarget <TargetName>` utility to delete all backups from a specific remote target (with confirmation).
 *   **Enhancement:** The `-CheckForUpdate` feature should also check for updates to its external dependencies (e.g., Posh-SSH).
 *   **Enhancement:** Add a `-BackupConfig` switch to create a quick backup of just the `Config` directory.

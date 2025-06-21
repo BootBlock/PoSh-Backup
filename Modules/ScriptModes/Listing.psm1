@@ -157,7 +157,7 @@ function Invoke-PoShBackupListingMode {
 
                 $jobsInSet = @(Get-ConfigValue -ConfigObject $setConf -Key 'JobNames' -DefaultValue @())
                 if ($jobsInSet.Count -gt 0) {
-                    & $LocalWriteLog -Message ("  Jobs in Set: ") -Level "NONE" -NoNewline
+                    & $LocalWriteLog -Message ("  Jobs in Set ($($jobsInSet.Count)): " + $jobsInSetDisplay) -Level "NONE"
                     
                     # Improved job listing with status
                     foreach ($jobNameInSet in $jobsInSet) {

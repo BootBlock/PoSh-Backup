@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.9.6: Added Schedule block to VerificationJobs.
+# Version 1.9.7: Added ContinueOnError to Replicate.Target provider.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -429,6 +429,12 @@
         }
         "ExampleReplicatedStorage" = @{
             Type = "Replicate" # Provider module 'Modules\Targets\Replicate.Target.psm1' will handle this
+            
+            # If $true, the provider will attempt to replicate to all destinations, even if one or more fail.
+            # If $false (default), the provider will stop replicating to further destinations after the first failure.
+            # The overall status will be 'Failure' if any destination fails, regardless of this setting.
+            ContinueOnError = $false
+
             TargetSpecificSettings = @( # This MUST be an array of hashtables, each defining one destination
                 @{ # First destination for replication
                     Path = "E:\LocalReplicas\MainServer" # Can be a local path (e.g., another internal drive)
@@ -535,6 +541,7 @@
             Enabled = $true
 
             # The name of the backup job (from BackupLocations) whose archives you want to test.
+            # This job *must* have 'GenerateContentsManifest = $true' set.
             TargetJobName = "Projects"
             
             # The name of the secret (in PowerShell SecretManagement) that holds the password for the

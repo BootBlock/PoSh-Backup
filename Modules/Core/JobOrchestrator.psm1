@@ -216,7 +216,7 @@ function Invoke-PoShBackupRun {
             }
             $effectiveJobConfigForThisJob = Get-PoShBackupJobEffectiveConfiguration @effectiveConfigParams
 
-            # --- Initialize Log File with Enriched Header ---
+            # --- Initialise Log File with Enriched Header ---
             $Global:GlobalLogFile = $null
             if ($Global:GlobalEnableFileLogging) {
                 $logDate = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"

@@ -145,6 +145,9 @@
                     Required      = $true
                     AllowedValues = @("UNC", "Replicate", "SFTP", "WebDAV", "S3") # Added S3
                 }
+
+                ContinueOnError = @{ Type = 'boolean'; Required = $false } # For Replicate target type
+
                 TargetSpecificSettings = @{
                     Type     = 'object' # This will be validated by the specific target provider's validation function
                     Required = $true
@@ -302,7 +305,7 @@
                 PostBackupScriptOnFailurePath             = @{ Type = 'string'; Required = $false }
                 PostBackupScriptAlwaysPath                = @{ Type = 'string'; Required = $false }
                 PostLocalArchiveScriptPath                = @{ Type = 'string'; Required = $false }
-                
+
                 NotificationSettings                      = @{
                     Type     = 'hashtable'
                     Required = $false

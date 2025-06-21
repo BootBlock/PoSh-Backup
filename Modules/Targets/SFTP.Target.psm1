@@ -26,14 +26,14 @@
     - Supports simulation mode for all SFTP operations.
     - Returns a detailed status hashtable.
 
-    A function, 'Invoke-PoShBackupSFTPTargetSettingsValidation', validates 'TargetSpecificSettings'.
+    A function, 'Invoke-PoShBackupSFTPTargetSettingsValidation', validates the entire target configuration.
     A new function, 'Test-PoShBackupTargetConnectivity', validates the SFTP connection and path.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added Test-PoShBackupTargetConnectivity.
+    Version:        1.2.0 # Updated validation function to receive entire target instance.
     DateCreated:    22-May-2025
-    LastModified:   18-Jun-2025
+    LastModified:   21-Jun-2025
     Purpose:        SFTP Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The 'Posh-SSH' module must be installed (Install-Module Posh-SSH).
@@ -196,13 +196,11 @@ function Invoke-PoShBackupSFTPTargetSettingsValidation {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [hashtable]$TargetSpecificSettings,
+        [hashtable]$TargetInstanceConfiguration, # CHANGED
         [Parameter(Mandatory = $true)]
         [string]$TargetInstanceName,
         [Parameter(Mandatory = $true)]
-        [ref]$ValidationMessagesListRef, # Expects a [System.Collections.Generic.List[string]]
-        [Parameter(Mandatory = $false)]
-        [hashtable]$RemoteRetentionSettings, # Added to validate retention settings
+        [ref]$ValidationMessagesListRef,
         [Parameter(Mandatory = $false)]
         [scriptblock]$Logger
     )
@@ -210,13 +208,18 @@ function Invoke-PoShBackupSFTPTargetSettingsValidation {
     if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
         & $Logger -Message "SFTP.Target/Invoke-PoShBackupSFTPTargetSettingsValidation: Logger active. Validating settings for SFTP Target '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
     }
+    
+    # --- NEW: Extract settings from the main instance configuration ---
+    $TargetSpecificSettings = $TargetInstanceConfiguration.TargetSpecificSettings
+    $RemoteRetentionSettings = $TargetInstanceConfiguration.RemoteRetentionSettings
+    # --- END NEW ---
 
     $fullPathToSettings = "Configuration.BackupTargets.$TargetInstanceName.TargetSpecificSettings"
     $fullPathToRetentionSettings = "Configuration.BackupTargets.$TargetInstanceName.RemoteRetentionSettings"
 
     if (-not ($TargetSpecificSettings -is [hashtable])) {
         $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'TargetSpecificSettings' must be a Hashtable, but found type '$($TargetSpecificSettings.GetType().Name)'. Path: '$fullPathToSettings'.")
-        return # Cannot proceed if the main settings block is not a hashtable
+        return
     }
 
     foreach ($sftpKey in @('SFTPServerAddress', 'SFTPRemotePath', 'SFTPUserName')) {
@@ -242,7 +245,7 @@ function Invoke-PoShBackupSFTPTargetSettingsValidation {
     }
 
     # Validate RemoteRetentionSettings for SFTP
-    if ($PSBoundParameters.ContainsKey('RemoteRetentionSettings') -and ($null -ne $RemoteRetentionSettings)) {
+    if ($null -ne $RemoteRetentionSettings) {
         if (-not ($RemoteRetentionSettings -is [hashtable])) {
             $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'RemoteRetentionSettings' must be a Hashtable if defined. Path: '$fullPathToRetentionSettings'.")
         }
@@ -251,7 +254,6 @@ function Invoke-PoShBackupSFTPTargetSettingsValidation {
                 $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'RemoteRetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$fullPathToRetentionSettings.KeepCount'.")
             }
         }
-        # Add checks for other RemoteRetentionSettings keys if they are introduced for SFTP
     }
 }
 #endregion
@@ -297,58 +299,37 @@ function Group-RemoteSFTPBackupInstancesInternal {
             $instanceKey = $null
             $fileSortTime = $fileObject.LastWriteTime # Posh-SSH SftpFile object has LastWriteTime
 
-            # Define patterns to identify parts of a backup instance
-            # Instance key should be "JobName [DateStamp].<PrimaryExtension>" e.g., "MyJob [2025-06-01].7z"
-
             $splitVolumePattern = "^($literalBase$literalExt)\.(\d{3,})$" # Matches "basename.priExt.001"
             $splitManifestPattern = "^($literalBase$literalExt)\.manifest\.[a-zA-Z0-9]+$" # Matches "basename.priExt.manifest.algo"
 
-            # For single files, the instance key is "basename.actualFileExtension"
-            # This needs to handle cases where PrimaryArchiveExtension (e.g. .7z for split) might differ from actual file (e.g. .exe for SFX)
-            # $ArchiveBaseName is "JobName [DateStamp]"
-            # $ArchiveExtension (PrimaryArchiveExtension here) is the one from job config (e.g. .7z or .exe)
             $singleFilePattern = "^($literalBase$literalExt)$" # e.g. MyJob [DateStamp].7z (if $ArchiveExtension is .7z)
             $sfxFilePattern = "^($literalBase\.[a-zA-Z0-9]+)$" # Catches "JobName [DateStamp].exe" more broadly
             $sfxManifestPattern = "^($literalBase\.[a-zA-Z0-9]+)\.manifest\.[a-zA-Z0-9]+$" # Catches "JobName [DateStamp].exe.manifest.algo"
 
 
             if ($fileName -match $splitVolumePattern) {
-                # e.g., MyJob [DateStamp].7z.001
-                $instanceKey = $Matches[1] # "MyJob [DateStamp].7z"
+                $instanceKey = $Matches[1]
             }
             elseif ($fileName -match $splitManifestPattern) {
-                # e.g., MyJob [DateStamp].7z.manifest.sha256
-                $instanceKey = $Matches[1] # "MyJob [DateStamp].7z"
+                $instanceKey = $Matches[1]
             }
             elseif ($fileName -match $sfxManifestPattern) {
-                # e.g., MyJob [DateStamp].exe.manifest.sha256
-                $instanceKey = $Matches[1] # This would be "MyJob [DateStamp].exe"
+                $instanceKey = $Matches[1]
             }
             elseif ($fileName -match $singleFilePattern) {
-                # e.g., MyJob [DateStamp].7z or MyJob [DateStamp].exe (if $ArchiveExtension matches)
                 $instanceKey = $Matches[1]
             }
             elseif ($fileName -match $sfxFilePattern) {
-                # e.g. MyJob [DateStamp].exe (if $ArchiveExtension was different, like .7z)
-                $instanceKey = $Matches[1] # "MyJob [DateStamp].exe"
+                $instanceKey = $Matches[1]
             }
             else {
-                # Fallback if it starts with BaseNameToMatch but doesn't fit common patterns
                 if ($fileName.StartsWith($BaseNameToMatch)) {
-                    # Try to construct a key like "JobName [DateStamp].actualExt"
-                    # This regex tries to capture up to the first dot after BaseNameToMatch that isn't part of a common multi-part like ".7z.001"
                     $basePlusExtMatch = $fileName -match "^($literalBase(\.[^.\s]+)?)"
                     if ($basePlusExtMatch) {
                         $potentialKey = $Matches[1]
-                        # If this potential key, when used to check for .001, matches the filename, it's likely a split set base
-                        if ($fileName -match ([regex]::Escape($potentialKey) + "\.\d{3,}")) {
-                            $instanceKey = $potentialKey
-                        }
-                        elseif ($fileName -match ([regex]::Escape($potentialKey) + "\.manifest\.[a-zA-Z0-9]+$")) {
-                            $instanceKey = $potentialKey
-                        }
-                        elseif ($fileName -eq $potentialKey) {
-                            # Exact match
+                        if ($fileName -match ([regex]::Escape($potentialKey) + "\.\d{3,}") -or `
+                            $fileName -match ([regex]::Escape($potentialKey) + "\.manifest\.[a-zA-Z0-9]+$") -or `
+                            $fileName -eq $potentialKey) {
                             $instanceKey = $potentialKey
                         }
                     }
@@ -368,8 +349,6 @@ function Group-RemoteSFTPBackupInstancesInternal {
             }
             $instances[$instanceKey].Files.Add($fileObject)
 
-            # Refine SortTime: if it's a .001 part, its LastWriteTime is authoritative for the instance.
-            # The PrimaryArchiveExtension is used here to correctly identify the first volume part.
             if ($fileName -match "$literalExt\.001$") {
                 if ($fileSortTime -lt $instances[$instanceKey].SortTime) {
                     $instances[$instanceKey].SortTime = $fileSortTime
@@ -377,26 +356,19 @@ function Group-RemoteSFTPBackupInstancesInternal {
             }
         }
 
-        # Second pass to refine sort times for instances that didn't have a .001 part explicitly found first
-        # or if the first file encountered wasn't the .001 part.
         foreach ($keyToRefine in $instances.Keys) {
             if ($instances[$keyToRefine].Files.Count -gt 0) {
-                # Try to find the .001 file specifically for this instance's primary extension
                 $firstVolumeFile = $instances[$keyToRefine].Files | Where-Object { $_.Name -match ([regex]::Escape($keyToRefine) + "\.001$") } | Sort-Object LastWriteTime | Select-Object -First 1
                 if (-not $firstVolumeFile -and $keyToRefine.EndsWith($PrimaryArchiveExtension)) {
-                    # If key IS primary ext, and no .001, it might be a single file or .001 is missing
                     $firstVolumeFile = $instances[$keyToRefine].Files | Where-Object { $_.Name -eq $keyToRefine } | Sort-Object LastWriteTime | Select-Object -First 1
                 }
 
 
                 if ($firstVolumeFile) {
-                    # Always prefer .001's time if present and it's earlier
                     if ($firstVolumeFile.LastWriteTime -lt $instances[$keyToRefine].SortTime) {
                         $instances[$keyToRefine].SortTime = $firstVolumeFile.LastWriteTime
                     }
-                }
-                else {
-                    # If no .001 part, use the LastWriteTime of the earliest file in the group
+                } elseif ($instances[$keyToRefine].Files.Count -gt 0) {
                     $earliestFileInGroup = $instances[$keyToRefine].Files | Sort-Object LastWriteTime | Select-Object -First 1
                     if ($earliestFileInGroup -and $earliestFileInGroup.LastWriteTime -lt $instances[$keyToRefine].SortTime) {
                         $instances[$keyToRefine].SortTime = $earliestFileInGroup.LastWriteTime

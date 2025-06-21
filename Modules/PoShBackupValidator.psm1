@@ -20,12 +20,14 @@
     - Dynamically discovers and invokes type-specific validation functions
       (e.g., 'Invoke-PoShBackupUNCTargetSettingsValidation') from the relevant target
       provider modules (e.g., UNC.Target.psm1) for each defined Backup Target instance.
+    - It now passes the *entire* target instance configuration to the provider's validation
+      function, allowing validation of keys outside the 'TargetSpecificSettings' block.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.7.0 # Refactored to use SchemaExecutionEngine.psm1 sub-module.
+    Version:        1.8.0 # Refactored to pass the entire target instance to provider validators.
     DateCreated:    14-May-2025
-    LastModified:   29-May-2025
+    LastModified:   21-Jun-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Schema file 'ConfigSchema.psd1' must exist in 'Modules\ConfigManagement\Assets\'.
@@ -140,15 +142,12 @@ function Invoke-PoShBackupConfigValidation {
 
             if (-not ($targetInstance -is [hashtable] -and
                       $targetInstance.ContainsKey('Type') -and $targetInstance.Type -is [string] -and
-                      (-not ([string]::IsNullOrWhiteSpace($targetInstance.Type))) -and
-                      $targetInstance.ContainsKey('TargetSpecificSettings'))) {
-                & $LocalWriteLog -Message "PoShBackupValidator: Skipping specific validation for target '$targetName' due to missing Type or TargetSpecificSettings, or incorrect structure. Generic schema errors may apply." -Level "DEBUG"
+                      (-not ([string]::IsNullOrWhiteSpace($targetInstance.Type))))) {
+                & $LocalWriteLog -Message "PoShBackupValidator: Skipping specific validation for target '$targetName' due to missing Type or incorrect structure. Generic schema errors may apply." -Level "DEBUG"
                 continue
             }
 
             $targetType = $targetInstance.Type
-            $targetSettings = $targetInstance.TargetSpecificSettings
-            $targetRemoteRetentionSettings = if ($targetInstance.ContainsKey('RemoteRetentionSettings')) { $targetInstance.RemoteRetentionSettings } else { $null }
             $targetProviderModuleName = "$($targetType).Target.psm1"
             $targetProviderModulePath = Join-Path -Path $mainScriptPSScriptRoot -ChildPath "Modules\Targets\$targetProviderModuleName"
             $validationFunctionName = "Invoke-PoShBackup$($targetType)TargetSettingsValidation"
@@ -164,15 +163,14 @@ function Invoke-PoShBackupConfigValidation {
 
                 if ($validatorCmd) {
                     & $LocalWriteLog -Message "PoShBackupValidator: Invoking specific settings validation for target '$targetName' (Type: '$targetType') using function '$validationFunctionName'." -Level "DEBUG"
+                    
+                    # Pass the ENTIRE target instance configuration to the provider's validator.
                     $validationParams = @{
-                        TargetSpecificSettings  = $targetSettings
-                        TargetInstanceName      = $targetName
-                        ValidationMessagesListRef = $ValidationMessagesListRef
+                        TargetInstanceConfiguration = $targetInstance 
+                        TargetInstanceName          = $targetName
+                        ValidationMessagesListRef   = $ValidationMessagesListRef
                     }
 
-                    if ($null -ne $targetRemoteRetentionSettings -and $validatorCmd.Parameters.ContainsKey('RemoteRetentionSettings')) {
-                        $validationParams.RemoteRetentionSettings = $targetRemoteRetentionSettings
-                    }
                     if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger -and $validatorCmd.Parameters.ContainsKey('Logger')) {
                         $validationParams.Logger = $Logger
                     }
