@@ -1650,7 +1650,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Robustness:** In `PasswordManager.psm1`, add a check and a clear warning if a user selects the `PlainText` password method.
 *   **Robustness:** At script startup, check for write permissions on the configured `LogDirectory` and warn the user if permissions are insufficient.
 *   **Robustness:** The `-ExportDiagnosticPackage` should gracefully handle a missing `Logs` or `Config` directory.
-*   **Robustness:** If a hook script fails, include its exit code in the error message.
 *   **Robustness:** Add a timeout to the `Invoke-WebRequest` calls in the `WebDAV.Target` provider.
 *   **Robustness:** If `7z.exe` is not found, the error message should list the locations that were checked.
 *   **Robustness:** In `-PreFlightCheck`, the write test should use a unique filename per instance to avoid conflicts.

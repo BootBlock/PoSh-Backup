@@ -23,9 +23,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1
+    Version:        1.0.2
     DateCreated:    18-May-2025
-    LastModified:   18-May-2025
+    LastModified:   21-Jun-2025
     Purpose:        Centralised management of user-defined hook script execution.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
@@ -73,7 +73,7 @@ function Invoke-PoShBackupHook {
         [string]$HookType,
         [hashtable]$HookParameters,
         [switch]$IsSimulateMode,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
 
@@ -85,7 +85,8 @@ function Invoke-PoShBackupHook {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -96,7 +97,7 @@ function Invoke-PoShBackupHook {
     if (-not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) {
         & $LocalWriteLog -Message "[WARNING] HookManager: $HookType script not found at '$ScriptPath'. Skipping execution." -Level "WARNING"
         if ($Global:GlobalJobHookScriptData -is [System.Collections.Generic.List[object]]) {
-            $Global:GlobalJobHookScriptData.Add([PSCustomObject]@{ Name = $HookType; Path = $ScriptPath; Status = "Not Found"; Output = "Script file not found at specified path."})
+            $Global:GlobalJobHookScriptData.Add([PSCustomObject]@{ Name = $HookType; Path = $ScriptPath; Status = "Not Found"; Output = "Script file not found at specified path." })
         }
         return
     }
@@ -108,7 +109,8 @@ function Invoke-PoShBackupHook {
             & $LocalWriteLog -Message "SIMULATE: HookManager: Would execute $HookType script '$ScriptPath' with parameters: $($HookParameters | Out-String | ForEach-Object {$_.TrimEnd()})" -Level "SIMULATE"
             $outputLog.Add("SIMULATE: Script execution skipped due to simulation mode.")
             $status = "Simulated"
-        } else {
+        }
+        else {
             & $LocalWriteLog -Message "  - HookManager: Executing $HookType script: '$ScriptPath'" -Level "HOOK"
             $processArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
             $paramString = ""
@@ -119,14 +121,16 @@ function Invoke-PoShBackupHook {
                     if ($value) { 
                         $paramString += " -$key"
                     }
-                } elseif ($value -is [string] -and ($value.Contains(" ") -or $value.Contains("'") -or $value.Contains('"')) ) {
+                }
+                elseif ($value -is [string] -and ($value.Contains(" ") -or $value.Contains("'") -or $value.Contains('"')) ) {
                     # For values with spaces/quotes, ensure they are correctly passed as a single argument.
                     # PowerShell.exe -File parameter passing can be tricky with complex strings.
                     # Enclosing in single quotes for the outer command, then double for internal PowerShell parsing.
                     # This might need more robust escaping if parameters themselves contain many special characters.
                     $escapedValueForCmd = $value -replace '"', '""' # Double up internal double quotes
                     $paramString += " -$key " + '"' + $escapedValueForCmd + '"'
-                } elseif ($null -ne $value) {
+                }
+                elseif ($null -ne $value) {
                     $paramString += " -$key $value"
                 }
             }
@@ -150,21 +154,33 @@ function Invoke-PoShBackupHook {
                 $stdOutContent.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "      | $_" -Level "HOOK" -NoTimestampToLogFile; $outputLog.Add("OUTPUT: $_") }
             }
             if ($proc.ExitCode -ne 0) {
-                & $LocalWriteLog -Message "[ERROR] HookManager: $HookType script '$ScriptPath' exited with error code $($proc.ExitCode)." -Level "ERROR"
+                $errorMessageForLog = "HookManager: $HookType script '$ScriptPath' exited with a non-zero error code: $($proc.ExitCode)."
+                & $LocalWriteLog -Message "[ERROR] $errorMessageForLog" -Level "ERROR"
                 $status = "Failure (ExitCode $($proc.ExitCode))"
+    
+                # Add a clear error message with the exit code to the report's output field.
+                $outputLog.Add($errorMessageForLog)
+
                 if (-not [string]::IsNullOrWhiteSpace($stdErrContent)) {
                     & $LocalWriteLog -Message "    $HookType Script STDERR:" -Level "ERROR"
-                    $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "      | $_" -Level "ERROR" -NoTimestampToLogFile; $outputLog.Add("ERROR: $_") }
+                    $outputLog.Add("--- STDERR ---") # Add a separator for clarity in the report
+                    $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { 
+                        & $LocalWriteLog -Message "      | $_" -Level "ERROR" -NoTimestampToLogFile
+                        $outputLog.Add($_)           # Add the raw line to the report output
+                    }
                 }
-            } elseif (-not [string]::IsNullOrWhiteSpace($stdErrContent)) { # Exit code 0, but something was written to STDERR
-                 & $LocalWriteLog -Message "[WARNING] HookManager: $HookType script '$ScriptPath' wrote to STDERR despite exiting successfully (Code 0)." -Level "WARNING"
-                 & $LocalWriteLog -Message "    $HookType Script STDERR (Warning):" -Level "WARNING"
-                 $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "      | $_" -Level "WARNING" -NoTimestampToLogFile; $outputLog.Add("STDERR_WARN: $_") }
             }
-            $statusLevelForLog = if($status -like "Failure*"){"ERROR"}elseif($status -eq "Simulated"){"SIMULATE"}else{"SUCCESS"}
+            elseif (-not [string]::IsNullOrWhiteSpace($stdErrContent)) {
+                # Exit code 0, but something was written to STDERR
+                & $LocalWriteLog -Message "[WARNING] HookManager: $HookType script '$ScriptPath' wrote to STDERR despite exiting successfully (Code 0)." -Level "WARNING"
+                & $LocalWriteLog -Message "    $HookType Script STDERR (Warning):" -Level "WARNING"
+                $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "      | $_" -Level "WARNING" -NoTimestampToLogFile; $outputLog.Add("STDERR_WARN: $_") }
+            }
+            $statusLevelForLog = if ($status -like "Failure*") { "ERROR" }elseif ($status -eq "Simulated") { "SIMULATE" }else { "SUCCESS" }
             & $LocalWriteLog -Message "  - HookManager: $HookType script execution finished. Status: $status" -Level $statusLevelForLog
         }
-    } catch {
+    }
+    catch {
         & $LocalWriteLog -Message "[ERROR] HookManager: Exception occurred while trying to execute $HookType script '$ScriptPath': $($_.Exception.ToString())" -Level "ERROR"
         $outputLog.Add("EXCEPTION: $($_.Exception.Message)")
         $status = "Exception"
@@ -173,11 +189,11 @@ function Invoke-PoShBackupHook {
     # Add hook execution data to the global list for reporting.
     if ($Global:GlobalJobHookScriptData -is [System.Collections.Generic.List[object]]) {
         $Global:GlobalJobHookScriptData.Add([PSCustomObject]@{
-            Name   = $HookType
-            Path   = $ScriptPath
-            Status = $status
-            Output = ($outputLog -join [System.Environment]::NewLine)
-        })
+                Name   = $HookType
+                Path   = $ScriptPath
+                Status = $status
+                Output = ($outputLog -join [System.Environment]::NewLine)
+            })
     }
 }
 #endregion
