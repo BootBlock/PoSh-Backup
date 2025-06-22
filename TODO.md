@@ -1542,8 +1542,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 #### **Console Experience & CLI Usability (UX)**
 
 *   **UX:** When running `-ExportDiagnosticPackage`, don't prompt the user to create `User.psd1`.
-*   **UX:** In the `-ListBackupSets` output, display the total number of jobs in each set, e.g., `Jobs in Set (3):`.
-*   **UX:** In the `-ListBackupLocations` output, display the configured `ArchiveType` (e.g., .7z, .zip) for each job.
 *   **UX:** In `-TestConfig` output, add a "Notes" column to the job list to flag things like "No Remote Targets" or "VSS Disabled".
 *   **UX:** When a user makes a typo in a job/set name, suggest the closest valid name (e.g., "Did you mean 'Projects'?").
 *   **UX:** Add a `-BeepOnCompletion` switch that plays a system sound on success or failure.

@@ -110,6 +110,9 @@ function Invoke-PoShBackupListingMode {
                 $archiveNameDisplay = Get-ConfigValue -ConfigObject $jobConf -Key 'Name' -DefaultValue 'N/A (Uses Job Name)'
                 & $LocalWriteLog -Message ("  Archive Name  : " + $archiveNameDisplay) -Level "NONE"
 
+                $archiveTypeDisplay = Get-ConfigValue -ConfigObject $jobConf -Key 'ArchiveType' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'DefaultArchiveType' -DefaultValue '-t7z')
+                & $LocalWriteLog -Message ("  Archive Type  : " + $archiveTypeDisplay) -Level "NONE"
+
                 $destDirDisplay = Get-ConfigValue -ConfigObject $jobConf -Key 'DestinationDir' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'DefaultDestinationDir' -DefaultValue 'N/A')
                 & $LocalWriteLog -Message ("  Destination   : " + $destDirDisplay) -Level "NONE"
 
