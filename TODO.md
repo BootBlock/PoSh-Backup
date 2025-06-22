@@ -1582,7 +1582,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Reporting:** Add a direct link to the generated log file (if file logging is enabled) in the HTML report footer.
 *   **Reporting:** Make the log level filter checkbox states (`DEBUG`, `INFO`, etc.) in the HTML report persist between page loads using `localStorage`.
 *   **Reporting:** Add a "Copy Configuration" button to the HTML report to easily copy the key-value pairs of the job config.
-*   **Reporting:** In the HTML report, make the "Status" cell in the Summary table a link that jumps down to the Detailed Log section.
 *   **Reporting:** Add the total size of all backup files (for the current job) to the HTML report summary.
 *   **Reporting:** Add a "Dark Mode" toggle button directly within the HTML report that switches between Light and Dark themes.
 *   **Reporting:** In the HTML report, display the `Description` field for the job in the Summary section.

@@ -159,6 +159,11 @@ function Invoke-HtmlReport {
             elseif($kN -eq "VSSAttempted" -or $kN -eq 'GenerateSplitArchiveManifest' ){$sC=if($v -eq $true){"status-INFO"}else{"status-DEFAULT"}}
             if($kN -eq "ArchiveSizeFormatted" -and $ReportData.ArchiveSizeBytes -is [long]){$sA="data-sort-value='$($ReportData.ArchiveSizeBytes)'"}
             elseif($kN -eq "TotalDuration" -and $ReportData.TotalDurationSeconds -is [double]){$sA="data-sort-value='$($ReportData.TotalDurationSeconds)'"}
+
+            if ($kN -eq 'OverallStatus') {
+                $dV = "<a href='#details-logs' title='Click to jump to the detailed log'>$dV</a>"
+            }
+
             $null=$sb.Append("<tr><td data-label='Item'>$kN</td><td data-label='Detail' class='$sC' $sA>$dV</td></tr>")}
         $summaryTableRowsHtml = $sb.ToString() 
     }
