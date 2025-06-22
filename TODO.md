@@ -1538,7 +1538,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 *   **UX:** When running `-ExportDiagnosticPackage`, don't prompt the user to create `User.psd1`.
 *   **UX:** When a user makes a typo in a job/set name, suggest the closest valid name (e.g., "Did you mean 'Projects'?").
-*   **UX:** Add a `-BeepOnCompletion` switch that plays a system sound on success or failure.
+*   **UX:** Add a `-CompletionNotification` switch that can play a system sound on success or failure, or display a messagebox, or something else.
 *   **UX:** In the final summary, show a count of jobs that succeeded, failed, or had warnings.
 *   **UX:** When pausing on exit, state the reason (e.g., "Pausing due to 'OnFailure' setting...").
 *   **UX:** Add a `-NoBanner` switch to suppress just the initial ASCII art banner without enabling full `-Quiet` mode.
