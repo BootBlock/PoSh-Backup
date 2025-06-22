@@ -1564,7 +1564,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **UX:** When a job is disabled, show its name in gray in the `-ListBackupLocations` output.
 *   **UX:** The interactive menu should have a "Run All" option.
 *   **UX:** The `-ForceRunInMaintenanceMode` switch should produce a prominent warning in the log.
-*   **UX:** When a scheduled task is created, log the `next run time`.
 *   **UX:** Add a `-RunSet` and `-BackupLocationName` argument completer for the `-SkipJob` parameter.
 
 #### **Reporting & Logging**

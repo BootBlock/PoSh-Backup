@@ -31,6 +31,7 @@
 #region --- Module Dependencies ---
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "ScheduleManager.psm1 FATAL: Could not import dependent module SystemUtils.psm1. Error: $($_.Exception.Message)"
@@ -85,9 +86,9 @@ function Invoke-ScheduledItemSyncInternal {
         $trigger = $null; $triggerType = $scheduleConfig.Type.ToLowerInvariant()
         $startTime = if ($scheduleConfig.ContainsKey('Time')) { [datetime]$scheduleConfig.Time } else { (Get-Date).Date.AddHours(23) }
         switch ($triggerType) {
-            'daily'   { $trigger = New-ScheduledTaskTrigger -Daily -At $startTime }
-            'weekly'  { $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $scheduleConfig.DaysOfWeek -At $startTime }
-            'once'    { $trigger = New-ScheduledTaskTrigger -Once -At $startTime }
+            'daily' { $trigger = New-ScheduledTaskTrigger -Daily -At $startTime }
+            'weekly' { $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $scheduleConfig.DaysOfWeek -At $startTime }
+            'once' { $trigger = New-ScheduledTaskTrigger -Once -At $startTime }
             'onlogon' { $trigger = New-ScheduledTaskTrigger -AtLogOn }
             'onstartup' { $trigger = New-ScheduledTaskTrigger -AtStartup }
             default { & $LocalWriteLog -Message "ScheduleManager: Schedule Type '$($scheduleConfig.Type)' for item '$ItemName' is not yet fully supported. Skipping." -Level "WARNING"; $SkippedTasks.Value.Add("$TaskName (Unsupported Type)"); return }
@@ -107,30 +108,81 @@ function Invoke-ScheduledItemSyncInternal {
             if ($null -ne $triggerNode) {
                 $delayNode = $taskXmlDoc.CreateElement("RandomDelay", $nsmgr.LookupNamespace("ts")); $delayNode.InnerText = $iso8601DelayString
                 $triggerNode.AppendChild($delayNode) | Out-Null; $taskXmlString = $taskXmlDoc.OuterXml
-            } else { & $LocalWriteLog -Message "  - ScheduleManager: Could not find trigger node in XML to append RandomDelay. Delay will not be set." -Level "WARNING" }
+            }
+            else { & $LocalWriteLog -Message "  - ScheduleManager: Could not find trigger node in XML to append RandomDelay. Delay will not be set." -Level "WARNING" }
         }
         
         $actionToTake = if ($taskExists) { "Update Existing Scheduled Task" } else { "Register New Scheduled Task" }
         if ($PSCmdlet.ShouldProcess($TaskName, $actionToTake)) {
             & $LocalWriteLog -Message "ScheduleManager: $($actionToTake.Split(' ')[0].TrimEnd('e'))ing task for item '$ItemName'." -Level "INFO" # Fixed "Updateing"
             try {
-                Register-ScheduledTask -TaskName $TaskName -TaskPath $TaskFolder -Xml $taskXmlString -Force -ErrorAction Stop | Out-Null
+Register-ScheduledTask -TaskName $TaskName -TaskPath $TaskFolder -Xml $taskXmlString -Force -ErrorAction Stop | Out-Null
                 if ($actionToTake -eq "Update Existing Scheduled Task") { $UpdatedTasks.Value.Add($TaskName) } else { $CreatedTasks.Value.Add($TaskName) }
-            } catch { & $LocalWriteLog -Message "ScheduleManager: FAILED to register/update task '$TaskName'. Error: $($_.Exception.Message)" -Level "ERROR" }
-        } else { & $LocalWriteLog -Message "ScheduleManager: Task creation/update for '$TaskName' skipped by user." -Level "WARNING"; $SkippedTasks.Value.Add("$TaskName (User Skipped)") }
+
+                # Get the base task object using the reliable wildcard method.
+                $registeredTaskObject = Get-ScheduledTask -TaskPath "$TaskFolder\*" -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -eq $TaskName }
+
+                if ($null -ne $registeredTaskObject) {
+                    $taskInfo = Get-ScheduledTaskInfo -InputObject $registeredTaskObject -ErrorAction SilentlyContinue
+                    
+                    # --- Display Detailed Task Information ---
+                    Write-Host
+                    Write-NameValue "Name" $registeredTaskObject.TaskName -namePadding 18
+                    Write-NameValue "Path" $registeredTaskObject.TaskPath -namePadding 18
+                    Write-NameValue "State" $registeredTaskObject.State -namePadding 18
+                    Write-NameValue "Run As User" $registeredTaskObject.Principal.UserId -namePadding 18
+                    Write-NameValue "Run with" "$($registeredTaskObject.Principal.RunLevel) Privileges" -namePadding 18
+                    Write-NameValue "Next Run Time" $taskInfo.NextRunTime -namePadding 18
+                    
+                    # Display Trigger Details
+                    if ($registeredTaskObject.Triggers) {
+                        $firstTrigger = $true
+                        foreach($trigger in $registeredTaskObject.Triggers) {
+                            $triggerDetails = ""
+                            switch ($trigger.CimClass.ClassName) {
+                                'MSFT_TaskDailyTrigger'   { $triggerDetails = "Daily at $($trigger.StartBoundary.ToShortTimeString())" }
+                                'MSFT_TaskWeeklyTrigger'  { $triggerDetails = "Weekly on $($trigger.DaysOfWeek -join ', ') at $($trigger.StartBoundary.ToShortTimeString())" }
+                                'MSFT_TaskTimeTrigger'    { $triggerDetails = "Once at $($trigger.StartBoundary)" }
+                                'MSFT_TaskLogonTrigger'   { $triggerDetails = "At Logon" }
+                                'MSFT_TaskStartupTrigger' { $triggerDetails = "At Startup" }
+                                default                   { $triggerDetails = $trigger.CimClass.ClassName }
+                            }
+                            if (-not $firstTrigger) { Write-Host (" " * 21) -NoNewline }
+                            Write-NameValue "Triggers" $triggerDetails -namePadding 18
+                            $firstTrigger = $false
+                        }
+                    }
+
+                    if ($registeredTaskObject.Actions) {
+                        Write-NameValue "Actions" "$($registeredTaskObject.Actions[0].Execute) $($registeredTaskObject.Actions[0].Argument)" -namePadding 18
+                    }
+                    Write-Host
+                }
+                else {
+                    & $LocalWriteLog -Message "  - ScheduleManager: Could not retrieve task '$TaskName' immediately after registration to report details." -Level "WARNING"
+                }
+
+            } 
+            catch {
+                & $LocalWriteLog -Message "ScheduleManager: FAILED to register/update task '$TaskName'. Error: $($_.Exception.Message)" -Level "ERROR" 
+            }
+        }
+        else { & $LocalWriteLog -Message "ScheduleManager: Task creation/update for '$TaskName' skipped by user." -Level "WARNING"; $SkippedTasks.Value.Add("$TaskName (User Skipped)") }
     }
-    elseif ($taskExists) { # This block now correctly executes if the item or its schedule is disabled
+    elseif ($taskExists) {
+        # This block now correctly executes if the item or its schedule is disabled
         if ($PSCmdlet.ShouldProcess($TaskName, "Unregister Scheduled Task (item or its schedule is disabled in config)")) {
             & $LocalWriteLog -Message "ScheduleManager: Schedule for item '$ItemName' is disabled or not defined. Removing existing task." -Level "INFO"
             Unregister-ScheduledTask -InputObject $ExistingTask -Confirm:$false -ErrorAction Stop
             $RemovedTasks.Value.Add($TaskName)
-        } else { & $LocalWriteLog -Message "ScheduleManager: Task removal for '$TaskName' skipped by user." -Level "WARNING"; $SkippedTasks.Value.Add("$TaskName (Removal Skipped by User)") }
+        }
+        else { & $LocalWriteLog -Message "ScheduleManager: Task removal for '$TaskName' skipped by user." -Level "WARNING"; $SkippedTasks.Value.Add("$TaskName (Removal Skipped by User)") }
     }
 }
 #endregion
 
 #region --- Exported Function ---
-function Sync-PoShBackupSchedule  {
+function Sync-PoShBackupSchedule {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory = $true)]
@@ -174,7 +226,8 @@ function Sync-PoShBackupSchedule  {
             & $LocalWriteLog -Message "ScheduleManager: Creating folder '$taskFolder' in Task Scheduler." -Level "INFO"
             try { $rootFolder.CreateFolder($taskFolder, $null); & $LocalWriteLog -Message "ScheduleManager: Task Scheduler folder '$taskFolder' created successfully." -Level "SUCCESS" }
             catch { & $LocalWriteLog -Message "ScheduleManager: Failed to create Task Scheduler folder '$taskFolder'. Error: $($_.Exception.Message)" -Level "ERROR"; return }
-        } else { & $LocalWriteLog -Message "ScheduleManager: Task folder creation skipped by user. Cannot proceed." -Level "WARNING"; return }
+        }
+        else { & $LocalWriteLog -Message "ScheduleManager: Task folder creation skipped by user. Cannot proceed." -Level "WARNING"; return }
     }
 
     $allDefinedJobNames = @($Configuration.BackupLocations.Keys)
@@ -216,7 +269,8 @@ function Sync-PoShBackupSchedule  {
     & $LocalWriteLog -Message "ScheduleManager: Synchronisation of scheduled tasks complete." -Level "HEADING"
     if ($createdTasks.Count -eq 0 -and $updatedTasks.Count -eq 0 -and $removedTasks.Count -eq 0 -and $skippedTasks.Count -eq 0) {
         & $LocalWriteLog -Message "  No changes were made to scheduled tasks." -Level "INFO"
-    } else {
+    }
+    else {
         if ($createdTasks.Count -gt 0) {
             & $LocalWriteLog -Message "`n  Tasks Created: $($createdTasks.Count)" -Level "SUCCESS"
             $createdTasks | ForEach-Object { & $LocalWriteLog "    - $_" -Level "SUCCESS" }
