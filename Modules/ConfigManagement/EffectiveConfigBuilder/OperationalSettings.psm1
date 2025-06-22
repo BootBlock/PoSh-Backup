@@ -10,9 +10,9 @@
     and notification settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.3 # Added OnSourcePathNotFound resolution.
+    Version:        1.4.4 # Added Reason for pinning.
     DateCreated:    30-May-2025
-    LastModified:   17-Jun-2025
+    LastModified:   22-Jun-2025
     Purpose:        Operational settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -152,6 +152,9 @@ function Resolve-OperationalConfiguration {
             & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: PinOnCreation set to TRUE by job configuration." -Level "DEBUG"
         }
     }
+
+    # Resolve Pin Reason (only relevant if PinOnCreation is true)
+    $resolvedSettings.PinReason = if ($CliOverrides.ContainsKey('Reason')) { $CliOverrides.Reason } else { $null }
 
     # Archive Testing
     $resolvedSettings.JobTestArchiveAfterCreation = if ($CliOverrides.TestArchive) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'TestArchiveAfterCreation' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultTestArchiveAfterCreation' -DefaultValue $false) }

@@ -1638,11 +1638,9 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Enhancement:** Allow `Test-BackupTarget` to test all defined targets if no specific name is given.
 *   **Enhancement:** When creating an SFX, log which specific `.sfx` module file (e.g., `7zCon.sfx`) was used.
 *   **Enhancement:** Add a `-ClearRemoteTarget <TargetName>` utility to delete all backups from a specific remote target (with confirmation).
-*   **Enhancement:** The `-CheckForUpdate` feature should also check for updates to its external dependencies (e.g., Posh-SSH).
 *   **Enhancement:** Add a `-BackupConfig` switch to create a quick backup of just the `Config` directory.
 *   **Enhancement:** The `-ExportDiagnosticPackage` should include a list of all running processes.
 *   **Enhancement:** The `SystemStateManager` should log which user initiated the shutdown/restart action.
-*   **Enhancement:** The `-PinBackup` command should allow adding a comment to the `.pinned` file (e.g., `-PinBackup C:\... -Reason "Pre-upgrade"`).
 
 #### **Robustness & Error Handling**
 
@@ -1651,7 +1649,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Robustness:** At script startup, check for write permissions on the configured `LogDirectory` and warn the user if permissions are insufficient.
 *   **Robustness:** The `-ExportDiagnosticPackage` should gracefully handle a missing `Logs` or `Config` directory.
 *   **Robustness:** Add a timeout to the `Invoke-WebRequest` calls in the `WebDAV.Target` provider.
-*   **Robustness:** In `-PreFlightCheck`, the write test should use a unique filename per instance to avoid conflicts.
 *   **Robustness:** The script should gracefully handle a read-only configuration file.
 *   **Robustness:** Add a check for extremely long file paths and warn the user if they might exceed system limits.
 *   **Robustness:** If a VSS snapshot fails, the error message should include the VSS error code.

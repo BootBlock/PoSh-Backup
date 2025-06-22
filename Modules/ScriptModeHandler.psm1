@@ -18,9 +18,9 @@
     If a sub-module successfully handles a mode, this script will exit with a code of 0.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.3.0 # Added PreFlightCheck parameter.
+    Version:        2.3.1 # Added PreFlightCheck parameter.
     DateCreated:    24-May-2025
-    LastModified:   20-Jun-2025
+    LastModified:   22-Jun-2025
     Purpose:        To orchestrate and delegate informational/utility script execution modes.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -71,6 +71,8 @@ function Invoke-PoShBackupScriptMode {
         [Nullable[bool]]$MaintenanceSwitchValue,
         [Parameter(Mandatory = $false)]
         [string]$PinBackupPath,
+        [Parameter(Mandatory = $false)]
+        [string]$PinReason,
         [Parameter(Mandatory = $false)]
         [string]$UnpinBackupPath,
         [Parameter(Mandatory = $false)]
@@ -128,6 +130,7 @@ function Invoke-PoShBackupScriptMode {
     # --- Delegate to Archive Management Modes Handler ---
     $archiveMgmtParams = @{
         PinBackupPath             = $PinBackupPath
+        PinReason                 = $PinReason
         UnpinBackupPath           = $UnpinBackupPath
         ListArchiveContentsPath   = $ListArchiveContentsPath
         ExtractFromArchivePath    = $ExtractFromArchivePath

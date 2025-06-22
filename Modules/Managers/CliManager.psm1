@@ -61,6 +61,7 @@ function Get-PoShBackupCliOverride {
 
     # Utility Mode Parameters
     $cliOverrideSettings.PinBackup                           = if ($BoundParameters.ContainsKey('PinBackup')) { $BoundParameters['PinBackup'] } else { $null }
+    $cliOverrideSettings.Reason                              = if ($BoundParameters.ContainsKey('Reason')) { $BoundParameters['Reason'] } else { $null }
     $cliOverrideSettings.UnpinBackup                         = if ($BoundParameters.ContainsKey('UnpinBackup')) { $BoundParameters['UnpinBackup'] } else { $null }
     $cliOverrideSettings.ListArchiveContents                 = if ($BoundParameters.ContainsKey('ListArchiveContents')) { $BoundParameters['ListArchiveContents'] } else { $null }
     $cliOverrideSettings.ArchivePasswordSecretName           = if ($BoundParameters.ContainsKey('ArchivePasswordSecretName')) { $BoundParameters['ArchivePasswordSecretName'] } else { $null }

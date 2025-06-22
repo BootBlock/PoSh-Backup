@@ -84,6 +84,7 @@
 .PARAMETER Pin
     Optional. A switch parameter. If present, the backup archive(s) created during this
     specific run will be automatically pinned, protecting them from retention policies.
+    Can be used with the -Reason parameter.
 
 .PARAMETER ForceRunInMaintenanceMode
     Optional. A switch parameter. If present, forces the backup job/set to run even if
@@ -227,6 +228,9 @@
 .PARAMETER PinBackup
     Pin a backup archive to exclude it from retention policies. Provide the full path to the archive file.
 
+.PARAMETER Reason
+    Optional. A comment or reason for pinning the archive. This will be stored in the .pinned file for auditing and context. Can be used with either -PinBackup or the -Pin switch.
+
 .PARAMETER UnpinBackup
     Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.
 
@@ -293,6 +297,10 @@ param (
     # Pinning/Utility Parameter Set: For managing existing archives
     [Parameter(ParameterSetName = 'Pinning', Mandatory = $true, HelpMessage = "Pin a backup archive to exclude it from retention policies. Provide the full path to the archive file.")]
     [string]$PinBackup,
+
+    [Parameter(ParameterSetName='Pinning', Mandatory=$false)]
+    [Parameter(ParameterSetName='Execution', Mandatory=$false, HelpMessage="A comment or reason for pinning the archive. This will be stored in the .pinned file if the -Pin switch is also used.")]
+    [string]$Reason,
 
     [Parameter(ParameterSetName = 'Pinning', Mandatory = $true, HelpMessage = "Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.")]
     [string]$UnpinBackup,
@@ -594,7 +602,7 @@ catch {
             }
         }
     }
-    
+
     exit $Global:PoShBackup_ExitCodes.ConfigurationError
 }
 #endregion

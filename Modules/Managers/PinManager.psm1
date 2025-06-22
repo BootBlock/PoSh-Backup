@@ -9,13 +9,16 @@
     'MyBackup.7z.pinned') signals to the RetentionManager that the corresponding
     archive ('MyBackup.7z') should be exempt from any automated deletion.
 
+    The created '.pinned' file now contains metadata about when, by whom, and
+    optionally why the backup was pinned.
+
     This module is intended to be called by the ScriptModeHandler when a user
     invokes the -PinBackup or -UnpinBackup command-line parameters.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Made file creation more robust and added descriptive content to pin file.
+    Version:        1.2.0 # Added -Reason parameter to Add-PoShBackupPin.
     DateCreated:    06-Jun-2025
-    LastModified:   06-Jun-2025
+    LastModified:   21-Jun-2025
     Purpose:        To manage the lifecycle of backup archive pins.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -27,6 +30,9 @@ function Add-PoShBackupPin {
     param(
         [Parameter(Mandatory = $true, Position = 0)]
         [string]$Path,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Reason,
 
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
@@ -61,6 +67,8 @@ function Add-PoShBackupPin {
 
     try {
         # Create descriptive content for the pin file.
+        $reasonText = if (-not [string]::IsNullOrWhiteSpace($Reason)) { $Reason } else { "-" }
+        
         $pinContent = @"
 # PoSh-Backup Pinned Archive Marker File
 #
@@ -68,17 +76,18 @@ function Add-PoShBackupPin {
 # deleted by retention policies. The archive and its related parts (volumes, manifests)
 # will be ignored during retention scans.
 #
-# Associated Archive: $($Path)
-#
 # To unpin the archive and make it subject to retention again, either delete this
 # .pinned file manually, or use the -UnpinBackup command:
 #
 #   .\\PoSh-Backup.ps1 -UnpinBackup "$Path"
 #
-# ---
-# Pinned Date : $(Get-Date -Format 'o')
-# Pinned By   : $($env:USERDOMAIN)\$($env:USERNAME)
-# Pinned On   : $($env:COMPUTERNAME)
+# --- METADATA ---
+# Associated Archive: $($Path)
+# Pinned Date       : $(Get-Date -Format 'o')
+# Pinned By         : $($env:USERDOMAIN)\$($env:USERNAME)
+# Pinned On         : $($env:COMPUTERNAME)
+# Pin Reason        : $reasonText
+#
 "@
 
         # Use New-Item to explicitly create the file first, which is a more robust approach.

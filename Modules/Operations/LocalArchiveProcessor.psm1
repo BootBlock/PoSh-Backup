@@ -25,9 +25,9 @@
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.0 # Added PostLocalArchiveScriptPath hook.
+    Version:        1.4.1 # Added Reason for Pin.
     DateCreated:    24-May-2025
-    LastModified:   14-Jun-2025
+    LastModified:   22-Jun-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1, 7ZipManager.psm1, and PinManager.psm1.
@@ -596,7 +596,7 @@ function Invoke-LocalArchiveOperation {
             elseif (Test-Path -LiteralPath $finalArchivePathForReturn -PathType Leaf) {
                 if ($PSCmdlet.ShouldProcess($pathToPin, "Pin Archive")) {
                     try {
-                        Add-PoShBackupPin -Path $pathToPin -Logger $Logger
+                        Add-PoShBackupPin -Path $pathToPin -Reason $EffectiveJobConfig.PinReason -Logger $Logger
                         $reportData.ArchivePinned = "Yes"
                     }
                     catch {

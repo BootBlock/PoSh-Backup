@@ -38,6 +38,8 @@ function Invoke-PoShBackupArchiveManagementMode {
         [Parameter(Mandatory = $false)]
         [string]$PinBackupPath,
         [Parameter(Mandatory = $false)]
+        [string]$PinReason,
+        [Parameter(Mandatory = $false)]
         [string]$UnpinBackupPath,
         [Parameter(Mandatory = $false)]
         [string]$ListArchiveContentsPath,
@@ -148,7 +150,7 @@ function Invoke-PoShBackupArchiveManagementMode {
     if (-not [string]::IsNullOrWhiteSpace($PinBackupPath)) {
         & $LocalWriteLog -Message "`n--- Pin Backup Archive Mode ---" -Level "HEADING"
         if (Get-Command Add-PoShBackupPin -ErrorAction SilentlyContinue) {
-            Add-PoShBackupPin -Path $PinBackupPath -Logger $Logger
+            Add-PoShBackupPin -Path $PinBackupPath -Reason $PinReason -Logger $Logger
         } else {
             & $LocalWriteLog -Message "FATAL: Could not find the Add-PoShBackupPin command. Ensure 'Modules\Managers\PinManager.psm1' is present and loaded correctly." -Level "ERROR"
         }
