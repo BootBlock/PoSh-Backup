@@ -1621,7 +1621,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Enhancement:** In the `UNC.Target.psm1` module, add a simple retry loop around the `Copy-Item` command to handle transient network errors.
 *   **Enhancement:** Add a `-TestHook <FilePath>` utility switch that runs a specified script with dummy parameters to validate that it's executable.
 *   **Enhancement:** The `-PinBackup` command should automatically find the base archive name if a user provides the path to a `.002` volume part.
-*   **Enhancement:** The `-Pin` switch should log which specific archive file path was pinned.
 *   **Enhancement:** Allow `Test-BackupTarget` to test all defined targets if no specific name is given.
 *   **Enhancement:** When creating an SFX, log which specific `.sfx` module file (e.g., `7zCon.sfx`) was used.
 *   **Enhancement:** Add a `-ClearRemoteTarget <TargetName>` utility to delete all backups from a specific remote target (with confirmation).
