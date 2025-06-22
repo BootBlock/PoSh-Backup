@@ -46,4 +46,41 @@ function Get-ConfigValue {
 }
 #endregion
 
-Export-ModuleMember -Function Get-ConfigValue
+#region --- Environment Variable Expansion ---
+function Expand-EnvironmentVariablesInConfig {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$ConfigObject,
+        [Parameter(Mandatory = $true)]
+        [string[]]$KeysToExpand,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger
+    )
+
+    & $Logger -Message "ConfigUtils/Expand-EnvironmentVariablesInConfig: Beginning expansion for $($KeysToExpand.Count) specified keys." -Level "DEBUG"
+
+    foreach ($key in $KeysToExpand) {
+        if ($ConfigObject.ContainsKey($key)) {
+            $value = $ConfigObject[$key]
+            if ($value -is [string]) {
+                $ConfigObject[$key] = [System.Environment]::ExpandEnvironmentVariables($value)
+            }
+            elseif ($value -is [array]) {
+                $expandedArray = for ($i = 0; $i -lt $value.Count; $i++) {
+                    if ($value[$i] -is [string]) {
+                        [System.Environment]::ExpandEnvironmentVariables($value[$i])
+                    }
+                    else {
+                        $value[$i] # Return non-string items as-is
+                    }
+                }
+                $ConfigObject[$key] = $expandedArray
+            }
+        }
+    }
+    return $ConfigObject
+}
+#endregion
+
+Export-ModuleMember -Function Get-ConfigValue, Expand-EnvironmentVariablesInConfig

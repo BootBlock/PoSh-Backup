@@ -74,5 +74,5 @@ catch {
 # Adding Invoke-PoShBackupUpdateCheckAndApply here. If Update.psm1 is loaded by ScriptModeHandler,
 # this makes the function discoverable via `Get-Command Utils\Invoke-PoShBackupUpdateCheckAndApply`.
 # However, direct calls should still be ScriptModeHandler -> Update.psm1.
-Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Write-ConsoleBanner, Get-ScriptVersionFromContent, Invoke-PoShBackupUpdateCheckAndApply
+Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Write-ConsoleBanner, Get-ScriptVersionFromContent, Invoke-PoShBackupUpdateCheckAndApply, Expand-EnvironmentVariablesInConfig
 #endregion

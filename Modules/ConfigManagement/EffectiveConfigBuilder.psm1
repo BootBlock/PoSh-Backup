@@ -120,6 +120,25 @@ function Get-PoShBackupJobEffectiveConfiguration {
 
     & $LocalWriteLog -Message "EffectiveConfigBuilder (Facade): Effective configuration build complete." -Level "DEBUG"
 
+
+    # --- Expand Environment Variables in Path-like Settings ---
+    # This should be one of the last steps, to ensure it runs on the final, resolved values.
+    $keysToExpand = @(
+        'DestinationDir',
+        'OriginalSourcePath',
+        'JobSevenZipTempDirectory',
+        'JobSevenZipIncludeListFile',
+        'JobSevenZipExcludeListFile',
+        'PreBackupScriptPath',
+        'PostLocalArchiveScriptPath',
+        'PostBackupScriptOnSuccessPath',
+        'PostBackupScriptOnFailurePath',
+        'PostBackupScriptAlwaysPath'
+    )
+
+    $effectiveConfig = Expand-EnvironmentVariablesInConfig -ConfigObject $effectiveConfig -KeysToExpand $keysToExpand -Logger $Logger
+    # --- End Expansion ---
+
     return $effectiveConfig
 }
 #endregion

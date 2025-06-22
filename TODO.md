@@ -1603,7 +1603,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Config:** Add `PreSetScriptPath` and `PostSetScriptPath` hooks to `BackupSets`.
 *   **Config:** Allow a job to have a `DependsOnSets` key to make an entire set a prerequisite.
 *   **Config:** Add a global `ExcludePaths` array in the config that applies to all backup jobs.
-*   **Config:** Allow the use of environment variables within configuration string values (e.g., `DestinationDir = "%USERPROFILE%\Backups"`).
 *   **Config:** Add a `-SkipJobDependencies` switch to run a job without running its prerequisites.
 *   **Config:** Add a `-SkipPostRunAction` switch to prevent any post-run system action for the current run.
 *   **Config:** Allow a job to specify a `RetentionProfile` by name, defined in a new global `RetentionProfiles` section.

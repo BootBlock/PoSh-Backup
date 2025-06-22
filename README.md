@@ -1,7 +1,7 @@
 # PoSh-Backup
 PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution for backing up files, folders, and even live virtual machines using the free [7-Zip](https://www.7-zip.org/) compression software. Designed with both robustness for server environments and flexibility for power users in mind, it offers enterprise-grade features such as application-consistent backups via VSS and Hyper-V, schedulable automated backup verification, a pre-flight checker to ensure environmental readiness, and an extensible system for transferring archives to multiple remote targets like UNC shares, SFTP, and S3.
 
-> **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development. The output during execution is much noisier than I'd like.
+> **Notice:** This script is under active development. While it offers robust features, use it at your own risk, especially in production environments, until it has undergone more extensive community testing. This project is also an exploration of AI-assisted development. The output during execution is very noisey due to the AI loving to spam the console output; every time pare it down, it just shoves a load more in there.
 
 > **Notice:** Additionally, this `ReadMe.md` will eventually be broken down into proper documentation, as opposed to being one large file.
 
@@ -9,6 +9,7 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
 *   **Enterprise-Grade PowerShell Solution:** Robust, modular design built with dedicated PowerShell modules for reliability, maintainability, and clarity.
 *   **Infrastructure Snapshot Orchestration (Hyper-V):** Perform application-consistent backups of live Hyper-V virtual machines with minimal performance impact. PoSh-Backup orchestrates the creation of a VM checkpoint, mounts the snapshot's virtual disk(s) to the host, backs up the data from the static snapshot, and then automatically cleans up the checkpoint and mount points. This allows for reliable backups of entire VMs or specific folders within them.
 *   **Flexible External Configuration:** Manage all backup jobs, global settings, backup sets, remote **Backup Target** definitions, and **Post-Run System Actions** via a human-readable `.psd1` configuration file.
+*   **Environment Variable Expansion:** Use system environment variables (e.g., `%USERPROFILE%`, `%COMPUTERNAME%`) in path-based configuration settings for more portable and flexible job definitions.
 *   **Maintenance Mode:** A global flag (either in the configuration file or via a simple on-disk `.maintenance` file) can prevent any new backup jobs from starting. This is ideal for performing system maintenance without generating failed job reports. The mode can be easily toggled via a command-line switch (`-Maintenance $true/$false`) and bypassed for a specific run if needed (`-ForceRunInMaintenanceMode`).
 *   **Automated and Schedulable Backup Verification:** Define and run verification jobs that automatically restore a backup to a temporary "sandbox" location and perform integrity checks. This includes verifying file sizes, modification dates, and CRC checksums against a manifest created during the original backup, providing a high degree of confidence that backups are restorable and uncorrupted. These verification jobs can now be scheduled to run automatically, just like regular backup jobs.
 *   **Configurable Source Path Not Found Behaviour:** For jobs with multiple source paths, you can now define what happens if a path is not found (e.g., a network drive is offline). Options include failing the job (default), logging a warning and continuing with other valid paths, or skipping the job entirely. This enhances the reliability of automated backups.
@@ -119,6 +120,30 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
 
 ### 3. Configuration
 1.  **Edit `Config\User.psd1`:** (or `Config\Default.psd1` if not using a user config for testing).
+    #### Using Environment Variables in Paths
+    PoSh-Backup now supports the use of standard system environment variables within specific path settings in your configuration files. This allows for more portable and flexible job definitions that are not tied to specific user profiles or machine names.
+
+    The expansion is handled securely by the underlying .NET `[System.Environment]::ExpandEnvironmentVariables()` method, which means it will **only** expand environment variables (e.g., `%USERPROFILE%` on Windows) and will **not** execute arbitrary PowerShell commands (e.g., `$(Get-Date)`).
+
+    This feature applies to the following configuration keys at both the global and job-specific level:
+    *   `Path` (for `BackupLocations`, including each element in the array)
+    *   `DestinationDir` and `DefaultDestinationDir`
+    *   `SevenZipTempDirectory` and `DefaultSevenZipTempDirectory`
+    *   `SevenZipIncludeListFile` and `DefaultSevenZipIncludeListFile`
+    *   `SevenZipExcludeListFile` and `DefaultSevenZipExcludeListFile`
+    *   All hook script paths (e.g., `PreBackupScriptPath`, `PostBackupScriptOnSuccessPath`, etc.)
+
+    **Example in `User.psd1`:**
+    ```powershell
+    "MyDocumentsBackup" = @{
+        Path           = @(
+                        "%USERPROFILE%\Documents",
+                        "%USERPROFILE%\Desktop\Important Files"
+                    )
+        Name           = "UserDocuments"
+        DestinationDir = "E:\Backups\%COMPUTERNAME%" # Creates a backup folder named after the computer
+        # ... other settings ...
+    }
 2.  **Key Settings to Review/Modify Initially:**
     *   **`MaintenanceModeEnabled` and `MaintenanceModeFilePath`**:
         *   `MaintenanceModeEnabled = $false`: Set this to `$true` in your `User.psd1` to halt all backups via configuration.
