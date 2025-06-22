@@ -23,9 +23,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2
+    Version:        1.0.3
     DateCreated:    18-May-2025
-    LastModified:   21-Jun-2025
+    LastModified:   22-Jun-2025
     Purpose:        Centralised management of user-defined hook script execution.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
@@ -95,7 +95,7 @@ function Invoke-PoShBackupHook {
 
     & $LocalWriteLog -Message "`n[INFO] HookManager: Attempting to execute $HookType script: $ScriptPath" -Level "HOOK"
     if (-not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) {
-        & $LocalWriteLog -Message "[WARNING] HookManager: $HookType script not found at '$ScriptPath'. Skipping execution." -Level "WARNING"
+        & $LocalWriteLog -Message "[INFO] HookManager: $HookType script not found at '$ScriptPath'. Skipping execution." -Level "INFO"
         if ($Global:GlobalJobHookScriptData -is [System.Collections.Generic.List[object]]) {
             $Global:GlobalJobHookScriptData.Add([PSCustomObject]@{ Name = $HookType; Path = $ScriptPath; Status = "Not Found"; Output = "Script file not found at specified path." })
         }

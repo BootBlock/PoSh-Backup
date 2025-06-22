@@ -12,7 +12,8 @@
       A prerequisite is considered successful if its status was 'SUCCESS', 'SIMULATED_COMPLETE',
       or 'WARNINGS' if its 'TreatSevenZipWarningsAsSuccess' setting was true.
     - Skips the current job if any of its dependencies were not met, logging this action.
-    - If dependencies are met (or there are none), it sets up per-job logging context.
+    - If dependencies are met (or there are none), it sets up per-job logging context, now including the
+      full invocation command in the log header.
     - Retrieves the effective job configuration.
     - Invokes the core backup operation for the job (via Operations.psm1).
     - Records the effective success status of the executed job for subsequent dependency checks.
@@ -26,7 +27,7 @@
     - Applies log file retention policy for the completed job.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.0 # Added RunOnlyIfPathExists job setting.
+    Version:        1.5.0 # Added invocation command to log file header.
     DateCreated:    25-May-2025
     LastModified:   21-Jun-2025
     Purpose:        To centralise the main job/set processing loop from PoSh-Backup.ps1.
@@ -74,7 +75,9 @@ function Invoke-PoShBackupRun {
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet,
         [Parameter(Mandatory = $true)]
-        [hashtable]$CliOverrideSettings
+        [hashtable]$CliOverrideSettings,
+        [Parameter(Mandatory = $false)]
+        [string]$InvocationLine
     )
 
     $LocalWriteLog = {
@@ -97,7 +100,7 @@ function Invoke-PoShBackupRun {
     
     # Get the delay setting for the set before the loop starts.
     $delayBetweenJobs = 0
-    if (-not [string]::IsNullOrWhiteSpace($CurrentSetName) -and $Configuration.BackupSets.ContainsKey($CurrentSetName)) {
+    if (-not [string]::IsNullOrWhiteSpace($CurrentSetName)) {
         $setConf = $Configuration.BackupSets[$CurrentSetName]
         $delayBetweenJobs = Get-ConfigValue -ConfigObject $setConf -Key 'DelayBetweenJobsSeconds' -DefaultValue 0
         if ($delayBetweenJobs -gt 0) {
@@ -280,6 +283,7 @@ function Invoke-PoShBackupRun {
 #   Job Name     : $currentJobName
 #   Run As Set   : $(if ([string]::IsNullOrWhiteSpace($CurrentSetName)) { '(Standalone Job)' } else { $CurrentSetName })
 #   Started      : $(Get-Date -Format 'o')
+#   Command Line : $InvocationLine
 #   Simulate Mode: $($IsSimulateMode.IsPresent)
 #
 # -- System Context --

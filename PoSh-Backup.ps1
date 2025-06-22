@@ -260,8 +260,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.31.1 # Fixed -Quiet mode parameter handling.
-    Date:           20-Jun-2025
+    Version:        1.32.1 # Added thing for recording script invocation parameters
+    Date:           22-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -624,6 +624,7 @@ if ($jobsToProcess.Count -gt 0) {
         Logger                   = $LoggerScriptBlock
         PSCmdlet                 = $PSCmdlet
         CliOverrideSettings      = $cliOverrideSettings
+        InvocationLine           = $MyInvocation.Line
     }
     $orchestratorResult = Invoke-PoShBackupRun @runParams
     try {

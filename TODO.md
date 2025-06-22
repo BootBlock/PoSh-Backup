@@ -1588,12 +1588,9 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Reporting:** Add a "Time to First Byte" metric to remote target transfer reports.
 *   **Reporting:** Log the PowerShell version (`$PSVersionTable`) at the start of every log file.
 *   **Reporting:** In the HTML report, the search keyword should be highlighted in the log timestamp/level as well as the message.
-*   **Logging:** Sanitise the `$JobName` variable when creating log file names to prevent issues with special characters, just like we do for scheduled tasks.
-*   **Logging:** At the start of a log file, record the full command-line arguments used to invoke the script.
 *   **Logging:** Add a specific log level for retention actions to make them easier to filter.
 *   **Logging:** When a file is deleted by retention, log its size.
 *   **Logging:** Log the calculated checksum of a local archive *before* it is transferred to a remote target.
-*   **Logging:** When a hook script is skipped because the file doesn't exist, log it as `INFO` instead of `WARNING`.
 *   **Logging:** Add an option to log to the Windows Event Log in addition to a text file.
 *   **Logging:** When a VSS shadow is created, log its unique ID.
 *   **Logging:** When `-Quiet` is active, still log `ERROR` level messages to the console.
