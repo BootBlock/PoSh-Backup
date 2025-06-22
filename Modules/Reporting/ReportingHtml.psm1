@@ -23,13 +23,13 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.10.1 # Fixed placeholder mismatch for Configuration section.
+    Version:        1.11.0 # Correctly loads theme CSS to enable Dark Mode toggle.
     DateCreated:    14-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   21-Jun-2025
     Purpose:        Interactive HTML report generation by populating an external template.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
-                    'Assets\ReportingHtml.template.html', 'Assets\ReportingHtml.Client.js',
+                    'Assets/ReportingHtml.template.html', 'Assets/ReportingHtml.Client.js',
                     'Base.css', and theme CSS files must be correctly located.
                     The 'System.Web' assembly is beneficial for enhanced HTML encoding.
 #>
@@ -107,15 +107,25 @@ function Invoke-HtmlReport {
     $htmlMetaTags = "<meta charset=`"UTF-8`"><meta name=`"viewport`" content=`"width=device-width, initial-scale=1.0`">"; $faviconLinkTag = ""
     if (-not [string]::IsNullOrWhiteSpace($reportFaviconPathUser) -and (Test-Path -LiteralPath $reportFaviconPathUser -PathType Leaf)) { try { $favBytes = [System.IO.File]::ReadAllBytes($reportFaviconPathUser); $favB64 = [System.Convert]::ToBase64String($favBytes); $favMime = switch ([System.IO.Path]::GetExtension($reportFaviconPathUser).ToLowerInvariant()) { ".png"{"image/png"} ".ico"{"image/x-icon"} ".svg"{"image/svg+xml"} default {""} }; if ($favMime) { $faviconLinkTag = "<link rel=`"icon`" type=`"$favMime`" href=`"data:$favMime;base64,$favB64`">" } } catch { LocalWriteLogHelper -Msg "[WARNING] Error embedding favicon '$reportFaviconPathUser': $($_.Exception.Message)" -Lvl "WARNING" } }
 
-    $baseCssContent = ""; $themeCssContent = ""; $overrideCssVariablesStyleBlock = ""; $customUserCssContentFromFile = ""
+    $baseCssContent = ""; $themeCssContent = ""; $darkThemeCssContent = ""; $overrideCssVariablesStyleBlock = ""; $customUserCssContentFromFile = ""
     if ([string]::IsNullOrWhiteSpace($mainScriptRoot) -or -not (Test-Path $mainScriptRoot -PathType Container)) { LocalWriteLogHelper -Msg "[ERROR] Main script root path invalid. Cannot load theme CSS." -Lvl "ERROR"; $finalCssToInject = "<style>body{font-family:sans-serif;}</style>" }
     else {
         $themesDir = Join-Path -Path $mainScriptRoot -ChildPath "Config\Themes"
         $baseCssFile = Join-Path -Path $themesDir -ChildPath "Base.css"; if (Test-Path -LiteralPath $baseCssFile -PathType Leaf) { try { $baseCssContent = Get-Content -LiteralPath $baseCssFile -Raw } catch { LocalWriteLogHelper -Msg "[WARNING] Error loading Base.css: $($_.Exception.Message)" -Lvl "WARNING" } } else { LocalWriteLogHelper -Msg "[WARNING] Base.css not found at '$baseCssFile'." -Lvl "WARNING" }
         $themeFile = Join-Path -Path $themesDir -ChildPath (($reportThemeName -replace '[^a-zA-Z0-9]', '') + ".css"); if (Test-Path -LiteralPath $themeFile -PathType Leaf) { try { $themeCssContent = Get-Content -LiteralPath $themeFile -Raw } catch { LocalWriteLogHelper -Msg "[WARNING] Error loading theme CSS '$($themeFile)': $($_.Exception.Message)" -Lvl "WARNING" } } else { LocalWriteLogHelper -Msg "[WARNING] Theme CSS '$($themeFile)' not found." -Lvl "WARNING" }
+        
+        # CORRECTED LOGIC: Always load Dark.css to make it available for the toggle.
+        $darkThemeFile = Join-Path -Path $themesDir -ChildPath "Dark.css";
+        if (Test-Path -LiteralPath $darkThemeFile -PathType Leaf) {
+            try { $darkThemeCssContent = Get-Content -LiteralPath $darkThemeFile -Raw }
+            catch { LocalWriteLogHelper -Msg "[WARNING] Error loading Dark.css for theme toggling: $($_.Exception.Message)" -Lvl "WARNING" }
+        } else {
+            LocalWriteLogHelper -Msg "[WARNING] Dark.css not found. Theme toggle will not work." -Lvl "WARNING"
+        }
+
         if ($cssVariableOverrides.Count -gt 0) { $sbCssVar = [System.Text.StringBuilder]::new("<style>:root {"); $cssVariableOverrides.GetEnumerator() | ForEach-Object { $varN = $_.Name; if (-not $varN.StartsWith("--")) { $varN = "--" + $varN }; $null = $sbCssVar.Append("$varN : $($_.Value) ;") }; $null = $sbCssVar.Append("}</style>"); $overrideCssVariablesStyleBlock = $sbCssVar.ToString() }
         if (-not [string]::IsNullOrWhiteSpace($reportCustomCssPathUser) -and (Test-Path -LiteralPath $reportCustomCssPathUser -PathType Leaf)) { try { $customUserCssContentFromFile = Get-Content -LiteralPath $reportCustomCssPathUser -Raw } catch { LocalWriteLogHelper -Msg "[WARNING] Error loading custom CSS '$reportCustomCssPathUser': $($_.Exception.Message)" -Lvl "WARNING" } }
-        $finalCssToInject = "<style>" + $baseCssContent + $themeCssContent + "</style>" + $overrideCssVariablesStyleBlock + "<style>" + $customUserCssContentFromFile + "</style>"
+        $finalCssToInject = "<style>" + $baseCssContent + $themeCssContent + $darkThemeCssContent + "</style>" + $overrideCssVariablesStyleBlock + "<style>" + $customUserCssContentFromFile + "</style>"
     }
     
     $jsFilePath = Join-Path -Path $moduleAssetsDir -ChildPath "ReportingHtml.Client.js"; $jsContent = ""; 
@@ -159,11 +169,12 @@ function Invoke-HtmlReport {
             elseif($kN -eq "VSSAttempted" -or $kN -eq 'GenerateSplitArchiveManifest' ){$sC=if($v -eq $true){"status-INFO"}else{"status-DEFAULT"}}
             if($kN -eq "ArchiveSizeFormatted" -and $ReportData.ArchiveSizeBytes -is [long]){$sA="data-sort-value='$($ReportData.ArchiveSizeBytes)'"}
             elseif($kN -eq "TotalDuration" -and $ReportData.TotalDurationSeconds -is [double]){$sA="data-sort-value='$($ReportData.TotalDurationSeconds)'"}
-
+            
+            # If the current item is the status, make it a link to the log section
             if ($kN -eq 'OverallStatus') {
                 $dV = "<a href='#details-logs' title='Click to jump to the detailed log'>$dV</a>"
             }
-
+        
             $null=$sb.Append("<tr><td data-label='Item'>$kN</td><td data-label='Detail' class='$sC' $sA>$dV</td></tr>")}
         $summaryTableRowsHtml = $sb.ToString() 
     }
@@ -228,8 +239,7 @@ function Invoke-HtmlReport {
     $footerCompanyNameHtml = if (-not [string]::IsNullOrWhiteSpace($reportCompanyName)) { "$(ConvertTo-SafeHtml $reportCompanyName) - " } else { "" }
     $reportGenerationDateText = ConvertTo-SafeHtml ([string](Get-Date))
 
-    $finalHtml = $htmlTemplateContent
-    $finalHtml = $finalHtml -replace '\{\{REPORT_TITLE\}\}', (ConvertTo-SafeHtml "$($reportTitlePrefix) - $JobName") `
+    $finalHtml = $htmlTemplateContent -replace '\{\{REPORT_TITLE\}\}', (ConvertTo-SafeHtml "$($reportTitlePrefix) - $JobName") `
                            -replace '\{\{HTML_META_TAGS\}\}', $htmlMetaTags `
                            -replace '\{\{FAVICON_LINK_TAG\}\}', $faviconLinkTag `
                            -replace '\{\{CSS_CONTENT\}\}', $finalCssToInject `

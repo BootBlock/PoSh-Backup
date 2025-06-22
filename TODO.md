@@ -262,13 +262,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **V. Reporting & Notifications**
 
-29. **BugFix: HTML Report - Log Filter "Select All" / "Deselect All"**
-    *   **Goal:** Ensure log filter buttons in HTML report work correctly.
-    *   **Description:** User reported buttons sometimes don't update the filtered view.
-    *   **Scope & Impact:** `Modules\Reporting\ReportingHtml.psm1`: Correct JavaScript logic.
-    *   **Technical Considerations:** JS event handling, DOM manipulation.
-    *   **Acceptance Criteria:** Buttons correctly check/uncheck all log level filters and update the view.
-
 30. **Enhancement: HTML Report - Add "Copy to Clipboard" for Configuration Sections**
 
     - **Goal:** Allow easy copying of displayed configuration settings from the HTML report.
@@ -1583,7 +1576,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Reporting:** Make the log level filter checkbox states (`DEBUG`, `INFO`, etc.) in the HTML report persist between page loads using `localStorage`.
 *   **Reporting:** Add a "Copy Configuration" button to the HTML report to easily copy the key-value pairs of the job config.
 *   **Reporting:** Add the total size of all backup files (for the current job) to the HTML report summary.
-*   **Reporting:** Add a "Dark Mode" toggle button directly within the HTML report that switches between Light and Dark themes.
 *   **Reporting:** In the HTML report, display the `Description` field for the job in the Summary section.
 *   **Reporting:** The HTML report's `<title>` tag should lead with the job name for better browser tab identification.
 *   **Reporting:** Add a "Copy Shareable Link" button to the HTML report that creates a link with a hash to a specific log line.

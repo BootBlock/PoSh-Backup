@@ -6,12 +6,16 @@
     {{FAVICON_LINK_TAG}}
     {{CSS_CONTENT}}
 </head>
-<body>
+{{HTML_BODY_TAG}}
     <div class="container">
         {{SIMULATION_BANNER_HTML}} <!-- Populated if simulation, otherwise empty string -->
         
         <div class="report-header">
             <h1>{{HEADER_TITLE_TEXT}}</h1>
+            <div class="header-controls">
+                <button type="button" id="themeToggleBtn" title="Toggle Light/Dark Theme" aria-label="Toggle Light/Dark Theme">◐</button>
+            </div>
+
             {{EMBEDDED_LOGO_HTML}}
         </div>
 

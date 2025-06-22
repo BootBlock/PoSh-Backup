@@ -179,6 +179,33 @@ footer {
     color: var(--footer-text-color);
 }
 
+.header-controls {
+    margin-left: auto; /* Pushes the controls to the right, before the logo */
+    padding-right: var(--spacing-md);
+    display: flex;
+    align-items: center;
+}
+
+#themeToggleBtn {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--secondary-text-color);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0 var(--spacing-sm);
+    border-radius: var(--border-radius-lg);
+    line-height: 1;
+    transition: color 0.2s, background-color 0.2s;
+}
+
+#themeToggleBtn:hover,
+#themeToggleBtn:focus {
+    color: var(--primary-text-color);
+    background-color: var(--table-row-even-bg);
+    border-color: var(--border-color-light);
+    outline: none;
+}
+
 /* ====== TABLES ====== */
 table { 
     width: 100%; 

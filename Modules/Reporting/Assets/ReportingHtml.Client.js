@@ -2,6 +2,43 @@
 // Client-side JavaScript for interactive HTML reports.
 
 document.addEventListener('DOMContentLoaded', function () {
+    // --- Theme Toggling Logic ---
+    const themeToggleButton = document.getElementById('themeToggleBtn');
+    const THEME_LS_KEY = 'poshBackupReport_theme';
+
+    // Function to apply the theme by adding/removing a class on the body
+    const applyTheme = (theme) => {
+        if (theme === 'dark') {
+            document.body.classList.add('dark-theme');
+        } else {
+            document.body.classList.remove('dark-theme');
+        }
+    };
+
+    // Apply theme on page load: Priority is 1) localStorage, 2) data-attribute from config, 3) default 'light'
+    const savedTheme = localStorage.getItem(THEME_LS_KEY);
+    const initialTheme = document.body.dataset.initialTheme || 'light';
+
+    if (savedTheme) {
+        applyTheme(savedTheme);
+    } else {
+        applyTheme(initialTheme);
+        // Save the configured default to local storage for the next visit
+        localStorage.setItem(THEME_LS_KEY, initialTheme);
+    }
+
+    // Add click event listener for the toggle button
+    if (themeToggleButton) {
+        themeToggleButton.addEventListener('click', () => {
+            let currentTheme = localStorage.getItem(THEME_LS_KEY) || 'light';
+            let newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            applyTheme(newTheme);
+            localStorage.setItem(THEME_LS_KEY, newTheme);
+        });
+    }
+    // --- End Theme Toggling Logic ---
+
+
     // Persistent Collapsible Sections Logic
     const DETAILS_LS_PREFIX = 'poshBackupReport_detailsState_';
     const collapsibleDetailsElements = document.querySelectorAll('details[id^="details-"]');
@@ -114,8 +151,8 @@ document.addEventListener('DOMContentLoaded', function () {
             levelFilterCheckboxes.forEach(checkbox => checkbox.addEventListener('change', filterLogs));
             filterLogs();
         }
-        if (selectAllButton) selectAllButton.addEventListener('click', () => { levelFilterCheckboxes.forEach(cb => cb.checked = true); filterLogs(); });
-        if (deselectAllButton) deselectAllButton.addEventListener('click', () => { levelFilterCheckboxes.forEach(cb => cb.checked = false); filterLogs(); });
+        if (selectAllButton) selectAllButton.addEventListener('click', () => { levelFilterCheckboxes.forEach(cb => { if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); } }); });
+        if (deselectAllButton) deselectAllButton.addEventListener('click', () => { levelFilterCheckboxes.forEach(cb => { if (cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('change')); } }); });
 
     } else {
         if (filterIndicator) filterIndicator.style.display = 'none';

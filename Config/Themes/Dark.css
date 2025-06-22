@@ -1,7 +1,8 @@
 /* PoSh-Backup - Dark Theme - Dark.css */
 /* This file overrides CSS variables defined in Base.css for a dark appearance. */
+/* It is now scoped to a class for dynamic theme toggling. */
 
-:root {
+body.dark-theme {
     /* ====== DARK THEME COLOUR PALETTE OVERRIDES ====== */
 
     /* --- Core Palette --- */
@@ -80,23 +81,18 @@
 }
 
 /* Specific overrides if CSS variables aren't sufficient */
-/* Example: Ensure copy button on dark pre background is styled correctly */
-/* .pre-container .copy-hook-output-btn { */
-    /* These will use the --button-* variables defined above for dark theme */
-/* } */
-
 /* Scroll to top button specific styling for dark theme */
-#scrollToTopBtn {
+body.dark-theme #scrollToTopBtn {
     background-color: var(--accent-color-secondary); /* Muted dark accent */
     color: var(--accent-color-secondary-text); /* Light text */
 }
-#scrollToTopBtn:hover {
+body.dark-theme #scrollToTopBtn:hover {
     background-color: var(--accent-color-primary); /* Brighter accent on hover */
     color: var(--accent-color-primary-text); /* Darker text on brighter hover */
 }
 
 /* Filter active indicator for dark theme */
-.filter-active-indicator {
+body.dark-theme .filter-active-indicator {
     color: var(--status-warning-text-color); /* Amber text */
     background-color: var(--log-warning-bg); /* Dark yellow bg */
     border-color: var(--log-warning-border); /* Yellow border */
