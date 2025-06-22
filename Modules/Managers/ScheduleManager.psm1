@@ -113,6 +113,7 @@ function Invoke-ScheduledItemSyncInternal {
         }
         
         $actionToTake = if ($taskExists) { "Update Existing Scheduled Task" } else { "Register New Scheduled Task" }
+        & $LocalWriteLog -Message "  - ScheduleManager: Task Action will be: powershell.exe $TaskArguments" -Level "DEBUG"
         if ($PSCmdlet.ShouldProcess($TaskName, $actionToTake)) {
             & $LocalWriteLog -Message "ScheduleManager: $($actionToTake.Split(' ')[0].TrimEnd('e'))ing task for item '$ItemName'." -Level "INFO" # Fixed "Updateing"
             try {
