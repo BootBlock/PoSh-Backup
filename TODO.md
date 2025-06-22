@@ -1611,7 +1611,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 #### **Configuration & Job Control**
 
 *   **Config:** Add an `-EnableJob` and `-DisableJob` command-line switch to quickly change the `Enabled` flag for a job in `User.psd1`.
-*   **Config:** In `-TestConfig` mode, validate that the `TargetJobName` in a `VerificationJob` actually exists in `BackupLocations`.
 *   **Config:** Add a `-RetentionConfirmDelete` CLI switch to override the configuration setting for a single run.
 *   **Config:** Add a `-SkipVSS` CLI switch to force VSS to be disabled for a specific run, even if enabled in the config.
 *   **Config:** Add a `DefaultSourcePathNotFound` global setting to control the default behaviour for all jobs.

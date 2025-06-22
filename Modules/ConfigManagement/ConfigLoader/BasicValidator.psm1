@@ -16,9 +16,9 @@
     Any validation failures are added to the provided validation messages list.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1
     DateCreated:    29-May-2025
-    LastModified:   29-May-2025
+    LastModified:   22-Jun-2025
     Purpose:        Basic configuration validation logic for ConfigLoader.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 (for Get-ConfigValue).
@@ -58,7 +58,8 @@ function Invoke-BasicConfigValidation {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -90,7 +91,8 @@ function Invoke-BasicConfigValidation {
         $null = [System.IO.Path]::GetFullPath($expandedVssCachePath) # Check if path is validly formed
         $parentDir = Split-Path -Path $expandedVssCachePath
         if (($null -ne $parentDir) -and (-not ([string]::IsNullOrEmpty($parentDir))) -and (-not (Test-Path -Path $parentDir -PathType Container))) {
-            if ($IsTestConfigMode) { # Only log this as INFO in TestConfig mode, otherwise it's just a debug detail
+            if ($IsTestConfigMode) {
+                # Only log this as INFO in TestConfig mode, otherwise it's just a debug detail
                 & $LocalWriteLog -Message "[INFO] ConfigLoader/BasicValidator: Note: Parent directory ('$parentDir') for 'VSSMetadataCachePath' ('$expandedVssCachePath') does not exist. Diskshadow may attempt creation." -Level "INFO"
             }
         }
@@ -101,7 +103,8 @@ function Invoke-BasicConfigValidation {
 
     # Validate DefaultArchiveDateFormat
     $defaultDateFormat = Get-ConfigValue -ConfigObject $Configuration -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd"
-    if ($Configuration.ContainsKey('DefaultArchiveDateFormat')) { # Check if the key actually exists to validate its value
+    if ($Configuration.ContainsKey('DefaultArchiveDateFormat')) {
+        # Check if the key actually exists to validate its value
         if (-not ([string]$defaultDateFormat).Trim()) {
             $ValidationMessagesListRef.Value.Add("ConfigLoader/BasicValidator: Global 'DefaultArchiveDateFormat' is empty. Provide valid .NET date format string or remove key.")
         }
@@ -201,6 +204,30 @@ function Invoke-BasicConfigValidation {
             }
         }
     }
+
+    # Validate VerificationJobs' TargetJobName references
+    if ($Configuration.ContainsKey('VerificationJobs') -and $Configuration.VerificationJobs -is [hashtable]) {
+        foreach ($vJobKey in $Configuration.VerificationJobs.Keys) {
+            $vJobConfig = $Configuration.VerificationJobs[$vJobKey]
+            # Only validate enabled verification jobs
+            if ($vJobConfig -is [hashtable] -and (Get-ConfigValue -ConfigObject $vJobConfig -Key 'Enabled' -DefaultValue $false)) {
+                if ($vJobConfig.ContainsKey('TargetJobName')) {
+                    $targetJobName = $vJobConfig.TargetJobName
+                    if ([string]::IsNullOrWhiteSpace($targetJobName)) {
+                        $ValidationMessagesListRef.Value.Add("ConfigLoader/BasicValidator: Enabled VerificationJob '$vJobKey': Contains an empty 'TargetJobName'.")
+                    }
+                    elseif ($Configuration.ContainsKey('BackupLocations') -and $Configuration.BackupLocations -is [hashtable] -and -not $Configuration.BackupLocations.ContainsKey($targetJobName)) {
+                        $ValidationMessagesListRef.Value.Add("ConfigLoader/BasicValidator: Enabled VerificationJob '$vJobKey': Specifies a 'TargetJobName' of '$targetJobName', which does not exist in 'BackupLocations'.")
+                    }
+                }
+                else {
+                    # An enabled verification job must have a target
+                    $ValidationMessagesListRef.Value.Add("ConfigLoader/BasicValidator: Enabled VerificationJob '$vJobKey' is missing the required 'TargetJobName' key.")
+                }
+            }
+        }
+    }
+
 }
 #endregion
 
