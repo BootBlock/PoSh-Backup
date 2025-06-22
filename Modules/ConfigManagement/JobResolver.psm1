@@ -150,7 +150,7 @@ function Get-JobsToProcess {
     else {
         $allDefinedJobs = if ($Config.ContainsKey('BackupLocations') -and $Config.BackupLocations -is [hashtable]) { @($Config.BackupLocations.Keys) } else { @() }
         $allDefinedSets = if ($Config.ContainsKey('BackupSets') -and $Config.BackupSets -is [hashtable]) { @($Config.BackupSets.Keys) } else { @() }
-        
+
         if ($allDefinedJobs.Count -eq 1 -and $allDefinedSets.Count -eq 0) {
             $initialJobsToConsider.Add($allDefinedJobs[0])
             & $LocalWriteLog -Message "`n[INFO] JobResolver: No job/set specified. Auto-selected single defined Backup Location: '$($allDefinedJobs[0])'" -Level "INFO"
@@ -167,10 +167,10 @@ function Get-JobsToProcess {
             $menuMap = @{} # Maps menu number to item details
             $menuIndex = 1
             $leftColumnWidth = 38
-            
+
             $sortedJobs = $allDefinedJobs | Sort-Object
             $sortedSets = $allDefinedSets | Sort-Object
-            
+
             # --- Build Menu Items Sequentially ---
             $jobDisplayLines = [System.Collections.Generic.List[string]]::new()
             $setDisplayLines = [System.Collections.Generic.List[string]]::new()
@@ -184,7 +184,7 @@ function Get-JobsToProcess {
                 $menuMap[$menuIndex] = @{ Name = $setName; Type = 'Set' }
                 $menuIndex++
             }
-            
+
             # --- Draw Menu ---
             Write-Host ("  {0}{1}" -f "Backup Jobs".PadRight($leftColumnWidth), "Backup Sets") -ForegroundColor $menuHeaderColour
             Write-Host ("  {0}{1}" -f ("-" * 11).PadRight($leftColumnWidth), ("-" * 11)) -ForegroundColor $menuHeaderColour
@@ -193,7 +193,7 @@ function Get-JobsToProcess {
 
             for ($i = 0; $i -lt $maxRows; $i++) {
                 Write-Host "  " -NoNewline
-                
+
                 # Left Column (Jobs)
                 if ($i -lt $jobDisplayLines.Count) {
                     $jobLine = $jobDisplayLines[$i]
@@ -203,7 +203,7 @@ function Get-JobsToProcess {
                 } else {
                     Write-Host (" " * $leftColumnWidth) -NoNewline
                 }
-                
+
                 # Right Column (Sets)
                 if ($i -lt $setDisplayLines.Count) {
                     $setLine = $setDisplayLines[$i]
@@ -212,7 +212,7 @@ function Get-JobsToProcess {
                     Write-Host $Matches[2] -ForegroundColor $menuSetColour
                 }
             }
-            
+
             # --- Get User Input (New Logic) ---
             Write-Host
             Write-Host ("   0. Quit") -ForegroundColor $menuQuitColour
@@ -248,7 +248,7 @@ function Get-JobsToProcess {
 
                 if ($validSelections.Count -gt 0) {
                     $uniqueSelections = $validSelections | Select-Object -Unique # De-duplicate the selections
-                    
+
                     if ($uniqueSelections.Count -eq 1 -and $uniqueSelections[0].Type -eq 'Set') {
                         # --- SCENARIO 1: User selected exactly one set ---
                         $selectedItem = $uniqueSelections[0]
@@ -263,10 +263,10 @@ function Get-JobsToProcess {
                         # --- SCENARIO 2: User selected one or more jobs, or a mix ---
                         # This is an ad-hoc run. We just collect the jobs.
                         # Set a transient name for logging/display purposes.
-                        $setName = "(Interactive Selection)" 
+                        $setName = "(Interactive Selection)"
                         $stopSetOnErrorPolicy = $true # Safest default for ad-hoc runs is to stop on error.
                         $setPostRunAction = $null # No set-level action for ad-hoc.
-                        
+
                         & $LocalWriteLog -Message "`n[INFO] JobResolver: Ad-hoc collection of jobs/sets selected by user." -Level "INFO"
                         foreach ($selectedItem in $uniqueSelections) {
                             if ($selectedItem.Type -eq 'Job') {
@@ -301,7 +301,7 @@ function Get-JobsToProcess {
             & $LocalWriteLog -Message "  - JobResolver: Job '$jobNameCandidate' listed in set '$setName' not found in BackupLocations. Skipping." -Level "WARNING"
         }
     }
-    
+
     # --- Filter out jobs specified by -SkipJob ---
     $finalJobsToRun = [System.Collections.Generic.List[string]]::new()
     if ($null -ne $JobsToSkip -and $JobsToSkip.Count -gt 0) {

@@ -170,11 +170,11 @@ function Invoke-PoShBackupScriptMode {
         Logger                    = $Logger
         PSCmdletInstance          = $PSCmdletInstance
     }
-    
+
     if ($PSBoundParameters.ContainsKey('MaintenanceSwitchValue')) {
         $maintAndVerifyParams.MaintenanceSwitchValue = $MaintenanceSwitchValue
     }
-    
+
     if (Invoke-PoShBackupMaintenanceAndVerificationMode @maintAndVerifyParams) {
         return $true
     }

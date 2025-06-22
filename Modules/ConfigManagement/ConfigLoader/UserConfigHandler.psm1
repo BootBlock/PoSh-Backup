@@ -100,7 +100,7 @@ function Invoke-UserConfigCreationPromptInternal {
             } catch {
                 & $LocalWriteLogInternal -Message "[WARNING] Could not pre-read UserPromptTimeoutSeconds from Default.psd1. Using default of $timeoutSeconds seconds. Error: $($_.Exception.Message)" -Level "WARNING"
             }
-            
+
             $decision = 1 # Default to 'No'
 
             # CORRECTED CHECK: Use `$Host.UI.RawUI` to reliably detect if the host can handle key presses.

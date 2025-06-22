@@ -1560,7 +1560,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **UX:** When using `-GetEffectiveConfig`, display the source of the setting (e.g., "Global", "Set", "Job", "CLI").
 *   **UX:** Add a `-ListPins` command to show all currently pinned archives for a given job or destination.
 *   **UX:** The `-PinBackup` command should support wildcards to pin multiple archives at once.
-*   **UX:** Add a `-WhatIf` parameter alias for `-Simulate` for standard PowerShell consistency.
 *   **UX:** When a job is disabled, show its name in gray in the `-ListBackupLocations` output.
 *   **UX:** The interactive menu should have a "Run All" option.
 *   **UX:** The `-ForceRunInMaintenanceMode` switch should produce a prominent warning in the log.

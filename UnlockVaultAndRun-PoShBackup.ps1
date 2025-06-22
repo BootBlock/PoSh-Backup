@@ -5,7 +5,7 @@
 
 # --- Configuration ---
 # The backup set or job you want to run
-$BackupSetToRun = "Daily_Critical_Backups" 
+$BackupSetToRun = "Daily_Critical_Backups"
 
 # Define paths relative to this wrapper script's location
 $scriptDirectory = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition

@@ -209,11 +209,11 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
                     TargetSpecificSettings = @{
                         UNCRemotePath = "\\fileserver01\backups\MyPoShBackups" # Base path on the UNC share
                         CreateJobNameSubdirectory = $false, # Optional, default is $false
-                        
+
                         # --- Robocopy Settings for UNC Target ---
                         # To use Robocopy instead of the default Copy-Item for more resilient transfers, set UseRobocopy to $true.
                         UseRobocopy = $false, # Default: $false. Set to $true to enable Robocopy for this target.
-                        
+
                         # Customise Robocopy's behaviour. If a setting is not present, Robocopy's own default is used.
                         RobocopySettings = @{
                             # Retries = 5                # /R:n - Number of retries on failed copies. Default is 1 million.

@@ -163,10 +163,10 @@ function Invoke-PoShBackupConfigValidation {
 
                 if ($validatorCmd) {
                     & $LocalWriteLog -Message "PoShBackupValidator: Invoking specific settings validation for target '$targetName' (Type: '$targetType') using function '$validationFunctionName'." -Level "DEBUG"
-                    
+
                     # Pass the ENTIRE target instance configuration to the provider's validator.
                     $validationParams = @{
-                        TargetInstanceConfiguration = $targetInstance 
+                        TargetInstanceConfiguration = $targetInstance
                         TargetInstanceName          = $targetName
                         ValidationMessagesListRef   = $ValidationMessagesListRef
                     }

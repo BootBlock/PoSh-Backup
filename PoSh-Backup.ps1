@@ -363,6 +363,7 @@ param (
     [Parameter(Mandatory = $false, HelpMessage = "Optional. Path to the .psd1 configuration file. Defaults to '.\\Config\\Default.psd1' (and merges .\\Config\\User.psd1).")]
     [string]$ConfigFile,
 
+    [Alias('WhatIf')]
     [Parameter(Mandatory = $false, HelpMessage = "Switch. Run in simulation mode (local archiving, checksums, remote transfers, log retention, and post-run actions simulated).")]
     [switch]$Simulate,
 
