@@ -40,7 +40,6 @@
     "The project is heavily modularised into `Core`, `Managers`, `Utilities`, `Operations`, `Reporting`, and `Targets`.",
     "Bundler script `Generate-ProjectBundleForAI.ps1` (v__BUNDLER_VERSION_PLACEHOLDER__) is used to maintain session context.",
     "",
-    "Note: The `-Quiet` flag no longer works and requires fixing.",
     "Added additional parameters to Write-NameValue; try and make use of them.",
     ""
     "",

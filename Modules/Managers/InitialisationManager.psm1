@@ -9,9 +9,9 @@
     This centralises the startup configuration and presentation logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.1 # Banner display now respects -Quiet mode.
+    Version:        1.1.2 # Fixed -Quiet flag logic.
     DateCreated:    01-Jun-2025
-    LastModified:   20-Jun-2025
+    LastModified:   22-Jun-2025
     Purpose:        To centralise initial script setup and banner display.
     Prerequisites:  PowerShell 5.1+.
                     Requires Modules\Utilities\ConsoleDisplayUtils.psm1 to be available.
@@ -90,15 +90,9 @@ function Invoke-PoShBackupInitialSetup {
     $Global:GlobalJobHookScriptData             = $null
 
     # --- Respect Quiet Mode ---
-    # This global flag is checked by Write-LogMessage and other console output functions.
-    # We must check for the parameter in the *calling* script's bound parameters.
-    # A simple way is to check the global variable that should be set by the main script.
-    if ($PSBoundParameters.ContainsKey('Quiet') -and $PSBoundParameters['Quiet'].IsPresent) {
-        $Global:IsQuietMode = $true
-    } else {
-        $Global:IsQuietMode = $false
-    }
-
+    # The $Global:IsQuietMode flag is set by the main PoSh-Backup.ps1 script immediately
+    # after parameters are bound. This module should RESPECT that global variable and NOT reset it.
+    # The faulty logic that was here has been removed.
 
     # --- Display Starting Banner (only if not in Quiet mode) ---
     if ($Global:IsQuietMode -ne $true) {

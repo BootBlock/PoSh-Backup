@@ -793,17 +793,12 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XVIII. Enhanced Security & Compliance (Continued)**
 
-97. **Feature: Data Masking/Obfuscation for Test/Dev Restores**
-    *   **Goal:** When restoring production data to non-production environments, provide options to mask or obfuscate sensitive information.
-    *   **Description:** Helps comply with data privacy regulations (GDPR, CCPA) when using production data for testing or development.
-    *   **Scope & Impact:** **Complex.** Requires data-aware processing. Could involve hooks that call data masking scripts/tools post-restore or during a specialised "restore-and-mask" operation.
-    *   **Acceptance Criteria:** Sensitive data is masked in restored non-production environments.
-
 98. **Feature: FIPS 140-2 Compliance Mode (for 7-Zip & Cryptography)**
     *   **Goal:** Ensure that cryptographic operations (archive encryption, checksums) can operate in a FIPS 140-2 compliant manner.
     *   **Description:** For government or highly regulated industries. 7-Zip itself has a FIPS-compliant DLL option. PoSh-Backup would need to ensure it uses this and that other crypto (like `Get-FileHash`) uses FIPS-validated algorithms if the OS is in FIPS mode.
     *   **Scope & Impact:** `Modules\Managers\7ZipManager.psm1` (ensure it can use 7-Zip's FIPS DLL), review all cryptographic calls. Configuration option to enforce FIPS-mode operations.
     *   **Acceptance Criteria:** PoSh-Backup operates in a FIPS-compliant manner when configured.
+    *   **Update:** 7-Zip is not FIPS compliant.
 
 99. **Feature: Tamper-Proof Logging (Integration with Secure Logging Systems)**
     *   **Goal:** Ensure logs, especially audit logs, are highly resistant to tampering.
