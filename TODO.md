@@ -1542,7 +1542,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 #### **Console Experience & CLI Usability (UX)**
 
 *   **UX:** When running `-ExportDiagnosticPackage`, don't prompt the user to create `User.psd1`.
-*   **UX:** In `-TestConfig` output, add a "Notes" column to the job list to flag things like "No Remote Targets" or "VSS Disabled".
 *   **UX:** When a user makes a typo in a job/set name, suggest the closest valid name (e.g., "Did you mean 'Projects'?").
 *   **UX:** Add a `-BeepOnCompletion` switch that plays a system sound on success or failure.
 *   **UX:** In the final summary, show a count of jobs that succeeded, failed, or had warnings.
@@ -1552,10 +1551,8 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **UX:** Add a progress bar for the individual file copy operation in the `UNC.Target.psm1` provider for very large files.
 *   **UX:** In interactive job selection menu, display job descriptions next to job names if they exist.
 *   **UX:** Add a `-ShowConfigPath` switch to print the path(s) to the loaded configuration files and exit.
-*   **UX:** When `Sync-Schedules` runs, output the full command that will be executed by the scheduled task.
 *   **UX:** When a dependency fails, explicitly list which subsequent jobs were skipped as a direct result.
 *   **UX:** Add a `-Minimal` output switch that only shows banners, final status, and errors.
-*   **UX:** The `-Version` switch should also output the versions of key modules like `7ZipManager` and `Operations`.
 *   **UX:** When using `-GetEffectiveConfig`, display the source of the setting (e.g., "Global", "Set", "Job", "CLI").
 *   **UX:** Add a `-ListPins` command to show all currently pinned archives for a given job or destination.
 *   **UX:** The `-PinBackup` command should support wildcards to pin multiple archives at once.

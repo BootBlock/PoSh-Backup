@@ -37,6 +37,36 @@ catch {
 }
 #endregion
 
+#region --- Internal Helper: Draw Formatted Table ---
+function Write-FormattedTableRowInternal {
+    param(
+        [hashtable]$ColumnWidths,
+        [hashtable]$RowData,
+        [hashtable]$ColorMap = @{}
+    )
+
+    Write-Host "  " -NoNewline
+
+    # Define the order of columns to draw
+    $columnOrder = @('JobName', 'Enabled', 'Sources', 'DependsOn', 'Notes')
+
+    foreach ($colName in $columnOrder) {
+        $text = if ($RowData.ContainsKey($colName)) { [string]$RowData[$colName] } else { "" }
+        $width = $ColumnWidths[$colName]
+        $color = if ($ColorMap.ContainsKey($colName)) { $ColorMap[$colName] } else { $Global:ColourValue }
+
+        # Truncate if text is longer than the calculated width
+        if ($text.Length -gt $width) {
+            $text = $text.Substring(0, $width - 3) + "..."
+        }
+
+        Write-Host $text.PadRight($width) -NoNewline -ForegroundColor $color
+        Write-Host "  " -NoNewline # Column Separator
+    }
+    Write-Host
+}
+#endregion
+
 #region --- Private Helper: Compare Configs for Diff ---
 function Compare-PoShBackupConfigsInternal {
     [OutputType([System.Collections.Generic.List[string]])]
@@ -599,20 +629,61 @@ function Invoke-PoShBackupDiagnosticMode {
             Write-ConsoleBanner -NameText "Defined Backup Targets" -BannerWidth 78 -CenterText -PrependNewLine
             foreach ($targetNameKey in ($Configuration.BackupTargets.Keys | Sort-Object)) {
                 $targetConfType = $Configuration.BackupTargets[$targetNameKey].Type
-                Write-NameValue "  Target" "$targetNameKey (Type: $targetConfType)"
+                Write-NameValue "Target" "$targetNameKey (Type: $targetConfType)"
             }
         }
 
         if ($Configuration.BackupLocations -is [hashtable] -and $Configuration.BackupLocations.Count -gt 0) {
             Write-ConsoleBanner -NameText "Defined Backup Jobs" -BannerWidth 78 -CenterText -PrependNewLine
+        
+            # --- 1. Prepare Data and Calculate Column Widths ---
+            $jobDetailsList = [System.Collections.Generic.List[hashtable]]::new()
+            $maxWidths = @{ JobName = 10; Enabled = 7; Sources = 7; DependsOn = 10; Notes = 5 }
+
             foreach ($jobNameKey in ($Configuration.BackupLocations.Keys | Sort-Object)) {
                 $jobConf = $Configuration.BackupLocations[$jobNameKey]
-                $isEnabled = Get-ConfigValue -ConfigObject $jobConf -Key 'Enabled' -DefaultValue $true
-                $jobNameColor = if ($isEnabled) { $Global:ColourSuccess } else { $Global:ColourError }
-                & $LocalWriteLog -Message ("`n  Job: {0}" -f $jobNameKey) -Level "NONE" -ForegroundColour $jobNameColor
-                $sourcePathsDisplay = if ($jobConf.Path -is [array]) { $jobConf.Path -join "; " } else { $jobConf.Path }; & $LocalWriteLog -Message ("    Source(s)      : {0}" -f $sourcePathsDisplay) -Level "NONE"
-                if ($jobConf.ContainsKey('TargetNames') -and $jobConf.TargetNames -is [array] -and $jobConf.TargetNames.Count -gt 0) { & $LocalWriteLog -Message ("    Remote Targets : {0}" -f ($jobConf.TargetNames -join ", ")) -Level "NONE" }
-                $dependsOn = @(Get-ConfigValue -ConfigObject $jobConf -Key 'DependsOnJobs' -DefaultValue @()); if ($dependsOn.Count -gt 0) { & $LocalWriteLog -Message ("    Depends On     : {0}" -f ($dependsOn -join ", ")) -Level "NONE" }
+            
+                $notes = [System.Collections.Generic.List[string]]::new()
+                if ((@(Get-ConfigValue -ConfigObject $jobConf -Key 'TargetNames' -DefaultValue @())).Count -eq 0) { $notes.Add("Local Only") }
+                if ((Get-ConfigValue -ConfigObject $jobConf -Key 'EnableVSS' -DefaultValue $Configuration.EnableVSS) -ne $true) { $notes.Add("VSS Disabled") }
+                if ((Get-ConfigValue -ConfigObject $jobConf -Key 'CreateSFX' -DefaultValue $Configuration.DefaultCreateSFX) -eq $true) { $notes.Add("SFX") }
+                if (-not [string]::IsNullOrWhiteSpace((Get-ConfigValue -ConfigObject $jobConf -Key 'SplitVolumeSize' -DefaultValue $Configuration.DefaultSplitVolumeSize))) { $notes.Add("Splitting") }
+
+                $jobData = @{
+                    JobName   = $jobNameKey
+                    Enabled   = Get-ConfigValue -ConfigObject $jobConf -Key 'Enabled' -DefaultValue $true
+                    Sources   = if ($jobConf.Path -is [array]) { $jobConf.Path -join "; " } else { $jobConf.Path }
+                    DependsOn = (@(Get-ConfigValue -ConfigObject $jobConf -Key 'DependsOnJobs' -DefaultValue @()) -join ", ")
+                    Notes     = ($notes -join ", ")
+                }
+                $jobDetailsList.Add($jobData)
+
+                # Update max widths, with a hard cap for Sources to prevent overly wide tables
+                $maxWidths.JobName = [math]::Max($maxWidths.JobName, $jobData.JobName.Length)
+                $maxWidths.DependsOn = [math]::Max($maxWidths.DependsOn, $jobData.DependsOn.Length)
+                $maxWidths.Notes = [math]::Max($maxWidths.Notes, $jobData.Notes.Length)
+                $maxWidths.Sources = [math]::Max($maxWidths.Sources, $jobData.Sources.Length)
+                if ($maxWidths.Sources -gt 50) { $maxWidths.Sources = 50 } # Cap the Sources column width
+            }
+
+            # --- 2. Draw Header ---
+            $headerData = @{ JobName = "Job Name"; Enabled = "Enabled"; Sources = "Sources"; DependsOn = "Depends On"; Notes = "Notes" }
+            Write-FormattedTableRowInternal -ColumnWidths $maxWidths -RowData $headerData -ColorMap @{ Default = $Global:ColourHeading }
+        
+            $headerUnderline = @{}
+            $headerData.Keys | ForEach-Object { $headerUnderline[$_] = "-" * $maxWidths[$_] }
+            Write-FormattedTableRowInternal -ColumnWidths $maxWidths -RowData $headerUnderline -ColorMap @{ Default = $Global:ColourHeading }
+
+            # --- 3. Draw Data Rows ---
+            foreach ($job in $jobDetailsList) {
+                $colorMap = @{
+                    JobName   = $Global:ColourInfo
+                    Enabled   = if ($job.Enabled) { $Global:ColourSuccess } else { $Global:ColourError }
+                    Sources   = $Global:ColourValue
+                    DependsOn = "Gray"
+                    Notes     = "DarkGray"
+                }
+                Write-FormattedTableRowInternal -ColumnWidths $maxWidths -RowData $job -ColorMap $colorMap
             }
         }
 
