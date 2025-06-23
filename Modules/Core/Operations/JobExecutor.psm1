@@ -28,9 +28,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.7.0 # Added Snapshot orchestration and cleanup.
+    Version:        1.7.1 # Pass IsSimulateMode to snapshot cleanup handler.
     DateCreated:    30-May-2025
-    LastModified:   10-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        Handles the execution logic for individual backup jobs.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules and target provider modules.
@@ -203,7 +203,8 @@ function Invoke-PoShBackupJob {
         Invoke-PoShBackupSnapshotCleanup -SnapshotSession $snapshotSessionToCleanUp `
             -JobName $JobName `
             -Logger $Logger `
-            -PSCmdlet $PSCmdlet
+            -PSCmdlet $PSCmdlet `
+            -IsSimulateMode:$IsSimulateMode.IsPresent
 
         Invoke-PoShBackupVssCleanup -VSSPathsToCleanUp $VSSPathsToCleanUp `
             -JobName $JobName `

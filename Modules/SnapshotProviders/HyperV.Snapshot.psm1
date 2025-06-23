@@ -16,9 +16,9 @@
       and removing the VM checkpoint.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.9 # Corrected object leakage from Get-PoShBackupSnapshotPathsInternal.
+    Version:        1.1.0 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    10-Jun-2025
-    LastModified:   11-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        Hyper-V snapshot provider implementation for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires the 'Hyper-V' PowerShell module to be installed on the machine
@@ -133,10 +133,7 @@ function New-PoShBackupSnapshotInternal {
     }
 
     if ($IsSimulateMode.IsPresent) {
-        & $LocalWriteLog -Message "SIMULATE: Would connect to Hyper-V host '$hyperVHost'." -Level "SIMULATE"
-        & $LocalWriteLog -Message "SIMULATE: Would find VM '$ResourceToSnapshot'." -Level "SIMULATE"
-        & $LocalWriteLog -Message "SIMULATE: Would create application-consistent checkpoint for VM '$ResourceToSnapshot'." -Level "SIMULATE"
-        & $LocalWriteLog -Message "SIMULATE: Would mount the checkpoint's VHD(X) files, bring them online, and assign drive letters." -Level "SIMULATE"
+        & $LocalWriteLog -Message "SIMULATE: Would connect to Hyper-V host '$hyperVHost' and create an application-consistent checkpoint for VM '$ResourceToSnapshot'. The virtual disks from this checkpoint would then be mounted to make the data available for backup." -Level "SIMULATE"
         $result.Success = $true
         $result.SessionId = [guid]::NewGuid().ToString()
         $result.MountedVhdInfo = @{ "C:\Simulated\Path\To\VM.vhdx" = @{ Disk = "SIMULATED_DISK"; AssignedLetter = "G"; AssignedPartitionNumber = 2 } }
@@ -272,8 +269,18 @@ function Remove-PoShBackupSnapshotInternal {
         [Parameter(Mandatory = $true)]
         [hashtable]$SnapshotSession,
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet
+        [System.Management.Automation.PSCmdlet]$PSCmdlet,
+        [Parameter(Mandatory = $false)]
+        [switch]$IsSimulateMode
     )
+
+    if ($IsSimulateMode.IsPresent) {
+        Write-Verbose "SIMULATE: HyperV.Snapshot Provider: Would clean up snapshot for VM '$($SnapshotSession.VMName)'."
+        Write-Verbose "SIMULATE:   - Any manually assigned drive letters would be removed."
+        Write-Verbose "SIMULATE:   - All mounted VHD(X) files for this session would be dismounted."
+        Write-Verbose "SIMULATE:   - The Hyper-V checkpoint named '$($SnapshotSession.SnapshotObject.Name)' would be removed."
+        return
+    }
 
     $snapshotObject = $SnapshotSession.SnapshotObject
     $mountedVhdInfo = $SnapshotSession.MountedVhdInfo

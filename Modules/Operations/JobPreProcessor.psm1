@@ -23,9 +23,9 @@
     text password if retrieved, and a status indicating how to proceed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.6 # Fixed fatal error when all source paths are invalid with WarnAndContinue.
+    Version:        1.2.7 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    27-May-2025
-    LastModified:   22-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        To modularise pre-archive creation logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 and various Manager modules (Password, Hook, VSS, Snapshot).
@@ -90,7 +90,12 @@ function Invoke-PoShBackupJobPreProcessing {
         $destinationDirTerm = if ($EffectiveJobConfig.ResolvedTargetInstances.Count -eq 0) { "Final Destination Directory" } else { "Local Staging Directory" }
 
         #region --- Source Path Validation ---
-        & $LocalWriteLog -Message "`n[INFO] JobPreProcessor: Performing source path validation..." -Level INFO
+        if ($IsSimulateMode.IsPresent) {
+            & $LocalWriteLog -Message "SIMULATE: The existence and accessibility of all source paths would be verified." -Level "SIMULATE"
+        } else {
+            & $LocalWriteLog -Message "`n[INFO] JobPreProcessor: Performing source path validation..." -Level INFO
+        }
+
         $sourcePathsToCheck = @()
         if ($EffectiveJobConfig.OriginalSourcePath -is [array]) {
             $sourcePathsToCheck = $EffectiveJobConfig.OriginalSourcePath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
@@ -145,7 +150,9 @@ function Invoke-PoShBackupJobPreProcessing {
             $currentJobSourcePathFor7Zip = $validSourcePaths
             $reportData.EffectiveSourcePath = $validSourcePaths
         }
-        & $LocalWriteLog -Message "[INFO] JobPreProcessor: Source path validation completed." -Level INFO
+        if (-not $IsSimulateMode.IsPresent) {
+            & $LocalWriteLog -Message "[INFO] JobPreProcessor: Source path validation completed." -Level INFO
+        }
         #endregion
 
         if ([string]::IsNullOrWhiteSpace($EffectiveJobConfig.DestinationDir)) {
@@ -153,8 +160,11 @@ function Invoke-PoShBackupJobPreProcessing {
             throw (New-Object System.IO.DirectoryNotFoundException($preProcessingErrorMessage))
         }
         if (-not (Test-Path -LiteralPath $EffectiveJobConfig.DestinationDir -PathType Container)) {
-            & $LocalWriteLog -Message "[INFO] JobPreProcessor: ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)' for job '$JobName' does not exist. Attempting to create..."
-            if (-not $IsSimulateMode.IsPresent) {
+            if ($IsSimulateMode.IsPresent) {
+                & $LocalWriteLog -Message "SIMULATE: The ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)' would be created if it did not exist." -Level "SIMULATE"
+            }
+            else {
+                & $LocalWriteLog -Message "[INFO] JobPreProcessor: ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)' for job '$JobName' does not exist. Attempting to create..."
                 if ($PSCmdlet.ShouldProcess($EffectiveJobConfig.DestinationDir, "Create ${destinationDirTerm}")) {
                     try { New-Item -Path $EffectiveJobConfig.DestinationDir -ItemType Directory -Force -ErrorAction Stop | Out-Null; & $LocalWriteLog -Message "  - ${destinationDirTerm} created successfully." -Level SUCCESS }
                     catch {
@@ -167,9 +177,6 @@ function Invoke-PoShBackupJobPreProcessing {
                     & $LocalWriteLog -Message "[WARNING] JobPreProcessor: $preProcessingErrorMessage" -Level WARNING
                     return @{ Success = $false; Status = 'FailJob'; ErrorMessage = $preProcessingErrorMessage }
                 }
-            }
-            else {
-                & $LocalWriteLog -Message "SIMULATE: JobPreProcessor: Would create ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)'." -Level SIMULATE
             }
         }
 

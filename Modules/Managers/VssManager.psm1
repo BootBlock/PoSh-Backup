@@ -23,9 +23,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.5 # Added -Force switch for cleanup from catch blocks.
+    Version:        1.0.6 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    17-May-2025
-    LastModified:   17-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        Centralised VSS management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+. Administrator privileges.
                     Core PoSh-Backup module Utils.psm1 (for Write-LogMessage, Test-AdminPrivilege)
@@ -66,6 +66,11 @@ function Remove-VssManagerShadowCopyByIdInternal {
         }
     }
 
+    if ($IsSimulateMode.IsPresent) {
+         & $LocalWriteLog -Message "SIMULATE: The specific VSS snapshot with ID '$ShadowID' would be deleted." -Level SIMULATE
+         return
+    }
+
     if (-not $Force.IsPresent -and -not $PSCmdletInstance.ShouldProcess("VSS Shadow ID $ShadowID", "Delete using diskshadow.exe")) {
         & $LocalWriteLog -Message "  - VSS shadow ID $ShadowID deletion skipped by user (ShouldProcess)." -Level WARNING
         return
@@ -77,15 +82,11 @@ function Remove-VssManagerShadowCopyByIdInternal {
     try { $diskshadowScriptContentSingle | Set-Content -Path $tempScriptPathSingle -Encoding UTF8 -ErrorAction Stop }
     catch { & $LocalWriteLog -Message "[ERROR] VssManager: Failed to write single VSS shadow delete script to '$tempScriptPathSingle'. Manual cleanup of ID $ShadowID may be required. Error: $($_.Exception.Message)" -Level ERROR; return}
 
-    if (-not $IsSimulateMode.IsPresent) {
-        $procDeleteSingle = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempScriptPathSingle`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$null" -RedirectStandardError "$null"
-        if ($procDeleteSingle.ExitCode -ne 0) {
-            & $LocalWriteLog -Message "[WARNING] VssManager: diskshadow.exe failed to delete specific VSS shadow ID $ShadowID. Exit Code: $($procDeleteSingle.ExitCode). Manual cleanup may be needed." -Level WARNING
-        } else {
-            & $LocalWriteLog -Message "    - VssManager: Successfully initiated deletion of VSS shadow ID $ShadowID." -Level VSS
-        }
+    $procDeleteSingle = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempScriptPathSingle`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$null" -RedirectStandardError "$null"
+    if ($procDeleteSingle.ExitCode -ne 0) {
+        & $LocalWriteLog -Message "[WARNING] VssManager: diskshadow.exe failed to delete specific VSS shadow ID $ShadowID. Exit Code: $($procDeleteSingle.ExitCode). Manual cleanup may be needed." -Level WARNING
     } else {
-         & $LocalWriteLog -Message "SIMULATE: VssManager would execute diskshadow.exe to delete VSS shadow ID $ShadowID." -Level SIMULATE
+        & $LocalWriteLog -Message "    - VssManager: Successfully initiated deletion of VSS shadow ID $ShadowID." -Level VSS
     }
     Remove-Item -LiteralPath $tempScriptPathSingle -Force -ErrorAction SilentlyContinue
 }
@@ -171,21 +172,8 @@ function New-VSSShadowCopy {
         return $null
     }
 
-    $diskshadowScriptContent = @"
-SET CONTEXT $VSSContextOption
-SET METADATA CACHE "$MetadataCachePath"
-SET VERBOSE ON
-$($volumesToShadow | ForEach-Object { "ADD VOLUME $_ ALIAS Vol_$($_ -replace ':','')" })
-CREATE
-"@
-    $tempDiskshadowScriptFile = Join-Path -Path $env:TEMP -ChildPath "diskshadow_create_vss_$(Get-Random).txt"
-    try { $diskshadowScriptContent | Set-Content -Path $tempDiskshadowScriptFile -Encoding UTF8 -ErrorAction Stop }
-    catch { & $LocalWriteLog -Message "[ERROR] VssManager: Failed to write diskshadow script to '$tempDiskshadowScriptFile'. VSS creation aborted. Error: $($_.Exception.Message)" -Level ERROR; return $null }
-
-    & $LocalWriteLog -Message "  - VssManager: Generated diskshadow script: '$tempDiskshadowScriptFile' (Context: $VSSContextOption, Cache: '$MetadataCachePath')" -Level VSS
-
     if ($IsSimulateMode.IsPresent) {
-        & $LocalWriteLog -Message "SIMULATE: VssManager would execute diskshadow with script '$tempDiskshadowScriptFile' for volumes: $($volumesToShadow -join ', ')" -Level SIMULATE
+        & $LocalWriteLog -Message "SIMULATE: A VSS snapshot would be created for volume(s) $($volumesToShadow -join ', ') to allow for backing up open files. The original source paths would be temporarily mapped to shadow copy paths." -Level SIMULATE
         $SourcePathsToShadow | ForEach-Object {
             $currentSourcePath = $_
             try {
@@ -199,9 +187,21 @@ CREATE
                  $mappedShadowPaths[$currentSourcePath] = "$currentSourcePath (Original Path - VSS Simulation)"
             }
         }
-        Remove-Item -LiteralPath $tempDiskshadowScriptFile -Force -ErrorAction SilentlyContinue
         return $mappedShadowPaths
     }
+
+    $diskshadowScriptContent = @"
+SET CONTEXT $VSSContextOption
+SET METADATA CACHE "$MetadataCachePath"
+SET VERBOSE ON
+$($volumesToShadow | ForEach-Object { "ADD VOLUME $_ ALIAS Vol_$($_ -replace ':','')" })
+CREATE
+"@
+    $tempDiskshadowScriptFile = Join-Path -Path $env:TEMP -ChildPath "diskshadow_create_vss_$(Get-Random).txt"
+    try { $diskshadowScriptContent | Set-Content -Path $tempDiskshadowScriptFile -Encoding UTF8 -ErrorAction Stop }
+    catch { & $LocalWriteLog -Message "[ERROR] VssManager: Failed to write diskshadow script to '$tempDiskshadowScriptFile'. VSS creation aborted. Error: $($_.Exception.Message)" -Level ERROR; return $null }
+
+    & $LocalWriteLog -Message "  - VssManager: Generated diskshadow script: '$tempDiskshadowScriptFile' (Context: $VSSContextOption, Cache: '$MetadataCachePath')" -Level VSS
 
     if (-not $PSCmdlet.ShouldProcess("Volumes: $($volumesToShadow -join ', ')", "Create VSS Shadow Copies (diskshadow.exe)")) {
         & $LocalWriteLog -Message "  - VssManager: VSS shadow copy creation skipped by user (ShouldProcess)." -Level WARNING
@@ -345,6 +345,11 @@ function Remove-VSSShadowCopy {
         $shadowIdMapForRun.Clear(); return
     }
 
+    if ($IsSimulateMode.IsPresent) {
+        & $LocalWriteLog -Message "SIMULATE: The VSS snapshot(s) created for this job (IDs: $($shadowIdsToRemove -join ', ')) would be deleted to clean up the system." -Level SIMULATE
+        return
+    }
+
     if (-not $Force.IsPresent -and -not $PSCmdletInstance.ShouldProcess("VSS Shadow IDs: $($shadowIdsToRemove -join ', ')", "Delete All (diskshadow.exe)")) {
         & $LocalWriteLog -Message "  - VssManager: VSS shadow deletion skipped by user (ShouldProcess) for IDs: $($shadowIdsToRemove -join ', ')." -Level WARNING
         return
@@ -357,17 +362,13 @@ function Remove-VSSShadowCopy {
     catch { & $LocalWriteLog -Message "[ERROR] VssManager: Failed to write VSS deletion script to '$tempScriptPathAll'. Manual cleanup may be needed. Error: $($_.Exception.Message)" -Level ERROR; return }
 
     & $LocalWriteLog -Message "  - VssManager: Generated diskshadow VSS deletion script: '$tempScriptPathAll' for IDs: $($shadowIdsToRemove -join ', ')" -Level VSS
-
-    if (-not $IsSimulateMode.IsPresent) {
-        & $LocalWriteLog -Message "  - VssManager: Executing diskshadow.exe to delete VSS shadow copies..." -Level VSS
-        $processDeleteAll = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempScriptPathAll`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$null" -RedirectStandardError "$null"
-        if ($processDeleteAll.ExitCode -ne 0) {
-            & $LocalWriteLog -Message "[ERROR] VssManager: diskshadow.exe failed to delete one or more VSS shadows. Exit Code: $($processDeleteAll.ExitCode). Manual cleanup may be needed for ID(s): $($shadowIdsToRemove -join ', ')" -Level ERROR
-        } else {
-            & $LocalWriteLog -Message "  - VssManager: VSS shadow deletion process completed successfully." -Level VSS
-        }
+    
+    & $LocalWriteLog -Message "  - VssManager: Executing diskshadow.exe to delete VSS shadow copies..." -Level VSS
+    $processDeleteAll = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempScriptPathAll`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$null" -RedirectStandardError "$null"
+    if ($processDeleteAll.ExitCode -ne 0) {
+        & $LocalWriteLog -Message "[ERROR] VssManager: diskshadow.exe failed to delete one or more VSS shadows. Exit Code: $($processDeleteAll.ExitCode). Manual cleanup may be needed for ID(s): $($shadowIdsToRemove -join ', ')" -Level ERROR
     } else {
-        & $LocalWriteLog -Message "SIMULATE: VssManager would execute diskshadow.exe to delete VSS shadow IDs: $($shadowIdsToRemove -join ', ')." -Level SIMULATE
+        & $LocalWriteLog -Message "  - VssManager: VSS shadow deletion process completed successfully." -Level VSS
     }
     Remove-Item -LiteralPath $tempScriptPathAll -Force -ErrorAction SilentlyContinue
     $shadowIdMapForRun.Clear()

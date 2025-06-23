@@ -17,9 +17,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Added log compression feature.
+    Version:        1.3.3 # Fixed leaky simulation mode.
     DateCreated:    27-May-2025
-    LastModified:   14-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        Log file retention management and core message logging utility for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function and PSCmdlet instance to be passed to Invoke-LogFileRetention.
@@ -154,6 +154,23 @@ function Invoke-LogFileRetention {
         }
     }
 
+    if ($IsSimulateMode.IsPresent) {
+        # Get the count of files that *would* be processed to make the message accurate.
+        $safeJobNamePatternForFile = $JobNamePattern -replace '[^a-zA-Z0-9_-]', '_'
+        $fileFilter = "$($safeJobNamePatternForFile)_*.log"
+        $existingLogFileCount = 0
+        if (Test-Path -LiteralPath $LogDirectory -PathType Container) {
+            $existingLogFileCount = (Get-ChildItem -Path $LogDirectory -Filter $fileFilter -File -ErrorAction SilentlyContinue).Count
+        }
+        $logsToProcessCount = [math]::Max(0, $existingLogFileCount - $RetentionCount)
+        
+        if ($logsToProcessCount -gt 0) {
+            $actionWord = if ($CompressOldLogs) { "compress" } else { "permanently delete" }
+            & $LocalWriteLog -Message "SIMULATE: Would $actionWord $logsToProcessCount old log file(s) for job '$JobNamePattern' to meet retention count of $RetentionCount." -Level "SIMULATE"
+        }
+        return
+    }
+
     if ($RetentionCount -eq 0) {
         & $LocalWriteLog -Message "[INFO] LogManager: LogRetentionCount is 0 for job pattern '$JobNamePattern'. All log files will be kept." -Level "INFO"
         return
@@ -198,12 +215,7 @@ function Invoke-LogFileRetention {
             $archiveFullPath = Join-Path -Path $LogDirectory -ChildPath $archiveFileName
             $actionMessage = "Compress $($logFilesToDelete.Count) log files to '$archiveFullPath' and then delete originals"
 
-            if ($IsSimulateMode.IsPresent) {
-                & $LocalWriteLog -Message "SIMULATE: $actionMessage" -Level "SIMULATE"
-                return
-            }
-
-            if (-not $PSCmdletInstance.ShouldProcess($archiveFullPath, "Compress and Remove Old Logs")) {
+            if (-not $PSCmdletInstance.ShouldProcess($archiveFullPath, $actionMessage)) {
                 & $LocalWriteLog -Message "       - LogManager: Log compression for job pattern '$JobNamePattern' skipped by user (ShouldProcess)." -Level "WARNING"
                 return
             }

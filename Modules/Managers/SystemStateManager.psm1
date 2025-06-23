@@ -1,4 +1,4 @@
-# Modules\SystemStateManager.psm1
+# Modules\Managers\SystemStateManager.psm1
 <#
 .SYNOPSIS
     Manages system state changes like shutdown, restart, hibernate, logoff, sleep, or lock workstation,
@@ -14,9 +14,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2 # Added ShouldProcess support to Start-CancellableCountdownInternal.
+    Version:        1.1.0 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    22-May-2025
-    LastModified:   22-May-2025
+    LastModified:   23-Jun-2025
     Purpose:        To provide controlled system state change capabilities for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Administrator privileges may be required for actions like Shutdown, Restart, Hibernate.
@@ -199,9 +199,21 @@ function Invoke-SystemStateAction {
 
     if ($IsSimulateMode.IsPresent) {
         if ($DelaySeconds -gt 0) {
-            & $LocalWriteLog -Message "SIMULATE: SystemStateManager: Would start $DelaySeconds second cancellable countdown for action '$actionDisplayName'." -Level "SIMULATE"
+            & $LocalWriteLog -Message "SIMULATE: SystemStateManager: Would start a $DelaySeconds-second cancellable countdown before performing the action." -Level "SIMULATE"
         }
-        & $LocalWriteLog -Message "SIMULATE: SystemStateManager: Would perform system action: '$actionDisplayName'." -Level "SIMULATE"
+        $simulatedActionDescription = "an unknown action"
+        switch ($Action) {
+            "Shutdown"  { $simulatedActionDescription = "a system SHUTDOWN" }
+            "Restart"   { $simulatedActionDescription = "a system RESTART" }
+            "Hibernate" { $simulatedActionDescription = "system HIBERNATION" }
+            "LogOff"    { $simulatedActionDescription = "a user LOG OFF" }
+            "Sleep"     { $simulatedActionDescription = "system SLEEP" }
+            "Lock"      { $simulatedActionDescription = "a workstation LOCK" }
+        }
+        if ($ForceAction.IsPresent -and ($Action -in "Shutdown", "Restart")) {
+            $simulatedActionDescription = "a FORCED " + $simulatedActionDescription
+        }
+        & $LocalWriteLog -Message "SIMULATE: SystemStateManager: Would initiate $simulatedActionDescription." -Level "SIMULATE"
         return $true
     }
 

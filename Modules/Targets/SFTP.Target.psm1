@@ -31,9 +31,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Updated validation function to receive entire target instance.
+    Version:        1.2.1 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    22-May-2025
-    LastModified:   21-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        SFTP Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The 'Posh-SSH' module must be installed (Install-Module Posh-SSH).
@@ -65,7 +65,7 @@ function Get-SecretFromVaultInternal-Sftp {
         [string]$SecretPurposeForLog = "SFTP Credential"
     )
     # Defensive PSSA appeasement
-    & $Logger -Message "SFTP.Target/Get-SecretFromVaultInternal-Sftp: Logger active for secret '$SecretName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "SFTP.Target/Get-SecretFromVaultInternal-Sftp: Logger parameter active for secret '$SecretName'." -Level "DEBUG" -ErrorAction SilentlyContinue
     $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
 
     if ([string]::IsNullOrWhiteSpace($SecretName)) {
@@ -84,7 +84,7 @@ function Get-SecretFromVaultInternal-Sftp {
         }
         $secretValue = Get-Secret @getSecretParams
         if ($null -ne $secretValue) {
-            & $LocalWriteLog -Message ("  - GetSecret: Successfully retrieved secret '{0}' for {1}." -f $SecretName, $SecretPurposeForLog) -Level "DEBUG"
+            & $LocalWriteLog -Message ("  - GetSecret: Successfully retrieved secret object '{0}' for {1}." -f $SecretName, $SecretPurposeForLog) -Level "DEBUG"
             if ($secretValue.Secret -is [System.Security.SecureString]) {
                 $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secretValue.Secret)
                 $plainText = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
@@ -308,7 +308,6 @@ function Group-RemoteSFTPBackupInstancesInternal {
 
             $splitVolumePattern = "^($literalBase$literalExt)\.(\d{3,})$" # Matches "basename.priExt.001"
             $splitManifestPattern = "^($literalBase$literalExt)\.manifest\.[a-zA-Z0-9]+$" # Matches "basename.priExt.manifest.algo"
-
             $singleFilePattern = "^($literalBase$literalExt)$" # e.g. MyJob [DateStamp].7z (if $ArchiveExtension is .7z)
             $sfxFilePattern = "^($literalBase\.[a-zA-Z0-9]+)$" # Catches "JobName [DateStamp].exe" more broadly
             $sfxManifestPattern = "^($literalBase\.[a-zA-Z0-9]+)\.manifest\.[a-zA-Z0-9]+$" # Catches "JobName [DateStamp].exe.manifest.algo"
@@ -345,7 +344,7 @@ function Group-RemoteSFTPBackupInstancesInternal {
 
             if ($null -eq $instanceKey) {
                 & $LocalWriteLog -Message "SFTP.Target/GroupHelper: Could not determine instance key for remote file '$fileName'. Base: '$BaseNameToMatch', PrimaryExt: '$PrimaryArchiveExtension'. Skipping." -Level "VERBOSE"
-                continue # Skips to the next file in $remoteFileObjects
+                continue
             }
 
             if (-not $instances.ContainsKey($instanceKey)) {
@@ -491,18 +490,20 @@ function Invoke-PoShBackupTargetTransfer {
 
     # --- Simulation Mode ---
     if ($IsSimulateMode.IsPresent) {
-        & $LocalWriteLog -Message ("SIMULATE: SFTP Target '{0}': Would attempt to connect to '{1}:{2}' as '{3}'." -f $targetNameForLog, $sftpServer, $sftpPort, $sftpUser) -Level "SIMULATE"
-        if ($sftpKeyFilePathOnLocalMachine) { & $LocalWriteLog -Message ("SIMULATE:   Using key file (path retrieved from secret): '{0}'." -f $sftpKeyFilePathOnLocalMachine) -Level "SIMULATE" }
-        elseif ($sftpPassword) { & $LocalWriteLog -Message "SIMULATE:   Using password (retrieved from secret)." -Level "SIMULATE" }
-        else { & $LocalWriteLog -Message "SIMULATE:   No password or key file path provided from secrets." -Level "SIMULATE" }
-        & $LocalWriteLog -Message ("SIMULATE: SFTP Target '{0}': Would ensure remote directory '{1}' exists." -f $targetNameForLog, $remoteFinalDirectory) -Level "SIMULATE"
-        & $LocalWriteLog -Message ("SIMULATE: SFTP Target '{0}': Would upload '{1}' to '{2}'." -f $targetNameForLog, $LocalArchivePath, $fullRemoteArchivePath) -Level "SIMULATE"
+        $authMethod = if ($sftpKeyFilePathOnLocalMachine) { "a key file" } elseif ($sftpPassword) { "a password" } else { "an unknown method" }
+        $simMessage = "SIMULATE: An SFTP connection would be established to '$sftpServer' as user '$sftpUser' using $authMethod. "
+        $simMessage += "The remote directory '$remoteFinalDirectory' would be created if it does not exist. "
+        $simMessage += "The archive file '$ArchiveFileName' would then be uploaded to '$fullRemoteArchivePath'."
+        & $LocalWriteLog -Message $simMessage -Level "SIMULATE"
+
+        if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
+            $retentionKeepCount = $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount
+            & $LocalWriteLog -Message "SIMULATE: After the upload, the retention policy (Keep: $retentionKeepCount) would be applied to the remote directory '$remoteFinalDirectory'." -Level "SIMULATE"
+        }
+        
         $result.Success = $true
         $result.TransferSize = $LocalArchiveSizeBytes
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed
-        if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
-            & $LocalWriteLog -Message ("SIMULATE: SFTP Target '{0}': Would apply remote retention (KeepCount: {1}) in '{2}'." -f $targetNameForLog, $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount, $remoteFinalDirectory) -Level "SIMULATE"
-        }
         return $result
     }
 
@@ -618,8 +619,7 @@ function Invoke-PoShBackupTargetTransfer {
     }
     catch {
         $result.ErrorMessage = "SFTP Target '$targetNameForLog': Operation failed. Error: $($_.Exception.Message)"
-        & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"
-        $result.Success = $false
+        & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"; $result.Success = $false
     }
     finally {
         if ($sftpSessionId) {

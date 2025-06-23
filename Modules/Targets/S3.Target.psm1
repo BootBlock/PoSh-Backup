@@ -17,9 +17,9 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the S3 connection and settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Updated validation function to receive entire target instance.
+    Version:        1.2.1 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    17-Jun-2025
-    LastModified:   21-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        S3-Compatible Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The 'AWS.Tools.S3' module must be installed (`Install-Module AWS.Tools.S3`).
@@ -311,12 +311,13 @@ function Invoke-PoShBackupTargetTransfer {
     $result.RemotePath = "s3://$($s3Settings.BucketName)/$remoteObjectKey"
 
     if ($IsSimulateMode.IsPresent) {
-        & $LocalWriteLog -Message "SIMULATE: S3 Target '$targetNameForLog': Would upload '$LocalArchivePath' to Bucket '$($s3Settings.BucketName)' with Key '$remoteObjectKey'." -Level "SIMULATE"
+        $simMessage = "SIMULATE: The archive file '$ArchiveFileName' would be uploaded to Bucket '$($s3Settings.BucketName)' with the S3 Key '$remoteObjectKey'."
+        & $LocalWriteLog -Message $simMessage -Level "SIMULATE"
+        if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
+            & $LocalWriteLog -Message ("SIMULATE: After the upload, the retention policy (Keep: {0}) would be applied to objects under the prefix '{1}'." -f $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount, $remoteKeyPrefix) -Level "SIMULATE"
+        }
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
         $result.TransferSizeFormatted = Format-BytesInternal-S3 -Bytes $result.TransferSize
-        if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
-            & $LocalWriteLog -Message ("SIMULATE: S3 Target '{0}': Would apply remote retention (KeepCount: {1}) in Bucket '{2}' with Prefix '{3}'." -f $targetNameForLog, $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount, $s3Settings.BucketName, $remoteKeyPrefix) -Level "SIMULATE"
-        }
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
     }
 

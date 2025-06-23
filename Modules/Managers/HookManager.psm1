@@ -1,3 +1,4 @@
+# Modules\Managers\HookManager.psm1
 <#
 .SYNOPSIS
     Manages the execution of custom user-defined PowerShell hook scripts at various
@@ -23,9 +24,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.3
+    Version:        1.0.4 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    18-May-2025
-    LastModified:   22-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        Centralised management of user-defined hook script execution.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function passed via the -Logger parameter.
@@ -106,7 +107,7 @@ function Invoke-PoShBackupHook {
     $status = "Success" 
     try {
         if ($IsSimulateMode.IsPresent) {
-            & $LocalWriteLog -Message "SIMULATE: HookManager: Would execute $HookType script '$ScriptPath' with parameters: $($HookParameters | Out-String | ForEach-Object {$_.TrimEnd()})" -Level "SIMULATE"
+            & $LocalWriteLog -Message "SIMULATE: The $HookType script at '$ScriptPath' would be executed." -Level "SIMULATE"
             $outputLog.Add("SIMULATE: Script execution skipped due to simulation mode.")
             $status = "Simulated"
         }

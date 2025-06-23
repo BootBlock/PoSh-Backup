@@ -27,9 +27,9 @@
     - Applies log file retention policy for the completed job.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.0 # Added invocation command to log file header.
+    Version:        1.5.3 # Fixed typo in simulation logic.
     DateCreated:    25-May-2025
-    LastModified:   21-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        To centralise the main job/set processing loop from PoSh-Backup.ps1.
     Prerequisites:  PowerShell 5.1+.
                     Depends on ConfigManager.psm1, Operations.psm1, Reporting.psm1, and Utils.psm1.
@@ -257,8 +257,13 @@ function Invoke-PoShBackupRun {
             if ($Global:GlobalEnableFileLogging) {
                 $logDate = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
                 $safeJobNameForFile = $currentJobName -replace '[^a-zA-Z0-9_-]', '_'
-                if (-not [string]::IsNullOrWhiteSpace($Global:GlobalLogDirectory) -and (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
-                    $Global:GlobalLogFile = Join-Path -Path $Global:GlobalLogDirectory -ChildPath "$($safeJobNameForFile)_$($logDate).log"
+                $logFilePath = Join-Path -Path $Global:GlobalLogDirectory -ChildPath "$($safeJobNameForFile)_$($logDate).log"
+
+                if (-not $IsSimulateMode.IsPresent) {
+                    if (-not (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
+                        try { New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null } catch {}
+                    }
+                    $Global:GlobalLogFile = $logFilePath
                     try {
                         $mainScriptPath = Join-Path -Path $PSScriptRootForPaths -ChildPath "PoSh-Backup.ps1"
                         $mainScriptContent = Get-Content -LiteralPath $mainScriptPath -Raw -ErrorAction SilentlyContinue
@@ -266,15 +271,11 @@ function Invoke-PoShBackupRun {
                         $osInfo = (Get-CimInstance -ClassName Win32_OperatingSystem).Caption
                         $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
                         $isAdmin = Test-AdminPrivilege -Logger $Logger
-
-                        # TODO: Each iterated item needs to be proceeded by a # character.
                         $cliOverridesForLog = $CliOverrideSettings.GetEnumerator() | Where-Object { $null -ne $_.Value } | ForEach-Object { "    - $($_.Name) = $($_.Value)" }
                         if ($cliOverridesForLog.Count -eq 0) { $cliOverridesForLog = "#    (None)" }
-
                         $cliOverridesString = $cliOverridesForLog -join [Environment]::NewLine
                         $dependenciesForLog = if ($effectiveJobConfigForThisJob.DependsOnJobs.Count -gt 0) { $effectiveJobConfigForThisJob.DependsOnJobs -join ', ' } else { '(None)' }
                         $targetsForLog = if ($effectiveJobConfigForThisJob.TargetNames.Count -gt 0) { $effectiveJobConfigForThisJob.TargetNames -join ', ' } else { '(Local Only)' }
-
                         $logHeader = @"
 #==============================================================================
 # PoSh-Backup Log File
@@ -314,9 +315,11 @@ $cliOverridesString
                         Set-Content -Path $Global:GlobalLogFile -Value $logHeader -Encoding UTF8 -Force
                     }
                     catch { & $LocalWriteLog -Message "[WARNING] Failed to write header to log file '$($Global:GlobalLogFile)'. Error: $($_.Exception.Message)" -Level "WARNING" }
-                    & $LocalWriteLog -Message "[INFO] Logging for job '$currentJobName' to file: $($Global:GlobalLogFile)" -Level "INFO"
                 }
-                else { & $LocalWriteLog -Message "[WARNING] Log directory is not valid. File logging for job '$currentJobName' will be skipped." -Level "WARNING" }
+                else {
+                    & $LocalWriteLog -Message "SIMULATE: A log file would be created at: '$logFilePath'." -Level "SIMULATE"
+                }
+                & $LocalWriteLog -Message "[INFO] Logging for job '$currentJobName' to file: $($Global:GlobalLogFile)" -Level "INFO"
             }
 
             # --- Dependency Check ---
@@ -440,24 +443,28 @@ $cliOverridesString
         $_activeReportTypesForJob = $_finalJobReportTypes | Where-Object { $_ -ne "NONE" }
 
         if ($_activeReportTypesForJob.Count -gt 0) {
-            $defaultJobReportsDir = Join-Path -Path $PSScriptRootForPaths -ChildPath "Reports"
-            if (-not (Test-Path -LiteralPath $defaultJobReportsDir -PathType Container)) {
-                & $LocalWriteLog -Message "[INFO] Default reports directory '$defaultJobReportsDir' does not exist. Attempting to create..." -Level "INFO"
-                try {
-                    New-Item -Path $defaultJobReportsDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
-                    & $LocalWriteLog -Message "  - Default reports directory '$defaultJobReportsDir' created successfully." -Level "SUCCESS"
-                }
-                catch {
-                    & $LocalWriteLog -Message "[WARNING] Failed to create default reports directory '$defaultJobReportsDir'. Report generation may fail. Error: $($_.Exception.Message)" -Level "WARNING"
-                }
+            if ($IsSimulateMode.IsPresent) {
+                & $LocalWriteLog -Message "SIMULATE: Report generation for job '$currentJobName' would be performed for the following types: $($_activeReportTypesForJob -join ', ')." -Level "SIMULATE"
             }
-            # This is the second call that was failing:
-            Invoke-ReportGenerator -ReportDirectory $defaultJobReportsDir `
-                -JobName $currentJobName `
-                -ReportData $currentJobReportData `
-                -GlobalConfig $Configuration `
-                -JobConfig $jobConfigFromMainConfig `
-                -Logger $Logger
+            else {
+                $defaultJobReportsDir = Join-Path -Path $PSScriptRootForPaths -ChildPath "Reports"
+                if (-not (Test-Path -LiteralPath $defaultJobReportsDir -PathType Container)) {
+                    & $LocalWriteLog -Message "[INFO] Default reports directory '$defaultJobReportsDir' does not exist. Attempting to create..." -Level "INFO"
+                    try {
+                        New-Item -Path $defaultJobReportsDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+                        & $LocalWriteLog -Message "  - Default reports directory '$defaultJobReportsDir' created successfully." -Level "SUCCESS"
+                    }
+                    catch {
+                        & $LocalWriteLog -Message "[WARNING] Failed to create default reports directory '$defaultJobReportsDir'. Report generation may fail. Error: $($_.Exception.Message)" -Level "WARNING"
+                    }
+                }
+                Invoke-ReportGenerator -ReportDirectory $defaultJobReportsDir `
+                    -JobName $currentJobName `
+                    -ReportData $currentJobReportData `
+                    -GlobalConfig $Configuration `
+                    -JobConfig $jobConfigFromMainConfig `
+                    -Logger $Logger
+            }
 
             # --- Notification Logic ---
             if (Get-Command Invoke-PoShBackupNotification -ErrorAction SilentlyContinue) {

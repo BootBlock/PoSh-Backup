@@ -15,9 +15,9 @@
     - Terminating the script with an appropriate exit code based on the overall status.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Improved final summary output formatting.
+    Version:        1.2.1 # Fixed leaky simulation mode for report retention.
     DateCreated:    01-Jun-2025
-    LastModified:   20-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        To centralise script finalisation, summary, and exit logic.
     Prerequisites:  PowerShell 5.1+.
                     Requires Modules\Utilities\ConsoleDisplayUtils.psm1 and
@@ -64,6 +64,11 @@ function Invoke-ReportFileRetentionInternal {
     $retentionCount = $Configuration.DefaultReportRetentionCount
     $compressOld = $Configuration.CompressOldReports
     $compressFormat = $Configuration.OldReportCompressionFormat
+
+    if ($IsSimulateMode.IsPresent) {
+        & $LocalWriteLog -Message "SIMULATE: Report Retention Policy would be applied (Keep: $retentionCount, Compress: $compressOld)." -Level "SIMULATE"
+        return
+    }
 
     if ($retentionCount -eq 0) {
         & $LocalWriteLog -Message "[INFO] FinalisationManager: ReportRetentionCount is 0. All report files will be kept." -Level "INFO"
@@ -116,10 +121,6 @@ function Invoke-ReportFileRetentionInternal {
                 $archiveFullPath = Join-Path -Path $filesInInstance[0].DirectoryName -ChildPath $archiveFileName
                 $actionMessage = "Compress $($filesInInstance.Count) report file(s) for instance '$($instance.Name)' to '$archiveFullPath' and delete originals"
 
-                if ($IsSimulateMode.IsPresent) {
-                    & $LocalWriteLog -Message "SIMULATE: $actionMessage" -Level "SIMULATE"
-                    continue
-                }
                 if (-not $PSCmdletInstance.ShouldProcess($archiveFullPath, "Compress and Remove Old Reports")) {
                     & $LocalWriteLog -Message "       - Report compression for instance '$($instance.Name)' skipped by user." -Level "WARNING"
                     continue

@@ -11,9 +11,9 @@
     to ensure snapshots are always removed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Added IsSimulateMode passthrough.
     DateCreated:    10-Jun-2025
-    LastModified:   10-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        To modularise infrastructure snapshot cleanup logic for JobExecutor.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Modules\Managers\SnapshotManager.psm1.
@@ -39,7 +39,9 @@ function Invoke-PoShBackupSnapshotCleanup {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet
+        [System.Management.Automation.PSCmdlet]$PSCmdlet,
+        [Parameter(Mandatory = $false)]
+        [switch]$IsSimulateMode
     )
 
     & $Logger -Message "JobExecutor.SnapshotCleanupHandler/Invoke-PoShBackupSnapshotCleanup: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -53,7 +55,7 @@ function Invoke-PoShBackupSnapshotCleanup {
     if ($null -ne $SnapshotSession) {
         & $LocalWriteLog -Message "JobExecutor.SnapshotCleanupHandler: Initiating infrastructure snapshot cleanup via SnapshotManager for job '$JobName'." -Level "DEBUG"
         try {
-            Remove-PoShBackupSnapshot -SnapshotSession $SnapshotSession -PSCmdlet $PSCmdlet
+            Remove-PoShBackupSnapshot -SnapshotSession $SnapshotSession -PSCmdlet $PSCmdlet -IsSimulateMode:$IsSimulateMode.IsPresent
         }
         catch {
             # This catch block is a safeguard. The underlying functions should handle their own errors.

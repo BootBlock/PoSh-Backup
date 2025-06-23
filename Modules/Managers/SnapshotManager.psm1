@@ -18,9 +18,9 @@
     This facade approach allows PoSh-Backup to support various snapshot technologies in a pluggable manner.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.5 # Switched to Global scope for session tracking to fix cleanup.
+    Version:        1.0.6 # Added IsSimulateMode passthrough for cleanup.
     DateCreated:    10-Jun-2025
-    LastModified:   12-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        Facade for infrastructure snapshot management.
     Prerequisites:  PowerShell 5.1+.
                     Specific snapshot provider modules must exist in '.\Modules\SnapshotProviders\'.
@@ -162,7 +162,9 @@ function Remove-PoShBackupSnapshot {
         [Parameter(Mandatory = $true)]
         [hashtable]$SnapshotSession,
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet
+        [System.Management.Automation.PSCmdlet]$PSCmdlet,
+        [Parameter(Mandatory = $false)]
+        [switch]$IsSimulateMode
     )
     $sessionId = $SnapshotSession.SessionId
     if (-not $Global:PoShBackup_SnapshotManager_ActiveSessions.ContainsKey($sessionId)) {
@@ -188,7 +190,12 @@ function Remove-PoShBackupSnapshot {
     $providerFunctionCmd = Get-Command $invokeFunctionName -Module $providerModule -ErrorAction SilentlyContinue
 
     if ($providerFunctionCmd) {
-        & $providerFunctionCmd -SnapshotSession $SnapshotSession -PSCmdlet $PSCmdlet
+        $removeParams = @{
+            SnapshotSession = $SnapshotSession
+            PSCmdlet        = $PSCmdlet
+            IsSimulateMode  = $IsSimulateMode.IsPresent
+        }
+        & $providerFunctionCmd @removeParams
     }
     else {
         Write-Error "SnapshotManager: Active provider module for session '$sessionId' is missing the required function '$invokeFunctionName'."

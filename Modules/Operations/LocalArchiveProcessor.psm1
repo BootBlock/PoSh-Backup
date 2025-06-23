@@ -25,9 +25,9 @@
     It is designed to be called by the main Invoke-PoShBackupJob function in Operations.psm1.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.1 # Added Reason for Pin.
+    Version:        1.4.4 # Fixed checksum file path generation in simulation mode.
     DateCreated:    24-May-2025
-    LastModified:   22-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        To modularise local archive processing logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1, 7ZipManager.psm1, and PinManager.psm1.
@@ -181,6 +181,20 @@ function Invoke-LocalArchiveOperation {
         }
         $sevenZipArgsArray = Get-PoShBackup7ZipArgument @get7ZipArgsParams
 
+        # --- BUG FIX: Sanitize the TreatWarningsAsSuccess value before passing it ---
+        $sanitizedTreatWarnings = $false
+        $rawValueForWarnings = $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess
+        if ($rawValueForWarnings -is [bool]) {
+            $sanitizedTreatWarnings = $rawValueForWarnings
+        }
+        elseif ($rawValueForWarnings -is [string] -and $rawValueForWarnings.ToLowerInvariant() -eq 'true') {
+            $sanitizedTreatWarnings = $true
+        }
+        elseif ($rawValueForWarnings -is [int] -and $rawValueForWarnings -ne 0) {
+            $sanitizedTreatWarnings = $true
+        }
+        # --- END BUG FIX ---
+
         $sevenZipPathGlobal = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'SevenZipPath'
         $zipOpParams = @{
             SevenZipPathExe           = $sevenZipPathGlobal
@@ -192,7 +206,7 @@ function Invoke-LocalArchiveOperation {
             MaxRetries                = $EffectiveJobConfig.JobMaxRetryAttempts
             RetryDelaySeconds         = $EffectiveJobConfig.JobRetryDelaySeconds
             EnableRetries             = $EffectiveJobConfig.JobEnableRetries
-            TreatWarningsAsSuccess    = $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess
+            TreatWarningsAsSuccess    = $sanitizedTreatWarnings
             IsSimulateMode            = $IsSimulateMode.IsPresent
             Logger                    = $Logger
         }
@@ -244,7 +258,7 @@ function Invoke-LocalArchiveOperation {
 
                 $reportData.ContentsManifestFile = $contentsManifestFileName
                 if ($IsSimulateMode.IsPresent) {
-                    & $LocalWriteLog -Message "SIMULATE: Would list contents of '$archiveForManifestGeneration' and save to '$contentsManifestFileName'." -Level "SIMULATE"
+                    & $LocalWriteLog -Message "SIMULATE: A detailed manifest of all files within the archive would be generated and saved to '$contentsManifestFileName'." -Level "SIMULATE"
                     $reportData.ContentsManifestStatus = "Simulated"
                 }
                 elseif (Test-Path -LiteralPath $archiveForManifestGeneration -PathType Leaf) {
@@ -341,46 +355,45 @@ function Invoke-LocalArchiveOperation {
                 $fileToChecksumPath = $finalArchivePathForReturn
                 $archiveNameForInChecksumFile = Split-Path -Path $fileToChecksumPath -Leaf
 
-                $archiveFileItem = Get-Item -LiteralPath $fileToChecksumPath -ErrorAction SilentlyContinue
-
-                if ($null -ne $archiveFileItem -and $archiveFileItem.Exists) {
-                    $checksumFileNameWithExt = $archiveFileItem.Name + ".$checksumFileExtension"
-                    $checksumFileDir = $archiveFileItem.DirectoryName
+                if ($IsSimulateMode.IsPresent) {
+                    # In simulation mode, build the expected path without relying on Get-Item
+                    $checksumFileNameWithExt = $archiveFileNameOnly + ".$checksumFileExtension"
+                    $checksumFileDir = $EffectiveJobConfig.DestinationDir
                     $checksumFilePath = Join-Path -Path $checksumFileDir -ChildPath $checksumFileNameWithExt
                     $reportData.ArchiveChecksumFile = $checksumFilePath
-                }
-                else {
-                    & $LocalWriteLog -Message "[WARNING] Archive file '$fileToChecksumPath' not found. Cannot determine checksum file path details." -Level "WARNING"
-                    $reportData.ArchiveChecksumFile = "N/A (Source archive not found for checksum)"
-                }
-
-                if ($IsSimulateMode.IsPresent) {
-                    & $LocalWriteLog -Message "SIMULATE: Would generate $($EffectiveJobConfig.ChecksumAlgorithm) checksum for '$fileToChecksumPath' and save to '$checksumFilePath'." -Level "SIMULATE"
+                    & $LocalWriteLog -Message "SIMULATE: Would generate a $($EffectiveJobConfig.ChecksumAlgorithm) checksum for the archive '$fileToChecksumPath' and save it to '$checksumFilePath'." -Level "SIMULATE"
                     $reportData.ArchiveChecksum = "SIMULATED_CHECKSUM_VALUE"
-                }
-                elseif ($null -ne $archiveFileItem -and $archiveFileItem.Exists) {
-                    $generatedHash = Get-PoshBackupFileHash -FilePath $fileToChecksumPath -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger
-                    if ($null -ne $generatedHash) {
-                        $reportData.ArchiveChecksum = $generatedHash
-                        try {
-                            [System.IO.File]::WriteAllText($checksumFilePath, "$($generatedHash.ToUpperInvariant())  $($archiveNameForInChecksumFile)", [System.Text.Encoding]::UTF8)
-                            & $LocalWriteLog -Message "  - Checksum file created: '$checksumFilePath' with content: '$($generatedHash.ToUpperInvariant())  $($archiveNameForInChecksumFile)'" -Level "SUCCESS"
+                } else {
+                    $archiveFileItem = Get-Item -LiteralPath $fileToChecksumPath -ErrorAction SilentlyContinue
+                    if ($null -ne $archiveFileItem -and $archiveFileItem.Exists) {
+                        $checksumFileNameWithExt = $archiveFileItem.Name + ".$checksumFileExtension"
+                        $checksumFileDir = $archiveFileItem.DirectoryName
+                        $checksumFilePath = Join-Path -Path $checksumFileDir -ChildPath $checksumFileNameWithExt
+                        $reportData.ArchiveChecksumFile = $checksumFilePath
+
+                        $generatedHash = Get-PoshBackupFileHash -FilePath $fileToChecksumPath -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger
+                        if ($null -ne $generatedHash) {
+                            $reportData.ArchiveChecksum = $generatedHash
+                            try {
+                                [System.IO.File]::WriteAllText($checksumFilePath, "$($generatedHash.ToUpperInvariant())  $($archiveNameForInChecksumFile)", [System.Text.Encoding]::UTF8)
+                                & $LocalWriteLog -Message "  - Checksum file created: '$checksumFilePath' with content: '$($generatedHash.ToUpperInvariant())  $($archiveNameForInChecksumFile)'" -Level "SUCCESS"
+                            }
+                            catch {
+                                & $LocalWriteLog -Message "[ERROR] Failed to write checksum file '$checksumFilePath'. Error: $($_.Exception.Message)" -Level "ERROR"
+                                $reportData.ArchiveChecksum = "Error (Failed to write file)"
+                                if ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                            }
                         }
-                        catch {
-                            & $LocalWriteLog -Message "[ERROR] Failed to write checksum file '$checksumFilePath'. Error: $($_.Exception.Message)" -Level "ERROR"
-                            $reportData.ArchiveChecksum = "Error (Failed to write file)"
+                        else {
+                            & $LocalWriteLog -Message "[ERROR] Checksum generation failed for '$fileToChecksumPath'." -Level "ERROR"
+                            $reportData.ArchiveChecksum = "Error (Generation failed)"
                             if ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
                         }
                     }
                     else {
-                        & $LocalWriteLog -Message "[ERROR] Checksum generation failed for '$fileToChecksumPath'." -Level "ERROR"
-                        $reportData.ArchiveChecksum = "Error (Generation failed)"
-                        if ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                        & $LocalWriteLog -Message "[WARNING] Archive file '$fileToChecksumPath' not found. Skipping checksum generation." -Level "WARNING"
+                        $reportData.ArchiveChecksum = "Skipped (Archive not found)"
                     }
-                }
-                else {
-                    & $LocalWriteLog -Message "[WARNING] Archive file '$fileToChecksumPath' not found. Skipping checksum generation." -Level "WARNING"
-                    $reportData.ArchiveChecksum = "Skipped (Archive not found)"
                 }
             }
         }
@@ -392,165 +405,175 @@ function Invoke-LocalArchiveOperation {
         $shouldTestArchiveNow = $EffectiveJobConfig.JobTestArchiveAfterCreation -or $EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer
         $reportData.ArchiveTested = $shouldTestArchiveNow
 
-        if ($shouldTestArchiveNow -and ($currentLocalArchiveStatus -ne "FAILURE") -and (-not $IsSimulateMode.IsPresent) -and (Test-Path -LiteralPath $finalArchivePathForReturn -PathType Leaf)) {
-            $testArchiveParams = @{
-                SevenZipPathExe           = $sevenZipPathGlobal
-                ArchivePath               = $finalArchivePathForReturn
-                PlainTextPassword         = $ArchivePasswordPlainText
-                ProcessPriority           = $EffectiveJobConfig.JobSevenZipProcessPriority
-                SevenZipCpuAffinityString = $SevenZipCpuAffinityString
-                HideOutput                = $EffectiveJobConfig.HideSevenZipOutput
-                MaxRetries                = $EffectiveJobConfig.JobMaxRetryAttempts
-                RetryDelaySeconds         = $EffectiveJobConfig.JobRetryDelaySeconds
-                EnableRetries             = $EffectiveJobConfig.JobEnableRetries
-                TreatWarningsAsSuccess    = $EffectiveJobConfig.TreatWarningsAsSuccess
-                Logger                    = $Logger
+        if ($shouldTestArchiveNow -and ($currentLocalArchiveStatus -ne "FAILURE")) {
+            if ($IsSimulateMode.IsPresent) {
+                & $LocalWriteLog -Message "SIMULATE: Would test the integrity of the newly created archive '$finalArchivePathForReturn'." -Level "SIMULATE"
+                $reportData.ArchiveTestResult = "Not Performed (Simulation Mode)"
+                $reportData.ArchiveChecksumVerificationStatus = "Skipped (Simulation Mode)"
             }
-            if ((Get-Command Test-7ZipArchive).Parameters.ContainsKey('PSCmdlet')) {
-                $testArchiveParams.PSCmdlet = $PSCmdlet
-            }
-            $testResult = Test-7ZipArchive @testArchiveParams
-            $reportData.TestRetryAttemptsMade = $testResult.AttemptsMade
+            elseif (Test-Path -LiteralPath $finalArchivePathForReturn -PathType Leaf) {
+                $testArchiveParams = @{
+                    SevenZipPathExe           = $sevenZipPathGlobal
+                    ArchivePath               = $finalArchivePathForReturn
+                    PlainTextPassword         = $ArchivePasswordPlainText
+                    ProcessPriority           = $EffectiveJobConfig.JobSevenZipProcessPriority
+                    SevenZipCpuAffinityString = $SevenZipCpuAffinityString
+                    HideOutput                = $EffectiveJobConfig.HideSevenZipOutput
+                    MaxRetries                = $EffectiveJobConfig.JobMaxRetryAttempts
+                    RetryDelaySeconds         = $EffectiveJobConfig.JobRetryDelaySeconds
+                    EnableRetries             = $EffectiveJobConfig.JobEnableRetries
+                    TreatWarningsAsSuccess    = $sanitizedTreatWarnings
+                    Logger                    = $Logger
+                }
+                if ((Get-Command Test-7ZipArchive).Parameters.ContainsKey('PSCmdlet')) {
+                    $testArchiveParams.PSCmdlet = $PSCmdlet
+                }
+                $testResult = Test-7ZipArchive @testArchiveParams
+                $reportData.TestRetryAttemptsMade = $testResult.AttemptsMade
 
-            if ($testResult.ExitCode -eq 0) {
-                $reportData.ArchiveTestResult = "PASSED (7z t on first volume/archive)"
-            }
-            elseif ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatWarningsAsSuccess) {
-                $reportData.ArchiveTestResult = "PASSED (7z t Warning on first volume/archive, treated as success)"
+                if ($testResult.ExitCode -eq 0) {
+                    $reportData.ArchiveTestResult = "PASSED (7z t on first volume/archive)"
+                }
+                elseif ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess) {
+                    $reportData.ArchiveTestResult = "PASSED (7z t Warning on first volume/archive, treated as success)"
+                }
+                else {
+                    $reportData.ArchiveTestResult = "FAILED (7z t on first volume/archive Exit Code: $($testResult.ExitCode))"
+                    if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
+                    elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                }
+
+                if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize) -and `
+                        $EffectiveJobConfig.GenerateSplitArchiveManifest -and `
+                        $EffectiveJobConfig.VerifyArchiveChecksumOnTest -and `
+                    ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess))) {
+
+                    & $LocalWriteLog -Message "`n[INFO] Verifying archive volumes using manifest '$($reportData.ArchiveChecksumFile)'..." -Level "INFO"
+                    $reportData.ArchiveChecksumVerificationStatus = "Verification Attempted (Manifest)"
+                    $manifestFileForVerify = $reportData.ArchiveChecksumFile
+
+                    if (Test-Path -LiteralPath $manifestFileForVerify -PathType Leaf) {
+                        $allVolumesInManifestVerified = $true
+                        $manifestVerificationDetails = [System.Collections.Generic.List[string]]::new()
+                        try {
+                            $manifestEntries = Get-Content -LiteralPath $manifestFileForVerify -ErrorAction Stop
+                            foreach ($entryLine in $manifestEntries) {
+                                if ($entryLine -match "^\s*([a-fA-F0-9]+)\s\s+(.+)$") {
+                                    $storedVolHash = $Matches[1].Trim().ToUpperInvariant()
+                                    $volFileNameInManifest = $Matches[2].Trim()
+                                    $fullVolPathToVerify = Join-Path -Path $EffectiveJobConfig.DestinationDir -ChildPath $volFileNameInManifest
+
+                                    $manifestVerificationDetails.Add("Volume: $volFileNameInManifest, Expected Hash: $storedVolHash")
+
+                                    if (-not (Test-Path -LiteralPath $fullVolPathToVerify -PathType Leaf)) {
+                                        & $LocalWriteLog -Message "[ERROR] Manifest Verification - Volume '$volFileNameInManifest' listed in manifest not found at '$fullVolPathToVerify'." -Level "ERROR"
+                                        $manifestVerificationDetails.Add("  Status: MISSING")
+                                        $allVolumesInManifestVerified = $false; continue
+                                    }
+                                    $recalculatedVolHash = Get-PoshBackupFileHash -FilePath $fullVolPathToVerify -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger
+                                    if ($null -ne $recalculatedVolHash -and $recalculatedVolHash.Equals($storedVolHash, [System.StringComparison]::OrdinalIgnoreCase)) {
+                                        & $LocalWriteLog -Message "  - Manifest Verification - Volume '$volFileNameInManifest': Checksum VERIFIED." -Level "SUCCESS"
+                                        $manifestVerificationDetails.Add("  Status: VERIFIED")
+                                    }
+                                    elseif ($null -ne $recalculatedVolHash) {
+                                        & $LocalWriteLog -Message "[ERROR] Manifest Verification - Volume '$volFileNameInManifest': Checksum MISMATCH. Stored: $storedVolHash, Calculated: $recalculatedVolHash." -Level "ERROR"
+                                        $manifestVerificationDetails.Add("  Status: MISMATCH (Calculated: $recalculatedVolHash)")
+                                        $allVolumesInManifestVerified = $false
+                                    }
+                                    else {
+                                        & $LocalWriteLog -Message "[ERROR] Manifest Verification - Volume '$volFileNameInManifest': Failed to recalculate checksum." -Level "ERROR"
+                                        $manifestVerificationDetails.Add("  Status: RECALC_FAILED")
+                                        $allVolumesInManifestVerified = $false
+                                    }
+                                }
+                                elseif ($entryLine -match "ERROR_GENERATING_CHECKSUM\s\s+(.+)") {
+                                    $volFileNameInManifest = $Matches[1].Trim()
+                                    & $LocalWriteLog -Message "[WARNING] Manifest Verification - Volume '$volFileNameInManifest' had checksum generation error during manifest creation. Cannot verify." -Level "WARNING"
+                                    $manifestVerificationDetails.Add("Volume: $volFileNameInManifest, Status: SKIPPED (Original checksum error)")
+                                    $allVolumesInManifestVerified = $false
+                                }
+                            }
+                            $reportData.ArchiveChecksumVerificationStatus = if ($allVolumesInManifestVerified) { "Verified via Manifest (All Volumes OK)" } else { "Verification via Manifest FAILED (One or more volumes)" }
+                            $reportData.ArchiveTestResult += if ($allVolumesInManifestVerified) { " (Manifest OK)" } else { " (MANIFEST VERIFICATION FAILED/PARTIAL)" }
+                            if (-not $allVolumesInManifestVerified) {
+                                if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
+                                elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                            }
+                            $reportData.ManifestVerificationDetails = $manifestVerificationDetails -join [Environment]::NewLine
+                        }
+                        catch {
+                            & $LocalWriteLog -Message "[ERROR] Failed to read or parse manifest file '$manifestFileForVerify' for verification. Error: $($_.Exception.Message)" -Level "ERROR"
+                            $reportData.ArchiveChecksumVerificationStatus = "Error (Manifest file read/parse failed)"
+                            $reportData.ArchiveTestResult += " (Manifest Read Failed)"
+                            if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
+                            elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                        }
+                    }
+                    else {
+                        & $LocalWriteLog -Message "[WARNING] Manifest file '$manifestFileForVerify' not found. Cannot verify volumes via manifest." -Level "WARNING"
+                        $reportData.ArchiveChecksumVerificationStatus = "Skipped (Manifest file not found)"
+                        $reportData.ArchiveTestResult += " (Manifest File Missing for Verification)"
+                    }
+                }
+                elseif ($EffectiveJobConfig.VerifyArchiveChecksumOnTest -and $EffectiveJobConfig.GenerateArchiveChecksum -and `
+                    ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess))) {
+                    & $LocalWriteLog -Message "`n[INFO] Verifying single archive checksum for '$finalArchivePathForReturn'..." -Level "INFO"
+                    $checksumFileExtensionForVerify = $EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
+                    $checksumFilePathForVerify = "$($finalArchivePathForReturn).$checksumFileExtensionForVerify"
+                    $reportData.ArchiveChecksumVerificationStatus = "Verification Attempted (Single File/First Volume)"
+
+                    if (Test-Path -LiteralPath $checksumFilePathForVerify -PathType Leaf) {
+                        try {
+                            $checksumFileContent = Get-Content -LiteralPath $checksumFilePathForVerify -Raw -ErrorAction Stop
+                            $storedHashFromFile = ($checksumFileContent -split '\s+')[0].Trim().ToUpperInvariant()
+                            $recalculatedHash = Get-PoshBackupFileHash -FilePath $finalArchivePathForReturn -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger
+                            if ($null -ne $recalculatedHash -and $recalculatedHash.Equals($storedHashFromFile, [System.StringComparison]::OrdinalIgnoreCase)) {
+                                & $LocalWriteLog -Message "  - Checksum VERIFIED for '$finalArchivePathForReturn'. Stored: $storedHashFromFile, Calculated: $recalculatedHash." -Level "SUCCESS"
+                                $reportData.ArchiveChecksumVerificationStatus = "Verified Successfully"
+                                $reportData.ArchiveTestResult += " (Checksum OK)"
+                            }
+                            elseif ($null -ne $recalculatedHash) {
+                                & $LocalWriteLog -Message "[ERROR] Checksum MISMATCH for '$finalArchivePathForReturn'. Stored: $storedHashFromFile, Calculated: $recalculatedHash." -Level "ERROR"
+                                $reportData.ArchiveChecksumVerificationStatus = "Mismatch (Stored: $storedHashFromFile, Calc: $recalculatedHash)"
+                                $reportData.ArchiveTestResult += " (CHECKSUM MISMATCH)"
+                                if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
+                                elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                            }
+                            else {
+                                & $LocalWriteLog -Message "[ERROR] Failed to recalculate checksum for verification of '$finalArchivePathForReturn'." -Level "ERROR"
+                                $reportData.ArchiveChecksumVerificationStatus = "Error (Recalculation failed)"
+                                $reportData.ArchiveTestResult += " (Checksum Recalc Failed)"
+                                if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
+                                elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                            }
+                        }
+                        catch {
+                            & $LocalWriteLog -Message "[ERROR] Failed to read checksum file '$checksumFilePathForVerify' for verification. Error: $($_.Exception.Message)" -Level "ERROR"
+                            $reportData.ArchiveChecksumVerificationStatus = "Error (Checksum file read failed)"
+                            $reportData.ArchiveTestResult += " (Checksum File Read Failed)"
+                            if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
+                            elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                        }
+                    }
+                    else {
+                        & $LocalWriteLog -Message "[WARNING] Checksum file '$checksumFilePathForVerify' not found. Cannot verify checksum." -Level "WARNING"
+                        $reportData.ArchiveChecksumVerificationStatus = "Skipped (Checksum file not found)"
+                        $reportData.ArchiveTestResult += " (Checksum File Missing)"
+                    }
+                }
+                elseif ($EffectiveJobConfig.VerifyArchiveChecksumOnTest -and ($EffectiveJobConfig.GenerateArchiveChecksum -or $EffectiveJobConfig.GenerateSplitArchiveManifest)) {
+                    & $LocalWriteLog -Message "[INFO] Checksum/Manifest verification skipped because 7z archive test failed or was treated as failure." -Level "INFO"
+                    $reportData.ArchiveChecksumVerificationStatus = "Skipped (7z test failed)"
+                }
+                elseif ($EffectiveJobConfig.VerifyArchiveChecksumOnTest -and (-not $EffectiveJobConfig.GenerateArchiveChecksum) -and (-not $EffectiveJobConfig.GenerateSplitArchiveManifest)) {
+                    & $LocalWriteLog -Message "[INFO] Checksum/Manifest verification skipped because checksum/manifest generation was disabled." -Level "INFO"
+                    $reportData.ArchiveChecksumVerificationStatus = "Skipped (Generation disabled)"
+                }
             }
             else {
-                $reportData.ArchiveTestResult = "FAILED (7z t on first volume/archive Exit Code: $($testResult.ExitCode))"
-                if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
-                elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
+                $reportData.ArchiveTestResult = if ($IsSimulateMode.IsPresent) { "Not Performed (Simulation Mode)" } else { "Not Performed (Archive Missing or Prior Compression Error)" }
+                $reportData.ArchiveChecksumVerificationStatus = "Skipped (Archive test not performed)"
             }
-
-            if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize) -and `
-                    $EffectiveJobConfig.GenerateSplitArchiveManifest -and `
-                    $EffectiveJobConfig.VerifyArchiveChecksumOnTest -and `
-                ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatWarningsAsSuccess))) {
-
-                & $LocalWriteLog -Message "`n[INFO] Verifying archive volumes using manifest '$($reportData.ArchiveChecksumFile)'..." -Level "INFO"
-                $reportData.ArchiveChecksumVerificationStatus = "Verification Attempted (Manifest)"
-                $manifestFileForVerify = $reportData.ArchiveChecksumFile
-
-                if (Test-Path -LiteralPath $manifestFileForVerify -PathType Leaf) {
-                    $allVolumesInManifestVerified = $true
-                    $manifestVerificationDetails = [System.Collections.Generic.List[string]]::new()
-                    try {
-                        $manifestEntries = Get-Content -LiteralPath $manifestFileForVerify -ErrorAction Stop
-                        foreach ($entryLine in $manifestEntries) {
-                            if ($entryLine -match "^\s*([a-fA-F0-9]+)\s\s+(.+)$") {
-                                $storedVolHash = $Matches[1].Trim().ToUpperInvariant()
-                                $volFileNameInManifest = $Matches[2].Trim()
-                                $fullVolPathToVerify = Join-Path -Path $EffectiveJobConfig.DestinationDir -ChildPath $volFileNameInManifest
-
-                                $manifestVerificationDetails.Add("Volume: $volFileNameInManifest, Expected Hash: $storedVolHash")
-
-                                if (-not (Test-Path -LiteralPath $fullVolPathToVerify -PathType Leaf)) {
-                                    & $LocalWriteLog -Message "[ERROR] Manifest Verification - Volume '$volFileNameInManifest' listed in manifest not found at '$fullVolPathToVerify'." -Level "ERROR"
-                                    $manifestVerificationDetails.Add("  Status: MISSING")
-                                    $allVolumesInManifestVerified = $false; continue
-                                }
-                                $recalculatedVolHash = Get-PoshBackupFileHash -FilePath $fullVolPathToVerify -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger
-                                if ($null -ne $recalculatedVolHash -and $recalculatedVolHash.Equals($storedVolHash, [System.StringComparison]::OrdinalIgnoreCase)) {
-                                    & $LocalWriteLog -Message "  - Manifest Verification - Volume '$volFileNameInManifest': Checksum VERIFIED." -Level "SUCCESS"
-                                    $manifestVerificationDetails.Add("  Status: VERIFIED")
-                                }
-                                elseif ($null -ne $recalculatedVolHash) {
-                                    & $LocalWriteLog -Message "[ERROR] Manifest Verification - Volume '$volFileNameInManifest': Checksum MISMATCH. Stored: $storedVolHash, Calculated: $recalculatedVolHash." -Level "ERROR"
-                                    $manifestVerificationDetails.Add("  Status: MISMATCH (Calculated: $recalculatedVolHash)")
-                                    $allVolumesInManifestVerified = $false
-                                }
-                                else {
-                                    & $LocalWriteLog -Message "[ERROR] Manifest Verification - Volume '$volFileNameInManifest': Failed to recalculate checksum." -Level "ERROR"
-                                    $manifestVerificationDetails.Add("  Status: RECALC_FAILED")
-                                    $allVolumesInManifestVerified = $false
-                                }
-                            }
-                            elseif ($entryLine -match "ERROR_GENERATING_CHECKSUM\s\s+(.+)") {
-                                $volFileNameInManifest = $Matches[1].Trim()
-                                & $LocalWriteLog -Message "[WARNING] Manifest Verification - Volume '$volFileNameInManifest' had checksum generation error during manifest creation. Cannot verify." -Level "WARNING"
-                                $manifestVerificationDetails.Add("Volume: $volFileNameInManifest, Status: SKIPPED (Original checksum error)")
-                                $allVolumesInManifestVerified = $false
-                            }
-                        }
-                        $reportData.ArchiveChecksumVerificationStatus = if ($allVolumesInManifestVerified) { "Verified via Manifest (All Volumes OK)" } else { "Verification via Manifest FAILED (One or more volumes)" }
-                        $reportData.ArchiveTestResult += if ($allVolumesInManifestVerified) { " (Manifest OK)" } else { " (MANIFEST VERIFICATION FAILED/PARTIAL)" }
-                        if (-not $allVolumesInManifestVerified) {
-                            if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
-                            elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
-                        }
-                        $reportData.ManifestVerificationDetails = $manifestVerificationDetails -join [Environment]::NewLine
-                    }
-                    catch {
-                        & $LocalWriteLog -Message "[ERROR] Failed to read or parse manifest file '$manifestFileForVerify' for verification. Error: $($_.Exception.Message)" -Level "ERROR"
-                        $reportData.ArchiveChecksumVerificationStatus = "Error (Manifest file read/parse failed)"
-                        $reportData.ArchiveTestResult += " (Manifest Read Failed)"
-                        if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
-                        elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
-                    }
-                }
-                else {
-                    & $LocalWriteLog -Message "[WARNING] Manifest file '$manifestFileForVerify' not found. Cannot verify volumes via manifest." -Level "WARNING"
-                    $reportData.ArchiveChecksumVerificationStatus = "Skipped (Manifest file not found)"
-                    $reportData.ArchiveTestResult += " (Manifest File Missing for Verification)"
-                }
-            }
-            elseif ($EffectiveJobConfig.VerifyArchiveChecksumOnTest -and $EffectiveJobConfig.GenerateArchiveChecksum -and `
-                ($testResult.ExitCode -eq 0 -or ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatWarningsAsSuccess))) {
-                & $LocalWriteLog -Message "`n[INFO] Verifying single archive checksum for '$finalArchivePathForReturn'..." -Level "INFO"
-                $checksumFileExtensionForVerify = $EffectiveJobConfig.ChecksumAlgorithm.ToLowerInvariant()
-                $checksumFilePathForVerify = "$($finalArchivePathForReturn).$checksumFileExtensionForVerify"
-                $reportData.ArchiveChecksumVerificationStatus = "Verification Attempted (Single File/First Volume)"
-
-                if (Test-Path -LiteralPath $checksumFilePathForVerify -PathType Leaf) {
-                    try {
-                        $checksumFileContent = Get-Content -LiteralPath $checksumFilePathForVerify -Raw -ErrorAction Stop
-                        $storedHashFromFile = ($checksumFileContent -split '\s+')[0].Trim().ToUpperInvariant()
-                        $recalculatedHash = Get-PoshBackupFileHash -FilePath $finalArchivePathForReturn -Algorithm $EffectiveJobConfig.ChecksumAlgorithm -Logger $Logger
-                        if ($null -ne $recalculatedHash -and $recalculatedHash.Equals($storedHashFromFile, [System.StringComparison]::OrdinalIgnoreCase)) {
-                            & $LocalWriteLog -Message "  - Checksum VERIFIED for '$finalArchivePathForReturn'. Stored: $storedHashFromFile, Calculated: $recalculatedHash." -Level "SUCCESS"
-                            $reportData.ArchiveChecksumVerificationStatus = "Verified Successfully"
-                            $reportData.ArchiveTestResult += " (Checksum OK)"
-                        }
-                        elseif ($null -ne $recalculatedHash) {
-                            & $LocalWriteLog -Message "[ERROR] Checksum MISMATCH for '$finalArchivePathForReturn'. Stored: $storedHashFromFile, Calculated: $recalculatedHash." -Level "ERROR"
-                            $reportData.ArchiveChecksumVerificationStatus = "Mismatch (Stored: $storedHashFromFile, Calc: $recalculatedHash)"
-                            $reportData.ArchiveTestResult += " (CHECKSUM MISMATCH)"
-                            if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
-                            elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
-                        }
-                        else {
-                            & $LocalWriteLog -Message "[ERROR] Failed to recalculate checksum for verification of '$finalArchivePathForReturn'." -Level "ERROR"
-                            $reportData.ArchiveChecksumVerificationStatus = "Error (Recalculation failed)"
-                            $reportData.ArchiveTestResult += " (Checksum Recalc Failed)"
-                            if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
-                            elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
-                        }
-                    }
-                    catch {
-                        & $LocalWriteLog -Message "[ERROR] Failed to read checksum file '$checksumFilePathForVerify' for verification. Error: $($_.Exception.Message)" -Level "ERROR"
-                        $reportData.ArchiveChecksumVerificationStatus = "Error (Checksum file read failed)"
-                        $reportData.ArchiveTestResult += " (Checksum File Read Failed)"
-                        if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentLocalArchiveStatus = "FAILURE" }
-                        elseif ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" }
-                    }
-                }
-                else {
-                    & $LocalWriteLog -Message "[WARNING] Checksum file '$checksumFilePathForVerify' not found. Cannot verify checksum." -Level "WARNING"
-                    $reportData.ArchiveChecksumVerificationStatus = "Skipped (Checksum file not found)"
-                    $reportData.ArchiveTestResult += " (Checksum File Missing)"
-                }
-            }
-            elseif ($EffectiveJobConfig.VerifyArchiveChecksumOnTest -and ($EffectiveJobConfig.GenerateArchiveChecksum -or $EffectiveJobConfig.GenerateSplitArchiveManifest)) {
-                & $LocalWriteLog -Message "[INFO] Checksum/Manifest verification skipped because 7z archive test failed or was treated as failure." -Level "INFO"
-                $reportData.ArchiveChecksumVerificationStatus = "Skipped (7z test failed)"
-            }
-            elseif ($EffectiveJobConfig.VerifyArchiveChecksumOnTest -and (-not $EffectiveJobConfig.GenerateArchiveChecksum) -and (-not $EffectiveJobConfig.GenerateSplitArchiveManifest)) {
-                & $LocalWriteLog -Message "[INFO] Checksum/Manifest verification skipped because checksum/manifest generation was disabled." -Level "INFO"
-                $reportData.ArchiveChecksumVerificationStatus = "Skipped (Generation disabled)"
-            }
-
         }
         elseif ($shouldTestArchiveNow) {
             $reportData.ArchiveTestResult = if ($IsSimulateMode.IsPresent) { "Not Performed (Simulation Mode)" } else { "Not Performed (Archive Missing or Prior Compression Error)" }
@@ -590,7 +613,7 @@ function Invoke-LocalArchiveOperation {
             $pathToPin = $finalArchivePathFor7ZipCommand # e.g., "D:\Backups\MyJob [Date].7z"
 
             if ($IsSimulateMode.IsPresent) {
-                & $LocalWriteLog -Message "SIMULATE: Would pin archive by creating marker file for '$pathToPin'." -Level "SIMULATE"
+                & $LocalWriteLog -Message "SIMULATE: Would pin the new backup by creating a marker file for '$pathToPin'." -Level "SIMULATE"
                 $reportData.ArchivePinned = "Simulated"
             }
             elseif (Test-Path -LiteralPath $finalArchivePathForReturn -PathType Leaf) {

@@ -10,9 +10,9 @@
     and a retry loop to handle file-locking race conditions.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.1 # Added retry loop to deletion to handle file locks.
+    Version:        1.1.2 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    29-May-2025
-    LastModified:   17-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        Backup archive deletion logic for RetentionManager.
     Prerequisites:  PowerShell 5.1+.
                     Microsoft.VisualBasic assembly for Recycle Bin functionality.
@@ -124,35 +124,48 @@ function Remove-OldBackupArchiveInstance {
                 continue
             }
 
-            $passwordForTest = $null
-            if ($EffectiveJobConfig.PasswordInUseFor7Zip) {
-                $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $EffectiveJobConfig -JobName "Retention Test for $($EffectiveJobConfig.JobName)" -Logger $Logger
-                $passwordForTest = $passwordResult.PlainTextPassword
-            }
-            
-            $testResult = Test-7ZipArchive -SevenZipPathExe $EffectiveJobConfig.GlobalConfigRef.SevenZipPath `
-                                            -ArchivePath $fileToTest.FullName `
-                                            -PlainTextPassword $passwordForTest `
-                                            -TreatWarningsAsSuccess $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess `
-                                            -Logger $Logger
-            
-            if ($testResult.ExitCode -ne 0 -and ($testResult.ExitCode -ne 1 -or -not $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess)) {
-                & $LocalWriteLog -Message "[CRITICAL] SAFETY HALT: Integrity test FAILED for old archive instance '$instanceIdentifierToDelete' (Exit Code: $($testResult.ExitCode)). This instance WILL NOT be deleted by retention to prevent data loss." -Level "ERROR"
-                continue # Skip to the next instance, do not delete this one.
+            if ($IsSimulateMode.IsPresent) {
+                & $LocalWriteLog -Message "SIMULATE: The integrity of archive instance '$instanceIdentifierToDelete' would be tested before deletion." -Level "SIMULATE"
             } else {
-                & $LocalWriteLog -Message "     - Integrity test PASSED for old archive instance '$instanceIdentifierToDelete'. Proceeding with deletion." -Level "SUCCESS"
+                $passwordForTest = $null
+                if ($EffectiveJobConfig.PasswordInUseFor7Zip) {
+                    $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $EffectiveJobConfig -JobName "Retention Test for $($EffectiveJobConfig.JobName)" -Logger $Logger
+                    $passwordForTest = $passwordResult.PlainTextPassword
+                }
+                
+                $testResult = Test-7ZipArchive -SevenZipPathExe $EffectiveJobConfig.GlobalConfigRef.SevenZipPath `
+                                                -ArchivePath $fileToTest.FullName `
+                                                -PlainTextPassword $passwordForTest `
+                                                -TreatWarningsAsSuccess $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess `
+                                                -Logger $Logger
+                
+                if ($testResult.ExitCode -ne 0 -and ($testResult.ExitCode -ne 1 -or -not $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess)) {
+                    & $LocalWriteLog -Message "[CRITICAL] SAFETY HALT: Integrity test FAILED for old archive instance '$instanceIdentifierToDelete' (Exit Code: $($testResult.ExitCode)). This instance WILL NOT be deleted by retention to prevent data loss." -Level "ERROR"
+                    continue # Skip to the next instance, do not delete this one.
+                } else {
+                    & $LocalWriteLog -Message "     - Integrity test PASSED for old archive instance '$instanceIdentifierToDelete'. Proceeding with deletion." -Level "SUCCESS"
+                }
             }
         }
         # --- END: Test Before Delete Logic ---
 
+        if ($IsSimulateMode.IsPresent) {
+            $simMessage = "SIMULATE: The backup instance '$instanceIdentifierToDelete' (created on '$instanceSortTime') would be removed to comply with retention policy."
+            if ($EffectiveSendToRecycleBin) {
+                $simMessage += " The files would be sent to the Recycle Bin."
+            } else {
+                $simMessage += " The files would be permanently deleted."
+            }
+            if ($EffectiveJobConfig.TestArchiveBeforeDeletion) {
+                $simMessage += " This would happen only after a successful integrity test of the archive."
+            }
+            & $LocalWriteLog -Message $simMessage -Level "SIMULATE"
+            continue
+        }
+
         foreach ($fileToDeleteInfo in $instanceFilesToDelete) {
             $deleteActionMessage = if ($EffectiveSendToRecycleBin) {"Send to Recycle Bin"} else {"Permanently Delete"}
             $shouldProcessTarget = $fileToDeleteInfo.FullName
-
-            if ($IsSimulateMode.IsPresent) {
-                & $LocalWriteLog -Message "       - SIMULATE: Would $deleteActionMessage '$($fileToDeleteInfo.FullName)' (Part of instance '$instanceIdentifierToDelete', Created: $($fileToDeleteInfo.CreationTime))" -Level "SIMULATE"
-                continue
-            }
 
             if (-not $PSCmdlet.ShouldProcess($shouldProcessTarget, $deleteActionMessage)) {
                 & $LocalWriteLog -Message "       - RetentionManager/Deleter: Deletion of file '$($fileToDeleteInfo.FullName)' skipped by user (ShouldProcess)." -Level "WARNING"

@@ -10,9 +10,9 @@
     and notification settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.4 # Added Reason for pinning.
+    Version:        1.4.5 # Fixed boolean conversion bug for TreatSevenZipWarningsAsSuccess.
     DateCreated:    30-May-2025
-    LastModified:   22-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        Operational settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -117,10 +117,22 @@ function Resolve-OperationalConfiguration {
     $resolvedSettings.JobRetryDelaySeconds = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetryDelaySeconds' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetryDelaySeconds' -DefaultValue 60)
 
     # Treat 7-Zip Warnings As Success
-    if ($null -ne $CliOverrides.TreatSevenZipWarningsAsSuccess) {
-        $resolvedSettings.TreatSevenZipWarningsAsSuccess = $CliOverrides.TreatSevenZipWarningsAsSuccess
+    $treatWarningsRawValue = if ($null -ne $CliOverrides.TreatSevenZipWarningsAsSuccess) {
+        $CliOverrides.TreatSevenZipWarningsAsSuccess
     } else {
-        $resolvedSettings.TreatSevenZipWarningsAsSuccess = Get-ConfigValue -ConfigObject $JobConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue $false)
+        Get-ConfigValue -ConfigObject $JobConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue $false)
+    }
+
+    # Sanitize the raw value to ensure it's a valid boolean. This prevents errors if a user puts "" in the config.
+    if ($treatWarningsRawValue -is [bool]) {
+        $resolvedSettings.TreatSevenZipWarningsAsSuccess = $treatWarningsRawValue
+    } elseif ($treatWarningsRawValue -is [string] -and $treatWarningsRawValue.ToLowerInvariant() -eq 'true') {
+        $resolvedSettings.TreatSevenZipWarningsAsSuccess = $true
+    } elseif ($treatWarningsRawValue -is [int] -and $treatWarningsRawValue -ne 0) {
+        $resolvedSettings.TreatSevenZipWarningsAsSuccess = $true
+    } else {
+        # Anything else (empty string, "false", random text, 0) becomes false. This is a safe default.
+        $resolvedSettings.TreatSevenZipWarningsAsSuccess = $false
     }
 
     # 7-Zip Process Priority

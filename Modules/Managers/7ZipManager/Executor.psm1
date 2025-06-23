@@ -11,9 +11,9 @@
     an option to verify internal file checksums (CRCs).
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added -VerifyCRC switch to Test-7ZipArchive.
+    Version:        1.2.1 # Fixed bug in simulation message logic.
     DateCreated:    29-May-2025
-    LastModified:   13-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        7-Zip command execution logic for 7ZipManager.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 (for logger functionality if used directly, though logger is passed, and for Write-ConsoleBanner).
@@ -178,8 +178,39 @@ function Invoke-7ZipOperation {
     while ($currentTry -lt $actualMaxTries) {
         $currentTry++; $attemptsMade = $currentTry
         if ($IsSimulateMode.IsPresent) {
-            $affinitySimMsg = if (-not [string]::IsNullOrWhiteSpace($originalSevenZipCpuAffinityString)) { " (Affinity input: '$originalSevenZipCpuAffinityString', Effective: $finalAffinityStringForLog)" } elseif ($finalAffinityStringForLog -ne "None (Not configured)") { " (Affinity: $finalAffinityStringForLog)" } else { " (Affinity: Not configured)" }
-            & $LocalWriteLog -Message "SIMULATE: 7ZipManager/Executor/7-Zip Operation (Attempt $currentTry/$actualMaxTries would be): `"$SevenZipPathExe`" $argumentStringForProcess$affinitySimMsg" -Level SIMULATE
+            # --- Enhanced Simulation Message Logic ---
+            $action = $SevenZipArguments[0]
+            switch ($action) {
+                'a' { # Archive
+                    $nonSwitchArgs = $SevenZipArguments | Where-Object { $_ -notlike '-*' }
+                    $archivePath = $nonSwitchArgs[1] # CORRECTED: Index 1 is the archive path
+                    $sourcePaths = $nonSwitchArgs | Select-Object -Skip 2 # CORRECTED: Skip command and archive path
+                    $sourcePathString = if ($sourcePaths.Count -gt 0) { ($sourcePaths -join ', ') } else { "(from list file)" }
+                    
+                    $simMessage = "SIMULATE: The following source(s) would be compressed into a new archive: `n"
+                    $simMessage += "           Sources: $sourcePathString `n"
+                    $simMessage += "           Archive: $archivePath"
+                    
+                    if ($finalAffinityStringForLog -ne "None (Not configured)") {
+                        $simMessage += "`n           CPU Affinity: $finalAffinityStringForLog"
+                    }
+                    & $LocalWriteLog -Message $simMessage -Level "SIMULATE"
+                }
+                't' { # Test
+                    $archivePath = $SevenZipArguments | Where-Object { $_ -notlike '-*' } | Select-Object -First 1
+                    $simMessage = "SIMULATE: The integrity of archive '$archivePath' would be tested."
+                    if (($SevenZipArguments -join ' ') -match '-scrc') {
+                        $simMessage += " (Internal file checksums would be verified)."
+                    }
+                    & $LocalWriteLog -Message $simMessage -Level "SIMULATE"
+                }
+                default { # Fallback for other commands like 'l', 'x', etc.
+                    $affinitySimMsg = if ($finalAffinityStringForLog -ne "None (Not configured)") { " (Affinity: $finalAffinityStringForLog)" } else { " (Affinity: Not configured)" }
+                    & $LocalWriteLog -Message "SIMULATE: 7-Zip Operation (Attempt $currentTry/$actualMaxTries would be): `"$SevenZipPathExe`" $argumentStringForProcess$affinitySimMsg" -Level SIMULATE
+                }
+            }
+            # --- End Enhanced Simulation Message Logic ---
+
             $operationExitCode = 0
             $operationElapsedTime = New-TimeSpan -Seconds 0
             break
@@ -297,7 +328,7 @@ function Test-7ZipArchive {
         PlainTextPassword = $PlainTextPassword
         SevenZipCpuAffinityString = $SevenZipCpuAffinityString
         MaxRetries = $MaxRetries; RetryDelaySeconds = $RetryDelaySeconds; EnableRetries = $EnableRetries
-        TreatWarningsAsSuccess = $TreatWarningsAsSuccess
+        TreatWarningsAsSuccess = $sanitizedTreatWarnings
         IsSimulateMode = $false
         Logger = $Logger
     }

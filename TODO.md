@@ -207,14 +207,34 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **IV. Utility, Management & Usability Features**
 
+*   **Enhancement: Parameterize the `UnlockVaultAndRun-PoShBackup.ps1` Wrapper**
+    *   **Goal:** Make the vault-unlocking wrapper script a reusable utility instead of a single-purpose script.
+    *   **Description:** Currently, the `UnlockVaultAndRun-PoShBackup.ps1` script hardcodes the name of the backup set to run. It should be modified to accept command-line parameters (e.g., `-RunSet <SetName>` or `-BackupLocationName <JobName>`) and pass them through to the main `PoSh-Backup.ps1` script. This would make it a generic tool for any automated job requiring vault access.
+    *   **Scope & Impact:** `UnlockVaultAndRun-PoShBackup.ps1`.
+    *   **Acceptance Criteria:** Users can run `.\UnlockVaultAndRun-PoShBackup.ps1 -RunSet "MySet"` and have it correctly unlock the vault and execute the specified set.
+
+*   **Feature: `-SkipJobDependencies` CLI Switch**
+    *   **Goal:** Provide a way to run a single job for testing or troubleshooting without running its entire dependency chain.
+    *   **Description:** Add a new switch, `-SkipJobDependencies`, that can be used with `-BackupLocationName`. When present, PoSh-Backup would execute only the specified job and ignore its `DependsOnJobs` configuration. This is useful for quickly testing changes to a single job without waiting for all its prerequisites to complete.
+    *   **Scope & Impact:** `PoSh-Backup.ps1` (new parameter), `Modules\Managers\CoreSetupManager\JobAndDependencyResolver.psm1` (to modify the job list if the switch is active).
+    *   **Acceptance Criteria:** `.\PoSh-Backup.ps1 -BackupLocationName "MyDependentJob" -SkipJobDependencies` runs only "MyDependentJob".
+
+**Feature: Integrated Vault Unlocking**
+    **Goal:** Eliminate the need for the UnlockVaultAndRun-PoShBackup.ps1 wrapper script for common automation scenarios.
+    **Description:** Add new CLI parameters to PoSh-Backup.ps1, such as -VaultCredentialPath, that allow the main script to unlock the SecretStore vault internally at startup. The script would use the provided credential file to unlock the vault for the current session, making scheduled tasks that require secrets much easier to configure.
+    **Scope & Impact:** PoSh-Backup.ps1 (new parameters), Modules\Managers\CoreSetupManager.psm1 (new logic at startup). Update README.md and deprecate the wrapper script.
+    **Acceptance Criteria:* A scheduled task can call PoSh-Backup.ps1 directly with the new parameter and successfully run a job that requires vault access.
+
+**Enhancement:** Fully Automate the Update Process
+    **Goal:** Make the -CheckForUpdate feature fully automated, from check to download to launching the installer, without requiring manual user intervention beyond confirmation.
+    **Description:** Currently, the update process informs the user but the download and application flow is disjointed. This task involves refining Modules\Utilities\Update.psm1 to automatically download the package from the URL in the manifest, verify its checksum, back up the current installation, and launch apply_update.ps1 in one continuous, user-approved flow.
+    **Scope & Impact:** Modules\Utilities\Update.psm1.
+    **Acceptance Criteria:** After confirming "Yes" to an available update, the script downloads, verifies, backs up, and launches the installer without further prompts.
+
 1. **Feature: Configuration Import/Export (CLI Utility)**
-
     - **Goal:** Allow users to export their current effective configuration for a job (or globally) to a file, or import a job definition.
-
     - **Description:** Useful for sharing, migrating, or templating job definitions.
-
     - **Scope & Impact:** PoSh-Backup.ps1 (new CLI switches), Modules\Core\ConfigManager.psm1.
-
     - **Acceptance Criteria:** Config can be exported and re-imported (with validation).
 
 7. **Feature: Job Execution Time Limits / Timeouts**
@@ -282,6 +302,12 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **VI. Code Quality, Maintainability & Testing**
 
+*   **Refactor: Consolidate `Format-BytesInternal` Utility Function**
+    *   **Goal:** Remove duplicated code by creating a single, centralized function for formatting file sizes.
+    *   **Description:** The helper function `Format-BytesInternal` is currently duplicated in several target provider modules (`UNC.Target.psm1`, `Replicate.Target.psm1`, `S3.Target.psm1`, `WebDAV.Target.psm1`). This violates the DRY (Don't Repeat Yourself) principle. A single, public version of this function should be created in `Modules\Utilities\FileUtils.psm1` and exported via `Utils.psm1`. The target providers should then be updated to call this centralized function.
+    *   **Scope & Impact:** `Modules\Utilities\FileUtils.psm1`, `Modules\Utils.psm1`, and all target provider modules that use the function.
+    *   **Acceptance Criteria:** The duplicated functions are removed, and all target providers successfully call the single utility function for byte formatting.
+
 1. **Task: Static Code Analysis Integration (Beyond PSScriptAnalyzer)**
 
     - **Goal:** Integrate additional static analysis tools if beneficial.
@@ -328,16 +354,24 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** Systematic review of `try/catch` in all `.psm1` files.
     *   **Acceptance Criteria:** Errors handled gracefully; logs provide clear diagnostics.
 
+7. **Task: Refactor:** - Centralise Configuration Defaults in `Default.psd1`
+    **Goal:** Remove hardcoded fallback values from Get-ConfigValue calls to make `Config\Default.psd1` the single source of truth for all default settings.
+    **Description:** Currently, many calls to Get-ConfigValue have a nested call or a hardcoded string/boolean as the final default. This makes the code less maintainable and can hide configuration issues. Refactor these calls to only look at the job config and then the global config. If a required setting is missing from both, the script should fail gracefully with an informative error, rather than using a hidden, hardcoded value.
+    **Scope & Impact:** `Modules\ConfigManagement\EffectiveConfigBuilder.psm1` and its sub-modules. Requires a careful review of all Get-ConfigValue usage.
+    **Acceptance Criteria:** The script relies solely on `Default.psd1` for default values. Removing a non-optional default from the file causes a predictable and clear error.
+
 **VII. Security (Review & Enhancements)**
 
+*   **Enhancement: Investigate `Posh-SSH` `PSCredential` Support to Eliminate `ConvertTo-SecureString`**
+    *   **Goal:** Remove the need for `ConvertTo-SecureString -AsPlainText -Force` in the SFTP target provider, thereby eliminating the most persistent PSScriptAnalyzer warnings.
+    *   **Description:** The `SFTP.Target.psm1` module currently uses `ConvertTo-SecureString` because `New-SSHSession` historically required plain text for key passphrases. Research the latest version of the `Posh-SSH` module to determine if its cmdlets now accept a `PSCredential` object or a `SecureString` directly for key passphrases. If so, refactor the SFTP provider to use this more secure method.
+    *   **Scope & Impact:** Research `Posh-SSH` documentation. Potentially refactor `Modules\Targets\SFTP.Target.psm1`.
+    *   **Acceptance Criteria:** The SFTP provider can use key files with passphrases without converting the passphrase to plain text in the script, and the PSScriptAnalyzer warnings are resolved.
+
 1. **Feature: Read-Only Mode for Configuration Files**
-
     - **Goal:** Option to load configuration in a strictly read-only mode, preventing any accidental modification by PoSh-Backup itself (e.g., if a bug existed in a future auto-config-update feature).
-
     - **Description:** Safety measure.
-
     - **Scope & Impact:** Modules\ConfigManagement\ConfigLoader.psm1.
-
     - **Acceptance Criteria:** Config data is treated as immutable by the script if this mode is active.
 
 2. **Enhancement: More Granular Permissions for apply_update.ps1**
@@ -376,6 +410,12 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Acceptance Criteria:** SSL/TLS connections are secure by default; options exist for specific scenarios with warnings.
 
 **VIII. User Experience (UX) & Usability**
+
+*   **Enhancement: More Informative Output for `-ListBackupLocations`**
+    *   **Goal:** Make the `-ListBackupLocations` output more useful so users don't have to open the config file to identify a job.
+    *   **Description:** Currently, this command lists the job names. It should be enhanced to display a compact, table-like view that also includes each job's primary source path(s) and its final destination/staging directory. This provides immediate context for each job directly from the command line.
+    *   **Scope & Impact:** `Modules\ScriptModes\Listing.psm1`.
+    *   **Acceptance Criteria:** Running `.\PoSh-Backup.ps1 -ListBackupLocations` displays a formatted table with columns for Job Name, Source(s), and Destination.
 
 1. **Enhancement: Write-ConsoleBanner - Support for Multi-Line Value Text**
 
@@ -427,6 +467,12 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **IX. Advanced Configuration & Scripting**
 
+*   **Feature: Global Additional Exclusions**
+    *   **Goal:** Allow users to define 7-Zip exclusion patterns that apply to all backup jobs globally.
+    *   **Description:** Add a new array setting to the global configuration, `DefaultAdditionalExclusions` (e.g., in `Config\Default.psd1`). The `7ZipManager` should append these exclusions to every 7-Zip command it builds. This is useful for globally excluding common nuisance files or folders (like `thumbs.db`, `*.tmp`) without having to add them to every single job definition.
+    *   **Scope & Impact:** `Config\Default.psd1`, `ConfigSchema.psd1`, `Modules\Managers\7ZipManager\ArgumentBuilder.psm1`.
+    *   **Acceptance Criteria:** Patterns defined in `DefaultAdditionalExclusions` are applied to all backup jobs.
+
 1. **Feature: Dynamic Variables in Configuration Strings**
     - **Goal:** Allow certain configuration string values to contain dynamic variables that PoSh-Backup resolves at runtime (e.g., environment variables, date/time stamps).
     - **Description:** E.g., DestinationDir = "D:\Backups\%USERNAME%\%COMPUTERNAME%" or ArchiveName = "JobA_$(Get-Date -Format yyyyMMdd)".
@@ -473,6 +519,12 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Acceptance Criteria:** Custom global variables are accessible within hook scripts.
 
 **X. Documentation & Community**
+
+*   **Task: Reorganise `README.md` into a `docs` Folder**
+    *   **Goal:** Improve the structure and readability of the project's documentation.
+    *   **Description:** The main `README.md` file has become very large and covers everything from installation to advanced feature configuration. This task involves creating a `/docs` directory and breaking the README down into smaller, more focused Markdown files (e.g., `Installation.md`, `Configuration.md`, `Usage.md`, `Feature_-_Backup_Targets.md`). The main `README.md` would then become a shorter, high-level overview with links to the detailed documentation.
+    *   **Scope & Impact:** Major documentation refactoring. Create `/docs` directory and multiple new `.md` files. Update `README.md`.
+    *   **Acceptance Criteria:** Project documentation is organised into a logical folder structure, making it easier for users to find specific information.
 
 1. **Task: Create "Quick Start" Guide / Tutorial**
     - **Goal:** A very simple, step-by-step guide for absolute beginners to get their first backup job running.
@@ -1117,6 +1169,12 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XL. Advanced Job Control & Scheduling**
 
+*   **Enhancement: Add `-WhatIf` Support to `-SyncSchedules`**
+    *   **Goal:** Allow users to safely preview the changes that will be made to the Windows Task Scheduler.
+    *   **Description:** The `Sync-PoShBackupSchedule` function performs actions with significant system impact (creating, updating, deleting scheduled tasks). It should fully support the `-WhatIf` common parameter. When `.\PoSh-Backup.ps1 -SyncSchedules -WhatIf` is run, the script should print messages like "WhatIf: Performing the operation 'Register New Scheduled Task' on target 'PoSh-Backup - MyJob'." without actually making any changes.
+    *   **Scope & Impact:** `Modules\Managers\ScheduleManager.psm1` (and its sub-functions) need to properly implement `[CmdletBinding(SupportsShouldProcess=$true)]` and call `$PSCmdlet.ShouldProcess()`.
+    *   **Acceptance Criteria:** Running `-SyncSchedules -WhatIf` provides a clear report of tasks that would be created, updated, or removed, without modifying the Task Scheduler.
+
 161. **Feature: Event-Driven Backup Triggers (Beyond Drive Connection)**
     *   **Goal:** Trigger backup jobs based on specific system events or application events.
     *   **Description:** E.g., "Run JobX after ApplicationY writes a specific log event," "Run JobZ before Windows Update initiates a restart," "Run JobQ after X number of file changes in a monitored directory."
@@ -1223,6 +1281,12 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XLVII. Practical Reporting & Feedback**
 
+*   **Enhancement: Color-Code Log Level Filters in HTML Report**
+    *   **Goal:** Improve the usability of the interactive log filter in the HTML report.
+    *   **Description:** In the "Detailed Log" section of the HTML report, the filter checkboxes (e.g., "INFO", "WARNING", "ERROR") are plain. The text for each checkbox label should be color-coded to match the color of the log entries themselves (e.g., ERROR label is red, WARNING is yellow). This provides a quick visual cue for the user.
+    *   **Scope & Impact:** `Modules\Reporting\ReportingHtml.psm1` (to add the appropriate CSS classes to the labels), `Modules\Reporting\Assets\Base.css` (to define the text colors for those classes).
+    *   **Acceptance Criteria:** The log level filter labels in the HTML report are colored to match their corresponding log entry types.
+
 182. **Enhancement: HTML Report - Visual Indication of Log Level in Filter Checkboxes**
     *   **Goal:** Style the log level filter checkboxes/labels in the HTML report with their corresponding colours.
     *   **Description:** Makes it easier to visually associate filter toggles with log entry colours. E.g., the "ERROR" checkbox label is red.
@@ -1264,12 +1328,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Description:** A Q&A style interaction. E.g., "What do you want to back up (Documents, Specific Folder, Whole Drive)?" -> "Where do you want to save it (External Drive, Network Share, Cloud)?" -> "How often?" -> Suggests a sample CLI command or config snippet.
     *   **Scope & Impact:** `PoSh-Backup.ps1` (new switch), new interactive question/suggestion engine module.
     *   **Acceptance Criteria:** Users can get tailored suggestions for their backup needs through an interactive process.
-
-188. **Feature: "What If I Run This?" - Enhanced `-Simulate` Output**
-    *   **Goal:** Make the `-Simulate` output even clearer about *exactly* what actions would be taken, in plain language.
-    *   **Description:** Instead of just "SIMULATE: Would copy X to Y", perhaps "SIMULATE: The following files from 'C:\Sources' would be compressed into an archive named 'Backup.7z' in 'D:\Dest'. This archive would then be copied to '\\Network\Share'."
-    *   **Scope & Impact:** Refine logging messages in all modules when `$IsSimulateMode` is active to be more descriptive and less like internal debug logs.
-    *   **Acceptance Criteria:** `-Simulate` output is very easy for a non-expert to understand.
 
 189. **Feature: GUI Wrapper / Launcher (Simple Initial Version)**
     *   **Goal:** A very basic GUI to select common options and launch PoSh-Backup.ps1 with the correct parameters.

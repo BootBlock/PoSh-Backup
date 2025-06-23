@@ -27,9 +27,9 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the accessibility of the UNC path.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.0 # Updated validation function to receive entire target instance.
+    Version:        1.5.1 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    19-May-2025
-    LastModified:   21-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        UNC Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The user/account running PoSh-Backup must have appropriate permissions
@@ -477,8 +477,9 @@ function Invoke-PoShBackupTargetTransfer {
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         if ($IsSimulateMode.IsPresent) {
-            & $LocalWriteLog -Message "SIMULATE: UNC Target '$targetNameForLog': Would ensure remote directory exists: '$remoteFinalDirectoryForArchiveSet'." -Level "SIMULATE"
-            & $LocalWriteLog -Message "SIMULATE: UNC Target '$targetNameForLog': Would copy '$LocalArchivePath' to '$fullRemoteArchivePathForThisFile' using $(if($useRobocopy){'Robocopy'}else{'Copy-Item'})." -Level "SIMULATE"
+            $transferMethod = if ($useRobocopy) { 'Robocopy' } else { 'Copy-Item' }
+            & $LocalWriteLog -Message "SIMULATE: The destination directory '$remoteFinalDirectoryForArchiveSet' would be created if it does not exist." -Level "SIMULATE"
+            & $LocalWriteLog -Message "SIMULATE: The archive file '$LocalArchivePath' would be copied to the UNC path '$fullRemoteArchivePathForThisFile' using $transferMethod." -Level "SIMULATE"
             $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
         }
         else {
@@ -512,12 +513,13 @@ function Invoke-PoShBackupTargetTransfer {
                 $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
 
             $remoteKeepCount = $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount
-            & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': Applying remote retention policy (KeepCount: $remoteKeepCount) in directory '$remoteFinalDirectoryForArchiveSet' for instances matching base '$ArchiveBaseName'." -Level "INFO"
+            $retentionActionMessage = "Applying retention policy (Keep: $remoteKeepCount) to the remote destination '$remoteFinalDirectoryForArchiveSet'."
 
             if ($IsSimulateMode.IsPresent) {
-                & $LocalWriteLog -Message "SIMULATE: UNC Target '$targetNameForLog': Would apply retention in '$remoteFinalDirectoryForArchiveSet' for base '$ArchiveBaseName', keeping $remoteKeepCount instances." -Level "SIMULATE"
+                & $LocalWriteLog -Message "SIMULATE: $retentionActionMessage" -Level "SIMULATE"
             }
             else {
+                & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': $retentionActionMessage" -Level "INFO"
                 if (Test-Path -LiteralPath $remoteFinalDirectoryForArchiveSet -PathType Container) {
                     $allRemoteInstances = Group-LocalOrUNCBackupInstancesInternal -Directory $remoteFinalDirectoryForArchiveSet `
                         -BaseNameToMatch $ArchiveBaseName `

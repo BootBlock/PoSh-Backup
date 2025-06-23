@@ -28,9 +28,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        0.4.0 # Updated validation function to receive entire target instance.
+    Version:        0.4.1 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    05-Jun-2025
-    LastModified:   21-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        WebDAV Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     PowerShell SecretManagement configured if using secrets for credentials.
@@ -550,13 +550,16 @@ function Invoke-PoShBackupTargetTransfer {
     & $LocalWriteLog -Message ("    - Full Remote Archive Destination URL: '{0}'" -f $fullRemoteArchivePath) -Level "DEBUG"
 
     if ($IsSimulateMode.IsPresent) {
-        & $LocalWriteLog -Message "SIMULATE: WebDAV.Target '$targetNameForLog': Would connect to '$webDAVUrlBase' with retrieved credentials." -Level "SIMULATE"
-        & $LocalWriteLog -Message "SIMULATE: WebDAV.Target '$targetNameForLog': Would ensure remote directory structure for relative path '$remoteFinalRelativeDirForJob' exists." -Level "SIMULATE"
-        & $LocalWriteLog -Message "SIMULATE: WebDAV.Target '$targetNameForLog': Would upload '$LocalArchivePath' to '$fullRemoteArchivePath'." -Level "SIMULATE"
-        $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
+        $simMessage = "SIMULATE: Would connect to WebDAV server at '$webDAVUrlBase' using retrieved credentials. "
+        $simMessage += "The remote directory structure '$remoteFinalRelativeDirForJob' would be created if needed via MKCOL requests. "
+        $simMessage += "The archive file '$ArchiveFileName' would then be uploaded to '$fullRemoteArchivePath' via a PUT request."
+        & $LocalWriteLog -Message $simMessage -Level "SIMULATE"
+
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
-            & $LocalWriteLog -Message ("SIMULATE: WebDAV.Target '{0}': Would apply remote retention (KeepCount: {1}) in relative path '{2}'." -f $targetNameForLog, $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount, $remoteFinalRelativeDirForJob) -Level "SIMULATE"
+            & $LocalWriteLog -Message "SIMULATE: After the upload, the retention policy (Keep: $($TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount)) would be applied to the remote WebDAV directory." -Level "SIMULATE"
         }
+        
+        $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
     }
 

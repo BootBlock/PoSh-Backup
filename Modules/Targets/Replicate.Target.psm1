@@ -29,9 +29,9 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the accessibility of all configured destination paths.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.1 # Corrected validation logic to handle the full target instance configuration.
+    Version:        1.3.2 # Enhanced -Simulate output to be more descriptive.
     DateCreated:    19-May-2025
-    LastModified:   21-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        Replicate Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The user/account running PoSh-Backup must have appropriate permissions
@@ -163,7 +163,6 @@ function Group-LocalOrUNCBackupInstancesInternal {
         # Try to match manifest for single file: "BaseName.ActualExt.manifest.algo"
         # This is tricky if PrimaryArchiveExtension is .7z but actual file is .exe (SFX)
         # Let's use $ArchiveFileName from the main function context if possible, or derive.
-        # For retention, $ArchiveExtension passed to Invoke-PoShBackupTargetTransfer is the *primary* one.
         
         if ($file.Name -match $splitVolumePattern) {
             $instanceKey = $Matches[1] # "JobName [DateStamp].<PrimaryExtension>"
@@ -557,8 +556,15 @@ function Invoke-PoShBackupTargetTransfer {
         & $LocalWriteLog -Message "    - Replicate Target '$targetNameForLog' -> Dest Path Base: '$currentDestPathBase' (Subdir: $currentDestCreateJobSubDir, Final Archive Path for this file: '$currentFullDestArchivePath')" -Level "INFO"
 
         if ($IsSimulateMode.IsPresent) {
-            & $LocalWriteLog -Message "SIMULATE: Replicate Target '$targetNameForLog': Would ensure directory exists: '$currentDestFinalDir'." -Level "SIMULATE"
-            & $LocalWriteLog -Message "SIMULATE: Replicate Target '$targetNameForLog': Would copy '$LocalArchivePath' to '$currentFullDestArchivePath'." -Level "SIMULATE"
+            $simMessage = "SIMULATE: The archive file '$ArchiveFileName' would be replicated to the destination '$currentDestPathBase'."
+            if ($currentDestCreateJobSubDir) {
+                $simMessage += " A subdirectory for the job ('$JobName') would be created, making the final path '$currentFullDestArchivePath'."
+            }
+            & $LocalWriteLog -Message $simMessage -Level "SIMULATE"
+
+            if ($destConfig.ContainsKey('RetentionSettings') -and $destConfig.RetentionSettings.KeepCount -gt 0) {
+                & $LocalWriteLog -Message "SIMULATE: After replication, the retention policy (Keep: $($destConfig.RetentionSettings.KeepCount)) would be applied to this destination." -Level "SIMULATE"
+            }
             $currentDestSuccess = $true; $currentDestTransferSize = $LocalArchiveSizeBytes
             if ($null -eq $firstSuccessfulRemotePathForThisFile) { $firstSuccessfulRemotePathForThisFile = $currentFullDestArchivePath }
         }
@@ -620,14 +626,14 @@ function Invoke-PoShBackupTargetTransfer {
                                         & $LocalWriteLog -Message "            - Deletion of '$($fileToDeleteInInstance.FullName)' skipped by user." -Level "WARNING"; continue
                                     }
                                     & $LocalWriteLog -Message "            - Deleting: '$($fileToDeleteInInstance.FullName)'" -Level "WARNING"
-                                    try { Remove-Item -LiteralPath $fileToDeleteInInstance.FullName -Force -ErrorAction Stop; & $LocalWriteLog -Message "              - Status: DELETED" -Level "SUCCESS" }
+                                    try { Remove-Item -LiteralPath $fileToDeleteInInstance.FullName -Force -ErrorAction Stop; & $LocalWriteLog "              - Status: DELETED" -Level "SUCCESS" }
                                     catch {
                                         & $LocalWriteLog -Message "              - Status: FAILED! Error: $($_.Exception.Message)" -Level "ERROR"; # A retention failure makes the overall less successful
                                     }
                                 }
                             }
                         }
-                        else { & $LocalWriteLog -Message "        - Replicate Target '$targetNameForLog': No old instances to delete at '$currentDestFinalDir'." -Level "INFO" }
+                        else { & $LocalWriteLog "        - Replicate Target '$targetNameForLog': No old instances to delete at '$currentDestFinalDir'." -Level "INFO" }
                     }
                 }
                 catch {
