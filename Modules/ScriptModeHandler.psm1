@@ -97,9 +97,9 @@ function Invoke-PoShBackupScriptMode {
         [scriptblock]$Logger,
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
-        [Parameter(Mandatory = $false)] # NEW for PreFlight scope
+        [Parameter(Mandatory = $false)]
         [string]$BackupLocationNameForScope,
-        [Parameter(Mandatory = $false)] # NEW for PreFlight scope
+        [Parameter(Mandatory = $false)]
         [string]$RunSetForScope
     )
 
@@ -109,7 +109,7 @@ function Invoke-PoShBackupScriptMode {
     # --- Delegate to Diagnostic Modes Handler ---
     $diagParams = @{
         TestConfigSwitch            = $TestConfigSwitch
-        PreFlightCheckSwitch        = $PreFlightCheckSwitch # Pass new switch
+        PreFlightCheckSwitch        = $PreFlightCheckSwitch
         GetEffectiveConfigJobName   = $GetEffectiveConfigJobName
         ExportDiagnosticPackagePath = $ExportDiagnosticPackagePath
         TestBackupTarget            = $TestBackupTarget
@@ -119,10 +119,11 @@ function Invoke-PoShBackupScriptMode {
         ConfigLoadResult            = $ConfigLoadResult
         Logger                      = $Logger
         PSCmdletInstance            = $PSCmdletInstance
-        BackupLocationNameForScope  = $BackupLocationNameForScope # Pass scope
-        RunSetForScope              = $RunSetForScope # Pass scope
+        BackupLocationNameForScope  = $BackupLocationNameForScope
+        RunSetForScope              = $RunSetForScope
     }
 
+    # >>====> Script execution dies here
     if (Invoke-PoShBackupDiagnosticMode @diagParams) {
         return $true
     }

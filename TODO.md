@@ -1585,9 +1585,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 #### **Configuration & Job Control**
 
-*   **Config:** Add an `-EnableJob` and `-DisableJob` command-line switch to quickly change the `Enabled` flag for a job in `User.psd1`.
 *   **Config:** Add a `-RetentionConfirmDelete` CLI switch to override the configuration setting for a single run.
-*   **Config:** Add a `-SkipVSS` CLI switch to force VSS to be disabled for a specific run, even if enabled in the config.
 *   **Config:** Allow `TargetNames` to be defined at the `BackupSets` level, applying to all jobs within that set.
 *   **Config:** Add `PreSetScriptPath` and `PostSetScriptPath` hooks to `BackupSets`.
 *   **Config:** Allow a job to have a `DependsOnSets` key to make an entire set a prerequisite.
@@ -1616,7 +1614,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 #### **Robustness & Error Handling**
 
 *   **Robustness:** When `Initialize-RemotePathInternal` fails, include the specific user account it was running as in the error message.
-*   **Robustness:** In `PasswordManager.psm1`, add a check and a clear warning if a user selects the `PlainText` password method.
 *   **Robustness:** At script startup, check for write permissions on the configured `LogDirectory` and warn the user if permissions are insufficient.
 *   **Robustness:** The `-ExportDiagnosticPackage` should gracefully handle a missing `Logs` or `Config` directory.
 *   **Robustness:** Add a timeout to the `Invoke-WebRequest` calls in the `WebDAV.Target` provider.

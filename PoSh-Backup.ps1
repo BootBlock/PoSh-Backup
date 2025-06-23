@@ -572,7 +572,7 @@ try {
         -SkipUserConfigCreation:$SkipUserConfigCreation.IsPresent `
         -Version:$Version.IsPresent `
         -CheckForUpdate:$CheckForUpdate.IsPresent `
-        -PSCmdlet $PSCmdlet `
+        -PSCmdletInstance $PSCmdlet `
         -ForceRunInMaintenanceMode:$ForceRunInMaintenanceMode.IsPresent `
         -Maintenance:$Maintenance
 

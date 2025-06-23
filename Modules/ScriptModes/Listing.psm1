@@ -45,7 +45,9 @@ function Invoke-PoShBackupListingMode {
         [Parameter(Mandatory = $true)]
         [hashtable]$ConfigLoadResult,
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
 
     # PSSA Appeasement: Use the Logger parameter directly.
@@ -59,6 +61,8 @@ function Invoke-PoShBackupListingMode {
             & $Logger -Message $Message -Level $Level
         }
     }
+
+    $null = $PSCmdletInstance # PSSA Appeasement for unused parameter
 
     if ($VersionSwitch) {
         $mainScriptPathForVersion = Join-Path -Path $Configuration['_PoShBackup_PSScriptRoot'] -ChildPath "PoSh-Backup.ps1"

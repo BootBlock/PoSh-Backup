@@ -54,7 +54,7 @@ function Invoke-7ZipExtraction {
         & $Logger -Message $Message -Level $Level
     }
 
-    & $LocalWriteLog -Message "7ZipManager/Extractor/Invoke-7ZipExtraction: Initializing extraction for archive '$ArchivePath'." -Level "DEBUG"
+    & $LocalWriteLog -Message "7ZipManager/Extractor/Invoke-7ZipExtraction: Initialising extraction for archive '$ArchivePath'." -Level "DEBUG"
 
     if (-not (Test-Path -LiteralPath $ArchivePath -PathType Leaf)) {
         & $LocalWriteLog -Message "7ZipManager/Extractor/Invoke-7ZipExtraction: Archive not found at path '$ArchivePath'." -Level "ERROR"

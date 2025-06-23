@@ -1,3 +1,37 @@
+<#
+.SYNOPSIS
+    A wrapper script to unlock the PowerShell SecretStore vault and then run a specified PoSh-Backup job or set.
+.DESCRIPTION
+    This script is designed for automated or scheduled execution of PoSh-Backup in environments where the
+    PowerShell SecretStore vault may be locked (e.g., after a period of inactivity or in a new session).
+
+    It performs the following sequence of operations:
+    1.  Imports the Microsoft.PowerShell.SecretStore module.
+    2.  Imports a securely stored PSCredential object from an XML file. This credential file contains the
+        password for the SecretStore vault and must be created beforehand by the user.
+    3.  Unlocks the SecretStore vault for the current session.
+    4.  Executes the main PoSh-Backup.ps1 script, passing the configured job/set name and the -Quiet switch.
+    5.  Upon completion (or failure), it securely re-locks the SecretStore vault.
+
+    Users must edit the variables in the 'Configuration' section of this script to match their environment,
+    specifically the backup set/job to run.
+.EXAMPLE
+    .\UnlockVaultAndRun-PoShBackup.ps1
+
+    Executes the script. This is typically run from a Windows Scheduled Task or another automation tool
+    under the user account that created the vault and the vault credential file.
+.NOTES
+    Author:         Joe Cox/AI Assistant
+    Version:        1.0.0
+    DateCreated:    21-Jun-2025
+    LastModified:   23-Jun-2025
+    Prerequisites:  - A configured Microsoft.PowerShell.SecretStore vault.
+                    - A vault credential file (e.g., 'vault_credential.xml') created by the same user account
+                      that will run this script, using a command like:
+                      `Get-Credential | Export-CliXml -Path ".\vault_credential.xml"`
+                    - The main PoSh-Backup.ps1 script and this wrapper script should be in the same directory.
+#>
+#
 # UnlockVaultAndRun-PoShBackup.ps1 - Wrapper script to unlock the vault and run a backup set.
 #
 # If you're not sure what this is or you don't need the functionality to automatically unlock

@@ -79,7 +79,7 @@ function Invoke-PoShBackupCoreSetup {
         [Parameter(Mandatory = $true)]
         [switch]$CheckForUpdate,
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet,
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
         [Parameter(Mandatory = $false)]
         [switch]$ForceRunInMaintenanceMode,
         [Parameter(Mandatory = $false)]
@@ -161,16 +161,16 @@ function Invoke-PoShBackupCoreSetup {
         ActualConfigFile            = $ActualConfigFile
         ConfigLoadResult            = $configResult
         Logger                      = $LoggerScriptBlock
-        PSCmdletInstance            = $PSCmdlet
-        BackupLocationNameForScope  = $BackupLocationName # NEW
-        RunSetForScope              = $RunSet # NEW
+        PSCmdletInstance            = $PSCmdletInstance
+        BackupLocationNameForScope  = $BackupLocationName
+        RunSetForScope              = $RunSet
     }
     if ($PSBoundParameters.ContainsKey('Maintenance') -and $null -ne $Maintenance) {
         $scriptModeParams.MaintenanceSwitchValue = $Maintenance
     }
     if ($SyncSchedules.IsPresent) {
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\ScheduleManager.psm1") -Force -ErrorAction Stop
-        Sync-PoShBackupSchedule -Configuration $Configuration -PSScriptRoot $PSScriptRoot -Logger $LoggerScriptBlock -PSCmdlet $PSCmdlet; exit 0
+        Sync-PoShBackupSchedule -Configuration $Configuration -PSScriptRoot $PSScriptRoot -Logger $LoggerScriptBlock -PSCmdlet $PSCmdletInstance; exit 0
     }
 
     if (Invoke-PoShBackupScriptMode @scriptModeParams) {

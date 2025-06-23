@@ -13,9 +13,9 @@
     - -PreFlightCheck
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Added -PreFlightCheck logic.
+    Version:        1.3.1 # Fixed bug in -ExportDiagnosticPackage and added graceful handling for missing dirs.
     DateCreated:    15-Jun-2025
-    LastModified:   20-Jun-2025
+    LastModified:   23-Jun-2025
     Purpose:        To handle diagnostic script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -196,14 +196,14 @@ function Invoke-ExportDiagnosticPackageInternal {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
     & $Logger -Message "ScriptModes/Diagnostics/Invoke-ExportDiagnosticPackageInternal: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
+    
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
     & $LocalWriteLog -Message "`n--- Exporting Diagnostic Package ---" -Level "HEADING"
 
-    if (-not $PSCmdlet.ShouldProcess($OutputPath, "Create Diagnostic Package")) {
+    if (-not $PSCmdletInstance.ShouldProcess($OutputPath, "Create Diagnostic Package")) {
         & $LocalWriteLog -Message "Diagnostic package creation skipped by user." -Level "WARNING"
         return
     }
@@ -229,7 +229,9 @@ function Invoke-ExportDiagnosticPackageInternal {
         $null = $systemInfo.AppendLine("Admin Rights       : $(Test-AdminPrivilege -Logger $Logger)")
         $null = $systemInfo.AppendLine(("-" * 40))
 
-        $sevenZipPathForDiag = Find-SevenZipExecutable -Logger $Logger
+        # BUG FIX: Handle the hashtable returned by Find-SevenZipExecutable
+        $discoveryResult = Find-SevenZipExecutable -Logger $Logger
+        $sevenZipPathForDiag = $discoveryResult.FoundPath
         if ($sevenZipPathForDiag) {
             $sevenZipVersionInfo = (& $sevenZipPathForDiag | Select-Object -First 2) -join " "
             $null = $systemInfo.AppendLine("7-Zip Path    : $sevenZipPathForDiag")
@@ -287,62 +289,69 @@ function Invoke-ExportDiagnosticPackageInternal {
 
         $systemInfo.ToString() | Set-Content -Path (Join-Path $tempDir "SystemInfo.txt") -Encoding UTF8
 
-        # --- 2. Copy and Sanitize Configuration Files ---
-        & $LocalWriteLog -Message "  - Copying and sanitizing configuration files..." -Level "INFO"
-        $configDir = Join-Path -Path $tempDir -ChildPath "Config"
-        New-Item -Path $configDir -ItemType Directory -Force | Out-Null
-        $defaultConfigPath = Join-Path -Path $PSScriptRoot -ChildPath "Config\Default.psd1"
-        $userConfigPath = Join-Path -Path $PSScriptRoot -ChildPath "Config\User.psd1"
-        $pssaSettingsPath = Join-Path -Path $PSScriptRoot -ChildPath "PSScriptAnalyzerSettings.psd1"
+        # --- 2. Copy and Sanitise Configuration Files ---
+        & $LocalWriteLog -Message "  - Copying and sanitising configuration files..." -Level "INFO"
+        $configSourceDir = Join-Path -Path $PSScriptRoot -ChildPath "Config"
+        if (Test-Path -LiteralPath $configSourceDir -PathType Container) {
+            $configDestDir = Join-Path -Path $tempDir -ChildPath "Config"
+            New-Item -Path $configDestDir -ItemType Directory -Force | Out-Null
+            $defaultConfigPath = Join-Path -Path $configSourceDir -ChildPath "Default.psd1"
+            $userConfigPath = Join-Path -Path $configSourceDir -ChildPath "User.psd1"
+            $pssaSettingsPath = Join-Path -Path $PSScriptRoot -ChildPath "PSScriptAnalyzerSettings.psd1"
 
-        if ((Test-Path $defaultConfigPath) -and (Test-Path $userConfigPath)) {
-            & $LocalWriteLog -Message "    - Generating human-readable configuration diff..." -Level "DEBUG"
-            try {
-                $defaultData = Import-PowerShellDataFile -LiteralPath $defaultConfigPath
-                $userData = Import-PowerShellDataFile -LiteralPath $userConfigPath
-                $diffOutput = Compare-PoShBackupConfigsInternal -UserConfig $userData -DefaultConfig $defaultData -Logger $Logger
-                if ($diffOutput.Count -eq 0) {
-                    "No differences found between Default.psd1 and User.psd1." | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
-                }
-                else {
-                    ("User.psd1 Overrides and Additions:" + [Environment]::NewLine + ("-" * 40)) + [Environment]::NewLine + ($diffOutput -join [Environment]::NewLine) | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
+            if ((Test-Path $defaultConfigPath) -and (Test-Path $userConfigPath)) {
+                & $LocalWriteLog -Message "    - Generating human-readable configuration diff..." -Level "DEBUG"
+                try {
+                    $defaultData = Import-PowerShellDataFile -LiteralPath $defaultConfigPath
+                    $userData = Import-PowerShellDataFile -LiteralPath $userConfigPath
+                    $diffOutput = Compare-PoShBackupConfigsInternal -UserConfig $userData -DefaultConfig $defaultData -Logger $Logger
+                    if ($diffOutput.Count -eq 0) {
+                        "No differences found between Default.psd1 and User.psd1." | Set-Content -Path (Join-Path $configDestDir "UserConfig.diff.txt") -Encoding UTF8
+                    } else {
+                        ("User.psd1 Overrides and Additions:" + [Environment]::NewLine + ("-" * 40)) + [Environment]::NewLine + ($diffOutput -join [Environment]::NewLine) | Set-Content -Path (Join-Path $configDestDir "UserConfig.diff.txt") -Encoding UTF8
+                    }
+                } catch {
+                    "Error generating config diff: $($_.Exception.Message)" | Set-Content -Path (Join-Path $configDestDir "UserConfig.diff.txt") -Encoding UTF8
                 }
             }
-            catch {
-                "Error generating config diff: $($_.Exception.Message)" | Set-Content -Path (Join-Path $configDir "UserConfig.diff.txt") -Encoding UTF8
+
+            $configFilesToCopy = @{ ($defaultConfigPath) = "Default.psd1"; ($userConfigPath) = "User.psd1"; ($pssaSettingsPath) = "PSScriptAnalyzerSettings.psd1" }
+            $sensitiveKeyPatterns = @('Password', 'SecretName', 'Credential', 'WebhookUrl')
+
+            foreach ($sourcePath in $configFilesToCopy.Keys) {
+                if (Test-Path -LiteralPath $sourcePath) {
+                    $destFileName = $configFilesToCopy[$sourcePath]
+                    $destPath = Join-Path -Path $configDestDir -ChildPath $destFileName
+                    Copy-Item -LiteralPath $sourcePath -Destination $destPath
+
+                    $content = Get-Content -LiteralPath $destPath -Raw
+                    foreach ($pattern in $sensitiveKeyPatterns) {
+                        $regex = "(?im)^(\s*${pattern}\s*=\s*)['""](.*?)['""]"
+                        $replacement = "`$1'<REDACTED_VALUE_FOR_${pattern}_$(Get-Random -Minimum 1000 -Maximum 9999)>'"
+                        $content = $content -replace $regex, $replacement
+                    }
+                    $content | Set-Content -LiteralPath $destPath -Encoding UTF8
+                    & $LocalWriteLog -Message "    - Copied and sanitised '$destFileName'." -Level "DEBUG"
+                }
             }
         }
-
-        $configFilesToCopy = @{ ($defaultConfigPath) = "Default.psd1"; ($userConfigPath) = "User.psd1"; ($pssaSettingsPath) = "PSScriptAnalyzerSettings.psd1" }
-        $sensitiveKeyPatterns = @('Password', 'SecretName', 'Credential', 'WebhookUrl')
-
-        foreach ($sourcePath in $configFilesToCopy.Keys) {
-            if (Test-Path -LiteralPath $sourcePath) {
-                $destFileName = $configFilesToCopy[$sourcePath]
-                $destPath = Join-Path -Path $configDir -ChildPath $destFileName
-                Copy-Item -LiteralPath $sourcePath -Destination $destPath
-
-                $content = Get-Content -LiteralPath $destPath -Raw
-                foreach ($pattern in $sensitiveKeyPatterns) {
-                    $regex = "(?im)^(\s*${pattern}\s*=\s*)['""](.*?)['""]"
-                    $replacement = "`$1'<REDACTED_VALUE_FOR_${pattern}_$(Get-Random -Minimum 1000 -Maximum 9999)>'"
-                    $content = $content -replace $regex, $replacement
-                }
-                $content | Set-Content -LiteralPath $destPath -Encoding UTF8
-                & $LocalWriteLog -Message "    - Copied and sanitized '$destFileName'." -Level "DEBUG"
-            }
+        else {
+            & $LocalWriteLog -Message "    - [INFO] 'Config' directory not found. Configuration files will not be included in the package." -Level "INFO"
         }
 
         # --- 3. Gather Recent Logs ---
         & $LocalWriteLog -Message "  - Gathering recent log files..." -Level "INFO"
         $logSourceDir = Join-Path -Path $PSScriptRoot -ChildPath "Logs"
-        $logDestDir = Join-Path -Path $tempDir -ChildPath "Logs"
-        if (Test-Path -LiteralPath $logSourceDir) {
+        if (Test-Path -LiteralPath $logSourceDir -PathType Container) {
+            $logDestDir = Join-Path -Path $tempDir -ChildPath "Logs"
             New-Item -Path $logDestDir -ItemType Directory -Force | Out-Null
             Get-ChildItem -Path $logSourceDir -Filter "*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 10 | ForEach-Object {
                 Copy-Item -LiteralPath $_.FullName -Destination $logDestDir
             }
             & $LocalWriteLog -Message "    - Copied up to 10 most recent log files." -Level "DEBUG"
+        }
+        else {
+            & $LocalWriteLog -Message "    - [INFO] 'Logs' directory not found. Log files will not be included in the package." -Level "INFO"
         }
 
         # --- 4. Permissions/ACLs Report ---
@@ -551,7 +560,7 @@ function Invoke-PoShBackupDiagnosticMode {
         Invoke-ExportDiagnosticPackageInternal -OutputPath $ExportDiagnosticPackagePath `
             -PSScriptRoot $Configuration['_PoShBackup_PSScriptRoot'] `
             -Logger $Logger `
-            -PSCmdlet $PSCmdletInstance
+            -PSCmdletInstance $PSCmdletInstance
         return $true
     }
 
