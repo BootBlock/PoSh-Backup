@@ -118,15 +118,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Technical Considerations:** `Start-Job`, Runspace API.
     *   **Acceptance Criteria:** Jobs in a parallel-enabled set run concurrently; logs and status are managed correctly.
 
-11. **Feature: Bandwidth Throttling for Remote Transfers**
-    *   **Goal:** Option to limit network bandwidth for remote target transfers.
-    *   **Description:** Prevents saturation of network links.
-    *   **Scope & Impact:**
-        *   Highly dependent on target provider capabilities.
-        *   `Config\Default.psd1`: Global or per-target `MaxBandwidthKBps` (int).
-        *   Target Provider Modules: Each provider implements throttling if its tools support it (e.g., Robocopy `/IPG`, SFTP client options, or manual chunking/pausing).
-    *   **Acceptance Criteria:** Remote transfers adhere to configured bandwidth limits.
-
 **II. Advanced Backup Strategies & Data Handling**
 
 1. **Feature: Deduplication-Awareness (Integration with External Tools)**
@@ -204,13 +195,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     - **Technical Considerations:** Requires rsync client on the PoSh-Backup machine and rsync server on the target. Handles SSH keys/passwords.
     - **Acceptance Criteria:** Archives successfully transferred using rsync.
 
-21. **Feature: Backup Target Provider - Backblaze B2**
-    - **Goal:** Support for Backblaze B2 cloud storage.
-    - **Description:** Cost-effective cloud storage option.
-    - **Scope & Impact:** New module Modules\Targets\B2.Target.psm1.
-    - **Technical Considerations:** B2 API interaction (likely via official CLI or PowerShell module if available).
-    - **Acceptance Criteria:** Archives transferred to/retained on B2.
-
 22. **Feature: Backup Target Provider - FTP/FTPS**
     *   **Goal:** Add support for transferring backups to FTP or FTPS servers.
     *   **Description:** Complements existing UNC and SFTP providers.
@@ -220,16 +204,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         *   `Modules\PoShBackupValidator.psm1`: Schema validation.
     *   **Technical Considerations:** .NET `System.Net.FtpWebRequest` (manual implementation for modes, SSL/TLS, errors) or external CLI tool (e.g., `WinSCP.com`).
     *   **Acceptance Criteria:** Archives successfully transferred to/retained on FTP/FTPS server.
-
-23. **Feature: Backup Target Provider - Cloud Storage (Generic Placeholder)**
-    *   **Goal:** Add support for major cloud storage providers (e.g., Azure Blob, Google Cloud Storage; AWS S3 is already implemented).
-    *   **Description:** Enables direct backup to scalable cloud object storage.
-    *   **Scope & Impact:** **Large.** Likely one new provider module per cloud service.
-        *   E.g., `Modules\Targets\AzureBlob.Target.psm1`.
-        *   `Config\Default.psd1`: New target types with service-specific settings (account/bucket names, regions, authentication keys/roles via SecretManagement).
-        *   `Modules\PoShBackupValidator.psm1`: Schema validation for each.
-    *   **Technical Considerations:** Use official PowerShell SDKs/modules for each cloud provider (e.g., `Az.Storage`). Handle authentication, multipart uploads for large files, object lifecycle/retention.
-    *   **Acceptance Criteria:** Archives successfully transferred to/retained on configured cloud storage.
 
 **IV. Utility, Management & Usability Features**
 
@@ -251,14 +225,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         *   `Modules\Operations.psm1`: Monitor elapsed time; attempt graceful termination of 7-Zip.
     *   **Technical Considerations:** Timer monitoring. Safely terminating `7z.exe`.
     *   **Acceptance Criteria:** Jobs exceeding time limits are terminated and reported as timed-out.
-
-8. **Feature: Pre-Flight Checks / Enhanced Dry Run Mode**
-    *   **Goal:** Expand `-TestConfig` or create `-PreFlightCheck` for more comprehensive pre-run validation.
-    *   **Description:** Verify source/destination accessibility, remote target connectivity/auth, estimate backup size.
-    *   **Scope & Impact:**
-        *   `PoSh-Backup.ps1`: New CLI switch.
-        *   Various modules (`Operations.psm1`, target providers) need specific pre-flight check logic.
-    *   **Acceptance Criteria:** Pre-flight check provides a report of potential issues.
 
 **V. Reporting & Notifications**
 
@@ -839,13 +805,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Description:** Integrate with K8s snapshot APIs (CSI snapshots) or run PoSh-Backup within a container with access to the PVC to back up its contents.
     *   **Scope & Impact:** New "Kubernetes" or "PVC" target/source provider. Requires K8s API interaction.
     *   **Acceptance Criteria:** Data from K8s PVCs can be backed up.
-
-105. **Feature: Direct Backup of Virtual Machine Disks (Hypervisor Agnostic where possible)**
-    *   **Goal:** Option to back up VM virtual disks directly (e.g., VMDK, VHDX) without necessarily needing an in-guest agent for file-level backup, especially for offline VMs.
-    *   **Description:** Could involve hypervisor API integration (vSphere, Hyper-V, Xen, KVM) or tools that can read these disk formats.
-    *   **Scope & Impact:** New "VMDisk" source type. Complex hypervisor interactions.
-    *   **Acceptance Criteria:** Virtual disk files can be backed up directly.
-    *   **Note:** Direct Hyper-V support is now implemented, which unfortunately isn't agnostic.
 
 106. **Feature: Cloud-to-Cloud Backup & Replication**
     *   **Goal:** Enable backing up data from one cloud provider/region to another.
@@ -1538,7 +1497,7 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 *   **UX:** When running `-ExportDiagnosticPackage`, don't prompt the user to create `User.psd1`.
 *   **UX:** When a user makes a typo in a job/set name, suggest the closest valid name (e.g., "Did you mean 'Projects'?").
-*   **UX:** Add a `-CompletionNotification` switch that can play a system sound on success or failure, or display a messagebox, or something else.
+*   **UX:** Expand the notification feature to optionally play a system sound on success or failure, display a messagebox, or something else.
 *   **UX:** In the final summary, show a count of jobs that succeeded, failed, or had warnings.
 *   **UX:** When pausing on exit, state the reason (e.g., "Pausing due to 'OnFailure' setting...").
 *   **UX:** Add a `-NoBanner` switch to suppress just the initial ASCII art banner without enabling full `-Quiet` mode.
