@@ -1501,7 +1501,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **UX:** In the final summary, show a count of jobs that succeeded, failed, or had warnings.
 *   **UX:** When pausing on exit, state the reason (e.g., "Pausing due to 'OnFailure' setting...").
 *   **UX:** Add a `-NoBanner` switch to suppress just the initial ASCII art banner without enabling full `-Quiet` mode.
-*   **UX:** When `-Quiet` is used, the final summary should still print, but only the one-line status and duration.
 *   **UX:** Add a progress bar for the individual file copy operation in the `UNC.Target.psm1` provider for very large files.
 *   **UX:** In interactive job selection menu, display job descriptions next to job names if they exist.
 *   **UX:** Add a `-ShowConfigPath` switch to print the path(s) to the loaded configuration files and exit.
