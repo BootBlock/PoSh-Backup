@@ -62,7 +62,7 @@ function Resolve-OperationalConfiguration {
     $resolvedSettings.SnapshotProviderName = Get-ConfigValue -ConfigObject $JobConfig -Key 'SnapshotProviderName' -DefaultValue $null
     $resolvedSettings.SourceIsVMName = Get-ConfigValue -ConfigObject $JobConfig -Key 'SourceIsVMName' -DefaultValue $false
 
-    $resolvedSettings.OnSourcePathNotFound = Get-ConfigValue -ConfigObject $JobConfig -Key 'OnSourcePathNotFound' -DefaultValue "FailJob"
+    $resolvedSettings.OnSourcePathNotFound = Get-ConfigValue -ConfigObject $JobConfig -Key 'OnSourcePathNotFound' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultOnSourcePathNotFound' -DefaultValue "FailJob")
 
     # Local Retention settings
     $resolvedSettings.LocalRetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'LocalRetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3)

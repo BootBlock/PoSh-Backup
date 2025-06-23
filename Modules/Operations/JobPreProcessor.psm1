@@ -23,9 +23,9 @@
     text password if retrieved, and a status indicating how to proceed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.5 # Correctly handles wildcard path validation to fix ParameterBindingException.
+    Version:        1.2.6 # Fixed fatal error when all source paths are invalid with WarnAndContinue.
     DateCreated:    27-May-2025
-    LastModified:   17-Jun-2025
+    LastModified:   22-Jun-2025
     Purpose:        To modularise pre-archive creation logic from the main Operations module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 and various Manager modules (Password, Hook, VSS, Snapshot).
@@ -134,9 +134,14 @@ function Invoke-PoShBackupJobPreProcessing {
                 return @{ Success = $true; Status = 'SkipJob'; ErrorMessage = $preProcessingErrorMessage }
             }
 
+            # If ALL source paths were invalid and the policy was 'WarnAndContinue', we should skip the job, not fail.
             if ($validSourcePaths.Count -eq 0 -and $sourcePathsToCheck.Count -gt 0) {
-                throw (New-Object System.IO.DirectoryNotFoundException("No valid source paths remain for job '$JobName' after checking for existence."))
+                $finalErrorMessage = "Job has no valid source paths to back up after checking all configured paths."
+                & $LocalWriteLog -Message "[WARNING] JobPreProcessor: $finalErrorMessage" -Level "WARNING"
+                # Treat this as a "skip" because there is nothing to do.
+                return @{ Success = $true; Status = 'SkipJob'; ErrorMessage = $finalErrorMessage }
             }
+
             $currentJobSourcePathFor7Zip = $validSourcePaths
             $reportData.EffectiveSourcePath = $validSourcePaths
         }

@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.9.7: Added ContinueOnError to Replicate.Target provider.
+# Version 1.9.8: Added DefaultOnSourcePathNotFound.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -75,6 +75,11 @@
                                                                       #   "OnFailure": Pause only if the overall script status is FAILURE.
                                                                       #   "OnWarning": Pause only if the overall script status is WARNINGS.
                                                                       #   "OnFailureOrWarning": (Default) Pause if status is FAILURE OR WARNINGS.
+    DefaultOnSourcePathNotFound     = "FailJob"                       # Global default for how a job should behave if one of its source paths is not found.
+                                                                      # This setting is overridden by a job's specific 'OnSourcePathNotFound' key.
+                                                                      #   "FailJob" (Default): The job will fail immediately.
+                                                                      #   "WarnAndContinue": Logs a warning and continues with other valid paths in the job.
+                                                                      #   "SkipJob": Logs a warning and gracefully skips the entire job.
     EnableAdvancedSchemaValidation  = $true                           # $true to enable detailed schema-based validation of this configuration file's structure and values.
                                                                       # If $true, the 'PoShBackupValidator.psm1' module must be present in the '.\Modules' folder.
                                                                       # Recommended for advanced users or when troubleshooting configuration issues.

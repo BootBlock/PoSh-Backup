@@ -16,6 +16,7 @@
     DeleteLocalArchiveAfterSuccessfulTransfer = @{ Type = 'boolean'; Required = $false }
     HideSevenZipOutput                        = @{ Type = 'boolean'; Required = $false }
     PauseBeforeExit                           = @{ Type = 'string'; Required = $false; AllowedValues = @("Always", "Never", "OnFailure", "OnWarning", "OnFailureOrWarning", "True", "False") }
+    DefaultOnSourcePathNotFound               = @{ Type = 'string'; Required = $false; AllowedValues = @("FailJob", "WarnAndContinue", "SkipJob") }
     EnableAdvancedSchemaValidation            = @{ Type = 'boolean'; Required = $false }
     TreatSevenZipWarningsAsSuccess            = @{ Type = 'boolean'; Required = $false }
     RetentionConfirmDelete                    = @{ Type = 'boolean'; Required = $false }

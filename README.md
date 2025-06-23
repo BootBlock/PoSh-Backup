@@ -171,6 +171,12 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
     *   Defaults to `"Zip"`. Currently, this is the only supported format for log file archives.
     *   **`DefaultSevenZipTempDirectory` (Global Setting):**
         *   `DefaultSevenZipTempDirectory` (string, default `""`): Optionally specify a path to a directory for 7-Zip to use for its temporary working files. If left empty, 7-Zip uses the system default temp directory. This is useful for redirecting temp file I/O to a faster drive or one with more space.
+    *   **`DefaultOnSourcePathNotFound` (Global Setting):**
+        *   A string that defines the default behaviour for all jobs if one of their source paths is not found.
+        *   `"FailJob"` (Default): The job will fail immediately.
+        *   `"WarnAndContinue"`: Logs a warning and continues with other valid paths in the job.
+        *   `"SkipJob"`: Logs a warning and gracefully skips the entire job.
+        *   This global setting is overridden by the job-level `OnSourcePathNotFound` setting.
     *   **Checksum Settings (Global Defaults):**
         *   `DefaultGenerateArchiveChecksum` (boolean, default `$false`): Set to `$true` to enable checksum generation for all jobs by default.
         *   `DefaultChecksumAlgorithm` (string, default `"SHA256"`): Specifies the default algorithm (e.g., "SHA1", "SHA256", "SHA512", "MD5").
@@ -378,8 +384,8 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
             *   The current job will only run if all jobs listed in `DependsOnJobs` complete successfully (success considers the prerequisite job's `TreatSevenZipWarningsAsSuccess` setting).
             *   The script will attempt to order jobs to satisfy these dependencies and will detect circular dependencies.
         *   **`OnSourcePathNotFound` (Job-Level Setting):**
-            *   A string that defines how the job should behave if one of the source paths in its `Path` array is not found. This is crucial for making scheduled backups more robust against temporary issues like disconnected network drives.
-            *   `"FailJob"` (Default): The job will immediately fail if any source path is not found. This was the original behaviour.
+            *   A string that defines how this specific job should behave if one of the source paths in its `Path` array is not found. This overrides the global `DefaultOnSourcePathNotFound` setting.
+            *   `"FailJob"`: The job will immediately fail if any source path is not found.
             *   `"WarnAndContinue"`: The script will log a warning for the missing path but will proceed to back up the other valid paths in the job.
             *   `"SkipJob"`: The script will log a warning and then gracefully skip the entire job, reporting a "SKIPPED" status. If the job is part of a set, the set will continue with the next job (unless `OnErrorInJob` is set to `StopSet`).
         *   Key settings for local and remote behaviour:
