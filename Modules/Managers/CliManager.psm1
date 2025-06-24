@@ -8,7 +8,7 @@
     This helps to decouple CLI argument handling from the main script's core logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.1 # Added SkipJobDependencies parameter.
+    Version:        1.4.0 # Added VaultCredentialPath parameter.
     DateCreated:    01-Jun-2025
     LastModified:   24-Jun-2025
     Purpose:        To centralise CLI parameter processing.
@@ -48,6 +48,7 @@ function Get-PoShBackupCliOverride {
 
     # Parameters that take arguments: Value will be the argument, or $null if not present.
     # Default values for these are handled by the param block in the main PoSh-Backup.ps1 script.
+    $cliOverrideSettings.VaultCredentialPath                 = if ($BoundParameters.ContainsKey('VaultCredentialPath')) { $BoundParameters['VaultCredentialPath'] } else { $null }
     $cliOverrideSettings.NotificationProfileNameCLI          = if ($BoundParameters.ContainsKey('NotificationProfileNameCLI')) { $BoundParameters['NotificationProfileNameCLI'] } else { $null }
     $cliOverrideSettings.SevenZipPriority                    = if ($BoundParameters.ContainsKey('SevenZipPriorityCLI')) { $BoundParameters['SevenZipPriorityCLI'] } else { $null }
     $cliOverrideSettings.SevenZipCpuAffinity                 = if ($BoundParameters.ContainsKey('SevenZipCpuAffinityCLI')) { $BoundParameters['SevenZipCpuAffinityCLI'] } else { $null }

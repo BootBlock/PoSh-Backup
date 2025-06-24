@@ -100,6 +100,11 @@
 .PARAMETER ConfigFile
     Optional. Specifies the full path to a PoSh-Backup '.psd1' configuration file.
 
+.PARAMETER VaultCredentialPath
+    Optional. Specifies the full path to an XML file containing the exported PSCredential
+    object for the PowerShell SecretStore vault. Using this parameter will cause the script
+    to attempt to unlock the vault at startup, which is ideal for non-interactive scheduled tasks.
+
 .PARAMETER Simulate
     Optional. A switch parameter. If present, the script runs in simulation mode.
     Local archive creation, checksum generation, remote transfers, retention actions, log file retention,
@@ -271,8 +276,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.33.0 # Added -SkipJobDependencies switch.
-    Date:           23-Jun-2025
+    Version:        1.34.0 # Added -VaultCredentialPath parameter.
+    Date:           24-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -376,6 +381,10 @@ param (
     # Common Parameters (available to all sets)
     [Parameter(Mandatory = $false, HelpMessage = "Optional. Path to the .psd1 configuration file. Defaults to '.\\Config\\Default.psd1' (and merges .\\Config\\User.psd1).")]
     [string]$ConfigFile,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Optional. Path to an XML file containing the PSCredential for the PowerShell SecretStore vault.")]
+    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
+    [string]$VaultCredentialPath,
 
     [Alias('WhatIf')]
     [Parameter(Mandatory = $false, HelpMessage = "Switch. Run in simulation mode (local archiving, checksums, remote transfers, log retention, and post-run actions simulated).")]

@@ -28,9 +28,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Parameterised to pass all arguments through to PoSh-Backup.ps1.
+    Version:        1.2.0 # Deprecated in favour of the integrated -VaultCredentialPath parameter.
     DateCreated:    21-Jun-2025
-    LastModified:   23-Jun-2025
+    LastModified:   24-Jun-2025
     Prerequisites:  - A configured Microsoft.PowerShell.SecretStore vault.
                     - A vault credential file (e.g., 'vault_credential.xml') created by the same user account
                       that will run this script, using a command like:
@@ -43,6 +43,30 @@ param(
     [Parameter(Mandatory = $false, ValueFromRemainingArguments = $true)]
     [string[]]$ArgumentsToPass
 )
+
+# --- DEPRECATION WARNING ---
+Write-Host @"
+
+********************************************************************************
+*                                                                              *
+*   [DEPRECATION WARNING] This wrapper script is now deprecated.               *
+*                                                                              *
+*   PoSh-Backup.ps1 now has an integrated -VaultCredentialPath parameter       *
+*   that provides the same functionality directly.                             *
+*                                                                              *
+*   Please update your scheduled tasks or automation to call PoSh-Backup.ps1   *
+*   directly with the new parameter.                                           *
+*                                                                              *
+*   Example:                                                                   *
+*   powershell.exe -File .\PoSh-Backup.ps1 -VaultCredentialPath `"$VaultCredentialPath`" ...other args... *
+*                                                                              *
+*   This wrapper will be removed in a future version.                          *
+*                                                                              *
+********************************************************************************
+
+"@ -ForegroundColor Yellow
+Start-Sleep -Seconds 3
+# --- END DEPRECATION WARNING ---
 
 # --- Configuration ---
 # Define paths relative to this wrapper script's location

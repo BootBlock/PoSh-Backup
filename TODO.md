@@ -207,12 +207,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **IV. Utility, Management & Usability Features**
 
-**Feature: Integrated Vault Unlocking**
-    **Goal:** Eliminate the need for the UnlockVaultAndRun-PoShBackup.ps1 wrapper script for common automation scenarios.
-    **Description:** Add new CLI parameters to PoSh-Backup.ps1, such as -VaultCredentialPath, that allow the main script to unlock the SecretStore vault internally at startup. The script would use the provided credential file to unlock the vault for the current session, making scheduled tasks that require secrets much easier to configure.
-    **Scope & Impact:** PoSh-Backup.ps1 (new parameters), Modules\Managers\CoreSetupManager.psm1 (new logic at startup). Update README.md and deprecate the wrapper script.
-    **Acceptance Criteria:* A scheduled task can call PoSh-Backup.ps1 directly with the new parameter and successfully run a job that requires vault access.
-
 **Enhancement:** Fully Automate the Update Process
     **Goal:** Make the -CheckForUpdate feature fully automated, from check to download to launching the installer, without requiring manual user intervention beyond confirmation.
     **Description:** Currently, the update process informs the user but the download and application flow is disjointed. This task involves refining Modules\Utilities\Update.psm1 to automatically download the package from the URL in the manifest, verify its checksum, back up the current installation, and launch apply_update.ps1 in one continuous, user-approved flow.

@@ -616,28 +616,37 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
 3.  **Explore `Config\Default.psd1` for All Options:**
     *   Open `Config\Default.psd1` (but don't edit it for your settings). This file serves as a comprehensive reference. It contains detailed comments explaining every available global and job-specific setting.
 
-    #### Important Note on Automation and PowerShell Secrets
-    When running PoSh-Backup non-interactively (e.g., as a Windows Scheduled Task), you may encounter an error stating that the `SecretStore` vault is locked. This is an intentional safety feature of PoSh-Backup to prevent the automated task from hanging indefinitely while waiting for a password prompt that can never be answered.
+#### Important Note on Automation and PowerShell Secrets
 
-    By default, the `Microsoft.PowerShell.SecretStore` vault locks after 15 minutes of inactivity. The correct way to handle this for automation is to use a small **wrapper script** that unlocks the vault just before running PoSh-Backup.
+When running PoSh-Backup non-interactively (e.g., as a Windows Scheduled Task), you may encounter an error stating that the `SecretStore` vault is locked. This is an intentional safety feature of PowerShell to prevent automated tasks from hanging indefinitely while waiting for a password prompt that can never be answered.
 
-    **Step 1: Store the Vault Password Securely**
-    Run these commands **once, interactively, as the user account that the scheduled task will run as**. This creates an encrypted credential file that only that user can read on that machine.
+By default, the `Microsoft.PowerShell.SecretStore` vault locks after a period of inactivity. The recommended way to handle this for automation is to use the integrated `-VaultCredentialPath` parameter.
 
-    ```powershell
-    # This will prompt for the password for your PowerShell vault
-    $vaultCredential = Get-Credential -UserName "PoShBackupVaultUser" -Message "Enter the PASSWORD for your PowerShell Secret VAULT"
+**Recommended Method: Using `-VaultCredentialPath`**
 
-    # This saves the credential to an encrypted file
-    $vaultCredential | Export-CliXml -Path "C:\Scripts\PoSh-Backup\vault_credential.xml"
+This method allows the main script to unlock the vault at startup.
 
-**Step 2: Use the Parameterised Wrapper Script**
-The `UnlockVaultAndRun-PoShBackup.ps1` script is provided for this purpose. This script no longer has hardcoded job names; instead, it accepts any valid `PoSh-Backup.ps1` parameters and passes them through.
+**Step 1: Store the Vault Password Securely (One-Time Setup)**
+Run these commands **once, interactively, as the user account that the scheduled task will run as**. This creates an encrypted credential file that only that user can read on that machine.
 
-Then, your scheduled task's action would be to call the wrapper with the desired arguments. For example, to run the "DailyCritical" backup set in quiet mode, the action would be:
 ```powershell
-powershell.exe -File "C:\Scripts\PoSh-Backup\UnlockVaultAndRun-PoShBackup.ps1" -RunSet "DailyCritical" -Quiet
+# This will prompt for the password for your PowerShell vault
+$vaultCredential = Get-Credential -UserName "PoShBackupVaultUser" -Message "Enter the PASSWORD for your PowerShell Secret VAULT"
+
+# This saves the credential to an encrypted file in your script directory
+$vaultCredential | Export-CliXml -Path "C:\Scripts\PoSh-Backup\vault_credential.xml"
 ```
+
+**Step 2: Use the `-VaultCredentialPath` Parameter in Scheduled Tasks**
+Now, modify your scheduled task's action to call PoSh-Backup.ps1 directly and provide the path to the credential file you just created. For example, to run the "DailyCritical" backup set in quiet mode:
+
+`powershell.exe -File "C:\Scripts\PoSh-Backup\PoSh-Backup.ps1" -VaultCredentialPath "C:\Scripts\PoSh-Backup\vault_credential.xml" -RunSet "DailyCritical" -Quiet`
+
+This method is more direct and is the recommended approach for all new automated setups.
+
+#### Deprecated Method: Using the Wrapper Script
+    
+**Note:** The `UnlockVaultAndRun-PoShBackup.ps1` wrapper script is now **deprecated** and will be removed in a future version. While it still functions for backward compatibility, you should migrate any existing scheduled tasks to use the `-VaultCredentialPath` parameter as described above.
 
 ### Backing Up Virtual Machines via Snapshot Orchestration
 This is a powerful enterprise feature that allows for application-consistent backups of live virtual machines with minimal performance impact.
@@ -923,6 +932,7 @@ VerificationJobs = @{
 These parameters allow you to override certain configuration settings for a specific run:
 
 *   `-BackupLocationName <JobName>`: The friendly name (key) of a single backup location (job) to process. If this job has dependencies, they will be processed first, unless `-SkipJobDependencies` is also used. This key can be omitted and just the name of the job or set can be specified.
+*   `-VaultCredentialPath <FilePath>`: Specifies the full path to an XML file containing the exported PSCredential object for the PowerShell SecretStore vault. Using this parameter will cause the script to attempt to unlock the vault at startup, which is ideal for non-interactive scheduled tasks.
 *   `-Maintenance <boolean>`: A utility parameter to enable (`$true`) or disable (`$false`) maintenance mode by creating or deleting the on-disk flag file. This does not run a backup.
 *   `-ForceRunInMaintenanceMode`: Forces a backup job or set to run even if maintenance mode is active.
 *   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges). Overridden by `-SkipVSS`.
