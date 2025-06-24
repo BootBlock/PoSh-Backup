@@ -29,7 +29,7 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the accessibility of all configured destination paths.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.2 # Enhanced -Simulate output to be more descriptive.
+    Version:        1.4.0 # Refactored to use centralised Format-FileSize utility function.
     DateCreated:    19-May-2025
     LastModified:   23-Jun-2025
     Purpose:        Replicate Target Provider for PoSh-Backup.
@@ -38,16 +38,13 @@
                     to read/write/delete on all configured destination paths.
 #>
 
-#region --- Private Helper: Format Bytes ---
-function Format-BytesInternal-Replicate {
-    param(
-        [Parameter(Mandatory = $true)]
-        [long]$Bytes
-    )
-    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
-    elseif ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
-    elseif ($Bytes -ge 1KB) { return "{0:N2} KB" -f ($Bytes / 1KB) }
-    else { return "$Bytes Bytes" }
+#region --- Module Dependencies ---
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+}
+catch {
+    Write-Error "Replicate.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw
 }
 #endregion
 
@@ -507,7 +504,7 @@ function Invoke-PoShBackupTargetTransfer {
     $targetNameForLog = $TargetInstanceConfiguration._TargetInstanceName_ 
     & $LocalWriteLog -Message "`n[INFO] Replicate Target: Starting replication of file '$ArchiveFileName' for Job '$JobName' using Target Instance '$targetNameForLog'." -Level "INFO"
     & $LocalWriteLog -Message "  - Replicate Target: Local source file: '$LocalArchivePath'" -Level "DEBUG"
-    & $LocalWriteLog -Message "    - Local File Size: $(Format-BytesInternal-Replicate -Bytes $LocalArchiveSizeBytes)" -Level "DEBUG"
+    & $LocalWriteLog -Message "    - Local File Size: $(Format-FileSize -Bytes $LocalArchiveSizeBytes)" -Level "DEBUG"
     
     $overallStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $allReplicationsForThisFileSucceeded = $true # Tracks success for *this specific file* across all its destinations

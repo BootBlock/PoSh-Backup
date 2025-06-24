@@ -17,7 +17,7 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the S3 connection and settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.1 # Enhanced -Simulate output to be more descriptive.
+    Version:        1.3.0 # Refactored to use centralised Format-FileSize utility function.
     DateCreated:    17-Jun-2025
     LastModified:   23-Jun-2025
     Purpose:        S3-Compatible Target Provider for PoSh-Backup.
@@ -26,16 +26,14 @@
                     PowerShell SecretManagement configured for storing credentials.
 #>
 
-#region --- Private Helper: Format Bytes ---
-function Format-BytesInternal-S3 {
-    param(
-        [Parameter(Mandatory = $true)]
-        [long]$Bytes
-    )
-    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
-    elseif ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
-    elseif ($Bytes -ge 1KB) { return "{0:N2} KB" -f ($Bytes / 1KB) }
-    else { return "$Bytes Bytes" }
+#region --- Module Dependencies ---
+# $PSScriptRoot here is Modules\Targets
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+}
+catch {
+    Write-Error "S3.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw
 }
 #endregion
 
@@ -317,7 +315,7 @@ function Invoke-PoShBackupTargetTransfer {
             & $LocalWriteLog -Message ("SIMULATE: After the upload, the retention policy (Keep: {0}) would be applied to objects under the prefix '{1}'." -f $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount, $remoteKeyPrefix) -Level "SIMULATE"
         }
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
-        $result.TransferSizeFormatted = Format-BytesInternal-S3 -Bytes $result.TransferSize
+        $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
     }
 
@@ -350,7 +348,7 @@ function Invoke-PoShBackupTargetTransfer {
         Write-S3Object @writeS3Params
         
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
-        $result.TransferSizeFormatted = Format-BytesInternal-S3 -Bytes $result.TransferSize
+        $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
         & $LocalWriteLog -Message ("    - S3 Target '{0}': File uploaded successfully." -f $targetNameForLog) -Level "SUCCESS"
 
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -is [int] -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
@@ -392,7 +390,7 @@ function Invoke-PoShBackupTargetTransfer {
                     }
                 }
             }
-            else { & $LocalWriteLog ("    - S3 Target '{0}': No old instances to delete based on retention count {1}." -f $targetNameForLog, $remoteKeepCount) -Level "INFO" }
+            else { & $LocalWriteLog ("    - S3 Target '{0}': No old instances to delete based on retention count {1} (Found: $($remoteInstances.Count))." -f $targetNameForLog, $remoteKeepCount) -Level "INFO" }
         }
 
     }

@@ -302,12 +302,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **VI. Code Quality, Maintainability & Testing**
 
-*   **Refactor: Consolidate `Format-BytesInternal` Utility Function**
-    *   **Goal:** Remove duplicated code by creating a single, centralized function for formatting file sizes.
-    *   **Description:** The helper function `Format-BytesInternal` is currently duplicated in several target provider modules (`UNC.Target.psm1`, `Replicate.Target.psm1`, `S3.Target.psm1`, `WebDAV.Target.psm1`). This violates the DRY (Don't Repeat Yourself) principle. A single, public version of this function should be created in `Modules\Utilities\FileUtils.psm1` and exported via `Utils.psm1`. The target providers should then be updated to call this centralized function.
-    *   **Scope & Impact:** `Modules\Utilities\FileUtils.psm1`, `Modules\Utils.psm1`, and all target provider modules that use the function.
-    *   **Acceptance Criteria:** The duplicated functions are removed, and all target providers successfully call the single utility function for byte formatting.
-
 1. **Task: Static Code Analysis Integration (Beyond PSScriptAnalyzer)**
 
     - **Goal:** Integrate additional static analysis tools if beneficial.

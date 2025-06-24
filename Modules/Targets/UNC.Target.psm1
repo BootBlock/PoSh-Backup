@@ -27,7 +27,7 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the accessibility of the UNC path.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.1 # Enhanced -Simulate output to be more descriptive.
+    Version:        1.6.1 # Bug Fix: Added missing Import-Module for Utils.psm1.
     DateCreated:    19-May-2025
     LastModified:   23-Jun-2025
     Purpose:        UNC Target Provider for PoSh-Backup.
@@ -37,16 +37,14 @@
                     Robocopy.exe must be available on the system (standard on modern Windows).
 #>
 
-#region --- Private Helper: Format Bytes ---
-function Format-BytesInternal {
-    param(
-        [Parameter(Mandatory = $true)]
-        [long]$Bytes
-    )
-    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
-    elseif ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
-    elseif ($Bytes -ge 1KB) { return "{0:N2} KB" -f ($Bytes / 1KB) }
-    else { return "$Bytes Bytes" }
+#region --- Module Dependencies ---
+# $PSScriptRoot here is Modules\Targets
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+}
+catch {
+    Write-Error "UNC.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw
 }
 #endregion
 
@@ -470,7 +468,7 @@ function Invoke-PoShBackupTargetTransfer {
     $robocopySettings = $TargetInstanceConfiguration.TargetSpecificSettings.RobocopySettings
 
     & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': Local source file: '$LocalArchivePath'" -Level "DEBUG"
-    & $LocalWriteLog -Message "    - Local File Size: $(Format-BytesInternal -Bytes $LocalArchiveSizeBytes)" -Level "DEBUG"
+    & $LocalWriteLog -Message "    - Local File Size: $(Format-FileSize -Bytes $LocalArchiveSizeBytes)" -Level "DEBUG"
     & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': Remote destination for this file: '$fullRemoteArchivePathForThisFile'" -Level "DEBUG"
     & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': Transfer method: $(if($useRobocopy){'Robocopy'}else{'Copy-Item'})" -Level "DEBUG"
 
@@ -555,7 +553,7 @@ function Invoke-PoShBackupTargetTransfer {
     }
     finally {
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed
-        $result.TransferSizeFormatted = Format-BytesInternal -Bytes $result.TransferSize
+        $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
     }
 
     & $LocalWriteLog -Message ("[INFO] UNC Target: Finished transfer attempt for Job '{0}' to Target '{1}', File '{2}'. Success: {3}." -f $JobName, $targetNameForLog, $ArchiveFileName, $result.Success) -Level "INFO"

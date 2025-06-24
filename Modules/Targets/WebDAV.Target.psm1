@@ -28,7 +28,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        0.4.1 # Enhanced -Simulate output to be more descriptive.
+    Version:        0.5.0 # Refactored to use centralised Format-FileSize utility function.
     DateCreated:    05-Jun-2025
     LastModified:   23-Jun-2025
     Purpose:        WebDAV Target Provider for PoSh-Backup.
@@ -38,16 +38,14 @@
                     to the WebDAV server and R/W/Delete permissions on the target remote path.
 #>
 
-#region --- Private Helper: Format Bytes ---
-function Format-BytesInternal-WebDAV {
-    param(
-        [Parameter(Mandatory = $true)]
-        [long]$Bytes
-    )
-    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
-    elseif ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
-    elseif ($Bytes -ge 1KB) { return "{0:N2} KB" -f ($Bytes / 1KB) }
-    else { return "$Bytes Bytes" }
+#region --- Module Dependencies ---
+# $PSScriptRoot here is Modules\Targets
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+}
+catch {
+    Write-Error "WebDAV.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw
 }
 #endregion
 
@@ -630,6 +628,7 @@ function Invoke-PoShBackupTargetTransfer {
     }
 
     $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed
+    $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
     & $LocalWriteLog -Message ("[INFO] WebDAV Target: Finished transfer attempt for Job '{0}' to Target '{1}', File '{2}'. Success: {3}." -f $JobName, $targetNameForLog, $ArchiveFileName, $result.Success) -Level "INFO"
     return $result
 }

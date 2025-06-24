@@ -7,9 +7,9 @@
     formatting file sizes for human readability and generating file checksums.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Added generic Format-FileSize function.
     DateCreated:    25-May-2025
-    LastModified:   25-May-2025
+    LastModified:   23-Jun-2025
     Purpose:        File operation utilities for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Requires a logger function to be passed to its functions.
@@ -40,11 +40,8 @@ function Get-ArchiveSizeFormatted {
     try {
         if (Test-Path -LiteralPath $PathToArchive -PathType Leaf) {
             $ArchiveFile = Get-Item -LiteralPath $PathToArchive -ErrorAction Stop
-            $Size = $ArchiveFile.Length
-            if ($Size -ge 1GB) { $FormattedSize = "{0:N2} GB" -f ($Size / 1GB) }
-            elseif ($Size -ge 1MB) { $FormattedSize = "{0:N2} MB" -f ($Size / 1MB) }
-            elseif ($Size -ge 1KB) { $FormattedSize = "{0:N2} KB" -f ($Size / 1KB) }
-            else { $FormattedSize = "$Size Bytes" }
+            # Delegate to the new generic function
+            $FormattedSize = Format-FileSize -Bytes $ArchiveFile.Length
         }
         else {
             & $LocalWriteLog -Message "[DEBUG] FileUtils: File not found at '$PathToArchive' for size formatting." -Level "DEBUG"
@@ -56,6 +53,23 @@ function Get-ArchiveSizeFormatted {
         $FormattedSize = "Error getting size"
     }
     return $FormattedSize
+}
+#endregion
+
+#region --- Format File Size ---
+function Format-FileSize {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [long]$Bytes
+    )
+    # This centralised function provides consistent file size formatting. [2, 8]
+    if ($Bytes -lt 0) { return "0 Bytes" }
+    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
+    elseif ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
+    elseif ($Bytes -ge 1KB) { return "{0:N2} KB" -f ($Bytes / 1KB) }
+    else { return "$Bytes Bytes" }
 }
 #endregion
 
@@ -127,4 +141,4 @@ function Get-PoshBackupFileHash {
 }
 #endregion
 
-Export-ModuleMember -Function Get-ArchiveSizeFormatted, Get-PoshBackupFileHash
+Export-ModuleMember -Function Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Format-FileSize
