@@ -83,7 +83,9 @@ function Invoke-PoShBackupCoreSetup {
         [Parameter(Mandatory = $false)]
         [switch]$ForceRunInMaintenanceMode,
         [Parameter(Mandatory = $false)]
-        [Nullable[bool]]$Maintenance
+        [Nullable[bool]]$Maintenance,
+        [Parameter(Mandatory = $false)]
+        [switch]$SkipJobDependenciesSwitch
     )
 
     # --- 1. Import Core and Manager Modules (Moved here from ModuleLoader) ---
@@ -192,8 +194,9 @@ function Invoke-PoShBackupCoreSetup {
         -BackupLocationName $BackupLocationName `
         -RunSet $RunSet `
         -JobsToSkip $CliOverrideSettings.SkipJob `
-        -Logger $LoggerScriptBlock
-    
+        -Logger $LoggerScriptBlock `
+        -SkipJobDependenciesSwitch:$SkipJobDependenciesSwitch.IsPresent
+
     # --- 6. Context-Aware Dependency Check on the final list of jobs ---
     Invoke-PoShBackupDependencyCheck -Logger $LoggerScriptBlock -Configuration $Configuration -JobsToRun $executionPlanResult.JobsToProcess
 
@@ -207,7 +210,7 @@ function Invoke-PoShBackupCoreSetup {
             catch { & $LoggerScriptBlock -Message "[WARNING] CoreSetupManager: Failed to create log directory. File logging may be impacted. Error: $($_.Exception.Message)" -Level "WARNING"; $Global:GlobalEnableFileLogging = $false }
         }
     }
-    
+
     $sevenZipPathFromFinalConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'SevenZipPath'
     if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
         throw "7-Zip executable path ('$sevenZipPathFromFinalConfig') is invalid or not found after all checks."

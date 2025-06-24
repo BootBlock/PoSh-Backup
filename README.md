@@ -648,6 +648,12 @@ Once your `Config\User.psd1` is configured with at least one backup job, you can
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocs_To_UNC" -ForceRunInMaintenanceMode
     ```
 
+*   **Run a single job and skip its dependencies (for testing):**
+    ```powershell
+    .\PoSh-Backup.ps1 -BackupLocationName "MyDependentJob" -SkipJobDependencies
+    ```
+    (This runs only the "MyDependentJob" and ignores any jobs listed in its 'DependsOnJobs' setting.)
+
 *   **Run a specific backup job, ensure it's verified before any remote transfer, and keep only the last 5 log files for this job:**
     ```powershell
     .\PoSh-Backup.ps1 -BackupLocationName "MyDocumentsBackupSFX_GUI_Affinity" -VerifyLocalArchiveBeforeTransferCLI -LogRetentionCountCLI 5
@@ -849,6 +855,7 @@ VerificationJobs = @{
 ### 5. Key Operational Command-Line Parameters
 These parameters allow you to override certain configuration settings for a specific run:
 
+*   `-BackupLocationName <JobName>`: The friendly name (key) of a single backup location (job) to process. If this job has dependencies, they will be processed first, unless `-SkipJobDependencies` is also used. This key can be omitted and just the name of the job or set can be specified.
 *   `-Maintenance <boolean>`: A utility parameter to enable (`$true`) or disable (`$false`) maintenance mode by creating or deleting the on-disk flag file. This does not run a backup.
 *   `-ForceRunInMaintenanceMode`: Forces a backup job or set to run even if maintenance mode is active.
 *   `-UseVSS`: Forces the script to attempt using Volume Shadow Copy Service for all processed jobs (for local sources, requires Administrator privileges). Overridden by `-SkipVSS`.
@@ -883,6 +890,7 @@ These parameters allow you to override certain configuration settings for a spec
 *   `-ItemsToExtract <String[]>`: Optional. An array of specific file or folder paths inside the archive to extract. If omitted, the entire archive is extracted.
 *   `-ForceExtract`: Optional. A switch. If present, extraction will overwrite existing files in the destination directory without prompting.
 *   `-SkipJob <JobName>` or `-SkipJob <JobName1>,<JobName2>`: A utility parameter to temporarily exclude one or more jobs from a run, which is particularly useful when running a large backup set.
+    `-SkipJobDependencies`: A switch parameter that only has an effect when used with `-BackupLocationName`. If present, the script will run only the specified job and will NOT process any of its prerequisite jobs defined in 'DependsOnJobs'. This is useful for testing or troubleshooting a single job in a dependency chain.
 *   `-SyncSchedules`: Synchronises job schedules (for both backup and verification jobs) from the configuration file with the Windows Task Scheduler, creating, updating, or removing tasks as needed, then exits. Requires Administrator privileges.
 *   `-CheckForUpdate`: Checks for available updates to PoSh-Backup online and then exits. Does not perform any backup operations.
 *   `-Quiet`: Suppresses all non-essential console output. Critical errors will still be displayed. Useful for scheduled tasks.

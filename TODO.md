@@ -213,12 +213,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** `UnlockVaultAndRun-PoShBackup.ps1`.
     *   **Acceptance Criteria:** Users can run `.\UnlockVaultAndRun-PoShBackup.ps1 -RunSet "MySet"` and have it correctly unlock the vault and execute the specified set.
 
-*   **Feature: `-SkipJobDependencies` CLI Switch**
-    *   **Goal:** Provide a way to run a single job for testing or troubleshooting without running its entire dependency chain.
-    *   **Description:** Add a new switch, `-SkipJobDependencies`, that can be used with `-BackupLocationName`. When present, PoSh-Backup would execute only the specified job and ignore its `DependsOnJobs` configuration. This is useful for quickly testing changes to a single job without waiting for all its prerequisites to complete.
-    *   **Scope & Impact:** `PoSh-Backup.ps1` (new parameter), `Modules\Managers\CoreSetupManager\JobAndDependencyResolver.psm1` (to modify the job list if the switch is active).
-    *   **Acceptance Criteria:** `.\PoSh-Backup.ps1 -BackupLocationName "MyDependentJob" -SkipJobDependencies` runs only "MyDependentJob".
-
 **Feature: Integrated Vault Unlocking**
     **Goal:** Eliminate the need for the UnlockVaultAndRun-PoShBackup.ps1 wrapper script for common automation scenarios.
     **Description:** Add new CLI parameters to PoSh-Backup.ps1, such as -VaultCredentialPath, that allow the main script to unlock the SecretStore vault internally at startup. The script would use the provided credential file to unlock the vault for the current session, making scheduled tasks that require secrets much easier to configure.
@@ -1600,7 +1594,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 *   **Config:** Add `PreSetScriptPath` and `PostSetScriptPath` hooks to `BackupSets`.
 *   **Config:** Allow a job to have a `DependsOnSets` key to make an entire set a prerequisite.
 *   **Config:** Add a global `ExcludePaths` array in the config that applies to all backup jobs.
-*   **Config:** Add a `-SkipJobDependencies` switch to run a job without running its prerequisites.
 *   **Config:** Add a `-SkipPostRunAction` switch to prevent any post-run system action for the current run.
 *   **Config:** Allow a job to specify a `RetentionProfile` by name, defined in a new global `RetentionProfiles` section.
 *   **Config:** Add support for a `-ConfigFile` parameter that accepts an array of paths, merging them in order.

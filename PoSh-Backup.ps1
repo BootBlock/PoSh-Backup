@@ -71,11 +71,18 @@
 
 .PARAMETER BackupLocationName
     Optional. The friendly name (key) of a single backup location (job) to process.
-    If this job has dependencies, they will be processed first. Can be used with -PreFlightCheck.
+    If this job has dependencies, they will be processed first unless -SkipJobDependencies is also used.
+    Can be used with -PreFlightCheck.
 
 .PARAMETER RunSet
     Optional. The name of a Backup Set to process. Jobs within the set will be ordered
     based on any defined dependencies. Can be used with -PreFlightCheck.
+
+.PARAMETER SkipJobDependencies
+    Optional. A switch parameter that only has an effect when used with -BackupLocationName.
+    If present, the script will run *only* the specified job and will NOT process any of its
+    prerequisite jobs defined in 'DependsOnJobs'. This is useful for testing or troubleshooting
+    a single job in a dependency chain.
 
 .PARAMETER SkipJob
     Optional. A job name or list of job names to exclude from the current run.
@@ -235,6 +242,10 @@
     Unpin a backup archive to include it in retention policies again. Provide the full path to the archive file.
 
 .EXAMPLE
+    .\PoSh-Backup.ps1 -BackupLocationName "MyWebApp" -SkipJobDependencies
+    Runs only the "MyWebApp" job and ignores any jobs listed in its 'DependsOnJobs' setting.
+
+.EXAMPLE
     .\PoSh-Backup.ps1 -RunVerificationJobs
     Runs all enabled automated backup verification jobs defined in the configuration.
 
@@ -260,8 +271,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.32.1 # Added thing for recording script invocation parameters
-    Date:           22-Jun-2025
+    Version:        1.33.0 # Added -SkipJobDependencies switch.
+    Date:           23-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
@@ -283,6 +294,9 @@ param (
     [Parameter(ParameterSetName = 'PreFlight')] # Also available for PreFlight
     [ArgumentCompleter({ Get-PoShBackupSetNameCompletion @args })]
     [string]$RunSet,
+
+    [Parameter(ParameterSetName = 'Execution', Mandatory = $false, HelpMessage = "If used with -BackupLocationName, runs only that job without its dependencies.")]
+    [switch]$SkipJobDependencies,
 
     [Parameter(ParameterSetName = 'Execution', Mandatory = $false, HelpMessage = "Optional. A job name or list of job names to exclude from the current run.")]
     [ArgumentCompleter({ Get-PoShBackupJobNameCompletion @args })]
@@ -574,7 +588,8 @@ try {
         -CheckForUpdate:$CheckForUpdate.IsPresent `
         -PSCmdletInstance $PSCmdlet `
         -ForceRunInMaintenanceMode:$ForceRunInMaintenanceMode.IsPresent `
-        -Maintenance:$Maintenance
+        -Maintenance:$Maintenance `
+        -SkipJobDependenciesSwitch:$SkipJobDependencies.IsPresent
 
     $Configuration = $coreSetupResult.Configuration
     $ActualConfigFile = $coreSetupResult.ActualConfigFile

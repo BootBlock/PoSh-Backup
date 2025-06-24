@@ -7,13 +7,14 @@
     jobs to run and in what order. It first calls 'Get-JobsToProcess' from
     JobResolver.psm1 to get the initial list of jobs based on user input. Then, it
     calls 'Get-JobExecutionOrder' from JobDependencyManager.psm1 to create the
-    final, correctly ordered list that respects all dependencies.
+    final, correctly ordered list that respects all dependencies. It now includes logic
+    to bypass dependency resolution if the -SkipJobDependencies switch is used.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.2 # Added necessary module imports for dependencies.
+    Version:        1.1.0 # Added logic for -SkipJobDependencies switch.
     DateCreated:    17-Jun-2025
-    LastModified:   17-Jun-2025
-    Purpose:        To centralize job resolution and dependency ordering.
+    LastModified:   23-Jun-2025
+    Purpose:        To centralise job resolution and dependency ordering.
     Prerequisites:  PowerShell 5.1+.
 #>
 
@@ -42,7 +43,9 @@ function Resolve-PoShBackupJobExecutionPlan {
         [Parameter(Mandatory = $false)]
         [string[]]$JobsToSkip,
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $false)]
+        [switch]$SkipJobDependenciesSwitch
     )
 
     & $Logger -Message "CoreSetupManager/JobAndDependencyResolver/Resolve-PoShBackupJobExecutionPlan: Logger active." -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -63,16 +66,24 @@ function Resolve-PoShBackupJobExecutionPlan {
     # Step 2: Build the final execution order based on the initial list and dependencies.
     $executionOrderResult = @{ Success = $true; OrderedJobs = @() } # Default for case where no jobs are left
     if ($jobResolutionResult.JobsToRun.Count -gt 0) {
-        & $Logger -Message "CoreSetupManager/JobAndDependencyResolver: Building job execution order considering dependencies..." -Level "INFO"
-        $executionOrderResult = Get-JobExecutionOrder -InitialJobsToConsider $jobResolutionResult.JobsToRun `
-            -AllBackupLocations $Configuration.BackupLocations `
-            -Logger $Logger
-
-        if (-not $executionOrderResult.Success) {
-            throw "Could not build job execution order: $($executionOrderResult.ErrorMessage)"
+        # --- NEW LOGIC for -SkipJobDependencies ---
+        if ($SkipJobDependenciesSwitch.IsPresent -and -not [string]::IsNullOrWhiteSpace($BackupLocationName)) {
+            & $Logger -Message "CoreSetupManager/JobAndDependencyResolver: The -SkipJobDependencies switch is active. Bypassing dependency resolution and running only '$BackupLocationName'." -Level "WARNING"
+            $executionOrderResult.OrderedJobs = [System.Collections.Generic.List[string]]::new()
+            $executionOrderResult.OrderedJobs.Add($BackupLocationName)
         }
-        if ($executionOrderResult.OrderedJobs.Count -gt 0) {
-            & $Logger -Message "CoreSetupManager/JobAndDependencyResolver: Final job execution order: $($executionOrderResult.OrderedJobs -join ', ')" -Level "INFO"
+        else {
+            & $Logger -Message "CoreSetupManager/JobAndDependencyResolver: Building job execution order considering dependencies..." -Level "INFO"
+            $executionOrderResult = Get-JobExecutionOrder -InitialJobsToConsider $jobResolutionResult.JobsToRun `
+                -AllBackupLocations $Configuration.BackupLocations `
+                -Logger $Logger
+
+            if (-not $executionOrderResult.Success) {
+                throw "Could not build job execution order: $($executionOrderResult.ErrorMessage)"
+            }
+            if ($executionOrderResult.OrderedJobs.Count -gt 0) {
+                & $Logger -Message "CoreSetupManager/JobAndDependencyResolver: Final job execution order: $($executionOrderResult.OrderedJobs -join ', ')" -Level "INFO"
+            }
         }
     }
 

@@ -8,9 +8,9 @@
     This helps to decouple CLI argument handling from the main script's core logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Added RunVerificationJobs parameter.
+    Version:        1.3.1 # Added SkipJobDependencies parameter.
     DateCreated:    01-Jun-2025
-    LastModified:   12-Jun-2025
+    LastModified:   24-Jun-2025
     Purpose:        To centralise CLI parameter processing.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -42,6 +42,7 @@ function Get-PoShBackupCliOverride {
     $cliOverrideSettings.ForceRunInMaintenanceMode           = if ($BoundParameters.ContainsKey('ForceRunInMaintenanceMode')) { $true } else { $null }
     $cliOverrideSettings.ForceExtract                        = if ($BoundParameters.ContainsKey('ForceExtract')) { $true } else { $null }
     $cliOverrideSettings.PreFlightCheck                      = if ($BoundParameters.ContainsKey('PreFlightCheck')) { $true } else { $null }
+    $cliOverrideSettings.SkipJobDependencies                 = if ($BoundParameters.ContainsKey('SkipJobDependencies')) { $true } else { $null }
     $cliOverrideSettings.RunVerificationJobs                 = if ($BoundParameters.ContainsKey('RunVerificationJobs')) { $true } else { $null }
     $cliOverrideSettings.SkipJob                             = if ($BoundParameters.ContainsKey('SkipJob')) { $BoundParameters['SkipJob'] } else { $null }
 
