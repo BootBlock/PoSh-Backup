@@ -28,6 +28,7 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
     *   **Replicate Provider:** Copies an archive to multiple specified local or UNC paths, with individual retention settings per destination.
     *   **SFTP Provider (via Posh-SSH module):** Transfers archives to SFTP servers, supporting password and key-based authentication.
     *   **Microsoft Azure Blob Storage Provider (via Az.Storage module):** Transfers archives directly to Azure Blob Storage containers using a connection string for authentication.
+    *   **Google Cloud Storage Provider (via gcloud CLI):** Transfers archives to Google Cloud Storage buckets, authenticating via the gcloud SDK.
     *   **S3-Compatible Object Storage Provider (via AWS.Tools.S3 module):** Transfers archives to any S3-compatible service, including Amazon S3, MinIO, Backblaze B2, and more. See `UnlockVaultAndRun-PoShBackup.ps1` if you need automatic vault unlocking.
 *   **Configurable Retention Policies:**
     *   **Local Retention:** Manage archive versions in the `DestinationDir` using the `LocalRetentionCount` setting per job.
@@ -83,6 +84,7 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
 *   **Robocopy.exe:** Required if you plan to use the Robocopy transfer method for the UNC Backup Target. This is standard on modern Windows operating systems.
 *   **Posh-SSH Module:** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).
 *   **Az.Storage Module:** Required if you plan to use the Azure Blob Storage Backup Target feature. Install via PowerShell: `Install-Module Az.Storage -Scope CurrentUser -Repository PSGallery -Force`.
+*   **Google Cloud SDK (gcloud CLI):** Required if you plan to use the Google Cloud Storage Backup Target feature. Must be installed and available in the system's PATH. Authentication should be configured (e.g., via `gcloud auth login` or a service account key).
 *   **PowerShell SecretManagement & SecretStore:** Required for storing any credentials (for archives, targets, or email). The script assumes you are using the default `Microsoft.PowerShell.SecretStore` vault provider.
 *   **BurntToast Module (for PowerShell 7+):** Required for the Desktop (Toast) Notification provider *if you are running on PowerShell 7 or newer*. Install via PowerShell 7: `Install-Module BurntToast -Scope CurrentUser`.
 *   **Modern Windows OS (for Desktop Notifications):** The native desktop "toast" notification feature requires Windows 10, Windows 11, or Windows Server 2016 and newer.
@@ -354,7 +356,26 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
                     }
                 }
 
-            }
+                "GoogleCloudStorageExample" = @{ # Google Cloud Storage Example
+                    Type = "GCS" # Provider module 'Modules\Targets\GCS.Target.psm1' will handle this
+                    TargetSpecificSettings = @{
+                        # The name of the GCS bucket.
+                        BucketName = "your-gcs-bucket-name"
+
+                        # Optional: The name of a secret in PowerShell SecretManagement that stores the
+                        # full path to a Google Cloud service account JSON key file.
+                        # If omitted, the provider will rely on the gcloud CLI being authenticated
+                        # via 'gcloud auth application-default login' or another ambient method.
+                        ServiceAccountKeyFileSecretName = "MyGcsServiceAccountKeyPath"
+
+                        # Optional: If $true, creates /JobName/ inside the bucket. Default is $false.
+                        CreateJobNameSubdirectory = $true
+                    }
+                    # Optional: Remote retention settings for this GCS target.
+                    RemoteRetentionSettings = @{
+                        KeepCount = 15 # Keep the last 15 backup instances in this bucket.
+                    }
+                }
 
             }
             ```

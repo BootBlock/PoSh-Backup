@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.10.0: Added Azure Blob Storage target provider settings.
+# Version 1.11.0: Added Google Cloud Storage target provider settings.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -530,6 +530,27 @@
             # Optional: Remote retention settings for this Azure Blob target.
             RemoteRetentionSettings = @{
                 KeepCount = 10                                    # Keep the last 10 backup instances in this container.
+            }
+        }
+
+        "GoogleCloudStorageExample" = @{                          # Google Cloud Storage Example
+            Type = "GCS"                                          # Provider module 'Modules\Targets\GCS.Target.psm1' will handle this
+            TargetSpecificSettings = @{
+                # The name of the GCS bucket.
+                BucketName = "your-gcs-bucket-name"
+
+                # Optional: The path to a Google Cloud service account key file (JSON).
+                # If omitted, the provider will rely on the gcloud CLI being authenticated
+                # via 'gcloud auth application-default login' or another ambient method.
+                # If provided, the secret should store the *full path* to the JSON key file.
+                ServiceAccountKeyFileSecretName = "MyGcsServiceAccountKeyPath"
+
+                # Optional: If $true, creates /JobName/ inside the bucket. Default is $false.
+                CreateJobNameSubdirectory = $true
+            }
+            # Optional: Remote retention settings for this GCS target.
+            RemoteRetentionSettings = @{
+                KeepCount = 15                                    # Keep the last 15 backup instances in this bucket.
             }
         }
 

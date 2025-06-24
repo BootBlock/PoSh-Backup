@@ -53,12 +53,12 @@
     NotificationProfiles                      = @{
         Type             = 'hashtable'
         Required         = $false
-        DynamicKeySchema = @{ # Schema for each named notification profile (e.g., "Office365", "TeamsAlertsChannel")
+        DynamicKeySchema = @{                                                           # Schema for each named notification profile (e.g., "Office365", "TeamsAlertsChannel")
             Type     = "hashtable"
             Required = $true
             Schema   = @{
                 Type             = @{ Type = 'string'; Required = $true; AllowedValues = @("Email", "Webhook", "Desktop") }
-                ProviderSettings = @{ Type = 'hashtable'; Required = $true } # Specific validation will be handled by the provider itself.
+                ProviderSettings = @{ Type = 'hashtable'; Required = $true }            # Specific validation will be handled by the provider itself.
             }
         }
     }
@@ -83,12 +83,12 @@
     SnapshotProviders                         = @{
         Type             = 'hashtable'
         Required         = $false
-        DynamicKeySchema = @{ # Schema for each named snapshot provider (e.g., "LocalHyperV")
+        DynamicKeySchema = @{                                                           # Schema for each named snapshot provider (e.g., "LocalHyperV")
             Type     = "hashtable"
             Required = $true
             Schema   = @{
                 Type                  = @{ Type = 'string'; Required = $true; AllowedValues = @("HyperV", "VMware") } # Add more as they are developed
-                ProviderSpecificSettings = @{ Type = 'hashtable'; Required = $true } # Specific validation handled by provider
+                ProviderSpecificSettings = @{ Type = 'hashtable'; Required = $true }    # Specific validation handled by provider
                 CredentialsSecretName = @{ Type = 'string'; Required = $false }
             }
         }
@@ -139,29 +139,29 @@
     BackupTargets                             = @{
         Type             = 'hashtable'
         Required         = $false
-        DynamicKeySchema = @{ # Schema for each named target instance (e.g., "MyUNCShare", "MySFTPServer")
+        DynamicKeySchema = @{                                                           # Schema for each named target instance (e.g., "MyUNCShare", "MySFTPServer")
             Type     = "hashtable"
             Required = $true
             Schema   = @{
                 Type = @{
                     Type          = 'string'
                     Required      = $true
-                    AllowedValues = @("UNC", "Replicate", "SFTP", "WebDAV", "S3", "AzureBlob")
+                    AllowedValues = @("AzureBlob", "GCS", "Replicate", "S3", "SFTP", "UNC", "WebDAV")
                 }
 
-                ContinueOnError = @{ Type = 'boolean'; Required = $false } # For Replicate target type
+                ContinueOnError = @{ Type = 'boolean'; Required = $false }              # For Replicate target type
 
                 TargetSpecificSettings = @{
-                    Type     = 'object' # This will be validated by the specific target provider's validation function
+                    Type     = 'object'                                                 # This will be validated by the specific target provider's validation function
                     Required = $true
                     # No generic schema here as it depends on 'Type'.
                     # PoShBackupValidator.psm1 will call the appropriate target-specific validator.
                 }
-                CredentialsSecretName = @{ # Optional, used by providers like SFTP, WebDAV
+                CredentialsSecretName = @{                                              # Optional, used by providers like SFTP, WebDAV
                     Type     = 'string'
                     Required = $false
                 }
-                RemoteRetentionSettings = @{ # Optional, structure defined by each provider
+                RemoteRetentionSettings = @{                                            # Optional, structure defined by each provider
                     Type     = 'hashtable'
                     Required = $false
                     # Example for a provider that supports KeepCount:
@@ -187,7 +187,7 @@
     VerificationJobs = @{
         Type             = 'hashtable'
         Required         = $false
-        DynamicKeySchema = @{ # Schema for each named verification job (e.g., "Verify_MyWebApp_Backup")
+        DynamicKeySchema = @{                                                           # Schema for each named verification job (e.g., "Verify_MyWebApp_Backup")
             Type     = 'hashtable'
             Required = $true
             Schema   = @{
@@ -198,7 +198,7 @@
                 OnDirtySandbox            = @{ Type = 'string'; Required = $false; AllowedValues = @("Fail", "CleanAndContinue") }
                 VerificationSteps         = @{ Type = 'array'; Required = $true; ItemSchema = @{ Type = 'string'; AllowedValues = @("TestArchive", "VerifyChecksums", "CompareFileCount") } }
                 TestLatestCount           = @{ Type = 'int'; Required = $false; Min = 1 }
-                # --- NEW: Added Schedule block ---
+
                 Schedule                  = @{
                     Type     = 'hashtable'
                     Required = $false
