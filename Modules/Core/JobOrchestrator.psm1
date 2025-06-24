@@ -261,7 +261,9 @@ function Invoke-PoShBackupRun {
 
                 if (-not $IsSimulateMode.IsPresent) {
                     if (-not (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
-                        try { New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null } catch {}
+                        try { New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null } catch {
+                            & $LocalWriteLog -Message "[DEBUG] JobOrchestrator: Suppressing error from pre-emptive log directory creation: $($_.Exception.Message)" -Level "DEBUG"
+                        }
                     }
                     $Global:GlobalLogFile = $logFilePath
                     try {

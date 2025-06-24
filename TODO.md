@@ -207,12 +207,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **IV. Utility, Management & Usability Features**
 
-*   **Enhancement: Parameterize the `UnlockVaultAndRun-PoShBackup.ps1` Wrapper**
-    *   **Goal:** Make the vault-unlocking wrapper script a reusable utility instead of a single-purpose script.
-    *   **Description:** Currently, the `UnlockVaultAndRun-PoShBackup.ps1` script hardcodes the name of the backup set to run. It should be modified to accept command-line parameters (e.g., `-RunSet <SetName>` or `-BackupLocationName <JobName>`) and pass them through to the main `PoSh-Backup.ps1` script. This would make it a generic tool for any automated job requiring vault access.
-    *   **Scope & Impact:** `UnlockVaultAndRun-PoShBackup.ps1`.
-    *   **Acceptance Criteria:** Users can run `.\UnlockVaultAndRun-PoShBackup.ps1 -RunSet "MySet"` and have it correctly unlock the vault and execute the specified set.
-
 **Feature: Integrated Vault Unlocking**
     **Goal:** Eliminate the need for the UnlockVaultAndRun-PoShBackup.ps1 wrapper script for common automation scenarios.
     **Description:** Add new CLI parameters to PoSh-Backup.ps1, such as -VaultCredentialPath, that allow the main script to unlock the SecretStore vault internally at startup. The script would use the provided credential file to unlock the vault for the current session, making scheduled tasks that require secrets much easier to configure.
@@ -398,12 +392,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Acceptance Criteria:** SSL/TLS connections are secure by default; options exist for specific scenarios with warnings.
 
 **VIII. User Experience (UX) & Usability**
-
-*   **Enhancement: More Informative Output for `-ListBackupLocations`**
-    *   **Goal:** Make the `-ListBackupLocations` output more useful so users don't have to open the config file to identify a job.
-    *   **Description:** Currently, this command lists the job names. It should be enhanced to display a compact, table-like view that also includes each job's primary source path(s) and its final destination/staging directory. This provides immediate context for each job directly from the command line.
-    *   **Scope & Impact:** `Modules\ScriptModes\Listing.psm1`.
-    *   **Acceptance Criteria:** Running `.\PoSh-Backup.ps1 -ListBackupLocations` displays a formatted table with columns for Job Name, Source(s), and Destination.
 
 1. **Enhancement: Write-ConsoleBanner - Support for Multi-Line Value Text**
 

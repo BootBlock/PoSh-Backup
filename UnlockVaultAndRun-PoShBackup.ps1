@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    A wrapper script to unlock the PowerShell SecretStore vault and then run a specified PoSh-Backup job or set.
+    A wrapper script to unlock the PowerShell SecretStore vault and then run PoSh-Backup.ps1
+    with any provided parameters passed through.
 .DESCRIPTION
     This script is designed for automated or scheduled execution of PoSh-Backup in environments where the
     PowerShell SecretStore vault may be locked (e.g., after a period of inactivity or in a new session).
@@ -10,19 +11,24 @@
     2.  Imports a securely stored PSCredential object from an XML file. This credential file contains the
         password for the SecretStore vault and must be created beforehand by the user.
     3.  Unlocks the SecretStore vault for the current session.
-    4.  Executes the main PoSh-Backup.ps1 script, passing the configured job/set name and the -Quiet switch.
+    4.  Executes the main PoSh-Backup.ps1 script, passing along any parameters it received.
     5.  Upon completion (or failure), it securely re-locks the SecretStore vault.
 
-    Users must edit the variables in the 'Configuration' section of this script to match their environment,
-    specifically the backup set/job to run.
+    This script no longer uses hardcoded job/set names. All parameters are passed directly to PoSh-Backup.ps1.
+.PARAMETER ArgumentsToPass
+    All arguments provided to this script will be passed directly to PoSh-Backup.ps1.
+    For example, -RunSet, -BackupLocationName, -Quiet, -Simulate, etc.
 .EXAMPLE
-    .\UnlockVaultAndRun-PoShBackup.ps1
+    # Run the "DailyCritical" backup set in quiet mode.
+    .\UnlockVaultAndRun-PoShBackup.ps1 -RunSet "DailyCritical" -Quiet
 
-    Executes the script. This is typically run from a Windows Scheduled Task or another automation tool
-    under the user account that created the vault and the vault credential file.
+.EXAMPLE
+    # Run a single job named "MyDocs" and simulate the run.
+    .\UnlockVaultAndRun-PoShBackup.ps1 -BackupLocationName "MyDocs" -Simulate
+
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Parameterised to pass all arguments through to PoSh-Backup.ps1.
     DateCreated:    21-Jun-2025
     LastModified:   23-Jun-2025
     Prerequisites:  - A configured Microsoft.PowerShell.SecretStore vault.
@@ -31,16 +37,14 @@
                       `Get-Credential | Export-CliXml -Path ".\vault_credential.xml"`
                     - The main PoSh-Backup.ps1 script and this wrapper script should be in the same directory.
 #>
-#
-# UnlockVaultAndRun-PoShBackup.ps1 - Wrapper script to unlock the vault and run a backup set.
-#
-# If you're not sure what this is or you don't need the functionality to automatically unlock
-# a vault prior to a back up job/set that requires vault access, please use PoSh-Backup.ps1 instead.
+[CmdletBinding(DefaultParameterSetName = 'Default')]
+param(
+    # This parameter captures all unbound arguments and passes them to the target script.
+    [Parameter(Mandatory = $false, ValueFromRemainingArguments = $true)]
+    [string[]]$ArgumentsToPass
+)
 
 # --- Configuration ---
-# The backup set or job you want to run
-$BackupSetToRun = "Daily_Critical_Backups"
-
 # Define paths relative to this wrapper script's location
 $scriptDirectory = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
 $PoShBackupScriptPath = Join-Path -Path $scriptDirectory -ChildPath "PoSh-Backup.ps1"
@@ -59,16 +63,9 @@ try {
     Write-Host "Unlocking SecretStore vault for automated run..."
     Unlock-SecretStore -Password $vaultPassword
 
-    # Define the parameters to pass to PoSh-Backup.ps1
-    $poShBackupParams = @{
-        RunSet = $BackupSetToRun
-        Quiet  = $true # Recommended for scheduled tasks
-        ErrorAction = 'Stop'
-    }
-
-    # Execute the main PoSh-Backup script
-    Write-Host "Executing PoSh-Backup for set: $BackupSetToRun..."
-    & $PoShBackupScriptPath @poShBackupParams
+    # Execute the main PoSh-Backup script, splatting the passthrough arguments
+    Write-Host "Executing PoSh-Backup with arguments: $($ArgumentsToPass -join ' ')"
+    & $PoShBackupScriptPath @ArgumentsToPass
 
     Write-Host "PoSh-Backup execution finished."
 

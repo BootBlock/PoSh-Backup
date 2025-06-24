@@ -572,6 +572,14 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
     # This saves the credential to an encrypted file
     $vaultCredential | Export-CliXml -Path "C:\Scripts\PoSh-Backup\vault_credential.xml"
 
+**Step 2: Use the Parameterised Wrapper Script**
+The `UnlockVaultAndRun-PoShBackup.ps1` script is provided for this purpose. This script no longer has hardcoded job names; instead, it accepts any valid `PoSh-Backup.ps1` parameters and passes them through.
+
+Then, your scheduled task's action would be to call the wrapper with the desired arguments. For example, to run the "DailyCritical" backup set in quiet mode, the action would be:
+```powershell
+powershell.exe -File "C:\Scripts\PoSh-Backup\UnlockVaultAndRun-PoShBackup.ps1" -RunSet "DailyCritical" -Quiet
+```
+
 ### Backing Up Virtual Machines via Snapshot Orchestration
 This is a powerful enterprise feature that allows for application-consistent backups of live virtual machines with minimal performance impact.
 
