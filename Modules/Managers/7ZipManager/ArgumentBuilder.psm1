@@ -8,9 +8,9 @@
     archive creation operation based on the effective job configuration.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added -w switch for custom temp directory.
+    Version:        1.2.0 # Added global exclusions wotsits.
     DateCreated:    29-May-2025
-    LastModified:   14-Jun-2025
+    LastModified:   24-Jun-2025
     Purpose:        7-Zip argument construction logic for 7ZipManager.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 for Get-ConfigValue.
@@ -85,7 +85,8 @@ function Get-PoShBackup7ZipArgument {
             if (Test-Path -LiteralPath $tempDirPath -PathType Container) {
                 $sevenZipArgs.Add("-w`"$tempDirPath`"") # Format is -w"C:\Path\To\Temp" with no space
                 & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added custom temporary directory switch: '-w`"$tempDirPath`"'." -Level "DEBUG"
-            } else {
+            }
+            else {
                 & $LocalWriteLog -Message "[WARNING] 7ZipManager/ArgumentBuilder: Configured 7-Zip temporary directory '$tempDirPath' not found or is not a directory. 7-Zip will use the system default. Please create this directory." -Level "WARNING"
             }
         }
@@ -113,6 +114,32 @@ function Get-PoShBackup7ZipArgument {
 
         $sevenZipArgs.Add((Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultScriptExcludeRecycleBin' -DefaultValue '-x!$RECYCLE.BIN'))
         $sevenZipArgs.Add((Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultScriptExcludeSysVolInfo' -DefaultValue '-x!System Volume Information'))
+
+        $globalExclusions = Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultAdditionalExclusions' -DefaultValue @()
+
+        # --- Add Global and Job-Specific Exclusions ---
+        # The key is to start with a combined list and then process them.
+        $allAdditionalExclusions = @()
+        $globalExclusions = Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultAdditionalExclusions' -DefaultValue @()
+        $jobExclusions = Get-ConfigValue -ConfigObject $EffectiveConfig -Key 'JobAdditionalExclusions' -DefaultValue @()
+
+        if ($globalExclusions -is [array] -and $globalExclusions.Count -gt 0) {
+            $allAdditionalExclusions += $globalExclusions
+            & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Found $($globalExclusions.Count) global exclusion(s) from 'DefaultAdditionalExclusions'." -Level "DEBUG"
+        }
+        if ($jobExclusions -is [array] -and $jobExclusions.Count -gt 0) {
+            $allAdditionalExclusions += $jobExclusions
+            & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Found $($jobExclusions.Count) job-specific exclusion(s) from 'AdditionalExclusions'." -Level "DEBUG"
+        }
+
+        if ($allAdditionalExclusions.Count -gt 0) {
+            foreach ($exclusion in $allAdditionalExclusions) {
+                if (-not [string]::IsNullOrWhiteSpace($exclusion)) {
+                    # No need to auto-prefix with -x! as the user should provide the full switch.
+                    $sevenZipArgs.Add($exclusion.Trim())
+                }
+            }
+        }
 
         if ($EffectiveConfig.JobAdditionalExclusions -is [array] -and $EffectiveConfig.JobAdditionalExclusions.Count -gt 0) {
             $EffectiveConfig.JobAdditionalExclusions | ForEach-Object {

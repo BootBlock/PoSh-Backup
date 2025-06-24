@@ -199,6 +199,16 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
     *   **`DefaultSevenZipIncludeListFile` (Global Setting):**
         *   `DefaultSevenZipIncludeListFile` (string, default `""`): Optionally specify a path to a text file containing patterns for 7-Zip to include (one pattern per line). Used with 7-Zip's `-i@listfile` switch.
     *   **`DefaultSevenZipExcludeListFile` (Global Setting):**
+    *   **`DefaultAdditionalExclusions` (Global Setting):**
+    *   `DefaultAdditionalExclusions` (array of strings, default `@()`): Optionally provide a list of global 7-Zip exclusion switches that will be applied to **every** backup job. This is the ideal place to exclude common temporary files or development folders without having to repeat the exclusion in every job definition. These are applied in addition to any job-level `AdditionalExclusions`.
+    *   Example in `User.psd1`:
+        ```powershell
+        DefaultAdditionalExclusions = @(
+            '-x!*.tmp',        # Exclude all .tmp files
+            '-x!*.~*',         # Exclude all backup files ending in ~
+            '-xr!node_modules' # Recursively exclude all node_modules folders
+        )
+        ```
         *   `DefaultSevenZipExcludeListFile` (string, default `""`): Optionally specify a path to a text file containing patterns for 7-Zip to exclude (one pattern per line). Used with 7-Zip's `-x@listfile` switch.
     *   **`BackupTargets` (Global Section):**
         *   This is where you define your reusable, named remote target configurations.

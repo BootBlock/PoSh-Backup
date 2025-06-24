@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.9.8: Added DefaultOnSourcePathNotFound.
+# Version 1.9.9: Added DefaultAdditionalExclusions global setting.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -376,6 +376,8 @@
     DefaultFollowSymbolicLinks      = $false                          # Global default. If $false (default), 7-Zip will NOT follow symbolic links/junctions (uses -snl switch).
                                                                       # Set to $true to have 7-Zip follow links and archive their target content. This can sometimes cause
                                                                       # "Access is denied" warnings on certain system-created junction points.
+    DefaultAdditionalExclusions     = @()                             # Optional. An array of global 7-Zip exclusion switches (e.g., "-x!*.tmp", "-xr!node_modules")
+                                                                      # to apply to ALL backup jobs. These are added alongside job-specific exclusions.
     #endregion
 
     #region --- Backup Target Definitions (Global) ---

@@ -132,6 +132,7 @@
     DefaultScriptExcludeRecycleBin            = @{ Type = 'string'; Required = $false }
     DefaultScriptExcludeSysVolInfo            = @{ Type = 'string'; Required = $false }
     DefaultFollowSymbolicLinks                = @{ Type = 'boolean'; Required = $false }
+    DefaultAdditionalExclusions               = @{ Type = 'array'; Required = $false; ItemSchema = @{ Type = 'string' } }
 
     _PoShBackup_PSScriptRoot                  = @{ Type = 'string'; Required = $false } # Internal use by PoSh-Backup.ps1
 

@@ -443,12 +443,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **IX. Advanced Configuration & Scripting**
 
-*   **Feature: Global Additional Exclusions**
-    *   **Goal:** Allow users to define 7-Zip exclusion patterns that apply to all backup jobs globally.
-    *   **Description:** Add a new array setting to the global configuration, `DefaultAdditionalExclusions` (e.g., in `Config\Default.psd1`). The `7ZipManager` should append these exclusions to every 7-Zip command it builds. This is useful for globally excluding common nuisance files or folders (like `thumbs.db`, `*.tmp`) without having to add them to every single job definition.
-    *   **Scope & Impact:** `Config\Default.psd1`, `ConfigSchema.psd1`, `Modules\Managers\7ZipManager\ArgumentBuilder.psm1`.
-    *   **Acceptance Criteria:** Patterns defined in `DefaultAdditionalExclusions` are applied to all backup jobs.
-
 1. **Feature: Dynamic Variables in Configuration Strings**
     - **Goal:** Allow certain configuration string values to contain dynamic variables that PoSh-Backup resolves at runtime (e.g., environment variables, date/time stamps).
     - **Description:** E.g., DestinationDir = "D:\Backups\%USERNAME%\%COMPUTERNAME%" or ArchiveName = "JobA_$(Get-Date -Format yyyyMMdd)".
