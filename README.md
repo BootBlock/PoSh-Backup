@@ -644,10 +644,6 @@ Now, modify your scheduled task's action to call PoSh-Backup.ps1 directly and pr
 
 This method is more direct and is the recommended approach for all new automated setups.
 
-#### Deprecated Method: Using the Wrapper Script
-    
-**Note:** The `UnlockVaultAndRun-PoShBackup.ps1` wrapper script is now **deprecated** and will be removed in a future version. While it still functions for backward compatibility, you should migrate any existing scheduled tasks to use the `-VaultCredentialPath` parameter as described above.
-
 ### Backing Up Virtual Machines via Snapshot Orchestration
 This is a powerful enterprise feature that allows for application-consistent backups of live virtual machines with minimal performance impact.
 
