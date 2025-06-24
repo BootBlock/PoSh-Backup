@@ -17,7 +17,7 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the S3 connection and settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Refactored to use centralised Format-FileSize utility function.
+    Version:        1.4.0 # Refactored to use centralised Get-PoShBackupSecret utility.
     DateCreated:    17-Jun-2025
     LastModified:   23-Jun-2025
     Purpose:        S3-Compatible Target Provider for PoSh-Backup.
@@ -34,45 +34,6 @@ try {
 catch {
     Write-Error "S3.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
-}
-#endregion
-
-#region --- Private Helper: Get Secret from Vault ---
-function Get-SecretFromVaultInternal-S3 {
-    param(
-        [string]$SecretName,
-        [string]$VaultName, # Optional
-        [scriptblock]$Logger,
-        [string]$SecretPurposeForLog = "S3 Credential"
-    )
-    # PSScriptAnalyzer Appeasement: Use the Logger parameter
-    & $Logger -Message "S3.Target/Get-SecretFromVaultInternal-S3: Logger active for secret '$SecretName'." -Level "DEBUG" -ErrorAction SilentlyContinue
-    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
-
-    if ([string]::IsNullOrWhiteSpace($SecretName)) {
-        & $LocalWriteLog -Message ("  - GetSecret: SecretName not provided for {0}. Cannot retrieve." -f $SecretPurposeForLog) -Level "DEBUG"
-        return $null
-    }
-    if (-not (Get-Command Get-Secret -ErrorAction SilentlyContinue)) {
-        throw "PowerShell SecretManagement module (Get-Secret cmdlet) not found. Cannot retrieve '$SecretName' for $SecretPurposeForLog."
-    }
-    try {
-        $getSecretParams = @{ Name = $SecretName; AsPlainText = $true; ErrorAction = 'Stop' }
-        if (-not [string]::IsNullOrWhiteSpace($VaultName)) {
-            $getSecretParams.Vault = $VaultName
-        }
-        $secretValue = Get-Secret @getSecretParams
-        if ($null -ne $secretValue) {
-            & $LocalWriteLog -Message ("  - GetSecret: Successfully retrieved secret '{0}' for {1}." -f $SecretName, $SecretPurposeForLog) -Level "DEBUG"
-            return $secretValue
-        }
-    }
-    catch {
-        $userFriendlyError = "Failed to retrieve secret '{0}' for {1}. This can often happen if the Secret Vault is locked. Try running `Unlock-SecretStore` before executing the script." -f $SecretName, $SecretPurposeForLog
-        & $LocalWriteLog -Message "[ERROR] $userFriendlyError" -Level "ERROR"
-        & $LocalWriteLog -Message "  - Underlying SecretManagement Error: $($_.Exception.Message)" -Level "DEBUG"
-    }
-    return $null
 }
 #endregion
 
@@ -145,8 +106,8 @@ function Test-PoShBackupTargetConnectivity {
 
     $accessKey = $null; $secretKey = $null
     try {
-        $accessKey = Get-SecretFromVaultInternal-S3 -SecretName $TargetSpecificSettings.AccessKeySecretName -Logger $Logger -SecretPurposeForLog "S3 Access Key"
-        $secretKey = Get-SecretFromVaultInternal-S3 -SecretName $TargetSpecificSettings.SecretKeySecretName -Logger $Logger -SecretPurposeForLog "S3 Secret Key"
+        $accessKey = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.AccessKeySecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "S3 Access Key"
+        $secretKey = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SecretKeySecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "S3 Secret Key"
         if ([string]::IsNullOrWhiteSpace($accessKey) -or [string]::IsNullOrWhiteSpace($secretKey)) { throw "Failed to retrieve valid S3 credentials from SecretManagement." }
 
         $s3CommonParams = @{
@@ -326,8 +287,8 @@ function Invoke-PoShBackupTargetTransfer {
 
     $accessKey = $null; $secretKey = $null
     try {
-        $accessKey = Get-SecretFromVaultInternal-S3 -SecretName $s3Settings.AccessKeySecretName -Logger $Logger -SecretPurposeForLog "S3 Access Key"
-        $secretKey = Get-SecretFromVaultInternal-S3 -SecretName $s3Settings.SecretKeySecretName -Logger $Logger -SecretPurposeForLog "S3 Secret Key"
+        $accessKey = Get-PoShBackupSecret -SecretName $s3Settings.AccessKeySecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "S3 Access Key"
+        $secretKey = Get-PoShBackupSecret -SecretName $s3Settings.SecretKeySecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "S3 Secret Key"
         if ([string]::IsNullOrWhiteSpace($accessKey) -or [string]::IsNullOrWhiteSpace($secretKey)) { throw "Failed to retrieve valid S3 credentials from SecretManagement." }
 
         # Build parameter hashtable for all S3 cmdlets

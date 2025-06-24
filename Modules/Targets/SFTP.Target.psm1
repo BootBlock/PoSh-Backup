@@ -31,7 +31,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.1 # Enhanced -Simulate output to be more descriptive.
+    Version:        1.3.0 # Refactored to use centralised Get-PoShBackupSecret utility.
     DateCreated:    22-May-2025
     LastModified:   23-Jun-2025
     Purpose:        SFTP Target Provider for PoSh-Backup.
@@ -42,226 +42,13 @@
                     to the SFTP server and R/W/Delete permissions on the target remote path.
 #>
 
-#region --- Private Helper: Format Bytes ---
-# Internal helper function to format byte sizes into human-readable strings (KB, MB, GB).
-function Format-BytesInternal-Sftp {
-    param(
-        [Parameter(Mandatory = $true)]
-        [long]$Bytes
-    )
-    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
-    elseif ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
-    elseif ($Bytes -ge 1KB) { return "{0:N2} KB" -f ($Bytes / 1KB) }
-    else { return "$Bytes Bytes" }
+#region --- Module Dependencies ---
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
 }
-#endregion
-
-#region --- Private Helper: Get Secret from Vault ---
-function Get-SecretFromVaultInternal-Sftp {
-    param(
-        [string]$SecretName,
-        [string]$VaultName, # Optional
-        [scriptblock]$Logger,
-        [string]$SecretPurposeForLog = "SFTP Credential"
-    )
-    # Defensive PSSA appeasement
-    & $Logger -Message "SFTP.Target/Get-SecretFromVaultInternal-Sftp: Logger parameter active for secret '$SecretName'." -Level "DEBUG" -ErrorAction SilentlyContinue
-    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
-
-    if ([string]::IsNullOrWhiteSpace($SecretName)) {
-        & $LocalWriteLog -Message ("  - GetSecret: SecretName not provided for {0}. Cannot retrieve." -f $SecretPurposeForLog) -Level "DEBUG"
-        return $null
-    }
-    if (-not (Get-Command Get-Secret -ErrorAction SilentlyContinue)) {
-        $errorMessage = "GetSecret: PowerShell SecretManagement module (Get-Secret cmdlet) not found. Cannot retrieve '{0}' for {1}." -f $SecretName, $SecretPurposeForLog
-        & $LocalWriteLog -Message "[ERROR] $errorMessage" -Level "ERROR"
-        throw "PowerShell SecretManagement module not found."
-    }
-    try {
-        $getSecretParams = @{ Name = $SecretName; ErrorAction = 'Stop' }
-        if (-not [string]::IsNullOrWhiteSpace($VaultName)) {
-            $getSecretParams.Vault = $VaultName
-        }
-        $secretValue = Get-Secret @getSecretParams
-        if ($null -ne $secretValue) {
-            & $LocalWriteLog -Message ("  - GetSecret: Successfully retrieved secret object '{0}' for {1}." -f $SecretName, $SecretPurposeForLog) -Level "DEBUG"
-            if ($secretValue.Secret -is [System.Security.SecureString]) {
-                $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secretValue.Secret)
-                $plainText = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-                [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-                return $plainText
-            }
-            elseif ($secretValue.Secret -is [string]) {
-                return $secretValue.Secret
-            }
-            else {
-                & $LocalWriteLog -Message ("[WARNING] GetSecret: Secret '{0}' for {1} was retrieved but is not a SecureString or String. Type: {2}." -f $SecretName, $SecretPurposeForLog, $secretValue.Secret.GetType().FullName) -Level "WARNING"
-                return $null
-            }
-        }
-    }
-    catch {
-        $userFriendlyError = "Failed to retrieve secret '{0}' for {1}. This can often happen if the Secret Vault is locked. Try running `Unlock-SecretStore` before executing the script." -f $SecretName, $SecretPurposeForLog
-        & $LocalWriteLog -Message "[ERROR] $userFriendlyError" -Level "ERROR"
-        & $LocalWriteLog -Message "  - Underlying SecretManagement Error: $($_.Exception.Message)" -Level "DEBUG"
-    }
-    return $null
-}
-#endregion
-
-#region --- SFTP Target Connectivity Test Function ---
-function Test-PoShBackupTargetConnectivity {
-    [CmdletBinding(SupportsShouldProcess = $true)]
-    param(
-        [Parameter(Mandatory = $true)]
-        [hashtable]$TargetSpecificSettings,
-        [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger,
-        [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet
-    )
-    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
-    
-    $sftpServer = $TargetSpecificSettings.SFTPServerAddress
-    & $LocalWriteLog -Message "  - SFTP Target: Testing connectivity to server '$sftpServer'..." -Level "INFO"
-
-    if (-not (Get-Module -Name Posh-SSH -ListAvailable)) {
-        return @{ Success = $false; Message = "Posh-SSH module is not installed. Please install it using 'Install-Module Posh-SSH'." }
-    }
-    Import-Module Posh-SSH -ErrorAction SilentlyContinue
-    
-    $sftpSessionId = $null
-    $securePassphrase = $null
-    $securePassword = $null
-    
-    try {
-        $sessionParams = @{
-            ComputerName = $sftpServer
-            Port         = if ($TargetSpecificSettings.ContainsKey('SFTPPort')) { $TargetSpecificSettings.SFTPPort } else { 22 }
-            Username     = $TargetSpecificSettings.SFTPUserName
-            ErrorAction  = 'Stop'
-        }
-        if ($TargetSpecificSettings.ContainsKey('SkipHostKeyCheck') -and $TargetSpecificSettings.SkipHostKeyCheck -eq $true) {
-            $sessionParams.AcceptKey = $true
-        }
-
-        $sftpPassword = Get-SecretFromVaultInternal-Sftp -SecretName $TargetSpecificSettings.SFTPPasswordSecretName -Logger $Logger -SecretPurposeForLog "SFTP Password"
-        $sftpKeyFilePath = Get-SecretFromVaultInternal-Sftp -SecretName $TargetSpecificSettings.SFTPKeyFileSecretName -Logger $Logger -SecretPurposeForLog "SFTP Key File Path"
-        $sftpKeyPassphrase = Get-SecretFromVaultInternal-Sftp -SecretName $TargetSpecificSettings.SFTPKeyFilePassphraseSecretName -Logger $Logger -SecretPurposeForLog "SFTP Key Passphrase"
-        
-        if (-not [string]::IsNullOrWhiteSpace($sftpKeyFilePath)) {
-            if (-not (Test-Path -LiteralPath $sftpKeyFilePath -PathType Leaf)) { throw "SFTP Key File not found at path '$sftpKeyFilePath'." }
-            $sessionParams.KeyFile = $sftpKeyFilePath
-            if (-not [string]::IsNullOrWhiteSpace($sftpKeyPassphrase)) {
-                $securePassphrase = ConvertTo-SecureString -String $sftpKeyPassphrase -AsPlainText -Force
-                $sessionParams.KeyPassphrase = $securePassphrase
-            }
-        }
-        elseif (-not [string]::IsNullOrWhiteSpace($sftpPassword)) {
-            $securePassword = ConvertTo-SecureString -String $sftpPassword -AsPlainText -Force
-            $sessionParams.Password = $securePassword
-        }
-        else {
-            throw "No password secret or key file path secret provided for authentication."
-        }
-
-        if (-not $PSCmdlet.ShouldProcess($sftpServer, "Establish SFTP Test Connection")) {
-            return @{ Success = $false; Message = "SFTP connection test skipped by user." }
-        }
-
-        $sftpSession = New-SSHSession @sessionParams
-        if (-not $sftpSession) { throw "Failed to establish SSH session." }
-        $sftpSessionId = $sftpSession.SessionId
-
-        & $LocalWriteLog -Message "    - SUCCESS: SFTP session established successfully (Session ID: $sftpSessionId)." -Level "SUCCESS"
-
-        $remotePath = $TargetSpecificSettings.SFTPRemotePath
-        & $LocalWriteLog -Message "  - SFTP Target: Testing remote path '$remotePath'..." -Level "INFO"
-        if (Test-SFTPPath -SessionId $sftpSessionId -Path $remotePath) {
-            & $LocalWriteLog -Message "    - SUCCESS: Remote path '$remotePath' exists." -Level "SUCCESS"
-            return @{ Success = $true; Message = "Connection successful and remote path exists." }
-        }
-        else {
-            return @{ Success = $false; Message = "Connection successful, but remote path '$remotePath' does not exist." }
-        }
-    }
-    catch {
-        $errorMessage = "SFTP connection test failed. Error: $($_.Exception.Message)"
-        & $LocalWriteLog -Message "    - FAILED: $errorMessage" -Level "ERROR"
-        return @{ Success = $false; Message = $errorMessage }
-    }
-    finally {
-        if ($sftpSessionId) { Remove-SSHSession -SessionId $sftpSessionId -ErrorAction SilentlyContinue }
-        if ($securePassword) { $securePassword.Dispose() }
-        if ($securePassphrase) { $securePassphrase.Dispose() }
-    }
-}
-#endregion
-
-#region --- SFTP Target Settings Validation Function ---
-function Invoke-PoShBackupSFTPTargetSettingsValidation {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [hashtable]$TargetInstanceConfiguration, # CHANGED
-        [Parameter(Mandatory = $true)]
-        [string]$TargetInstanceName,
-        [Parameter(Mandatory = $true)]
-        [ref]$ValidationMessagesListRef,
-        [Parameter(Mandatory = $false)]
-        [scriptblock]$Logger
-    )
-
-    if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
-        & $Logger -Message "SFTP.Target/Invoke-PoShBackupSFTPTargetSettingsValidation: Logger active. Validating settings for SFTP Target '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
-    }
-    
-    # --- NEW: Extract settings from the main instance configuration ---
-    $TargetSpecificSettings = $TargetInstanceConfiguration.TargetSpecificSettings
-    $RemoteRetentionSettings = $TargetInstanceConfiguration.RemoteRetentionSettings
-    # --- END NEW ---
-
-    $fullPathToSettings = "Configuration.BackupTargets.$TargetInstanceName.TargetSpecificSettings"
-    $fullPathToRetentionSettings = "Configuration.BackupTargets.$TargetInstanceName.RemoteRetentionSettings"
-
-    if (-not ($TargetSpecificSettings -is [hashtable])) {
-        $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'TargetSpecificSettings' must be a Hashtable, but found type '$($TargetSpecificSettings.GetType().Name)'. Path: '$fullPathToSettings'.")
-        return
-    }
-
-    foreach ($sftpKey in @('SFTPServerAddress', 'SFTPRemotePath', 'SFTPUserName')) {
-        if (-not $TargetSpecificSettings.ContainsKey($sftpKey) -or -not ($TargetSpecificSettings.$sftpKey -is [string]) -or [string]::IsNullOrWhiteSpace($TargetSpecificSettings.$sftpKey)) {
-            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': '$sftpKey' in 'TargetSpecificSettings' is missing, not a string, or empty. Path: '$fullPathToSettings.$sftpKey'.")
-        }
-    }
-
-    if ($TargetSpecificSettings.ContainsKey('SFTPPort') -and -not ($TargetSpecificSettings.SFTPPort -is [int] -and $TargetSpecificSettings.SFTPPort -gt 0 -and $TargetSpecificSettings.SFTPPort -le 65535)) {
-        $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'SFTPPort' in 'TargetSpecificSettings' must be an integer between 1 and 65535 if defined. Path: '$fullPathToSettings.SFTPPort'.")
-    }
-
-    foreach ($sftpOptionalStringKey in @('SFTPPasswordSecretName', 'SFTPKeyFileSecretName', 'SFTPKeyFilePassphraseSecretName')) {
-        if ($TargetSpecificSettings.ContainsKey($sftpOptionalStringKey) -and (-not ($TargetSpecificSettings.$sftpOptionalStringKey -is [string]) -or [string]::IsNullOrWhiteSpace($TargetSpecificSettings.$sftpOptionalStringKey)) ) {
-            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': '$sftpOptionalStringKey' in 'TargetSpecificSettings' must be a non-empty string if defined. Path: '$fullPathToSettings.$sftpOptionalStringKey'.")
-        }
-    }
-
-    foreach ($sftpOptionalBoolKey in @('CreateJobNameSubdirectory', 'SkipHostKeyCheck')) {
-        if ($TargetSpecificSettings.ContainsKey($sftpOptionalBoolKey) -and -not ($TargetSpecificSettings.$sftpOptionalBoolKey -is [boolean])) {
-            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': '$sftpOptionalBoolKey' in 'TargetSpecificSettings' must be a boolean (`$true` or `$false`) if defined. Path: '$fullPathToSettings.$sftpOptionalBoolKey'.")
-        }
-    }
-
-    # Validate RemoteRetentionSettings for SFTP
-    if ($null -ne $RemoteRetentionSettings) {
-        if (-not ($RemoteRetentionSettings -is [hashtable])) {
-            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'RemoteRetentionSettings' must be a Hashtable if defined. Path: '$fullPathToRetentionSettings'.")
-        }
-        elseif ($RemoteRetentionSettings.ContainsKey('KeepCount')) {
-            if (-not ($RemoteRetentionSettings.KeepCount -is [int]) -or $RemoteRetentionSettings.KeepCount -le 0) {
-                $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'RemoteRetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$fullPathToRetentionSettings.KeepCount'.")
-            }
-        }
-    }
+catch {
+    Write-Error "SFTP.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    throw
 }
 #endregion
 
@@ -393,6 +180,162 @@ function Group-RemoteSFTPBackupInstancesInternal {
 }
 #endregion
 
+#region --- SFTP Target Connectivity Test Function ---
+function Test-PoShBackupTargetConnectivity {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$TargetSpecificSettings,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
+    )
+    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
+    
+    $sftpServer = $TargetSpecificSettings.SFTPServerAddress
+    & $LocalWriteLog -Message "  - SFTP Target: Testing connectivity to server '$sftpServer'..." -Level "INFO"
+
+    if (-not (Get-Module -Name Posh-SSH -ListAvailable)) {
+        return @{ Success = $false; Message = "Posh-SSH module is not installed. Please install it using 'Install-Module Posh-SSH'." }
+    }
+    Import-Module Posh-SSH -ErrorAction SilentlyContinue
+    
+    $sftpSessionId = $null
+    $securePassphrase = $null
+    $securePassword = $null
+    
+    try {
+        $sessionParams = @{
+            ComputerName = $sftpServer
+            Port         = if ($TargetSpecificSettings.ContainsKey('SFTPPort')) { $TargetSpecificSettings.SFTPPort } else { 22 }
+            Username     = $TargetSpecificSettings.SFTPUserName
+            ErrorAction  = 'Stop'
+        }
+        if ($TargetSpecificSettings.ContainsKey('SkipHostKeyCheck') -and $TargetSpecificSettings.SkipHostKeyCheck -eq $true) {
+            $sessionParams.AcceptKey = $true
+        }
+
+        $sftpPassword = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPPasswordSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Password"
+        $sftpKeyFilePath = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPKeyFileSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Key File Path"
+        $sftpKeyPassphrase = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPKeyFilePassphraseSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Key Passphrase"
+        
+        if (-not [string]::IsNullOrWhiteSpace($sftpKeyFilePath)) {
+            if (-not (Test-Path -LiteralPath $sftpKeyFilePath -PathType Leaf)) { throw "SFTP Key File not found at path '$sftpKeyFilePath'." }
+            $sessionParams.KeyFile = $sftpKeyFilePath
+            if (-not [string]::IsNullOrWhiteSpace($sftpKeyPassphrase)) {
+                $securePassphrase = ConvertTo-SecureString -String $sftpKeyPassphrase -AsPlainText -Force
+                $sessionParams.KeyPassphrase = $securePassphrase
+            }
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($sftpPassword)) {
+            $securePassword = ConvertTo-SecureString -String $sftpPassword -AsPlainText -Force
+            $sessionParams.Password = $securePassword
+        }
+        else {
+            throw "No password secret or key file path secret provided for authentication."
+        }
+
+        if (-not $PSCmdlet.ShouldProcess($sftpServer, "Establish SFTP Test Connection")) {
+            return @{ Success = $false; Message = "SFTP connection test skipped by user." }
+        }
+
+        $sftpSession = New-SSHSession @sessionParams
+        if (-not $sftpSession) { throw "Failed to establish SSH session." }
+        $sftpSessionId = $sftpSession.SessionId
+
+        & $LocalWriteLog -Message "    - SUCCESS: SFTP session established successfully (Session ID: $sftpSessionId)." -Level "SUCCESS"
+
+        $remotePath = $TargetSpecificSettings.SFTPRemotePath
+        & $LocalWriteLog -Message "  - SFTP Target: Testing remote path '$remotePath'..." -Level "INFO"
+        if (Test-SFTPPath -SessionId $sftpSessionId -Path $remotePath) {
+            & $LocalWriteLog -Message "    - SUCCESS: Remote path '$remotePath' exists." -Level "SUCCESS"
+            return @{ Success = $true; Message = "Connection successful and remote path exists." }
+        }
+        else {
+            return @{ Success = $false; Message = "Connection successful, but remote path '$remotePath' does not exist." }
+        }
+    }
+    catch {
+        $errorMessage = "SFTP connection test failed. Error: $($_.Exception.Message)"
+        & $LocalWriteLog -Message "    - FAILED: $errorMessage" -Level "ERROR"
+        return @{ Success = $false; Message = $errorMessage }
+    }
+    finally {
+        if ($sftpSessionId) { Remove-SSHSession -SessionId $sftpSessionId -ErrorAction SilentlyContinue }
+        if ($securePassword) { $securePassword.Dispose() }
+        if ($securePassphrase) { $securePassphrase.Dispose() }
+    }
+}
+#endregion
+
+#region --- SFTP Target Settings Validation Function ---
+function Invoke-PoShBackupSFTPTargetSettingsValidation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$TargetInstanceConfiguration, # CHANGED
+        [Parameter(Mandatory = $true)]
+        [string]$TargetInstanceName,
+        [Parameter(Mandatory = $true)]
+        [ref]$ValidationMessagesListRef,
+        [Parameter(Mandatory = $false)]
+        [scriptblock]$Logger
+    )
+
+    if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
+        & $Logger -Message "SFTP.Target/Invoke-PoShBackupSFTPTargetSettingsValidation: Logger active. Validating settings for SFTP Target '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    }
+    
+    # --- NEW: Extract settings from the main instance configuration ---
+    $TargetSpecificSettings = $TargetInstanceConfiguration.TargetSpecificSettings
+    $RemoteRetentionSettings = $TargetInstanceConfiguration.RemoteRetentionSettings
+    # --- END NEW ---
+
+    $fullPathToSettings = "Configuration.BackupTargets.$TargetInstanceName.TargetSpecificSettings"
+    $fullPathToRetentionSettings = "Configuration.BackupTargets.$TargetInstanceName.RemoteRetentionSettings"
+
+    if (-not ($TargetSpecificSettings -is [hashtable])) {
+        $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'TargetSpecificSettings' must be a Hashtable, but found type '$($TargetSpecificSettings.GetType().Name)'. Path: '$fullPathToSettings'.")
+        return
+    }
+
+    foreach ($sftpKey in @('SFTPServerAddress', 'SFTPRemotePath', 'SFTPUserName')) {
+        if (-not $TargetSpecificSettings.ContainsKey($sftpKey) -or -not ($TargetSpecificSettings.$sftpKey -is [string]) -or [string]::IsNullOrWhiteSpace($TargetSpecificSettings.$sftpKey)) {
+            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': '$sftpKey' in 'TargetSpecificSettings' is missing, not a string, or empty. Path: '$fullPathToSettings.$sftpKey'.")
+        }
+    }
+
+    if ($TargetSpecificSettings.ContainsKey('SFTPPort') -and -not ($TargetSpecificSettings.SFTPPort -is [int] -and $TargetSpecificSettings.SFTPPort -gt 0 -and $TargetSpecificSettings.SFTPPort -le 65535)) {
+        $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'SFTPPort' in 'TargetSpecificSettings' must be an integer between 1 and 65535 if defined. Path: '$fullPathToSettings.SFTPPort'.")
+    }
+
+    foreach ($sftpOptionalStringKey in @('SFTPPasswordSecretName', 'SFTPKeyFileSecretName', 'SFTPKeyFilePassphraseSecretName')) {
+        if ($TargetSpecificSettings.ContainsKey($sftpOptionalStringKey) -and (-not ($TargetSpecificSettings.$sftpOptionalStringKey -is [string]) -or [string]::IsNullOrWhiteSpace($TargetSpecificSettings.$sftpOptionalStringKey)) ) {
+            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': '$sftpOptionalStringKey' in 'TargetSpecificSettings' must be a non-empty string if defined. Path: '$fullPathToSettings.$sftpOptionalStringKey'.")
+        }
+    }
+
+    foreach ($sftpOptionalBoolKey in @('CreateJobNameSubdirectory', 'SkipHostKeyCheck')) {
+        if ($TargetSpecificSettings.ContainsKey($sftpOptionalBoolKey) -and -not ($TargetSpecificSettings.$sftpOptionalBoolKey -is [boolean])) {
+            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': '$sftpOptionalBoolKey' in 'TargetSpecificSettings' must be a boolean (`$true` or `$false`) if defined. Path: '$fullPathToSettings.$sftpOptionalBoolKey'.")
+        }
+    }
+
+    # Validate RemoteRetentionSettings for SFTP
+    if ($null -ne $RemoteRetentionSettings) {
+        if (-not ($RemoteRetentionSettings -is [hashtable])) {
+            $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'RemoteRetentionSettings' must be a Hashtable if defined. Path: '$fullPathToRetentionSettings'.")
+        }
+        elseif ($RemoteRetentionSettings.ContainsKey('KeepCount')) {
+            if (-not ($RemoteRetentionSettings.KeepCount -is [int]) -or $RemoteRetentionSettings.KeepCount -le 0) {
+                $ValidationMessagesListRef.Value.Add("SFTP Target '$TargetInstanceName': 'RemoteRetentionSettings.KeepCount' must be an integer greater than 0 if defined. Path: '$fullPathToRetentionSettings.KeepCount'.")
+            }
+        }
+    }
+}
+#endregion
+
 #region --- SFTP Target Transfer Function ---
 function Invoke-PoShBackupTargetTransfer {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
@@ -447,7 +390,6 @@ function Invoke-PoShBackupTargetTransfer {
     $sftpSessionId = $null
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    # Check for Posh-SSH module
     if (-not (Get-Module -Name Posh-SSH -ListAvailable)) {
         $result.ErrorMessage = "SFTP Target '$targetNameForLog': Posh-SSH module is not installed. Please install it using 'Install-Module Posh-SSH'."
         & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"
@@ -465,9 +407,9 @@ function Invoke-PoShBackupTargetTransfer {
     $createJobSubDir = if ($sftpSettings.ContainsKey('CreateJobNameSubdirectory')) { $sftpSettings.CreateJobNameSubdirectory } else { $false }
     $skipHostKeyCheck = if ($sftpSettings.ContainsKey('SkipHostKeyCheck')) { $sftpSettings.SkipHostKeyCheck } else { $false }
 
-    $sftpPassword = Get-SecretFromVaultInternal-Sftp -SecretName $sftpSettings.SFTPPasswordSecretName -Logger $Logger -SecretPurposeForLog "SFTP Password"
-    $sftpKeyFilePathOnLocalMachine = Get-SecretFromVaultInternal-Sftp -SecretName $sftpSettings.SFTPKeyFileSecretName -Logger $Logger -SecretPurposeForLog "SFTP Key File Path"
-    $sftpKeyPassphrase = Get-SecretFromVaultInternal-Sftp -SecretName $sftpSettings.SFTPKeyFilePassphraseSecretName -Logger $Logger -SecretPurposeForLog "SFTP Key Passphrase"
+    $sftpPassword = Get-PoShBackupSecret -SecretName $sftpSettings.SFTPPasswordSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Password"
+    $sftpKeyFilePathOnLocalMachine = Get-PoShBackupSecret -SecretName $sftpSettings.SFTPKeyFileSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Key File Path"
+    $sftpKeyPassphrase = Get-PoShBackupSecret -SecretName $sftpSettings.SFTPKeyFilePassphraseSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Key Passphrase"
 
     if ([string]::IsNullOrWhiteSpace($sftpServer) -or [string]::IsNullOrWhiteSpace($sftpRemoteBasePath) -or [string]::IsNullOrWhiteSpace($sftpUser)) {
         $result.ErrorMessage = "SFTP Target '$targetNameForLog': SFTPServerAddress, SFTPRemotePath, or SFTPUserName is missing in TargetSpecificSettings."
@@ -503,6 +445,7 @@ function Invoke-PoShBackupTargetTransfer {
         
         $result.Success = $true
         $result.TransferSize = $LocalArchiveSizeBytes
+        $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed
         return $result
     }
@@ -585,7 +528,7 @@ function Invoke-PoShBackupTargetTransfer {
                     & $LocalWriteLog -Message ("    - SFTP Target '{0}': Found {1} remote instances. Will delete files for {2} older instance(s)." -f $targetNameForLog, $remoteInstances.Count, $instancesToDelete.Count) -Level "INFO"
                     foreach ($instanceEntry in $instancesToDelete) {
                         $instanceIdentifier = $instanceEntry.Name
-                        & $LocalWriteLog -Message "      - SFTP Target '{0}': Preparing to delete instance files for '$instanceIdentifier' (SortTime: $($instanceEntry.Value.SortTime))." -Level "WARNING"
+                        & $LocalWriteLog "      - SFTP Target '{0}': Preparing to delete instance files for '$instanceIdentifier' (SortTime: $($instanceEntry.Value.SortTime))." -Level "WARNING"
                         foreach ($remoteFileObjInInstance in $instanceEntry.Value.Files) {
                             $fileToDeletePathOnSftp = "$remoteFinalDirectory/$($remoteFileObjInInstance.Name)"
                             if (-not $PSCmdlet.ShouldProcess($fileToDeletePathOnSftp, "Delete Remote SFTP File/Part (Retention)")) {
@@ -633,7 +576,8 @@ function Invoke-PoShBackupTargetTransfer {
 
     $stopwatch.Stop()
     $result.TransferDuration = $stopwatch.Elapsed
-    & $LocalWriteLog -Message ("[INFO] SFTP Target: Finished transfer attempt for Job '{0}' to Target '{1}'. Overall Success for this Target: {2}." -f $JobName, $targetNameForLog, $result.Success) -Level "INFO"
+    $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
+    & $LocalWriteLog -Message ("[INFO] SFTP Target: Finished transfer attempt for Job '{0}' to Target '{1}', File '{2}'. Success: {3}." -f $JobName, $targetNameForLog, $ArchiveFileName, $result.Success) -Level "INFO"
     return $result
 }
 #endregion

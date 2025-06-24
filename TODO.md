@@ -828,12 +828,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Scope & Impact:** New "Kubernetes" or "PVC" target/source provider. Requires K8s API interaction.
     *   **Acceptance Criteria:** Data from K8s PVCs can be backed up.
 
-106. **Feature: Cloud-to-Cloud Backup & Replication**
-    *   **Goal:** Enable backing up data from one cloud provider/region to another.
-    *   **Description:** E.g., Backup an AWS S3 bucket to Azure Blob storage, or replicate Azure VMs to a different Azure region for DR.
-    *   **Scope & Impact:** Enhancements to cloud target providers to act as sources and destinations. Orchestration logic.
-    *   **Acceptance Criteria:** Data can be backed up/replicated between configured cloud targets.
-
 **XXI. User Interface & User Experience (Beyond Home User)**
 
 108. **Feature: PoSh-Backup PowerShell Module Packaging**

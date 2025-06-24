@@ -27,6 +27,7 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
     *   **UNC Provider:** Transfers archives to standard network shares. Can use the standard `Copy-Item` or the more resilient `robocopy.exe` for transfers, with configurable retry and performance settings.
     *   **Replicate Provider:** Copies an archive to multiple specified local or UNC paths, with individual retention settings per destination.
     *   **SFTP Provider (via Posh-SSH module):** Transfers archives to SFTP servers, supporting password and key-based authentication.
+    *   **Microsoft Azure Blob Storage Provider (via Az.Storage module):** Transfers archives directly to Azure Blob Storage containers using a connection string for authentication.
     *   **S3-Compatible Object Storage Provider (via AWS.Tools.S3 module):** Transfers archives to any S3-compatible service, including Amazon S3, MinIO, Backblaze B2, and more. See `UnlockVaultAndRun-PoShBackup.ps1` if you need automatic vault unlocking.
 *   **Configurable Retention Policies:**
     *   **Local Retention:** Manage archive versions in the `DestinationDir` using the `LocalRetentionCount` setting per job.
@@ -81,6 +82,7 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
 *   **7-Zip:** Must be installed. PoSh-Backup will attempt to auto-detect `7z.exe` in common Program Files locations or your system PATH. If not found, or if you wish to use a specific 7-Zip instance, you'll need to specify the full path in the configuration file. ([Download 7-Zip](https://www.7-zip.org/))
 *   **Robocopy.exe:** Required if you plan to use the Robocopy transfer method for the UNC Backup Target. This is standard on modern Windows operating systems.
 *   **Posh-SSH Module:** Required if you plan to use the SFTP Backup Target feature. Install via PowerShell: `Install-Module Posh-SSH -Scope CurrentUser` (or `AllUsers` if you have admin rights and want it available system-wide).
+*   **Az.Storage Module:** Required if you plan to use the Azure Blob Storage Backup Target feature. Install via PowerShell: `Install-Module Az.Storage -Scope CurrentUser -Repository PSGallery -Force`.
 *   **PowerShell SecretManagement & SecretStore:** Required for storing any credentials (for archives, targets, or email). The script assumes you are using the default `Microsoft.PowerShell.SecretStore` vault provider.
 *   **BurntToast Module (for PowerShell 7+):** Required for the Desktop (Toast) Notification provider *if you are running on PowerShell 7 or newer*. Install via PowerShell 7: `Install-Module BurntToast -Scope CurrentUser`.
 *   **Modern Windows OS (for Desktop Notifications):** The native desktop "toast" notification feature requires Windows 10, Windows 11, or Windows Server 2016 and newer.
@@ -327,6 +329,32 @@ PoSh-Backup is a powerful, modular, and highly configurable PowerShell solution 
                         KeepCount = 10 # Keep the last 10 backup instances for any job using this target.
                     }
                 }
+
+                "MyAzureBlobContainer" = @{ # Azure Blob Storage Target Example
+                    Type = "AzureBlob" # Provider module 'Modules\Targets\AzureBlob.Target.psm1' will handle this
+                    TargetSpecificSettings = @{
+                        # The name of the Azure Storage Account.
+                        StorageAccountName = "yourstorageaccountname"
+
+                        # The name of the blob container where backups will be stored.
+                        ContainerName = "posh-backups"
+
+                        # The name of the secret in PowerShell SecretManagement that holds the full connection string for the storage account.
+                        # The connection string can be found in the Azure Portal under your Storage Account > Access keys.
+                        ConnectionStringSecretName = "MyAzureStorageConnectionString"
+
+                        # AuthenticationMethod is currently hardcoded to "ConnectionString" and can be omitted.
+                        AuthenticationMethod = "ConnectionString"
+
+                        # Optional: If $true, creates /JobName/ inside the container. Default is $false.
+                        CreateJobNameSubdirectory = $true
+                    }
+                    RemoteRetentionSettings = @{ # Optional: Retention on the Azure Blob container.
+                        KeepCount = 10 # Keep the last 10 backup instances for any job using this target.
+                    }
+                }
+
+            }
 
             }
             ```

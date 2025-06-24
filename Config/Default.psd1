@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.9.9: Added DefaultAdditionalExclusions global setting.
+# Version 1.10.0: Added Azure Blob Storage target provider settings.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -503,10 +503,33 @@
                 # CredentialsVaultName  = "MySpecificVault"       # Optional: Specify vault if not default
                 RemotePath            = "PoShBackupArchives"      # Optional: Relative path within the WebDAVUrl to store backups. If empty, uses WebDAVUrl root.
                 CreateJobNameSubdirectory = $true                 # Optional: If $true, creates /PoShBackupArchives/JobName/. Default is $false.
-                RequestTimeoutSec     = 120                     # Optional: Timeout for WebDAV requests in seconds. Default is 120.
+                RequestTimeoutSec     = 120                       # Optional: Timeout for WebDAV requests in seconds. Default is 120.
             }
             RemoteRetentionSettings = @{
-                KeepCount = 5 # Example: Keep the last 5 backup instances on this WebDAV target.
+                KeepCount = 5                                     # Example: Keep the last 5 backup instances on this WebDAV target.
+            }
+        }
+        "AzureBlobStorageExample" = @{                            # Azure Blob Storage Example
+            Type = "AzureBlob"                                    # Provider module 'Modules\Targets\AzureBlob.Target.psm1' will handle this
+            TargetSpecificSettings = @{
+                # The name of the Azure Storage Account.
+                StorageAccountName = "yourstorageaccountname"
+
+                # The name of the blob container where backups will be stored.
+                ContainerName = "posh-backups"
+
+                # Authentication method. Supported: "ConnectionString". Others like "SASToken" or "ServicePrincipal" could be added later.
+                AuthenticationMethod = "ConnectionString"
+
+                # The name of the secret in PowerShell SecretManagement that holds the full connection string for the storage account.
+                ConnectionStringSecretName = "MyAzureStorageConnectionString"
+
+                # Optional: If $true, creates /JobName/ inside the container. Default is $false.
+                CreateJobNameSubdirectory = $true
+            }
+            # Optional: Remote retention settings for this Azure Blob target.
+            RemoteRetentionSettings = @{
+                KeepCount = 10                                    # Keep the last 10 backup instances in this container.
             }
         }
 

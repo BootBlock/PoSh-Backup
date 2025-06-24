@@ -146,7 +146,7 @@
                 Type = @{
                     Type          = 'string'
                     Required      = $true
-                    AllowedValues = @("UNC", "Replicate", "SFTP", "WebDAV", "S3") # Added S3
+                    AllowedValues = @("UNC", "Replicate", "SFTP", "WebDAV", "S3", "AzureBlob")
                 }
 
                 ContinueOnError = @{ Type = 'boolean'; Required = $false } # For Replicate target type

@@ -28,7 +28,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        0.5.0 # Refactored to use centralised Format-FileSize utility function.
+    Version:        0.6.0 # Refactored to use centralized credential and file size utilities.
     DateCreated:    05-Jun-2025
     LastModified:   23-Jun-2025
     Purpose:        WebDAV Target Provider for PoSh-Backup.
@@ -46,56 +46,6 @@ try {
 catch {
     Write-Error "WebDAV.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
-}
-#endregion
-
-#region --- Private Helper: Get PSCredential from Secret ---
-function Get-PSCredentialFromSecretInternal-WebDAV {
-    param(
-        [string]$SecretName,
-        [string]$VaultName, # Optional
-        [scriptblock]$Logger,
-        [string]$SecretPurposeForLog = "WebDAV Credential"
-    )
-
-    # PSSA Appeasement: Use the Logger parameter
-    & $Logger -Message "WebDAV.Target/Get-PSCredentialFromSecretInternal-WebDAV: Logger active for secret '$SecretName', purpose '$SecretPurposeForLog'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
-
-    if ([string]::IsNullOrWhiteSpace($SecretName)) {
-        & $LocalWriteLog -Message ("  - GetPSCredentialSecret: SecretName not provided for {0}. Cannot retrieve." -f $SecretPurposeForLog) -Level "DEBUG"
-        return $null
-    }
-    if (-not (Get-Command Get-Secret -ErrorAction SilentlyContinue)) {
-        $errorMessageText = "GetPSCredentialSecret: PowerShell SecretManagement module (Get-Secret cmdlet) not found. Cannot retrieve '{0}' for {1}." -f $SecretName, $SecretPurposeForLog
-        & $LocalWriteLog -Message "[ERROR] $errorMessageText" -Level "ERROR"
-        throw "PowerShell SecretManagement module not found."
-    }
-    try {
-        $getSecretParams = @{ Name = $SecretName; ErrorAction = 'Stop' }
-        if (-not [string]::IsNullOrWhiteSpace($VaultName)) {
-            $getSecretParams.Vault = $VaultName
-        }
-        $secretValue = Get-Secret @getSecretParams
-        if ($null -ne $secretValue) {
-            & $LocalWriteLog -Message ("  - GetPSCredentialSecret: Successfully retrieved secret object '{0}' for {1}." -f $SecretName, $SecretPurposeForLog) -Level "DEBUG"
-            if ($secretValue.Secret -is [System.Management.Automation.PSCredential]) {
-                & $LocalWriteLog -Message ("  - GetPSCredentialSecret: Secret '{0}' is a PSCredential object." -f $SecretName) -Level "DEBUG"
-                return $secretValue.Secret
-            }
-            else {
-                & $LocalWriteLog -Message ("[WARNING] GetPSCredentialSecret: Secret '{0}' for {1} was retrieved but is not a PSCredential object. Type: {2}." -f $SecretName, $SecretPurposeForLog, $secretValue.Secret.GetType().FullName) -Level "WARNING"
-                return $null
-            }
-        }
-    }
-    catch {
-        $userFriendlyError = "Failed to retrieve secret '{0}' for {1}. This can often happen if the Secret Vault is locked. Try running `Unlock-SecretStore` before executing the script." -f $SecretName, $SecretPurposeForLog
-        & $LocalWriteLog -Message "[ERROR] $userFriendlyError" -Level "ERROR"
-        & $LocalWriteLog -Message "  - Underlying SecretManagement Error: $($_.Exception.Message)" -Level "DEBUG"
-    }
-    return $null
 }
 #endregion
 
@@ -367,7 +317,7 @@ function Test-PoShBackupTargetConnectivity {
         return @{ Success = $false; Message = "WebDAV connection test skipped by user." }
     }
 
-    $credential = Get-PSCredentialFromSecretInternal-WebDAV -SecretName $secretName -Logger $Logger
+    $credential = Get-PoShBackupSecret -SecretName $secretName -Logger $Logger -AsCredential
     if ($null -eq $credential) {
         return @{ Success = $false; Message = "Failed to retrieve PSCredential from secret '$secretName'." }
     }
@@ -532,7 +482,7 @@ function Invoke-PoShBackupTargetTransfer {
         & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"; $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
     }
 
-    $credential = Get-PSCredentialFromSecretInternal-WebDAV -SecretName $credentialSecretName -VaultName $credentialVaultName -Logger $Logger
+    $credential = Get-PoShBackupSecret -SecretName $credentialSecretName -VaultName $credentialVaultName -Logger $Logger -AsCredential
     if ($null -eq $credential) {
         $result.ErrorMessage = "WebDAV Target '$targetNameForLog': Failed to retrieve PSCredential from secret '$credentialSecretName'."
         & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"; $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
