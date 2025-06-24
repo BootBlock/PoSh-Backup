@@ -27,9 +27,9 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the accessibility of the UNC path.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.6.1 # Bug Fix: Added missing Import-Module for Utils.psm1.
+    Version:        1.7.0 # Refactored to use centralised Group-BackupInstancesByTimestamp utility.
     DateCreated:    19-May-2025
-    LastModified:   23-Jun-2025
+    LastModified:   24-Jun-2025
     Purpose:        UNC Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The user/account running PoSh-Backup must have appropriate permissions
@@ -41,9 +41,10 @@
 # $PSScriptRoot here is Modules\Targets
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\RetentionUtils.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Error "UNC.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    Write-Error "UNC.Target.psm1 FATAL: Could not import dependent module Utils.psm1 or RetentionUtils.psm1. Error: $($_.Exception.Message)"
     throw
 }
 #endregion
@@ -61,7 +62,7 @@ function Initialize-RemotePathInternal {
         [Parameter(Mandatory)]
         [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
-    & $Logger -Message "UNC.Target/Initialize-RemotePathInternal: Logger parameter active for path '$Path'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "UNC.Target/Initialize-RemotePathInternal: Logger active for path '$Path'." -Level "DEBUG" -ErrorAction SilentlyContinue
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
@@ -122,98 +123,6 @@ function Initialize-RemotePathInternal {
         }
     }
     return @{ Success = $true }
-}
-#endregion
-
-#region --- Private Helper: Group Backup Instances for Retention (Local or UNC) ---
-function Group-LocalOrUNCBackupInstancesInternal {
-    param(
-        [string]$Directory,
-        [string]$BaseNameToMatch, # e.g., "JobName [DateStamp]" (this is $ArchiveBaseName from Invoke-PoShBackupTargetTransfer)
-        [string]$PrimaryArchiveExtension, # e.g., ".7z" (the one before .001 or .manifest)
-        [scriptblock]$Logger
-    )
-
-    # PSSA Appeasement and initial log entry:
-    & $Logger -Message "UNC.Target/Group-LocalOrUNCBackupInstancesInternal: Logger active. Scanning '$Directory' for base '$BaseNameToMatch', primary ext '$PrimaryArchiveExtension'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    # Define LocalWriteLog for subsequent use within this function if needed by other parts of it.
-    $LocalWriteLog = { param([string]$Message, [string]$Level = "DEBUG") & $Logger -Message $Message -Level $Level }
-    
-    $instances = @{}
-    $literalBase = [regex]::Escape($BaseNameToMatch) # BaseNameToMatch is "JobName [DateStamp]"
-    $literalExt = [regex]::Escape($PrimaryArchiveExtension) # PrimaryArchiveExtension is ".7z"
-
-    $fileFilterForInstance = "$BaseNameToMatch*"
-
-    Get-ChildItem -Path $Directory -Filter $fileFilterForInstance -File -ErrorAction SilentlyContinue | ForEach-Object {
-        $file = $_
-        $instanceKey = $null
-        
-        $splitVolumePattern = "^($literalBase$literalExt)\.(\d{3,})$"
-        $splitManifestPattern = "^($literalBase$literalExt)\.manifest\.[a-zA-Z0-9]+$"
-        $singleFilePattern = "^($literalBase$literalExt)$"
-        $sfxFilePattern = "^($literalBase\.[a-zA-Z0-9]+)$"
-        $sfxManifestPattern = "^($literalBase\.[a-zA-Z0-9]+)\.manifest\.[a-zA-Z0-9]+$"
-
-        if ($file.Name -match $splitVolumePattern) { $instanceKey = $Matches[1] }
-        elseif ($file.Name -match $splitManifestPattern) { $instanceKey = $Matches[1] }
-        elseif ($file.Name -match $sfxManifestPattern) { $instanceKey = $Matches[1] }
-        elseif ($file.Name -match $singleFilePattern) { $instanceKey = $Matches[1] }
-        elseif ($file.Name -match $sfxFilePattern) { $instanceKey = $Matches[1] }
-        else {
-            if ($file.Name.StartsWith($BaseNameToMatch)) {
-                $basePlusExtMatch = $file.Name -match "^($literalBase(\.[^.\s]+)?)"
-                if ($basePlusExtMatch) {
-                    $potentialKey = $Matches[1]
-                    if ($file.Name -match ([regex]::Escape($potentialKey) + "\.\d{3,}") -or `
-                            $file.Name -match ([regex]::Escape($potentialKey) + "\.manifest\.[a-zA-Z0-9]+$") -or `
-                            $file.Name -eq $potentialKey) {
-                        $instanceKey = $potentialKey
-                    }
-                }
-            }
-        }
-
-        if ($null -eq $instanceKey) {
-            & $LocalWriteLog -Message "UNC.Target/GroupHelper: Could not determine instance key for file '$($file.Name)'. Base: '$BaseNameToMatch', PrimaryExt: '$PrimaryArchiveExtension'. Skipping." -Level "VERBOSE"
-            return
-        }
-
-        if (-not $instances.ContainsKey($instanceKey)) {
-            $instances[$instanceKey] = @{
-                SortTime = $file.CreationTime
-                Files    = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
-            }
-        }
-        $instances[$instanceKey].Files.Add($file)
-
-        if ($file.Name -match "$literalExt\.001$") {
-            if ($file.CreationTime -lt $instances[$instanceKey].SortTime) {
-                $instances[$instanceKey].SortTime = $file.CreationTime
-            }
-        }
-    }
-    
-    foreach ($key in $instances.Keys) {
-        if ($instances[$key].Files.Count -gt 0) {
-            $firstVolume = $instances[$key].Files | Where-Object { $_.Name -match "$literalExt\.001$" } | Sort-Object CreationTime | Select-Object -First 1
-            if ($firstVolume) {
-                if ($firstVolume.CreationTime -lt $instances[$key].SortTime) {
-                    $instances[$key].SortTime = $firstVolume.CreationTime
-                }
-            }
-            else {
-                $earliestFileInGroup = $instances[$key].Files | Sort-Object CreationTime | Select-Object -First 1
-                if ($earliestFileInGroup -and $earliestFileInGroup.CreationTime -lt $instances[$key].SortTime) {
-                    $instances[$key].SortTime = $earliestFileInGroup.CreationTime
-                }
-            }
-        }
-    }
-
-    & $LocalWriteLog -Message "UNC.Target/GroupHelper: Found $($instances.Keys.Count) distinct instances in '$Directory' for base '$BaseNameToMatch'."
-    return $instances
 }
 #endregion
 
@@ -519,8 +428,12 @@ function Invoke-PoShBackupTargetTransfer {
             else {
                 & $LocalWriteLog -Message "  - UNC Target '$targetNameForLog': $retentionActionMessage" -Level "INFO"
                 if (Test-Path -LiteralPath $remoteFinalDirectoryForArchiveSet -PathType Container) {
-                    $allRemoteInstances = Group-LocalOrUNCBackupInstancesInternal -Directory $remoteFinalDirectoryForArchiveSet `
-                        -BaseNameToMatch $ArchiveBaseName `
+                    $allFilesInDest = Get-ChildItem -Path $remoteFinalDirectoryForArchiveSet -Filter "$ArchiveBaseName*" -File -ErrorAction SilentlyContinue
+                    $fileObjectListForGrouping = $allFilesInDest | ForEach-Object { [PSCustomObject]@{ Name = $_.Name; SortTime = $_.CreationTime; OriginalObject = $_ } }
+
+                    $allRemoteInstances = Group-BackupInstancesByTimestamp -FileObjectList $fileObjectListForGrouping `
+                        -ArchiveBaseName $ArchiveBaseName `
+                        -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
                         -PrimaryArchiveExtension $ArchiveExtension `
                         -Logger $Logger
                     
@@ -532,7 +445,8 @@ function Invoke-PoShBackupTargetTransfer {
 
                         foreach ($instanceEntry in $instancesToDelete) {
                             & $LocalWriteLog "      - UNC Target '$targetNameForLog': Preparing to delete instance '$($instanceEntry.Name)' (SortTime: $($instanceEntry.Value.SortTime))." -Level "WARNING"
-                            foreach ($remoteFileToDelete in $instanceEntry.Value.Files) {
+                            foreach ($fileObject in $instanceEntry.Value.Files) {
+                                $remoteFileToDelete = $fileObject.OriginalObject
                                 if (-not $PSCmdlet.ShouldProcess($remoteFileToDelete.FullName, "Delete Remote Archive File/Part (Retention)")) {
                                     & $LocalWriteLog "        - Deletion of '$($remoteFileToDelete.FullName)' skipped by user." -Level "WARNING"; continue
                                 }

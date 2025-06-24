@@ -17,9 +17,9 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the S3 connection and settings.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.0 # Refactored to use centralised Get-PoShBackupSecret utility.
+    Version:        1.5.0 # Refactored to use centralised Group-BackupInstancesByTimestamp utility.
     DateCreated:    17-Jun-2025
-    LastModified:   23-Jun-2025
+    LastModified:   24-Jun-2025
     Purpose:        S3-Compatible Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The 'AWS.Tools.S3' module must be installed (`Install-Module AWS.Tools.S3`).
@@ -30,56 +30,11 @@
 # $PSScriptRoot here is Modules\Targets
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\RetentionUtils.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Error "S3.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    Write-Error "S3.Target.psm1 FATAL: Could not import dependent module Utils.psm1 or RetentionUtils.psm1. Error: $($_.Exception.Message)"
     throw
-}
-#endregion
-
-#region --- Private Helper: Group Remote S3 Backup Instances ---
-function Group-RemoteS3BackupInstancesInternal {
-    param(
-        [object[]]$S3ObjectList,
-        [string]$ArchiveBaseName,
-        [string]$PrimaryArchiveExtension,
-        [scriptblock]$Logger
-    )
-    & $Logger -Message "S3.Target/Group-RemoteS3BackupInstancesInternal: Grouping $($S3ObjectList.Count) remote objects." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    $instances = @{}
-    $literalBase = [regex]::Escape($ArchiveBaseName)
-    $literalExt = [regex]::Escape($PrimaryArchiveExtension)
-
-    foreach ($s3Object in $S3ObjectList) {
-        $fileName = Split-Path -Path $s3Object.Key -Leaf
-        $instanceKey = $null
-        $fileSortTime = $s3Object.LastModified
-
-        $splitVolumePattern = "^($literalBase$literalExt)\.(\d{3,})$"
-        $splitManifestPattern = "^($literalBase$literalExt)\.manifest\.[a-zA-Z0-9]+$"
-        $singleFilePattern = "^($literalBase$literalExt)$"
-        $sfxFilePattern = "^($literalBase\.[a-zA-Z0-9]+)$"
-        $sfxManifestPattern = "^($literalBase\.[a-zA-Z0-9]+)\.manifest\.[a-zA-Z0-9]+$"
-
-        if ($fileName -match $splitVolumePattern) { $instanceKey = $Matches[1] }
-        elseif ($fileName -match $splitManifestPattern) { $instanceKey = $Matches[1] }
-        elseif ($fileName -match $sfxManifestPattern) { $instanceKey = $Matches[1] }
-        elseif ($fileName -match $singleFilePattern) { $instanceKey = $Matches[1] }
-        elseif ($fileName -match $sfxFilePattern) { $instanceKey = $Matches[1] }
-
-        if ($null -eq $instanceKey) { continue }
-
-        if (-not $instances.ContainsKey($instanceKey)) {
-            $instances[$instanceKey] = @{ SortTime = $fileSortTime; Files = [System.Collections.Generic.List[object]]::new() }
-        }
-        $instances[$instanceKey].Files.Add($s3Object)
-
-        if ($fileSortTime -lt $instances[$instanceKey].SortTime) {
-            $instances[$instanceKey].SortTime = $fileSortTime
-        }
-    }
-    return $instances
 }
 #endregion
 
@@ -321,7 +276,19 @@ function Invoke-PoShBackupTargetTransfer {
             $getS3ListParams.Prefix = $remoteKeyPrefix
             $allRemoteObjects = Get-S3ObjectV2 @getS3ListParams
             
-            $remoteInstances = Group-RemoteS3BackupInstancesInternal -S3ObjectList $allRemoteObjects -ArchiveBaseName $ArchiveBaseName -PrimaryArchiveExtension $ArchiveExtension -Logger $Logger
+            $fileObjectListForGrouping = $allRemoteObjects | ForEach-Object { 
+                [PSCustomObject]@{ 
+                    Name = (Split-Path -Path $_.Key -Leaf); 
+                    SortTime = $_.LastModified; 
+                    OriginalObject = $_ 
+                }
+            }
+
+            $remoteInstances = Group-BackupInstancesByTimestamp -FileObjectList $fileObjectListForGrouping `
+                -ArchiveBaseName $ArchiveBaseName `
+                -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
+                -PrimaryArchiveExtension $ArchiveExtension `
+                -Logger $Logger
             
             if ($remoteInstances.Count -gt $remoteKeepCount) {
                 $sortedInstances = $remoteInstances.GetEnumerator() | Sort-Object { $_.Value.SortTime } -Descending
@@ -329,8 +296,9 @@ function Invoke-PoShBackupTargetTransfer {
                 & $LocalWriteLog -Message ("    - S3 Target '{0}': Found {1} remote instances. Will delete files for {2} older instance(s)." -f $targetNameForLog, $remoteInstances.Count, $instancesToDelete.Count) -Level "INFO"
 
                 foreach ($instanceEntry in $instancesToDelete) {
-                    & $LocalWriteLog -Message "      - S3 Target '{0}': Preparing to delete instance files for '$($instanceEntry.Name)'." -Level "WARNING"
-                    foreach ($s3ObjectToDelete in $instanceEntry.Value.Files) {
+                    & $LocalWriteLog "      - S3 Target '{0}': Preparing to delete instance files for '$($instanceEntry.Name)'." -Level "WARNING"
+                    foreach ($s3ObjectContainer in $instanceEntry.Value.Files) {
+                        $s3ObjectToDelete = $s3ObjectContainer.OriginalObject
                         if (-not $PSCmdlet.ShouldProcess($s3ObjectToDelete.Key, "Delete Remote S3 Object (Retention)")) {
                             & $LocalWriteLog -Message ("        - Deletion of '{0}' skipped by user." -f $s3ObjectToDelete.Key) -Level "WARNING"; continue
                         }

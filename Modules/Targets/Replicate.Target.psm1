@@ -16,8 +16,8 @@
     -   Determines if a job-specific subdirectory should be created.
     -   Ensures the final destination directory exists.
     -   Copies the specific local archive file (a volume part or a manifest file) to this destination.
-    -   If the 'ContinueOnError' setting for the target is false (default), it will stop processing
-        further destinations for the current file after the first failure.
+        This can be done using the standard `Copy-Item` or, if configured, the more robust
+        `robocopy.exe` for resilient network transfers.
     -   If retention settings (e.g., 'KeepCount') are defined for this specific destination,
         it applies a count-based retention policy. This policy now correctly identifies all
         related files of a backup instance (all volumes and any manifest) for deletion.
@@ -29,13 +29,14 @@
     A new function, 'Test-PoShBackupTargetConnectivity', validates the accessibility of all configured destination paths.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.0 # Refactored to use centralised Format-FileSize utility function.
+    Version:        1.5.0 # Refactored to use centralised Group-BackupInstancesByTimestamp utility.
     DateCreated:    19-May-2025
-    LastModified:   23-Jun-2025
+    LastModified:   24-Jun-2025
     Purpose:        Replicate Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The user/account running PoSh-Backup must have appropriate permissions
                     to read/write/delete on all configured destination paths.
+                    Robocopy.exe must be available on the system (standard on modern Windows).
 #>
 
 #region --- Module Dependencies ---
@@ -61,7 +62,7 @@ function Initialize-RemotePathInternal {
         [Parameter(Mandatory)]
         [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
-    & $Logger -Message "Replicate.Target/Initialize-RemotePathInternal: Logger parameter active for path '$Path'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "Replicate.Target/Initialize-RemotePathInternal: Logger active for path '$Path'." -Level "DEBUG" -ErrorAction SilentlyContinue
     $LocalWriteLog = {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
@@ -125,113 +126,6 @@ function Initialize-RemotePathInternal {
 }
 #endregion
 
-#region --- Private Helper: Group Backup Instances for Retention (Local or UNC) ---
-function Group-LocalOrUNCBackupInstancesInternal {
-    param(
-        [string]$Directory,
-        [string]$BaseNameToMatch, # e.g., "JobName [DateStamp]" (this is $ArchiveBaseName from Invoke-PoShBackupTargetTransfer)
-        [string]$PrimaryArchiveExtension, # e.g., ".7z" (the one before .001 or .manifest)
-        [scriptblock]$Logger
-    )
-
-    # PSSA Appeasement and initial log entry:
-    & $Logger -Message "Replicate.Target/Group-LocalOrUNCBackupInstancesInternal: Logger active. Scanning '$Directory' for base '$BaseNameToMatch', primary ext '$PrimaryArchiveExtension'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    # Define LocalWriteLog for subsequent use within this function if needed by other parts of it.
-    $LocalWriteLog = { param([string]$Message, [string]$Level = "DEBUG") & $Logger -Message $Message -Level $Level }
-    
-    $instances = @{}
-    $literalBase = [regex]::Escape($BaseNameToMatch) # BaseNameToMatch is "JobName [DateStamp]"
-    $literalExt = [regex]::Escape($PrimaryArchiveExtension) # PrimaryArchiveExtension is ".7z"
-
-    # Filter for Get-ChildItem should be broad enough to get all parts of an instance based on $BaseNameToMatch
-    $fileFilterForInstance = "$BaseNameToMatch*"
-
-    Get-ChildItem -Path $Directory -Filter $fileFilterForInstance -File -ErrorAction SilentlyContinue | ForEach-Object {
-        $file = $_
-        $instanceKey = $null
-        
-        # Try to match split volumes: "BaseName.PrimaryExt.NNN"
-        $splitVolumePattern = "^($literalBase$literalExt)\.(\d{3,})$"
-        # Try to match manifest for split volumes: "BaseName.PrimaryExt.manifest.algo"
-        $splitManifestPattern = "^($literalBase$literalExt)\.manifest\.[a-zA-Z0-9]+$"
-        # Try to match single file (could be SFX if PrimaryArchiveExtension is .exe, or standard archive)
-        $singleFilePattern = "^($literalBase$literalExt)$"
-        # Try to match manifest for single file: "BaseName.ActualExt.manifest.algo"
-        # This is tricky if PrimaryArchiveExtension is .7z but actual file is .exe (SFX)
-        # Let's use $ArchiveFileName from the main function context if possible, or derive.
-        
-        if ($file.Name -match $splitVolumePattern) {
-            $instanceKey = $Matches[1] # "JobName [DateStamp].<PrimaryExtension>"
-        }
-        elseif ($file.Name -match $splitManifestPattern) {
-            $instanceKey = $Matches[1] # "JobName [DateStamp].<PrimaryExtension>"
-        }
-        elseif ($file.Name -match "^($literalBase.+?)\.manifest\.[a-zA-Z0-9]+$") {
-            # Manifest for a file that might not strictly match PrimaryArchiveExtension (e.g. SFX .exe when Primary is .7z)
-            $instanceKey = $Matches[1] # "JobName [DateStamp].exe"
-        }
-        elseif ($file.Name -match $singleFilePattern) {
-            $instanceKey = $Matches[1] # "JobName [DateStamp].<PrimaryExtension>"
-        }
-        else {
-            # Fallback: if it starts with BaseNameToMatch, consider it part of an instance
-            # This is less precise but helps catch SFX files where PrimaryArchiveExtension might be different
-            if ($file.Name.StartsWith($BaseNameToMatch)) {
-                # Attempt to derive a consistent instance key, e.g., "JobName [DateStamp].actualExt"
-                $instanceKey = $BaseNameToMatch + $file.Extension 
-                if ($file.Extension -eq ($PrimaryArchiveExtension + ".001")) {
-                    # if it's like .7z.001
-                    $instanceKey = $BaseNameToMatch + $PrimaryArchiveExtension
-                }
-            }
-        }
-
-        if ($null -eq $instanceKey) {
-            & $LocalWriteLog -Message "Replicate.Target/GroupHelper: Could not determine instance key for file '$($file.Name)'. Skipping." -Level "VERBOSE"
-            return # continue in ForEach-Object
-        }
-
-        if (-not $instances.ContainsKey($instanceKey)) {
-            $instances[$instanceKey] = @{
-                SortTime = $file.CreationTime # Initial sort time
-                Files    = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
-            }
-        }
-        $instances[$instanceKey].Files.Add($file)
-
-        # Refine SortTime: if it's a .001 part, its CreationTime is authoritative for the instance.
-        if ($file.Name -match "$literalExt\.001$") {
-            if ($file.CreationTime -lt $instances[$instanceKey].SortTime) {
-                $instances[$instanceKey].SortTime = $file.CreationTime
-            }
-        }
-    }
-    
-    # Second pass to refine sort times for instances that didn't have a .001 part explicitly found first
-    foreach ($key in $instances.Keys) {
-        if ($instances[$key].Files.Count -gt 0) {
-            $firstVolume = $instances[$key].Files | Where-Object { $_.Name -match "$literalExt\.001$" } | Sort-Object CreationTime | Select-Object -First 1
-            if ($firstVolume) {
-                if ($firstVolume.CreationTime -lt $instances[$key].SortTime) {
-                    $instances[$key].SortTime = $firstVolume.CreationTime
-                }
-            }
-            else {
-                # If no .001, use the creation time of the earliest file in the group
-                $earliestFileInGroup = $instances[$key].Files | Sort-Object CreationTime | Select-Object -First 1
-                if ($earliestFileInGroup -and $earliestFileInGroup.CreationTime -lt $instances[$key].SortTime) {
-                    $instances[$key].SortTime = $earliestFileInGroup.CreationTime
-                }
-            }
-        }
-    }
-
-    & $LocalWriteLog -Message "Replicate.Target/GroupHelper: Found $($instances.Keys.Count) distinct instances in '$Directory' for base '$BaseNameToMatch'."
-    return $instances
-}
-#endregion
-
 #region --- Private Helper: Build Robocopy Arguments ---
 function Build-RobocopyArgumentsInternal {
     param(
@@ -274,13 +168,13 @@ function Build-RobocopyArgumentsInternal {
     }
 
     # Logging options (provider manages the log file itself)
-    $argumentsList.Add("/NS")  # No Size
-    $argumentsList.Add("/NC")  # No Class
-    $argumentsList.Add("/NFL") # No File List
-    $argumentsList.Add("/NDL") # No Directory List
-    $argumentsList.Add("/NP")  # No Progress
-    $argumentsList.Add("/NJH") # No Job Header
-    $argumentsList.Add("/NJS") # No Job Summary
+    $argumentsList.Add("/NS")                               # No Size
+    $argumentsList.Add("/NC")                               # No Class
+    $argumentsList.Add("/NFL")                              # No File List
+    $argumentsList.Add("/NDL")                              # No Directory List
+    $argumentsList.Add("/NP")                               # No Progress
+    $argumentsList.Add("/NJH")                              # No Job Header
+    $argumentsList.Add("/NJS")                              # No Job Summary
     
     if ($RobocopySettings.ContainsKey('Verbose') -and $RobocopySettings.Verbose -eq $true) {
         $argumentsList.Add("/V")
@@ -576,7 +470,6 @@ function Invoke-PoShBackupTargetTransfer {
                 if (-not $PSCmdlet.ShouldProcess($currentFullDestArchivePath, "Replicate File to Destination")) {
                     $currentDestErrorMessage = "File copy to '$currentFullDestArchivePath' skipped by user."
                     & $LocalWriteLog -Message "[WARNING] Replicate Target '$targetNameForLog': $currentDestErrorMessage" -Level "WARNING"
-                    # Not setting $allReplicationsForThisFileSucceeded to $false as it's a user skip, not a failure.
                 }
                 else {
                     & $LocalWriteLog -Message "      - Replicate Target '$targetNameForLog': Copying file '$ArchiveFileName' to '$currentFullDestArchivePath'..." -Level "INFO"
@@ -611,19 +504,28 @@ function Invoke-PoShBackupTargetTransfer {
                         & $LocalWriteLog -Message "        - Replicate Target '$targetNameForLog': Directory '$currentDestFinalDir' not found for retention. Skipping." -Level "WARNING"
                     }
                     else {
-                        $remoteInstancesAtDest = Group-LocalOrUNCBackupInstancesInternal -Directory $currentDestFinalDir -BaseNameToMatch $ArchiveBaseName -PrimaryArchiveExtension $ArchiveExtension -Logger $Logger
-                        if ($remoteInstancesAtDest.Count -gt $destKeepCount) {
-                            $sortedInstancesAtDest = $remoteInstancesAtDest.GetEnumerator() | Sort-Object { $_.Value.SortTime } -Descending
-                            $instancesToDeleteAtDest = $sortedInstancesAtDest | Select-Object -Skip $destKeepCount
-                            & $LocalWriteLog -Message "        - Replicate Target '$targetNameForLog': Found $($remoteInstancesAtDest.Count) instances at '$currentDestFinalDir'. Will delete $($instancesToDeleteAtDest.Count) older instance(s)." -Level "INFO"
-                            foreach ($instanceEntryToDelete in $instancesToDeleteAtDest) {
+                        $allFilesInDest = Get-ChildItem -Path $currentDestFinalDir -Filter "$ArchiveBaseName*" -File -ErrorAction SilentlyContinue
+                        $fileObjectListForGrouping = $allFilesInDest | ForEach-Object { [PSCustomObject]@{ Name = $_.Name; SortTime = $_.CreationTime; OriginalObject = $_ } }
+                        
+                        $allRemoteInstances = Group-BackupInstancesByTimestamp -FileObjectList $fileObjectListForGrouping `
+                            -ArchiveBaseName $ArchiveBaseName `
+                            -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
+                            -PrimaryArchiveExtension $ArchiveExtension `
+                            -Logger $Logger
+                        
+                        if ($allRemoteInstances.Count -gt $destKeepCount) {
+                            $sortedInstances = $allRemoteInstances.GetEnumerator() | Sort-Object { $_.Value.SortTime } -Descending
+                            $instancesToDelete = $sortedInstances | Select-Object -Skip $destKeepCount
+                            & $LocalWriteLog -Message "        - Replicate Target '$targetNameForLog': Found $($allRemoteInstances.Count) instances at '$currentDestFinalDir'. Will delete $($instancesToDelete.Count) older instance(s)." -Level "INFO"
+                            foreach ($instanceEntryToDelete in $instancesToDelete) {
                                 & $LocalWriteLog -Message "          - Replicate Target '$targetNameForLog': Preparing to delete instance '$($instanceEntryToDelete.Name)' (SortTime: $($instanceEntryToDelete.Value.SortTime)) from '$currentDestFinalDir'." -Level "WARNING"
                                 foreach ($fileToDeleteInInstance in $instanceEntryToDelete.Value.Files) {
-                                    if (-not $PSCmdlet.ShouldProcess($fileToDeleteInInstance.FullName, "Delete Replicated File/Part (Retention)")) {
-                                        & $LocalWriteLog -Message "            - Deletion of '$($fileToDeleteInInstance.FullName)' skipped by user." -Level "WARNING"; continue
+                                    $fileInfoToDelete = $fileToDeleteInInstance.OriginalObject
+                                    if (-not $PSCmdlet.ShouldProcess($fileInfoToDelete.FullName, "Delete Replicated File/Part (Retention)")) {
+                                        & $LocalWriteLog -Message "            - Deletion of '$($fileInfoToDelete.FullName)' skipped by user." -Level "WARNING"; continue
                                     }
-                                    & $LocalWriteLog -Message "            - Deleting: '$($fileToDeleteInInstance.FullName)'" -Level "WARNING"
-                                    try { Remove-Item -LiteralPath $fileToDeleteInInstance.FullName -Force -ErrorAction Stop; & $LocalWriteLog "              - Status: DELETED" -Level "SUCCESS" }
+                                    & $LocalWriteLog -Message "            - Deleting: '$($fileInfoToDelete.FullName)'" -Level "WARNING"
+                                    try { Remove-Item -LiteralPath $fileInfoToDelete.FullName -Force -ErrorAction Stop; & $LocalWriteLog "              - Status: DELETED" -Level "SUCCESS" }
                                     catch {
                                         & $LocalWriteLog -Message "              - Status: FAILED! Error: $($_.Exception.Message)" -Level "ERROR"; # A retention failure makes the overall less successful
                                     }

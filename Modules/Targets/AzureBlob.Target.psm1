@@ -22,9 +22,9 @@
     A function, 'Test-PoShBackupTargetConnectivity', validates the connection and container access.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Refactored to use centralised Group-BackupInstancesByTimestamp utility.
     DateCreated:    23-Jun-2025
-    LastModified:   23-Jun-2025
+    LastModified:   24-Jun-2025
     Purpose:        Azure Blob Storage Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     The 'Az.Storage' module must be installed (`Install-Module Az.Storage -Scope CurrentUser`).
@@ -35,60 +35,11 @@
 # $PSScriptRoot here is Modules\Targets
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\RetentionUtils.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Error "AzureBlob.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    Write-Error "AzureBlob.Target.psm1 FATAL: Could not import a dependent module. Error: $($_.Exception.Message)"
     throw
-}
-#endregion
-
-#region --- Private Helper: Group Remote Azure Blob Instances ---
-function Group-RemoteAzureBlobBackupInstancesInternal {
-    param(
-        [object[]]$AzureBlobObjectList,
-        [string]$ArchiveBaseName,
-        [string]$PrimaryArchiveExtension,
-        [scriptblock]$Logger
-    )
-    & $Logger -Message "AzureBlob.Target/Group-RemoteAzureBlobBackupInstancesInternal: Grouping $($AzureBlobObjectList.Count) remote objects." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    $instances = @{}
-    $literalBase = [regex]::Escape($ArchiveBaseName)
-    $literalExt = [regex]::Escape($PrimaryArchiveExtension)
-
-    foreach ($blobObject in $AzureBlobObjectList) {
-        $fileName = $blobObject.Name # For blobs, the 'Name' includes the full path/prefix
-        if ($fileName.Contains('/')) {
-            $fileName = Split-Path -Path $fileName -Leaf
-        }
-
-        $instanceKey = $null
-        $fileSortTime = $blobObject.LastModified.DateTime
-
-        $splitVolumePattern = "^($literalBase$literalExt)\.(\d{3,})$"
-        $splitManifestPattern = "^($literalBase$literalExt)\.manifest\.[a-zA-Z0-9]+$"
-        $singleFilePattern = "^($literalBase$literalExt)$"
-        $sfxFilePattern = "^($literalBase\.[a-zA-Z0-9]+)$"
-        $sfxManifestPattern = "^($literalBase\.[a-zA-Z0-9]+)\.manifest\.[a-zA-Z0-9]+$"
-
-        if ($fileName -match $splitVolumePattern) { $instanceKey = $Matches[1] }
-        elseif ($fileName -match $splitManifestPattern) { $instanceKey = $Matches[1] }
-        elseif ($fileName -match $sfxManifestPattern) { $instanceKey = $Matches[1] }
-        elseif ($fileName -match $singleFilePattern) { $instanceKey = $Matches[1] }
-        elseif ($fileName -match $sfxFilePattern) { $instanceKey = $Matches[1] }
-
-        if ($null -eq $instanceKey) { continue }
-
-        if (-not $instances.ContainsKey($instanceKey)) {
-            $instances[$instanceKey] = @{ SortTime = $fileSortTime; Files = [System.Collections.Generic.List[object]]::new() }
-        }
-        $instances[$instanceKey].Files.Add($blobObject)
-
-        if ($fileSortTime -lt $instances[$instanceKey].SortTime) {
-            $instances[$instanceKey].SortTime = $fileSortTime
-        }
-    }
-    return $instances
 }
 #endregion
 
@@ -241,6 +192,7 @@ function Invoke-PoShBackupTargetTransfer {
             & $LocalWriteLog -Message ("SIMULATE: After upload, retention policy (Keep: {0}) would be applied to blobs with prefix '{1}'." -f $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount, $remoteKeyPrefix) -Level "SIMULATE"
         }
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
+        $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
     }
 
@@ -272,7 +224,19 @@ function Invoke-PoShBackupTargetTransfer {
             & $LocalWriteLog -Message ("  - AzureBlob Target '{0}': Applying remote retention (KeepCount: {1}) in Container '{2}' with Prefix '{3}'." -f $targetNameForLog, $remoteKeepCount, $containerName, $remoteKeyPrefix) -Level "INFO"
 
             $allRemoteBlobs = Get-AzStorageBlob -Container $containerName -Context $storageContext -Prefix $remoteKeyPrefix
-            $remoteInstances = Group-RemoteAzureBlobBackupInstancesInternal -AzureBlobObjectList $allRemoteBlobs -ArchiveBaseName $ArchiveBaseName -PrimaryArchiveExtension $ArchiveExtension -Logger $Logger
+            $fileObjectListForGrouping = $allRemoteBlobs | ForEach-Object { 
+                [PSCustomObject]@{
+                    Name = $_.Name
+                    SortTime = $_.LastModified.DateTime
+                    OriginalObject = $_
+                }
+            }
+            
+            $remoteInstances = Group-BackupInstancesByTimestamp -FileObjectList $fileObjectListForGrouping `
+                -ArchiveBaseName $ArchiveBaseName `
+                -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
+                -PrimaryArchiveExtension $ArchiveExtension `
+                -Logger $Logger
 
             if ($remoteInstances.Count -gt $remoteKeepCount) {
                 $sortedInstances = $remoteInstances.GetEnumerator() | Sort-Object { $_.Value.SortTime } -Descending
@@ -281,7 +245,8 @@ function Invoke-PoShBackupTargetTransfer {
 
                 foreach ($instanceEntry in $instancesToDelete) {
                     & $LocalWriteLog "      - AzureBlob Target '{0}': Preparing to delete instance files for '$($instanceEntry.Name)'." -Level "WARNING"
-                    foreach ($blobToDelete in $instanceEntry.Value.Files) {
+                    foreach ($blobContainer in $instanceEntry.Value.Files) {
+                        $blobToDelete = $blobContainer.OriginalObject
                         if (-not $PSCmdlet.ShouldProcess($blobToDelete.Name, "Delete Remote Azure Blob (Retention)")) {
                             & $LocalWriteLog ("        - Deletion of '{0}' skipped by user." -f $blobToDelete.Name) -Level "WARNING"; continue
                         }

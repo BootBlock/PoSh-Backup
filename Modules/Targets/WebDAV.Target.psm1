@@ -28,9 +28,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        0.6.0 # Refactored to use centralized credential and file size utilities.
+    Version:        0.7.0 # Refactored to use centralised Group-BackupInstancesByTimestamp utility.
     DateCreated:    05-Jun-2025
-    LastModified:   23-Jun-2025
+    LastModified:   24-Jun-2025
     Purpose:        WebDAV Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     PowerShell SecretManagement configured if using secrets for credentials.
@@ -42,9 +42,10 @@
 # $PSScriptRoot here is Modules\Targets
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\RetentionUtils.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Error "WebDAV.Target.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
+    Write-Error "WebDAV.Target.psm1 FATAL: Could not import a dependent module. Error: $($_.Exception.Message)"
     throw
 }
 #endregion
@@ -141,152 +142,6 @@ function Initialize-WebDAVRemotePathInternal {
         }
     }
     return @{ Success = $true }
-}
-#endregion
-
-#region --- Private Helper: Group Remote WebDAV Backup Instances ---
-function Group-RemoteWebDAVBackupInstancesInternal {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$BaseWebDAVUrl, # e.g. https://server/dav
-        [Parameter(Mandatory = $true)]
-        [string]$RemoteDirectoryToList, # Relative path from BaseWebDAVUrl, e.g., /backups/jobname
-        [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCredential]$Credential,
-        [Parameter(Mandatory = $true)]
-        [int]$RequestTimeoutSec,
-        [Parameter(Mandatory = $true)]
-        [string]$BaseNameToMatch, # e.g., "JobName [DateStamp]"
-        [Parameter(Mandatory = $true)]
-        [string]$PrimaryArchiveExtension, # e.g., ".7z"
-        [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger
-    )
-
-    # PSSA Appeasement and initial log entry:
-    & $Logger -Message "WebDAV.Target/Group-RemoteWebDAVBackupInstancesInternal: Logger active. Listing '$RemoteDirectoryToList' on '$BaseWebDAVUrl' for base '$BaseNameToMatch', primary ext '$PrimaryArchiveExtension'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "DEBUG") & $Logger -Message $MessageParam -Level $LevelParam }
-
-    $instances = @{}
-    $fullDirectoryUrl = ($BaseWebDAVUrl.TrimEnd("/") + "/" + $RemoteDirectoryToList.TrimStart("/")).TrimEnd("/")
-
-    try {
-        $propfindBody = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:getlastmodified/><d:getcontentlength/><d:resourcetype/></d:prop></d:propfind>'
-        $propfindResponseXml = Invoke-WebRequest -Uri $fullDirectoryUrl -Method "PROPFIND" -Credential $Credential -Headers @{"Depth" = "1" } -Body $propfindBody -ContentType "application/xml" -TimeoutSec $RequestTimeoutSec -ErrorAction Stop
-
-        if ($null -eq $propfindResponseXml -or [string]::IsNullOrWhiteSpace($propfindResponseXml.Content)) {
-            & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: PROPFIND response for '$fullDirectoryUrl' was empty." -Level "WARNING"
-            return $instances
-        }
-
-        [xml]$xmlDoc = $propfindResponseXml.Content
-        $ns = @{ d = "DAV:" } # Define the DAV namespace. [3, 4]
-
-        # Select all 'response' elements for items within the directory (not the directory itself)
-        $responses = Select-Xml -Xml $xmlDoc -Namespace $ns -XPath "//d:response[not(d:propstat/d:prop/d:resourcetype/d:collection)]/d:propstat/d:prop" # Select props of files only
-
-        if ($null -eq $responses) {
-            & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: No file resources found in PROPFIND response for '$fullDirectoryUrl'."
-            return $instances
-        }
-
-        foreach ($responseNode in $responses) {
-            $propNode = $responseNode.Node # This is the <d:prop> element
-            $hrefNode = $propNode.ParentNode.ParentNode.SelectSingleNode("d:href", $xmlDoc.NameTable) # Go up to <d:response> then find <d:href>
-            $fileNameRaw = $hrefNode.InnerText.TrimEnd("/")
-            $fileName = Split-Path -Path $fileNameRaw -Leaf # Extract just the filename
-
-            $lastModifiedNode = $propNode.SelectSingleNode("d:getlastmodified", $xmlDoc.NameTable)
-            $fileSortTime = [datetime]::MinValue
-            if ($null -ne $lastModifiedNode -and -not [string]::IsNullOrWhiteSpace($lastModifiedNode.InnerText)) {
-                try { $fileSortTime = [datetime]::Parse($lastModifiedNode.InnerText, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal) } # WebDAV dates are typically GMT/UTC. [2]
-                catch { & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: Could not parse getlastmodified '$($lastModifiedNode.InnerText)' for '$fileName'. Error: $($_.Exception.Message)" -Level "WARNING" }
-            }
-
-            $contentLengthNode = $propNode.SelectSingleNode("d:getcontentlength", $xmlDoc.NameTable)
-            $fileSize = 0
-            if ($null -ne $contentLengthNode -and -not [string]::IsNullOrWhiteSpace($contentLengthNode.InnerText)) {
-                try {
-                    $fileSize = [long]$contentLengthNode.InnerText
-                }
-                catch {
-                    & $LocalWriteLog -Message "[DEBUG] WebDAV.Target: Non-critical exception during PROPFIND for '$currentSegmentUrl' (will attempt MKCOL anyway). Error: $($_.Exception.ToString())" -Level "DEBUG"
-                }
-            }
-
-            $instanceKey = $null
-            $literalBase = [regex]::Escape($BaseNameToMatch)
-            $literalExt = [regex]::Escape($PrimaryArchiveExtension)
-
-            $splitVolumePattern = "^($literalBase$literalExt)\.(\d{3,})$"
-            $splitManifestPattern = "^($literalBase$literalExt)\.manifest\.[a-zA-Z0-9]+$"
-            $singleFilePattern = "^($literalBase$literalExt)$"
-            $sfxFilePattern = "^($literalBase\.[a-zA-Z0-9]+)$"
-            $sfxManifestPattern = "^($literalBase\.[a-zA-Z0-9]+)\.manifest\.[a-zA-Z0-9]+$"
-
-            if ($fileName -match $splitVolumePattern) { $instanceKey = $Matches[1] }
-            elseif ($fileName -match $splitManifestPattern) { $instanceKey = $Matches[1] }
-            elseif ($fileName -match $sfxManifestPattern) { $instanceKey = $Matches[1] }
-            elseif ($fileName -match $singleFilePattern) { $instanceKey = $Matches[1] }
-            elseif ($fileName -match $sfxFilePattern) { $instanceKey = $Matches[1] }
-            else {
-                if ($fileName.StartsWith($BaseNameToMatch)) {
-                    $basePlusExtMatch = $fileName -match "^($literalBase(\.[^.\s]+)?)"
-                    if ($basePlusExtMatch) {
-                        $potentialKey = $Matches[1]
-                        if ($fileName -match ([regex]::Escape($potentialKey) + "\.\d{3,}") -or `
-                                $fileName -match ([regex]::Escape($potentialKey) + "\.manifest\.[a-zA-Z0-9]+$") -or `
-                                $fileName -eq $potentialKey) {
-                            $instanceKey = $potentialKey
-                        }
-                    }
-                }
-            }
-
-            if ($null -eq $instanceKey) {
-                & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: Could not determine instance key for remote file '$fileName'. Base: '$BaseNameToMatch', PrimaryExt: '$PrimaryArchiveExtension'. Skipping." -Level "VERBOSE"
-                continue
-            }
-
-            if (-not $instances.ContainsKey($instanceKey)) {
-                $instances[$instanceKey] = @{ SortTime = $fileSortTime; Files = [System.Collections.Generic.List[object]]::new() }
-            }
-            # Store a custom object with name and sort time for each file, as we don't have full FileInfo
-            $instances[$instanceKey].Files.Add(@{ Name = $fileName; SortTime = $fileSortTime; FullHref = $hrefNode.InnerText; Size = $fileSize })
-
-            if ($fileName -match "$literalExt\.001$") {
-                if ($fileSortTime -lt $instances[$instanceKey].SortTime) { $instances[$instanceKey].SortTime = $fileSortTime }
-            }
-        }
-
-        foreach ($keyToRefine in $instances.Keys) {
-            if ($instances[$keyToRefine].Files.Count -gt 0) {
-                $firstVolumeFileObj = $instances[$keyToRefine].Files | Where-Object { $_.Name -match ([regex]::Escape($keyToRefine) + "\.001$") } | Sort-Object SortTime | Select-Object -First 1
-                if (-not $firstVolumeFileObj -and $keyToRefine.EndsWith($PrimaryArchiveExtension)) {
-                    $firstVolumeFileObj = $instances[$keyToRefine].Files | Where-Object { $_.Name -eq $keyToRefine } | Sort-Object SortTime | Select-Object -First 1
-                }
-                if ($firstVolumeFileObj -and $firstVolumeFileObj.SortTime -lt $instances[$keyToRefine].SortTime) {
-                    $instances[$keyToRefine].SortTime = $firstVolumeFileObj.SortTime
-                }
-                elseif (-not $firstVolumeFileObj) {
-                    # If no .001 or direct match, use earliest file in group
-                    $earliestFileInGroup = $instances[$keyToRefine].Files | Sort-Object SortTime | Select-Object -First 1
-                    if ($earliestFileInGroup -and $earliestFileInGroup.SortTime -lt $instances[$keyToRefine].SortTime) {
-                        $instances[$keyToRefine].SortTime = $earliestFileInGroup.SortTime
-                    }
-                }
-            }
-        }
-
-    }
-    catch {
-        & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: Error listing or processing files from '$fullDirectoryUrl'. Error: $($_.Exception.Message)" -Level "ERROR"
-        if ($_.Exception.Response) { & $LocalWriteLog -Message "  Status: $($_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)" -Level "ERROR" }
-    }
-    & $LocalWriteLog -Message "WebDAV.Target/GroupHelper: Found $($instances.Keys.Count) distinct instances in '$RemoteDirectoryToList' for base '$BaseNameToMatch'."
-    return $instances
 }
 #endregion
 
@@ -508,6 +363,7 @@ function Invoke-PoShBackupTargetTransfer {
         }
         
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
+        $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
     }
 
@@ -523,6 +379,7 @@ function Invoke-PoShBackupTargetTransfer {
         & $LocalWriteLog -Message ("  - WebDAV Target '{0}': Uploading '{1}' to '{2}'..." -f $targetNameForLog, $LocalArchivePath, $fullRemoteArchivePath) -Level "INFO"
         Invoke-WebRequest -Uri $fullRemoteArchivePath -Method Put -InFile $LocalArchivePath -Credential $credential -ContentType "application/octet-stream" -TimeoutSec $requestTimeoutSec -ErrorAction Stop
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
+        $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
         & $LocalWriteLog -Message ("    - WebDAV Target '{0}': File uploaded successfully." -f $targetNameForLog) -Level "SUCCESS"
 
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and `
@@ -531,45 +388,64 @@ function Invoke-PoShBackupTargetTransfer {
             $remoteKeepCount = $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount
             & $LocalWriteLog -Message ("  - WebDAV Target '{0}': Applying remote retention (KeepCount: {1}) in relative path '{2}'." -f $targetNameForLog, $remoteKeepCount, $remoteFinalRelativeDirForJob) -Level "INFO"
 
-            $remoteInstances = Group-RemoteWebDAVBackupInstancesInternal -BaseWebDAVUrl $webDAVUrlBase `
-                -RemoteDirectoryToList $remoteFinalRelativeDirForJob `
-                -Credential $credential `
-                -RequestTimeoutSec $requestTimeoutSec `
-                -BaseNameToMatch $ArchiveBaseName `
-                -PrimaryArchiveExtension $ArchiveExtension `
-                -Logger $Logger
-
-            if ($remoteInstances.Count -gt $remoteKeepCount) {
-                $sortedInstances = $remoteInstances.GetEnumerator() | Sort-Object { $_.Value.SortTime } -Descending
-                $instancesToDelete = $sortedInstances | Select-Object -Skip $remoteKeepCount
-                & $LocalWriteLog -Message ("    - WebDAV Target '{0}': Found {1} remote instances. Will delete files for {2} older instance(s)." -f $targetNameForLog, $remoteInstances.Count, $instancesToDelete.Count) -Level "INFO"
-
-                foreach ($instanceEntry in $instancesToDelete) {
-                    $instanceKeyToDelete = $instanceEntry.Name
-                    & $LocalWriteLog -Message "      - WebDAV Target '{0}': Preparing to delete instance files for '$instanceKeyToDelete' (SortTime: $($instanceEntry.Value.SortTime))." -Level "WARNING"
-                    foreach ($remoteFileObjInInstance in $instanceEntry.Value.Files) {
-                        $fileToDeleteUrl = ($webDAVUrlBase.TrimEnd("/") + $remoteFileObjInInstance.FullHref).TrimEnd("/") # FullHref from PROPFIND
-                        if (-not $PSCmdlet.ShouldProcess($fileToDeleteUrl, "Delete Remote WebDAV File/Part (Retention)")) {
-                            & $LocalWriteLog -Message ("        - Deletion of '{0}' skipped by user." -f $fileToDeleteUrl) -Level "WARNING"; continue
-                        }
-                        & $LocalWriteLog -Message ("        - Deleting: '{0}' (Original SortTime: $($remoteFileObjInInstance.SortTime))" -f $fileToDeleteUrl) -Level "WARNING"
-                        try {
-                            Invoke-WebRequest -Uri $fileToDeleteUrl -Method "DELETE" -Credential $credential -TimeoutSec $requestTimeoutSec -ErrorAction Stop
-                            & $LocalWriteLog "          - Status: DELETED (Remote WebDAV Retention)" -Level "SUCCESS"
-                        }
-                        catch {
-                            $deleteErrorMsg = "Failed to delete remote WebDAV file '$fileToDeleteUrl'. Error: $($_.Exception.Message)"
-                            if ($_.Exception.Response) { $deleteErrorMsg += " Status: $($_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)" }
-                            & $LocalWriteLog "          - Status: FAILED! $deleteErrorMsg" -Level "ERROR"
-                            if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $deleteErrorMsg }
-                            else { $result.ErrorMessage += "; $deleteErrorMsg" }
-                        }
+            try {
+                $propfindBody = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:getlastmodified/></d:prop></d:propfind>'
+                $fullDirectoryUrl = ($webDAVUrlBase.TrimEnd("/") + "/" + $remoteFinalRelativeDirForJob.TrimStart("/")).TrimEnd("/")
+                $propfindResponseXml = Invoke-WebRequest -Uri $fullDirectoryUrl -Method "PROPFIND" -Credential $credential -Headers @{"Depth" = "1" } -Body $propfindBody -ContentType "application/xml" -TimeoutSec $requestTimeoutSec -ErrorAction Stop
+                [xml]$xmlDoc = $propfindResponseXml.Content
+                $ns = @{ d = "DAV:" }
+                $responses = Select-Xml -Xml $xmlDoc -Namespace $ns -XPath "//d:response[not(d:propstat/d:prop/d:resourcetype/d:collection)]"
+                
+                $fileObjectListForGrouping = $responses | ForEach-Object {
+                    $node = $_.Node
+                    $href = $node.SelectSingleNode("d:href", $ns).InnerText
+                    $lastModified = $node.SelectSingleNode("d:propstat/d:prop/d:getlastmodified", $ns).InnerText
+                    [PSCustomObject]@{
+                        Name = (Split-Path -Path $href -Leaf)
+                        SortTime = [datetime]::Parse($lastModified, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal)
+                        OriginalObject = $_.Node
                     }
                 }
-            }
-            else { & $LocalWriteLog ("    - WebDAV Target '{0}': No old instances to delete based on retention count {1} (Found: $($remoteInstances.Count))." -f $targetNameForLog, $remoteKeepCount) -Level "INFO" }
-        }
 
+                $remoteInstances = Group-BackupInstancesByTimestamp -FileObjectList $fileObjectListForGrouping `
+                    -ArchiveBaseName $ArchiveBaseName `
+                    -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
+                    -PrimaryArchiveExtension $ArchiveExtension `
+                    -Logger $Logger
+
+                if ($remoteInstances.Count -gt $remoteKeepCount) {
+                    $sortedInstances = $remoteInstances.GetEnumerator() | Sort-Object { $_.Value.SortTime } -Descending
+                    $instancesToDelete = $sortedInstances | Select-Object -Skip $remoteKeepCount
+                    & $LocalWriteLog -Message ("    - WebDAV Target '{0}': Found {1} remote instances. Will delete files for {2} older instance(s)." -f $targetNameForLog, $remoteInstances.Count, $instancesToDelete.Count) -Level "INFO"
+
+                    foreach ($instanceEntry in $instancesToDelete) {
+                        & $LocalWriteLog "      - WebDAV Target '{0}': Preparing to delete instance files for '$($instanceEntry.Name)' (SortTime: $($instanceEntry.Value.SortTime))." -Level "WARNING"
+                        foreach ($remoteFileObjContainer in $instanceEntry.Value.Files) {
+                            $webDAVNodeToDelete = $remoteFileObjContainer.OriginalObject
+                            $fileToDeleteUrl = ($webDAVUrlBase.TrimEnd("/") + $webDAVNodeToDelete.SelectSingleNode("d:href", $ns).InnerText).TrimEnd("/")
+                            if (-not $PSCmdlet.ShouldProcess($fileToDeleteUrl, "Delete Remote WebDAV File/Part (Retention)")) {
+                                & $LocalWriteLog ("        - Deletion of '{0}' skipped by user." -f $fileToDeleteUrl) -Level "WARNING"; continue
+                            }
+                            & $LocalWriteLog -Message ("        - Deleting: '{0}' (Original SortTime: $($remoteFileObjContainer.SortTime))" -f $fileToDeleteUrl) -Level "WARNING"
+                            try {
+                                Invoke-WebRequest -Uri $fileToDeleteUrl -Method "DELETE" -Credential $credential -TimeoutSec $requestTimeoutSec -ErrorAction Stop
+                                & $LocalWriteLog "          - Status: DELETED (Remote WebDAV Retention)" -Level "SUCCESS"
+                            }
+                            catch {
+                                $deleteErrorMsg = "Failed to delete remote WebDAV file '$fileToDeleteUrl'. Error: $($_.Exception.Message)"
+                                if ($_.Exception.Response) { $deleteErrorMsg += " Status: $($_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)" }
+                                & $LocalWriteLog "          - Status: FAILED! $deleteErrorMsg" -Level "ERROR"
+                                if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $deleteErrorMsg } else { $result.ErrorMessage += "; $deleteErrorMsg" }
+                            }
+                        }
+                    }
+                } else { & $LocalWriteLog ("    - WebDAV Target '{0}': No old instances to delete based on retention count {1} (Found: $($remoteInstances.Count))." -f $targetNameForLog, $remoteKeepCount) -Level "INFO" }
+            } catch {
+                $retError = "Error during WebDAV remote retention execution: $($_.Exception.Message)"
+                & $LocalWriteLog "[WARNING] WebDAV Target '$targetNameForLog': $retError" -Level "WARNING"
+                if ([string]::IsNullOrWhiteSpace($result.ErrorMessage)) { $result.ErrorMessage = $retError } else { $result.ErrorMessage += "; $retError" }
+            }
+        }
     }
     catch {
         $result.ErrorMessage = "WebDAV Target '$targetNameForLog': Operation failed. Error: $($_.Exception.Message)"
@@ -578,7 +454,6 @@ function Invoke-PoShBackupTargetTransfer {
     }
 
     $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed
-    $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
     & $LocalWriteLog -Message ("[INFO] WebDAV Target: Finished transfer attempt for Job '{0}' to Target '{1}', File '{2}'. Success: {3}." -f $JobName, $targetNameForLog, $ArchiveFileName, $result.Success) -Level "INFO"
     return $result
 }
