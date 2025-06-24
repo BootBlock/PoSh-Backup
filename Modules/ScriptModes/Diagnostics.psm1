@@ -737,12 +737,28 @@ function Invoke-PoShBackupDiagnosticMode {
             & $LocalWriteLog -Message "    (Could not be determined as PostRunActionOrchestrator was not available)" -Level "NONE"
         }
 
-        $validationMessages = $ConfigLoadResult.ValidationMessages
+        $validationMessages = if ($ConfigLoadResult.ContainsKey('ValidationMessages')) { $ConfigLoadResult.ValidationMessages } else { @() }
+        
+        # --- Final Result Banner ---
+        $finalBannerColor = '$Global:ColourError'
+        $finalBannerValue = "Finished with Errors ($($validationMessages.Count))"
+        $finalBannerBorderColor = '$Global:ColourError'
+
         if ($null -eq $validationMessages -or $validationMessages.Count -eq 0) {
-            & $LocalWriteLog -Message "`n[SUCCESS] All configuration checks passed." -Level "SUCCESS"
+            $finalBannerColor = '$Global:ColourSuccess'
+            $finalBannerValue = "All Checks Passed"
+            $finalBannerBorderColor = '$Global:ColourSuccess'
         }
-    
-        Write-ConsoleBanner -NameText "Configuration Test Mode Finished" -BorderForegroundColor "White" -CenterText -PrependNewLine -AppendNewLine
+
+        Write-ConsoleBanner -NameText "Final Test Result" `
+                            -ValueText $finalBannerValue `
+                            -NameForegroundColor $finalBannerColor `
+                            -ValueForegroundColor $finalBannerColor `
+                            -BorderForegroundColor $finalBannerBorderColor `
+                            -BannerWidth 78 `
+                            -CenterText `
+                            -PrependNewLine
+
         return $true
     }
     
