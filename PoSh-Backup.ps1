@@ -526,8 +526,7 @@ if ($CheckForUpdate.IsPresent) {
     Write-ConsoleBanner -NameText "Check for Update" `
         -NameForegroundColor "Yellow" `
         -BorderForegroundColor '$Global:ColourBorder' `
-        -CenterText `
-        Write-Host
+        -CenterText
     $updateModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utilities\Update.psm1"
     try {
         if (-not (Test-Path -LiteralPath $updateModulePath -PathType Leaf)) {

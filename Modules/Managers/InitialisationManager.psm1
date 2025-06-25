@@ -5,13 +5,14 @@
 .DESCRIPTION
     This module provides a function to initialise global settings such as colour
     palettes, status maps, default logging variables, and standardised exit codes.
-    It also displays the initial script banner, but respects the -Quiet flag to suppress it.
-    This centralises the startup configuration and presentation logic.
+    It also displays the initial script banner (with version and commit hash),
+    but respects the -Quiet flag to suppress it. This centralises the startup
+    configuration and presentation logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.2 # Fixed -Quiet flag logic.
+    Version:        1.2.0 # Updated banner to display commit hash from Meta\Version.psd1.
     DateCreated:    01-Jun-2025
-    LastModified:   22-Jun-2025
+    LastModified:   25-Jun-2025
     Purpose:        To centralise initial script setup and banner display.
     Prerequisites:  PowerShell 5.1+.
                     Requires Modules\Utilities\ConsoleDisplayUtils.psm1 to be available.
@@ -92,34 +93,28 @@ function Invoke-PoShBackupInitialSetup {
     # --- Respect Quiet Mode ---
     # The $Global:IsQuietMode flag is set by the main PoSh-Backup.ps1 script immediately
     # after parameters are bound. This module should RESPECT that global variable and NOT reset it.
-    # The faulty logic that was here has been removed.
 
     # --- Display Starting Banner (only if not in Quiet mode) ---
     if ($Global:IsQuietMode -ne $true) {
         if (Get-Command Write-ConsoleBanner -ErrorAction SilentlyContinue) {
             $scriptVersionForBanner = "vN/A" # Default
             try {
-                $mainScriptContentForVersion = Get-Content -LiteralPath $MainScriptPath -Raw -ErrorAction SilentlyContinue
-                if (-not [string]::IsNullOrWhiteSpace($mainScriptContentForVersion)) {
-                    $regexMatch = [regex]::Match($mainScriptContentForVersion, '(?im)^\s*Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
-                    if ($regexMatch.Success) {
-                        $extractedVersion = $regexMatch.Groups[1].Value.Trim()
-                        if (-not [string]::IsNullOrWhiteSpace($extractedVersion) -and $extractedVersion -ne "N/A") {
-                            $scriptVersionForBanner = "v$extractedVersion"
-                        }
+                $scriptRootForVersion = Split-Path -Path $MainScriptPath -Parent
+                $versionFilePath = Join-Path -Path $scriptRootForVersion -ChildPath "Meta\Version.psd1"
+
+                if (Test-Path -LiteralPath $versionFilePath -PathType Leaf) {
+                    $versionInfo = Import-PowerShellDataFile -LiteralPath $versionFilePath
+                    $version = $versionInfo.InstalledVersion
+                    $commit = if ($versionInfo.ContainsKey('CommitHash') -and -not [string]::IsNullOrWhiteSpace($versionInfo.CommitHash)) { $versionInfo.CommitHash } else { "N/A" }
+                    if ($commit -ne "N/A") {
+                        $scriptVersionForBanner = "v$version ($commit)"
                     } else {
-                        $regexMatch = [regex]::Match($mainScriptContentForVersion, '(?s)\.NOTES(?:.|\s)*?Version:\s*([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:\.[0-9]+)?)\b')
-                        if ($regexMatch.Success) {
-                            $extractedVersion = $regexMatch.Groups[1].Value.Trim()
-                            if (-not [string]::IsNullOrWhiteSpace($extractedVersion) -and $extractedVersion -ne "N/A") {
-                                $scriptVersionForBanner = "v$extractedVersion"
-                            }
-                        }
+                        $scriptVersionForBanner = "v$version"
                     }
                 }
             }
             catch {
-                Write-Host "[DEBUG] InitialisationManager.psm1: Error during dynamic version extraction for banner: $($_.Exception.Message). Version will show as 'vN/A'." -ForegroundColor $Global:ColourDebug
+                Write-Host "[DEBUG] InitialisationManager.psm1: Error reading version/commit from Meta\Version.psd1 for banner: $($_.Exception.Message). Using fallback." -ForegroundColor $Global:ColourDebug
             }
 
             Write-ConsoleBanner -NameText "PoSh Backup" `

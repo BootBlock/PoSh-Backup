@@ -207,12 +207,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **IV. Utility, Management & Usability Features**
 
-**Enhancement:** Fully Automate the Update Process
-    **Goal:** Make the -CheckForUpdate feature fully automated, from check to download to launching the installer, without requiring manual user intervention beyond confirmation.
-    **Description:** Currently, the update process informs the user but the download and application flow is disjointed. This task involves refining Modules\Utilities\Update.psm1 to automatically download the package from the URL in the manifest, verify its checksum, back up the current installation, and launch apply_update.ps1 in one continuous, user-approved flow.
-    **Scope & Impact:** Modules\Utilities\Update.psm1.
-    **Acceptance Criteria:** After confirming "Yes" to an available update, the script downloads, verifies, backs up, and launches the installer without further prompts.
-
 1. **Feature: Configuration Import/Export (CLI Utility)**
     - **Goal:** Allow users to export their current effective configuration for a job (or globally) to a file, or import a job definition.
     - **Description:** Useful for sharing, migrating, or templating job definitions.

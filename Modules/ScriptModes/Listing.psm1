@@ -65,13 +65,23 @@ function Invoke-PoShBackupListingMode {
     $null = $PSCmdletInstance # PSSA Appeasement for unused parameter
 
     if ($VersionSwitch) {
-        $mainScriptPathForVersion = Join-Path -Path $Configuration['_PoShBackup_PSScriptRoot'] -ChildPath "PoSh-Backup.ps1"
+        $localVersionFilePath = Join-Path -Path $Configuration['_PoShBackup_PSScriptRoot'] -ChildPath "Meta\Version.psd1"
         $scriptVersion = "N/A"
-        if (Test-Path -LiteralPath $mainScriptPathForVersion -PathType Leaf) {
-            $mainScriptContent = Get-Content -LiteralPath $mainScriptPathForVersion -Raw -ErrorAction SilentlyContinue
-            $scriptVersion = Get-ScriptVersionFromContent -ScriptContent $mainScriptContent -ScriptNameForWarning "PoSh-Backup.ps1"
+        $commitHash = "N/A"
+
+        if (Test-Path -LiteralPath $localVersionFilePath -PathType Leaf) {
+            try {
+                $localVersionInfo = Import-PowerShellDataFile -LiteralPath $localVersionFilePath
+                $scriptVersion = $localVersionInfo.InstalledVersion
+                if ($localVersionInfo.ContainsKey('CommitHash')) {
+                    $commitHash = $localVersionInfo.CommitHash
+                }
+            } catch {
+                & $LocalWriteLog -Message "Could not read or parse Meta\Version.psd1. Error: $($_.Exception.Message)" -Level "WARNING"
+            }
         }
-        Write-Host "PoSh-Backup Version: $scriptVersion"
+        
+        Write-Host "PoSh-Backup Version: $scriptVersion (Commit: $commitHash)"
         return $true # Handled
     }
 

@@ -1,3 +1,4 @@
+# Meta\Package-PoShBackupRelease.ps1
 <#
 .SYNOPSIS
     Packages the PoSh-Backup project for distribution. It auto-generates 'Meta\Version.psd1'
@@ -6,13 +7,14 @@
 .DESCRIPTION
     This script performs the following actions:
     1. Parses 'PoSh-Backup.ps1' to extract the current version number.
-    2. Auto-generates 'Meta\Version.psd1' using the extracted version, current date,
+    2. Runs 'git rev-parse' to get the short commit hash for build identification.
+    3. Auto-generates 'Meta\Version.psd1' using the extracted version, commit hash, current date,
        and predefined project metadata.
-    3. Creates a ZIP archive of the PoSh-Backup project directory using 7-Zip.
+    4. Creates a ZIP archive of the PoSh-Backup project directory using 7-Zip.
        - Excludes specified files and folders not intended for distribution.
        - The ZIP file is named 'PoSh-Backup-v<Version>.zip'.
-    4. Calculates the SHA256 checksum of the generated ZIP file.
-    5. Generates a 'version_manifest.psd1' file containing details of the new package.
+    5. Calculates the SHA256 checksum of the generated ZIP file.
+    6. Generates a 'version_manifest.psd1' file containing details of the new package.
 .PARAMETER ProjectRoot
     The root directory of the PoSh-Backup project to package.
     Defaults to the parent directory of this script's location (assuming this script is in 'Meta').
@@ -36,13 +38,13 @@
     Default: "" (empty)
 .EXAMPLE
     .\Meta\Package-PoShBackupRelease.ps1
-    Parses PoSh-Backup.ps1 for version, generates Meta\Version.psd1, packages the project,
-    and saves output to '.\Releases\'.
+    Parses PoSh-Backup.ps1 for version, gets git commit hash, generates Meta\Version.psd1,
+    packages the project, and saves output to '.\Releases\'.
 
 .EXAMPLE
     .\Meta\Package-PoShBackupRelease.ps1 -OutputDirectory "C:\MyBuilds"
 .NOTES
-    Requires 7-Zip to be installed and accessible.
+    Requires 7-Zip and Git to be installed and accessible.
     The version number should be correctly set in 'PoSh-Backup.ps1' (e.g., "Version: 1.15.0").
 #>
 param(
@@ -184,24 +186,47 @@ if ([string]::IsNullOrWhiteSpace($extractedVersion)) {
     exit 1
 }
 
+# --- NEW: Get Git Commit Hash ---
+$commitHash = "N/A"
+try {
+    Write-Host "Attempting to get Git commit hash..."
+    $commitHash = git rev-parse --short HEAD
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commitHash)) {
+        throw "git command failed or returned empty."
+    }
+    $commitHash = $commitHash.Trim()
+    Write-Host "Found Git Commit Hash: $commitHash"
+}
+catch {
+    Write-Warning "Could not get Git commit hash. This can happen if Git is not installed or this is not a Git repository. Using 'N/A'."
+    $commitHash = "N/A"
+}
+# --- END ---
+
 $currentReleaseDateForFile = Get-Date -Format "yyyy-MM-dd"
 $localVersionFilePath = Join-Path -Path $ProjectRoot -ChildPath "Meta\Version.psd1"
 
-Write-Host "Auto-generating '$localVersionFilePath' with Version: $extractedVersion, Release Date: $currentReleaseDateForFile"
+Write-Host "Auto-generating '$localVersionFilePath' with Version: $extractedVersion, Commit: $commitHash, Release Date: $currentReleaseDateForFile"
 
 $versionFileData = @"
 # PoSh-Backup\Meta\Version.psd1
 #
 # Stores metadata about the currently installed version of PoSh-Backup.
-# This file is updated when a new version is installed or by the packager.
+# This file is updated when a new version is installed by the user or by the packager.
 #
 @{
-    InstalledVersion = "$extractedVersion"    # Current version of PoSh-Backup.ps1
-    ReleaseDate      = "$currentReleaseDateForFile" # Release date of this version (YYYY-MM-DD)
-    ProjectUrl       = "https://github.com/BootBlock/PoSh-Backup" # Where PoSh Backup lives, innit.
-    DistributionType = "Zip"        # How this version was likely distributed (e.g., "Zip", "GitClone")
-                                    # This might inform future update strategies.
-    UpdateStrategy   = "ReplaceFolder" # Default strategy the apply_update.ps1 might use. Temporary, unused.
+    # --- Version & Build Information ---
+    InstalledVersion         = "$extractedVersion"                # The semantic version of the PoSh-Backup.ps1 script.
+    CommitHash               = "$commitHash"                      # The short Git commit hash of this specific build for precise issue tracking.
+    ReleaseDate              = "$currentReleaseDateForFile"       # The official release date of this version (YYYY-MM-DD).
+
+    # --- Update & Distribution Information ---
+    DistributionType         = "ZipPackage"                       # How this version was likely distributed (e.g., "ZipPackage", "GitClone").
+    UpdateChannel            = "Stable"                           # The update channel this installation tracks (e.g., "Stable", "Beta").
+    LastUpdateCheckTimestamp = ""                                 # The ISO 8601 timestamp of when PoSh-Backup last checked for an update online.
+
+    # --- Project Information ---
+    ProjectUrl       = "https://github.com/BootBlock/PoSh-Backup" # The official project repository URL.
 }
 "@
 
