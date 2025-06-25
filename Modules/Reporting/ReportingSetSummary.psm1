@@ -24,7 +24,7 @@ try {
     $httpUtilityType = try { [System.Type]::GetType("System.Web.HttpUtility, System.Web, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a", $false) } catch { $null }
     if ($null -ne $httpUtilityType) { $Script:PoshBackup_SetSummary_UseSystemWebHtmlEncode = $true }
 } catch {
-    # Silently fail, the function below will use the manual fallback.
+    Write-Warning "[ReportingSetSummary.psm1] Error loading System.Web.dll. Using basic manual HTML sanitisation. Error: $($_.Exception.Message)"
 }
 
 Function ConvertTo-PoshBackupSetSummarySafeHtmlInternal {
