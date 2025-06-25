@@ -1039,18 +1039,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
 
 **XXXIV. Reporting & Logging (Practical)**
 
-144. **Enhancement: HTML Report - "Copy Full Log" Button**
-    *   **Goal:** Add a button to the HTML report to easily copy the entire detailed log content to the clipboard.
-    *   **Description:** Useful for sharing logs for troubleshooting.
-    *   **Scope & Impact:** `Modules\Reporting\Assets\ReportingHtml.Client.js`.
-    *   **Acceptance Criteria:** Users can copy the full log text from the HTML report.
-
-145. **Enhancement: HTML Report - Option for Collapsible Configuration Section**
-    *   **Goal:** Make the "Configuration Used" section in the HTML report collapsible, and potentially collapsed by default if it's very long.
-    *   **Description:** Improves readability for reports with extensive job configurations.
-    *   **Scope & Impact:** `Modules\Reporting\ReportingHtml.psm1`, `Modules\Reporting\Assets\ReportingHtml.Client.js`.
-    *   **Acceptance Criteria:** Configuration section can be collapsed/expanded.
-
 146. **Feature: Send Test Notification**
     *   **Goal:** Allow users to send a test email/notification to verify notification settings.
     *   **Description:** Part of `-TestConfig` or a new CLI switch `-TestNotification`.

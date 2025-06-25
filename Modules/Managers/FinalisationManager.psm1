@@ -104,7 +104,7 @@ function Invoke-ReportFileRetentionInternal {
 
         $reportInstances = $allReportFilesForJob | Group-Object {
             if ($_.Name -match "Report_(\d{8}_\d{6})\.") { $Matches[1] } else { $_.CreationTime.ToString("yyyyMMdd_HHmmss") }
-        } | Sort-Object @{Expression = {[datetime]::ParseExact($_.Name, "yyyyMMdd_HHmmss", $null)}; Descending = $true}
+        } | Sort-Object @{Expression = { [datetime]::ParseExact($_.Name, "yyyyMMdd_HHmmss", $null) }; Descending = $true }
 
         if ($reportInstances.Count -le $retentionCount) {
             & $LocalWriteLog -Message "   - Job '$jobName': Found $($reportInstances.Count) report instance(s), which is at or below retention count ($retentionCount). No action needed." -Level "INFO"
@@ -129,10 +129,13 @@ function Invoke-ReportFileRetentionInternal {
                     Compress-Archive -Path $filesInInstance.FullName -DestinationPath $archiveFullPath -Update -ErrorAction Stop
                     & $LocalWriteLog -Message "       - Successfully compressed $($filesInInstance.Count) report files into '$archiveFullPath'." -Level "SUCCESS"
                     Remove-Item -Path $filesInInstance.FullName -Force -ErrorAction Stop
-                } catch {
+                }
+                catch {
                     & $LocalWriteLog -Message "[ERROR] Failed to compress or remove original report files for instance '$($instance.Name)'. Error: $($_.Exception.Message)" -Level "ERROR"
                 }
-            } else { # Delete
+            }
+            else {
+                # Delete
                 $filePathsInInstance = $filesInInstance.FullName
                 $actionMessage = "Permanently Delete $($filesInInstance.Count) report files for instance dated $($instance.Name)"
                 if (-not $PSCmdletInstance.ShouldProcess($filesInInstance[0].DirectoryName, $actionMessage)) {
@@ -143,7 +146,8 @@ function Invoke-ReportFileRetentionInternal {
                 try {
                     Remove-Item -Path $filePathsInInstance -Force -ErrorAction Stop
                     & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level "SUCCESS"
-                } catch {
+                }
+                catch {
                     & $LocalWriteLog -Message "         - Status: FAILED to delete one or more files for this instance! Error: $($_.Exception.Message)" -Level "ERROR"
                 }
             }
@@ -178,7 +182,9 @@ function Invoke-PoShBackupFinalisation {
         [Parameter(Mandatory = $false)]
         [string]$CurrentSetNameForLog,
         [Parameter(Mandatory = $true)]
-        [string[]]$JobsToProcess
+        [string[]]$JobsToProcess,
+        [Parameter(Mandatory = $false)]
+        [System.Collections.Generic.List[hashtable]]$AllJobResultsForSetReport
     )
 
     $effectiveOverallStatus = $OverallSetStatus
@@ -212,8 +218,29 @@ function Invoke-PoShBackupFinalisation {
             CurrentSetNameForLog              = $CurrentSetNameForLog
             JobNameForLog                     = $jobNameForLog
         }
+        # --- Generate Set Summary Report if applicable ---
+        if (-not [string]::IsNullOrWhiteSpace($CurrentSetNameForLog) -and $null -ne $AllJobResultsForSetReport -and $AllJobResultsForSetReport.Count -gt 0) {
+            if (Get-Command Invoke-SetSummaryReportGenerator -ErrorAction SilentlyContinue) {
+                & $LoggerScriptBlock -Message "FinalisationManager: Preparing to generate Backup Set summary report for '$CurrentSetNameForLog'." -Level "INFO"
+                $setReportData = @{
+                    SetName       = $CurrentSetNameForLog
+                    OverallStatus = $effectiveOverallStatus
+                    IsSimulated   = $IsSimulateMode.IsPresent
+                    StartTime     = $ScriptStartTime
+                    EndTime       = Get-Date
+                    TotalDuration = (Get-Date) - $ScriptStartTime
+                    JobResults    = $AllJobResultsForSetReport
+                }
+                Invoke-SetSummaryReportGenerator -SetReportData $setReportData -GlobalConfig $Configuration -Logger $LoggerScriptBlock
+            }
+            else {
+                & $LoggerScriptBlock -Message "FinalisationManager: Could not find Invoke-SetSummaryReportGenerator command. Skipping set summary report." -Level "WARNING"
+            }
+        }
+        # --- END Set Summary Report ---
         Invoke-PoShBackupPostRunActionHandler @postRunParams
-    } else {
+    }
+    else {
         & $LoggerScriptBlock -Message "[WARNING] FinalisationManager: Invoke-PoShBackupPostRunActionHandler command not found. Post-run actions will be skipped." -Level "WARNING"
     }
 
@@ -227,12 +254,13 @@ function Invoke-PoShBackupFinalisation {
             $completionBorderColor = '$Global:ColourSimulate'; $completionNameFgColor = '$Global:ColourSimulate'
         }
         Write-ConsoleBanner -NameText "All PoSh Backup Operations Completed" `
-                            -NameForegroundColor $completionNameFgColor `
-                            -BannerWidth 78 `
-                            -BorderForegroundColor $completionBorderColor `
-                            -CenterText `
-                            -PrependNewLine
-    } else {
+            -NameForegroundColor $completionNameFgColor `
+            -BannerWidth 78 `
+            -BorderForegroundColor $completionBorderColor `
+            -CenterText `
+            -PrependNewLine
+    }
+    else {
         & $LoggerScriptBlock -Message "--- All PoSh Backup Operations Completed ---" -Level "HEADING"
     }
 
@@ -241,9 +269,11 @@ function Invoke-PoShBackupFinalisation {
 
     if ($effectiveOverallStatus -eq "FAILURE") {
         $overallScriptStatusForegroundColor = $Global:ColourError
-    } elseif ($effectiveOverallStatus -eq "WARNINGS") {
+    }
+    elseif ($effectiveOverallStatus -eq "WARNINGS") {
         $overallScriptStatusForegroundColor = $Global:ColourWarning
-    } elseif ($IsSimulateMode.IsPresent -and $effectiveOverallStatus -ne "FAILURE" -and $effectiveOverallStatus -ne "WARNINGS") {
+    }
+    elseif ($IsSimulateMode.IsPresent -and $effectiveOverallStatus -ne "FAILURE" -and $effectiveOverallStatus -ne "WARNINGS") {
         $overallScriptStatusForegroundColor = $Global:ColourSimulate
     }
 
@@ -261,9 +291,11 @@ function Invoke-PoShBackupFinalisation {
     $normalizedPauseConfigValue = ""
     if ($_pauseSettingFromConfig -is [bool]) {
         $normalizedPauseConfigValue = if ($_pauseSettingFromConfig) { "always" } else { "never" }
-    } elseif ($null -ne $_pauseSettingFromConfig -and $_pauseSettingFromConfig -is [string]) {
+    }
+    elseif ($null -ne $_pauseSettingFromConfig -and $_pauseSettingFromConfig -is [string]) {
         $normalizedPauseConfigValue = $_pauseSettingFromConfig.ToLowerInvariant()
-    } else {
+    }
+    else {
         $normalizedPauseConfigValue = $_pauseDefaultFromScript.ToLowerInvariant()
     }
     $effectivePauseBehaviour = $normalizedPauseConfigValue
@@ -276,10 +308,10 @@ function Invoke-PoShBackupFinalisation {
 
     $shouldPhysicallyPause = $false
     switch ($effectivePauseBehaviour) {
-        "always"             { $shouldPhysicallyPause = $true }
-        "never"              { $shouldPhysicallyPause = $false }
-        "onfailure"          { if ($effectiveOverallStatus -eq "FAILURE") { $shouldPhysicallyPause = $true } }
-        "onwarning"          { if ($effectiveOverallStatus -eq "WARNINGS") { $shouldPhysicallyPause = $true } }
+        "always" { $shouldPhysicallyPause = $true }
+        "never" { $shouldPhysicallyPause = $false }
+        "onfailure" { if ($effectiveOverallStatus -eq "FAILURE") { $shouldPhysicallyPause = $true } }
+        "onwarning" { if ($effectiveOverallStatus -eq "WARNINGS") { $shouldPhysicallyPause = $true } }
         "onfailureorwarning" { if ($effectiveOverallStatus -in @("FAILURE", "WARNINGS")) { $shouldPhysicallyPause = $true } }
         default {
             & $LoggerScriptBlock -Message "[WARNING] Unknown PauseBeforeExit value '$effectivePauseBehaviour' was resolved. Defaulting to not pausing." -Level "WARNING"
@@ -295,7 +327,8 @@ function Invoke-PoShBackupFinalisation {
         if ($Host.Name -eq "ConsoleHost") {
             try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null }
             catch { & $LoggerScriptBlock -Message "[DEBUG] FinalisationManager: Error during ReadKey: $($_.Exception.Message)" -Level "DEBUG" }
-        } else {
+        }
+        else {
             & $LoggerScriptBlock -Message "  (Pause configured for '$effectivePauseBehaviour' and current status '$effectiveOverallStatus', but not running in ConsoleHost: $($Host.Name).)" -Level "INFO"
         }
     }
@@ -304,10 +337,10 @@ function Invoke-PoShBackupFinalisation {
     $exitCode = $Global:PoShBackup_ExitCodes.OperationalFailure # Default to general failure
 
     switch ($effectiveOverallStatus) {
-        "SUCCESS"            { $exitCode = $Global:PoShBackup_ExitCodes.Success }
+        "SUCCESS" { $exitCode = $Global:PoShBackup_ExitCodes.Success }
         "SIMULATED_COMPLETE" { $exitCode = $Global:PoShBackup_ExitCodes.Success }
-        "WARNINGS"           { $exitCode = $Global:PoShBackup_ExitCodes.SuccessWithWarnings }
-        "FAILURE"            { $exitCode = $Global:PoShBackup_ExitCodes.OperationalFailure }
+        "WARNINGS" { $exitCode = $Global:PoShBackup_ExitCodes.SuccessWithWarnings }
+        "FAILURE" { $exitCode = $Global:PoShBackup_ExitCodes.OperationalFailure }
         # Any other status will use the default OperationalFailure code
     }
 

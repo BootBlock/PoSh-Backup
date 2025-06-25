@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>PoSh Backup Set Summary - {{SET_NAME}}</title>
+    {{HTML_META_TAGS}}
+    {{FAVICON_LINK_TAG}}
+    {{CSS_CONTENT}}
+</head>
+{{HTML_BODY_TAG}}
+    <div class="container">
+        {{SIMULATION_BANNER_HTML}} <!-- Populated if simulation, otherwise empty string -->
+        
+        <div class="report-header">
+            <h1>{{HEADER_TITLE_TEXT}}</h1>
+             <div class="header-controls">
+                <button type="button" id="themeToggleBtn" title="Toggle Light/Dark Theme" aria-label="Toggle Light/Dark Theme">◐</button>
+            </div>
+            {{EMBEDDED_LOGO_HTML}}
+        </div>
+
+        <!-- Overall Set Summary Section -->
+        <div class='details-section summary-section'>
+            <details id='details-set-summary' open>
+                <summary><h2>Overall Set Summary</h2></summary>
+                <table data-sortable-table='true'>
+                     <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td data-label='Item'>Set Name</td><td data-label='Detail'>{{SET_NAME}}</td></tr>
+                        <tr><td data-label='Item'>Overall Status</td><td data-label='Detail' class='{{OVERALL_SET_STATUS_CLASS}}'>{{OVERALL_SET_STATUS}}</td></tr>
+                        <tr><td data-label='Item'>Total Duration</td><td data-label='Detail'>{{TOTAL_SET_DURATION}}</td></tr>
+                        <tr><td data-label='Item'>Start Time</td><td data-label='Detail'>{{START_TIME}}</td></tr>
+                        <tr><td data-label='Item'>End Time</td><td data-label='Detail'>{{END_TIME}}</td></tr>
+                    </tbody>
+                </table>
+            </details>
+        </div>
+
+        <!-- Job Breakdown Section -->
+        <div class='details-section job-breakdown-section'>
+            <details id='details-job-breakdown' open>
+                <summary><h2>Job Breakdown</h2></summary>
+                <table data-sortable-table='true'>
+                    <thead>
+                        <tr>
+                            <th data-sortable-column='true' aria-label='Sort by Job Name'>Job Name</th>
+                            <th data-sortable-column='true' aria-label='Sort by Status'>Status</th>
+                            <th data-sortable-column='true' aria-label='Sort by Duration'>Duration</th>
+                            <th data-sortable-column='true' aria-label='Sort by Archive Size'>Archive Size</th>
+                            <th>Error Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{JOB_SUMMARY_TABLE_ROWS_HTML}} <!-- PowerShell generates <tr><td>...</td></tr> here -->
+                    </tbody>
+                </table>
+            </details>
+        </div>
+
+        <footer>
+            {{FOOTER_COMPANY_NAME_HTML}} PoSh Backup Script - Report Generated on {{REPORT_GENERATION_DATE_TEXT}}
+        </footer>
+    </div>
+    {{JAVASCRIPT_CONTENT_BLOCK}} <!-- For the <script>...</script> block -->
+    <button type="button" id="scrollToTopBtn" title="Go to top" aria-label="Scroll to top of page">▲</button>
+</body>
+</html>

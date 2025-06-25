@@ -1,3 +1,4 @@
+# Modules\Reporting.psm1
 <#
 .SYNOPSIS
     Acts as the central orchestrator for report generation in the PoSh-Backup solution.
@@ -26,9 +27,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.3.3
+    Version:        2.4.0 # Added Invoke-SetSummaryReportGenerator for Backup Set reports.
     DateCreated:    10-May-2025
-    LastModified:   18-May-2025
+    LastModified:   24-Jun-2025
     Purpose:        Manages and dispatches report generation to format-specific reporting sub-modules.
     Prerequisites:  PowerShell 5.1+.
                     Core PoSh-Backup modules: Utils.psm1.
@@ -48,6 +49,59 @@ try {
     # This catch block should ideally not be hit if PoSh-Backup.ps1 loads Utils.psm1 first.
     Write-Warning "Reporting.psm1 CRITICAL: Could not import dependent module Utils.psm1 during its own import. Error: $($_.Exception.Message). Reporting functions may fail."
     # throw # DIAGNOSTIC: Removing the throw to ensure Export-ModuleMember is reached
+}
+
+
+function Invoke-SetSummaryReportGenerator {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [hashtable]$SetReportData,
+        [Parameter(Mandatory=$true)]
+        [hashtable]$GlobalConfig,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$Logger
+    )
+    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
+    & $LocalWriteLog -Message "[INFO] Reporting facade: Set Summary Report generation requested for set '$($SetReportData.SetName)'." -Level "INFO"
+
+    $mainScriptRoot = $GlobalConfig['_PoShBackup_PSScriptRoot']
+    $moduleSubPath = "Reporting"
+    $moduleFileName = "ReportingSetSummary.psm1"
+    $invokeFunctionName = "Invoke-SetSummaryReport"
+    $reportModulePath = Join-Path -Path $mainScriptRoot -ChildPath "Modules\$moduleSubPath\$moduleFileName"
+
+    if (-not (Test-Path -LiteralPath $reportModulePath -PathType Leaf)) {
+        & $LocalWriteLog -Message "[WARNING] Reporting facade: Set Summary report module '$moduleFileName' not found at '$reportModulePath'. Skipping." -Level "WARNING"
+        return
+    }
+    
+    try {
+        Import-Module -Name $reportModulePath -Force -ErrorAction Stop
+        $reportFunctionCmd = Get-Command $invokeFunctionName -ErrorAction SilentlyContinue
+
+        if ($reportFunctionCmd) {
+            $reportDirectory = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'HtmlReportDirectory' -DefaultValue "Reports"
+            if (-not ([System.IO.Path]::IsPathRooted($reportDirectory))) {
+                $reportDirectory = Join-Path -Path $mainScriptRoot -ChildPath $reportDirectory
+            }
+            if (-not (Test-Path -LiteralPath $reportDirectory -PathType Container)) {
+                New-Item -Path $reportDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
+            }
+            
+            $reportParams = @{
+                ReportDirectory = $reportDirectory
+                SetReportData   = $SetReportData
+                GlobalConfig    = $GlobalConfig
+                Logger          = $Logger
+            }
+            & $invokeFunctionName @reportParams
+        } else {
+             & $LocalWriteLog -Message "[ERROR] Set Summary report generation function '$invokeFunctionName' was not found in module '$moduleFileName'." -Level "ERROR"
+        }
+    } catch {
+         & $LocalWriteLog -Message "[ERROR] Failed to load or execute Set Summary reporting sub-module '$moduleFileName'. Error: $($_.Exception.ToString())" -Level "ERROR"
+    }
 }
 
 
@@ -121,9 +175,6 @@ function Invoke-ReportGenerator {
     # Defensive PSSA appeasement line
     & $LocalWriteLog -Message "Invoke-ReportGenerator: Logger parameter active for job '$JobName'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
-
-    # Determine which report types are configured for this job
-    # Get-ConfigValue is now available due to the Import-Module Utils.psm1 at the top of this module.
     $reportTypeSetting = Get-ConfigValue -ConfigObject $JobConfig -Key 'ReportGeneratorType' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'ReportGeneratorType' -DefaultValue "HTML")
     $reportTypesToGenerate = @()
     if ($reportTypeSetting -is [array]) {
@@ -214,4 +265,4 @@ function Invoke-ReportGenerator {
     }
 }
 
-Export-ModuleMember -Function Invoke-ReportGenerator
+Export-ModuleMember -Function Invoke-ReportGenerator, Invoke-SetSummaryReportGenerator

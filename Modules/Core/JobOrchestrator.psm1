@@ -94,6 +94,7 @@ function Invoke-PoShBackupRun {
     $overallSetStatus = "SUCCESS"
     $jobSpecificPostRunActionForSingleJob = $null
     $jobEffectiveSuccessState = @{} # Stores effective success ($true/$false) of each job for dependency checks
+    $allJobResultsForSetReport = [System.Collections.Generic.List[hashtable]]::new()
 
     $totalJobsInRun = $JobsToProcess.Count
     $jobCounter = 0
@@ -553,6 +554,20 @@ $cliOverridesString
                 break
             }
         }
+
+        # --- Add Job Result to list for Set Summary Report ---
+        if ($null -ne $CurrentSetName) {
+            $jobResultForSet = @{
+                JobName              = $currentJobName
+                Status               = $currentJobReportData.OverallStatus
+                Duration             = if ($currentJobReportData.PSObject.Properties.Name -contains 'TotalDuration') { $currentJobReportData.TotalDuration } else { "N/A" }
+                ArchiveSizeFormatted = if ($currentJobReportData.PSObject.Properties.Name -contains 'ArchiveSizeFormatted') { $currentJobReportData.ArchiveSizeFormatted } else { "N/A" }
+                ArchiveSizeBytes     = if ($currentJobReportData.PSObject.Properties.Name -contains 'ArchiveSizeBytes') { $currentJobReportData.ArchiveSizeBytes } else { 0 }
+                ErrorMessage         = if ($currentJobReportData.PSObject.Properties.Name -contains 'ErrorMessage') { $currentJobReportData.ErrorMessage } else { $null }
+            }
+            $allJobResultsForSetReport.Add($jobResultForSet)
+        }
+
     }
 
     if ($CurrentSetName) { Write-Progress -Activity "Processing Backup Set: '$CurrentSetName'" -Completed }
@@ -561,6 +576,7 @@ $cliOverridesString
         OverallSetStatus                  = $overallSetStatus
         JobSpecificPostRunActionForNonSet = if (-not $CurrentSetName) { $jobSpecificPostRunActionForSingleJob } else { $null }
         SetSpecificPostRunAction          = if ($CurrentSetName) { $SetSpecificPostRunAction } else { $null }
+        AllJobResultsForSetReport         = $allJobResultsForSetReport
     }
 }
 
