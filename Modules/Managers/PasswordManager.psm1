@@ -12,15 +12,16 @@
     from interactive user-driven backups to fully automated, scheduled tasks.
 
     The primary exported function, Get-PoShBackupArchivePassword, determines the configured password
-    retrieval method for a given job and executes the appropriate logic. It aims to handle
-    passwords securely, for instance by using temporary files when interacting with 7-Zip,
-    and by leveraging PowerShell's SecretManagement framework or DPAPI-encrypted files where possible.
+    retrieval method for a given job and executes the appropriate logic. It now strictly relies
+    on the global configuration for default values. It aims to handle passwords securely,
+    for instance by using temporary files when interacting with 7-Zip, and by leveraging
+    PowerShell's SecretManagement framework or DPAPI-encrypted files where possible.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.3 # Added explicit import of Utils.psm1.
+    Version:        1.3.0 # Refactored to remove hardcoded defaults.
     DateCreated:    10-May-2025
-    LastModified:   28-May-2025
+    LastModified:   25-Jun-2025
     Purpose:        Centralised password management for archive encryption within PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1.
@@ -34,7 +35,7 @@
 #region --- Module Dependencies ---
 # $PSScriptRoot here is Modules\Managers
 try {
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "..\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "PasswordManager.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
@@ -42,15 +43,28 @@ catch {
 }
 #endregion
 
-#region --- Private Helper: SecureString to PlainText ---
-# This function converts a SecureString object into a plain text string.
-# WARNING: This is inherently less secure than keeping the string encrypted.
-# It should ONLY be used in memory for the brief moment required to pass the password
-# to an external process (like 7-Zip via a temporary file) and the plain text variable
-# should be cleared immediately afterwards.
-# It uses COM interop (Marshal class) to handle the SecureString securely in memory
-# as much as possible during the conversion, converting it to a BSTR (Basic String used by COM),
-# then to a .NET string, and finally zeroing out the BSTR memory.
+#region --- Private Helper Functions ---
+function Get-RequiredConfigValueInternal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$JobConfig,
+        [Parameter(Mandatory)]
+        [hashtable]$GlobalConfig,
+        [Parameter(Mandatory)]
+        [string]$JobKey,
+        [Parameter(Mandatory)]
+        [string]$GlobalKey
+    )
+
+    $value = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null)
+
+    if ($null -eq $value) {
+        throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
+    }
+    return $value
+}
+
 function ConvertTo-PlainTextSecureStringInternal {
     [CmdletBinding()]
     param(
@@ -87,6 +101,8 @@ function Get-PoShBackupArchivePassword {
         'ArchivePasswordMethod', 'CredentialUserNameHint', 'ArchivePasswordSecretName',
         'ArchivePasswordVaultName', 'ArchivePasswordSecureStringPath', 'ArchivePasswordPlainText',
         and the legacy 'UsePassword'.
+    .PARAMETER GlobalConfig
+        The global configuration hashtable, used to retrieve default settings.
     .PARAMETER JobName
         The name of the backup job for which the password is being retrieved. Used in log messages
         and interactive prompts.
@@ -99,8 +115,8 @@ function Get-PoShBackupArchivePassword {
         A mandatory scriptblock reference to the 'Write-LogMessage' function from Utils.psm1.
         Used for consistent logging throughout the password retrieval process.
     .EXAMPLE
-        # This function is typically called by Operations.psm1
-        # $passwordDetails = Get-PoShBackupArchivePassword -JobConfigForPassword $jobSettings -JobName "MyServerBackup" -Logger ${function:Write-LogMessage}
+        # This function is typically called by JobPreProcessor.psm1
+        # $passwordDetails = Get-PoShBackupArchivePassword -JobConfigForPassword $jobSettings -GlobalConfig $globalSettings -JobName "MyServerBackup" -Logger ${function:Write-LogMessage}
         # if ($passwordDetails.PlainTextPassword) {
         #   Write-Host "Password obtained from: $($passwordDetails.PasswordSource)"
         # }
@@ -117,6 +133,9 @@ function Get-PoShBackupArchivePassword {
     param(
         [Parameter(Mandatory = $true)]
         [hashtable]$JobConfigForPassword,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$GlobalConfig,
 
         [Parameter(Mandatory = $true)]
         [string]$JobName,
@@ -147,14 +166,14 @@ function Get-PoShBackupArchivePassword {
     $passwordSource = "None (Initial)" # Default source if no specific method is triggered successfully
 
     # Determine the password retrieval method from the job's configuration.
-    # Get-ConfigValue is now available because Utils.psm1 (which exports it via ConfigUtils.psm1) was imported at the top of this module.
-    $passwordMethodFromConfig = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordMethod' -DefaultValue "None"
+    $passwordMethodFromConfig = Get-RequiredConfigValueInternal -JobConfig $JobConfigForPassword -GlobalConfig $GlobalConfig -JobKey 'ArchivePasswordMethod' -GlobalKey 'DefaultArchivePasswordMethod'
     $effectivePasswordMethod = $passwordMethodFromConfig.ToString().ToUpperInvariant() # Standardise for switch statement
 
     & $LocalWriteLog -Message "Password retrieval method for job '$JobName' from config: '$passwordMethodFromConfig' (Effective: '$effectivePasswordMethod')." -Level DEBUG
 
     # Handle legacy 'UsePassword' setting if no modern method is explicitly "None"
-    if ($effectivePasswordMethod -eq "NONE" -and (Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'UsePassword' -DefaultValue $false) -eq $true) {
+    $usePasswordLegacy = Get-RequiredConfigValueInternal -JobConfig $JobConfigForPassword -GlobalConfig $GlobalConfig -JobKey 'UsePassword' -GlobalKey 'DefaultUsePassword'
+    if ($effectivePasswordMethod -eq "NONE" -and $usePasswordLegacy -eq $true) {
         & $LocalWriteLog -Message "[INFO] Legacy 'UsePassword = `$true' found with 'ArchivePasswordMethod = None' for job '$JobName'. Defaulting to INTERACTIVE method." -Level INFO
         $effectivePasswordMethod = "INTERACTIVE" # Override to use interactive method
     }
@@ -162,7 +181,7 @@ function Get-PoShBackupArchivePassword {
     switch ($effectivePasswordMethod) {
         "INTERACTIVE" {
             $passwordSource = "Interactive (Get-Credential)"
-            $userNameHint = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'CredentialUserNameHint' -DefaultValue "BackupUser"
+            $userNameHint = Get-RequiredConfigValueInternal -JobConfig $JobConfigForPassword -GlobalConfig $GlobalConfig -JobKey 'CredentialUserNameHint' -GlobalKey 'DefaultCredentialUserNameHint'
             & $LocalWriteLog -Message "`n[INFO] Password required for '$JobName'. Method: Interactive prompt." -Level INFO
             if ($IsSimulateMode.IsPresent) {
                 & $LocalWriteLog -Message "SIMULATE: Would prompt for password interactively for job '$JobName' (username hint: '$userNameHint')." -Level SIMULATE
@@ -302,6 +321,6 @@ function Get-PoShBackupArchivePassword {
 
     return @{ PlainTextPassword = $plainTextPassword; PasswordSource = $passwordSource }
 }
+#endregion
 
 Export-ModuleMember -Function Get-PoShBackupArchivePassword
-#endregion

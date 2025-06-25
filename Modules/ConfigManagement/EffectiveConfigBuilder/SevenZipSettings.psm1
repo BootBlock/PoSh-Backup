@@ -6,12 +6,14 @@
     This sub-module for EffectiveConfigBuilder.psm1 determines the effective
     7-Zip parameters, including compression level, method, dictionary size,
     word size, solid block size, thread count, CPU affinity, paths to
-    include/exclude list files, and the temporary working directory.
+    include/exclude list files, and the temporary working directory. It now strictly
+    relies on Default.psd1 for all default values, throwing an error if required
+    settings are missing.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added SevenZipTempDirectory resolution.
+    Version:        1.2.0 # Refactored to remove hardcoded defaults.
     DateCreated:    30-May-2025
-    LastModified:   14-Jun-2025
+    LastModified:   25-Jun-2025
     Purpose:        7-Zip specific settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -26,6 +28,29 @@ catch {
     Write-Error "SevenZipSettings.psm1 (EffectiveConfigBuilder submodule) FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
+
+#region --- Private Helper Function ---
+function Get-RequiredConfigValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$JobConfig,
+        [Parameter(Mandatory)]
+        [hashtable]$GlobalConfig,
+        [Parameter(Mandatory)]
+        [string]$JobKey,
+        [Parameter(Mandatory)]
+        [string]$GlobalKey
+    )
+
+    $value = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null)
+
+    if ($null -eq $value) {
+        throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
+    }
+    return $value
+}
+#endregion
 
 function Resolve-SevenZipConfiguration {
     [CmdletBinding()]
@@ -56,27 +81,27 @@ function Resolve-SevenZipConfiguration {
     $resolvedSettings = @{}
 
     # 7-Zip Compression Parameters
-    $resolvedSettings.JobCompressionLevel = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressionLevel' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressionLevel' -DefaultValue "-mx=7")
-    $resolvedSettings.JobCompressionMethod = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressionMethod' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressionMethod' -DefaultValue "-m0=LZMA2")
-    $resolvedSettings.JobDictionarySize = Get-ConfigValue -ConfigObject $JobConfig -Key 'DictionarySize' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDictionarySize' -DefaultValue "-md=128m")
-    $resolvedSettings.JobWordSize = Get-ConfigValue -ConfigObject $JobConfig -Key 'WordSize' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultWordSize' -DefaultValue "-mfb=64")
-    $resolvedSettings.JobSolidBlockSize = Get-ConfigValue -ConfigObject $JobConfig -Key 'SolidBlockSize' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSolidBlockSize' -DefaultValue "-ms=16g")
-    $resolvedSettings.JobCompressOpenFiles = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressOpenFiles' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCompressOpenFiles' -DefaultValue $true)
-    $resolvedSettings.JobAdditionalExclusions = @(Get-ConfigValue -ConfigObject $JobConfig -Key 'AdditionalExclusions' -DefaultValue @())
-    $resolvedSettings.FollowSymbolicLinks = Get-ConfigValue -ConfigObject $JobConfig -Key 'FollowSymbolicLinks' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultFollowSymbolicLinks' -DefaultValue $false)
+    $resolvedSettings.JobCompressionLevel = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'CompressionLevel' -GlobalKey 'DefaultCompressionLevel'
+    $resolvedSettings.JobCompressionMethod = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'CompressionMethod' -GlobalKey 'DefaultCompressionMethod'
+    $resolvedSettings.JobDictionarySize = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'DictionarySize' -GlobalKey 'DefaultDictionarySize'
+    $resolvedSettings.JobWordSize = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'WordSize' -GlobalKey 'DefaultWordSize'
+    $resolvedSettings.JobSolidBlockSize = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'SolidBlockSize' -GlobalKey 'DefaultSolidBlockSize'
+    $resolvedSettings.JobCompressOpenFiles = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'CompressOpenFiles' -GlobalKey 'DefaultCompressOpenFiles'
+    $resolvedSettings.JobAdditionalExclusions = @(Get-ConfigValue -ConfigObject $JobConfig -Key 'AdditionalExclusions' -DefaultValue @()) # This can be empty, so no Get-Required
+    $resolvedSettings.FollowSymbolicLinks = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'FollowSymbolicLinks' -GlobalKey 'DefaultFollowSymbolicLinks'
 
-    # Resolve Temp Directory
+    # Resolve Temp Directory (optional, can be empty string)
     $resolvedSettings.JobSevenZipTempDirectory = Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipTempDirectory' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipTempDirectory' -DefaultValue "")
     if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.JobSevenZipTempDirectory)) {
         & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Temp Directory resolved to: '$($resolvedSettings.JobSevenZipTempDirectory)'." -Level "DEBUG"
     }
 
-    $_globalConfigThreads = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultThreadCount' -DefaultValue 0
-    $_jobSpecificThreadsToUse = Get-ConfigValue -ConfigObject $JobConfig -Key 'ThreadsToUse' -DefaultValue 0
+    $_globalConfigThreads = Get-RequiredConfigValue -JobConfig @{} -GlobalConfig $GlobalConfig -JobKey 'DefaultThreadCount' -GlobalKey 'DefaultThreadCount'
+    $_jobSpecificThreadsToUse = Get-ConfigValue -ConfigObject $JobConfig -Key 'ThreadsToUse' -DefaultValue 0 # Optional, can be 0
     $_threadsFor7Zip = if ($_jobSpecificThreadsToUse -gt 0) { $_jobSpecificThreadsToUse } elseif ($_globalConfigThreads -gt 0) { $_globalConfigThreads } else { 0 }
     $resolvedSettings.ThreadsSetting = if ($_threadsFor7Zip -gt 0) { "-mmt=$($_threadsFor7Zip)" } else { "-mmt" } # 7ZipManager ArgumentBuilder expects "-mmt" for auto
 
-    # 7-Zip CPU Affinity (CLI > Job > Global > Default empty string)
+    # 7-Zip CPU Affinity (optional, can be empty string)
     $_cliAffinity = if ($CliOverrides.ContainsKey('SevenZipCpuAffinity') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipCpuAffinity)) { $CliOverrides.SevenZipCpuAffinity } else { $null }
     $_jobAffinity = Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipCpuAffinity' -DefaultValue $null
     $_globalAffinity = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipCpuAffinity' -DefaultValue ""

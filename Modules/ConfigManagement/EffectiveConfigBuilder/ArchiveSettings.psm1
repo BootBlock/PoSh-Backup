@@ -7,11 +7,13 @@
     settings related to the archive file itself, including its type, naming convention
     (date format), Self-Extracting Archive (SFX) options, multi-volume (split) settings,
     checksum generation/verification parameters, and split archive manifest generation.
+    It now strictly relies on Default.psd1 for all default values, throwing an error
+    if required settings are missing.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added GenerateContentsManifest resolution.
+    Version:        1.2.0 # Refactored to remove hardcoded defaults.
     DateCreated:    30-May-2025
-    LastModified:   12-Jun-2025
+    LastModified:   25-Jun-2025
     Purpose:        Archive-specific settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -26,6 +28,29 @@ catch {
     Write-Error "ArchiveSettings.psm1 (EffectiveConfigBuilder submodule) FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
+
+#region --- Private Helper Function ---
+function Get-RequiredConfigValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$JobConfig,
+        [Parameter(Mandatory)]
+        [hashtable]$GlobalConfig,
+        [Parameter(Mandatory)]
+        [string]$JobKey,
+        [Parameter(Mandatory)]
+        [string]$GlobalKey
+    )
+
+    $value = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null)
+
+    if ($null -eq $value) {
+        throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
+    }
+    return $value
+}
+#endregion
 
 function Resolve-ArchiveConfiguration {
     [CmdletBinding()]
@@ -54,13 +79,13 @@ function Resolve-ArchiveConfiguration {
     $reportData = $JobReportDataRef.Value
 
     # Archive Naming and Type
-    $resolvedSettings.JobArchiveType = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveType' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveType' -DefaultValue "-t7z")
-    $resolvedSettings.InternalArchiveExtension = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveExtension' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveExtension' -DefaultValue ".7z")
-    $resolvedSettings.JobArchiveDateFormat = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchiveDateFormat' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultArchiveDateFormat' -DefaultValue "yyyy-MMM-dd")
+    $resolvedSettings.JobArchiveType = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'ArchiveType' -GlobalKey 'DefaultArchiveType'
+    $resolvedSettings.InternalArchiveExtension = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'ArchiveExtension' -GlobalKey 'DefaultArchiveExtension'
+    $resolvedSettings.JobArchiveDateFormat = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'ArchiveDateFormat' -GlobalKey 'DefaultArchiveDateFormat'
 
     # SFX Settings
-    $resolvedSettings.CreateSFX = Get-ConfigValue -ConfigObject $JobConfig -Key 'CreateSFX' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultCreateSFX' -DefaultValue $false)
-    $resolvedSettings.SFXModule = Get-ConfigValue -ConfigObject $JobConfig -Key 'SFXModule' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSFXModule' -DefaultValue "Console")
+    $resolvedSettings.CreateSFX = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'CreateSFX' -GlobalKey 'DefaultCreateSFX'
+    $resolvedSettings.SFXModule = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'SFXModule' -GlobalKey 'DefaultSFXModule'
 
     # SplitVolumeSize Settings (CLI > Job > Global > Default empty)
     $_cliSplitVolumeSize = if ($CliOverrides.ContainsKey('SplitVolumeSizeCLI') -and ($null -ne $CliOverrides.SplitVolumeSizeCLI)) { $CliOverrides.SplitVolumeSizeCLI } else { $null }
@@ -106,12 +131,11 @@ function Resolve-ArchiveConfiguration {
     }
 
     # Checksum Settings
-    $resolvedSettings.GenerateArchiveChecksum = Get-ConfigValue -ConfigObject $JobConfig -Key 'GenerateArchiveChecksum' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultGenerateArchiveChecksum' -DefaultValue $false)
-    $resolvedSettings.ChecksumAlgorithm = Get-ConfigValue -ConfigObject $JobConfig -Key 'ChecksumAlgorithm' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultChecksumAlgorithm' -DefaultValue "SHA256")
-    $resolvedSettings.VerifyArchiveChecksumOnTest = Get-ConfigValue -ConfigObject $JobConfig -Key 'VerifyArchiveChecksumOnTest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVerifyArchiveChecksumOnTest' -DefaultValue $false)
-
-    $resolvedSettings.GenerateSplitArchiveManifest = Get-ConfigValue -ConfigObject $JobConfig -Key 'GenerateSplitArchiveManifest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultGenerateSplitArchiveManifest' -DefaultValue $false)
-    $resolvedSettings.GenerateContentsManifest = Get-ConfigValue -ConfigObject $JobConfig -Key 'GenerateContentsManifest' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultGenerateContentsManifest' -DefaultValue $false)
+    $resolvedSettings.GenerateArchiveChecksum = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'GenerateArchiveChecksum' -GlobalKey 'DefaultGenerateArchiveChecksum'
+    $resolvedSettings.ChecksumAlgorithm = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'ChecksumAlgorithm' -GlobalKey 'DefaultChecksumAlgorithm'
+    $resolvedSettings.VerifyArchiveChecksumOnTest = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'VerifyArchiveChecksumOnTest' -GlobalKey 'DefaultVerifyArchiveChecksumOnTest'
+    $resolvedSettings.GenerateSplitArchiveManifest = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'GenerateSplitArchiveManifest' -GlobalKey 'DefaultGenerateSplitArchiveManifest'
+    $resolvedSettings.GenerateContentsManifest = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'GenerateContentsManifest' -GlobalKey 'DefaultGenerateContentsManifest'
 
     # If splitting and manifest generation is enabled, GenerateArchiveChecksum (for single file) is effectively false.
     if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.SplitVolumeSize) -and $resolvedSettings.GenerateSplitArchiveManifest) {

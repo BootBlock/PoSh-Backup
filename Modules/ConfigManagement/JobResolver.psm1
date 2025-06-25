@@ -18,9 +18,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.1 # Correctly handles ad-hoc job selections from the interactive menu.
+    Version:        1.5.0 # Refactored OnErrorInJob to use global default.
     DateCreated:    24-May-2025
-    LastModified:   21-Jun-2025
+    LastModified:   25-Jun-2025
     Purpose:        To modularise job/set resolution logic from the main ConfigManager module.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the parent 'Modules' directory for Get-ConfigValue.
@@ -112,7 +112,12 @@ function Get-JobsToProcess {
                 if ($initialJobsToConsider.Count -eq 0) {
                     return @{ Success = $false; ErrorMessage = "JobResolver: Backup Set '$setName' defined but 'JobNames' list is empty/invalid." }
                 }
-                $stopSetOnErrorPolicy = if (((Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue "StopSet") -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
+                
+                # Refactored to use global default
+                $globalOnErrorPolicy = Get-ConfigValue -ConfigObject $Config -Key 'DefaultOnErrorInJob' -DefaultValue "StopSet"
+                $setOnErrorPolicy = Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue $globalOnErrorPolicy
+                $stopSetOnErrorPolicy = if (($setOnErrorPolicy -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
+
                 if ($setDefinition.ContainsKey('PostRunAction') -and $setDefinition.PostRunAction -is [hashtable]) {
                     $setPostRunAction = $setDefinition.PostRunAction
                     & $LocalWriteLog -Message "  - JobResolver: Set '$setName' has specific PostRunAction settings." -Level "DEBUG"
@@ -257,7 +262,11 @@ function Get-JobsToProcess {
                         $setDefinition = $Config.BackupSets[$setName]
                         $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @())
                         $jobNamesInSet | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) { $initialJobsToConsider.Add($_.Trim()) } }
-                        $stopSetOnErrorPolicy = if (((Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue "StopSet") -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
+                        
+                        $globalOnErrorPolicy = Get-ConfigValue -ConfigObject $Config -Key 'DefaultOnErrorInJob' -DefaultValue "StopSet"
+                        $setOnErrorPolicy = Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue $globalOnErrorPolicy
+                        $stopSetOnErrorPolicy = if (($setOnErrorPolicy -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
+
                         if ($setDefinition.ContainsKey('PostRunAction')) { $setPostRunAction = $setDefinition.PostRunAction }
                     } else {
                         # --- SCENARIO 2: User selected one or more jobs, or a mix ---

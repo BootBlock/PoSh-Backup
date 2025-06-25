@@ -7,12 +7,13 @@
     for VSS, infrastructure snapshots (via a provider), retries, password management,
     log retention, 7-Zip output visibility, free space checks, archive testing,
     pre/post backup script paths, post-run system actions, the PinOnCreation flag,
-    and notification settings.
+    and notification settings. It now strictly relies on Default.psd1 for all default
+    values, throwing an error if a required setting is missing.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.5 # Fixed boolean conversion bug for TreatSevenZipWarningsAsSuccess.
+    Version:        1.5.0 # Refactored to remove hardcoded defaults and add Get-RequiredConfigValue helper.
     DateCreated:    30-May-2025
-    LastModified:   23-Jun-2025
+    LastModified:   25-Jun-2025
     Purpose:        Operational settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -27,6 +28,29 @@ catch {
     Write-Error "OperationalSettings.psm1 (EffectiveConfigBuilder submodule) FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
+
+#region --- Private Helper Function ---
+function Get-RequiredConfigValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$JobConfig,
+        [Parameter(Mandatory)]
+        [hashtable]$GlobalConfig,
+        [Parameter(Mandatory)]
+        [string]$JobKey,
+        [Parameter(Mandatory)]
+        [string]$GlobalKey
+    )
+
+    $value = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null)
+
+    if ($null -eq $value) {
+        throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
+    }
+    return $value
+}
+#endregion
 
 function Resolve-OperationalConfiguration {
     [CmdletBinding()]
@@ -58,22 +82,21 @@ function Resolve-OperationalConfiguration {
     $resolvedSettings.OriginalSourcePath = $JobConfig.Path
     $resolvedSettings.BaseFileName = $JobConfig.Name
 
-    # Snapshot Provider Settings
+    # Snapshot Provider Settings (optional, can be null)
     $resolvedSettings.SnapshotProviderName = Get-ConfigValue -ConfigObject $JobConfig -Key 'SnapshotProviderName' -DefaultValue $null
     $resolvedSettings.SourceIsVMName = Get-ConfigValue -ConfigObject $JobConfig -Key 'SourceIsVMName' -DefaultValue $false
 
-    $resolvedSettings.OnSourcePathNotFound = Get-ConfigValue -ConfigObject $JobConfig -Key 'OnSourcePathNotFound' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultOnSourcePathNotFound' -DefaultValue "FailJob")
-
-    # Local Retention settings
-    $resolvedSettings.LocalRetentionCount = Get-ConfigValue -ConfigObject $JobConfig -Key 'LocalRetentionCount' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultRetentionCount' -DefaultValue 3)
+    # Required Operational Settings
+    $resolvedSettings.OnSourcePathNotFound = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'OnSourcePathNotFound' -GlobalKey 'DefaultOnSourcePathNotFound'
+    $resolvedSettings.LocalRetentionCount = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'LocalRetentionCount' -GlobalKey 'DefaultRetentionCount'
     if ($resolvedSettings.LocalRetentionCount -lt 0) { $resolvedSettings.LocalRetentionCount = 0 }
-    $resolvedSettings.DeleteToRecycleBin = Get-ConfigValue -ConfigObject $JobConfig -Key 'DeleteToRecycleBin' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultDeleteToRecycleBin' -DefaultValue $false)
-    $resolvedSettings.RetentionConfirmDelete = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetentionConfirmDelete' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetentionConfirmDelete' -DefaultValue $true)
-    $resolvedSettings.TestArchiveBeforeDeletion = Get-ConfigValue -ConfigObject $JobConfig -Key 'TestArchiveBeforeDeletion' -DefaultValue $false
+    $resolvedSettings.DeleteToRecycleBin = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'DeleteToRecycleBin' -GlobalKey 'DefaultDeleteToRecycleBin'
+    $resolvedSettings.RetentionConfirmDelete = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'RetentionConfirmDelete' -GlobalKey 'RetentionConfirmDelete'
+    $resolvedSettings.TestArchiveBeforeDeletion = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'TestArchiveBeforeDeletion' -GlobalKey 'DefaultTestArchiveBeforeDeletion'
 
-    # Password settings
-    $resolvedSettings.ArchivePasswordMethod = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordMethod' -DefaultValue "None"
-    $resolvedSettings.CredentialUserNameHint = Get-ConfigValue -ConfigObject $JobConfig -Key 'CredentialUserNameHint' -DefaultValue "BackupUser"
+    # Password settings (defaults are defined, so Get-RequiredConfigValue is appropriate)
+    $resolvedSettings.ArchivePasswordMethod = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $JobConfig -JobKey 'ArchivePasswordMethod' -GlobalKey 'ArchivePasswordMethod' # Job key used twice as there's no global default method
+    $resolvedSettings.CredentialUserNameHint = Get-ConfigValue -ConfigObject $JobConfig -Key 'CredentialUserNameHint' -DefaultValue 'BackupUser' # This can have a hardcoded default as it's a UI hint
     $resolvedSettings.ArchivePasswordSecretName = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordSecretName' -DefaultValue $null
     $resolvedSettings.ArchivePasswordVaultName = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordVaultName' -DefaultValue $null
     $resolvedSettings.ArchivePasswordSecureStringPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordSecureStringPath' -DefaultValue $null
@@ -81,12 +104,10 @@ function Resolve-OperationalConfiguration {
     $resolvedSettings.UsePassword = Get-ConfigValue -ConfigObject $JobConfig -Key 'UsePassword' -DefaultValue $false # Legacy
 
     # 7-Zip Output
-    $resolvedSettings.HideSevenZipOutput = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'HideSevenZipOutput' -DefaultValue $true
+    $resolvedSettings.HideSevenZipOutput = Get-RequiredConfigValue -JobConfig @{} -GlobalConfig $GlobalConfig -JobKey 'HideSevenZipOutput' -GlobalKey 'HideSevenZipOutput'
 
     # VSS Settings (Skip > Use > Config). This logic is now intertwined with Snapshot provider.
     if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.SnapshotProviderName)) {
-        # If a snapshot provider is used, VSS is implicitly part of the process for consistency, managed by the provider.
-        # We set JobEnableVSS to true to reflect this, but the main VssManager won't run. JobPreProcessor will delegate to SnapshotManager.
         $resolvedSettings.JobEnableVSS = $true
         & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Infrastructure Snapshot Provider is active. VSS is implicitly enabled and managed by the provider." -Level "DEBUG"
     }
@@ -97,13 +118,13 @@ function Resolve-OperationalConfiguration {
         $resolvedSettings.JobEnableVSS = $true
     }
     else {
-        $resolvedSettings.JobEnableVSS = Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableVSS' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableVSS' -DefaultValue $false)
+        $resolvedSettings.JobEnableVSS = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'EnableVSS' -GlobalKey 'EnableVSS'
     }
-    $resolvedSettings.JobVSSContextOption = Get-ConfigValue -ConfigObject $JobConfig -Key 'VSSContextOption' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVSSContextOption' -DefaultValue "Persistent NoWriters")
-    $_vssCachePathFromConfig = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSMetadataCachePath' -DefaultValue "%TEMP%\diskshadow_cache_poshbackup.cab"
+    $resolvedSettings.JobVSSContextOption = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'VSSContextOption' -GlobalKey 'DefaultVSSContextOption'
+    $_vssCachePathFromConfig = Get-RequiredConfigValue -JobConfig @{} -GlobalConfig $GlobalConfig -JobKey 'VSSMetadataCachePath' -GlobalKey 'VSSMetadataCachePath'
     $resolvedSettings.VSSMetadataCachePath = [System.Environment]::ExpandEnvironmentVariables($_vssCachePathFromConfig)
-    $resolvedSettings.VSSPollingTimeoutSeconds = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSPollingTimeoutSeconds' -DefaultValue 120
-    $resolvedSettings.VSSPollingIntervalSeconds = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'VSSPollingIntervalSeconds' -DefaultValue 5
+    $resolvedSettings.VSSPollingTimeoutSeconds = Get-RequiredConfigValue -JobConfig @{} -GlobalConfig $GlobalConfig -JobKey 'VSSPollingTimeoutSeconds' -GlobalKey 'VSSPollingTimeoutSeconds'
+    $resolvedSettings.VSSPollingIntervalSeconds = Get-RequiredConfigValue -JobConfig @{} -GlobalConfig $GlobalConfig -JobKey 'VSSPollingIntervalSeconds' -GlobalKey 'VSSPollingIntervalSeconds'
 
     # Retry Settings (Skip > Enable > Config)
     if ($CliOverrides.SkipRetries) {
@@ -111,19 +132,18 @@ function Resolve-OperationalConfiguration {
     } elseif ($CliOverrides.EnableRetries) {
         $resolvedSettings.JobEnableRetries = $true
     } else {
-        $resolvedSettings.JobEnableRetries = Get-ConfigValue -ConfigObject $JobConfig -Key 'EnableRetries' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'EnableRetries' -DefaultValue $true)
+        $resolvedSettings.JobEnableRetries = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'EnableRetries' -GlobalKey 'EnableRetries'
     }
-    $resolvedSettings.JobMaxRetryAttempts = Get-ConfigValue -ConfigObject $JobConfig -Key 'MaxRetryAttempts' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MaxRetryAttempts' -DefaultValue 3)
-    $resolvedSettings.JobRetryDelaySeconds = Get-ConfigValue -ConfigObject $JobConfig -Key 'RetryDelaySeconds' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'RetryDelaySeconds' -DefaultValue 60)
+    $resolvedSettings.JobMaxRetryAttempts = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'MaxRetryAttempts' -GlobalKey 'MaxRetryAttempts'
+    $resolvedSettings.JobRetryDelaySeconds = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'RetryDelaySeconds' -GlobalKey 'RetryDelaySeconds'
 
     # Treat 7-Zip Warnings As Success
     $treatWarningsRawValue = if ($null -ne $CliOverrides.TreatSevenZipWarningsAsSuccess) {
         $CliOverrides.TreatSevenZipWarningsAsSuccess
     } else {
-        Get-ConfigValue -ConfigObject $JobConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'TreatSevenZipWarningsAsSuccess' -DefaultValue $false)
+        Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'TreatSevenZipWarningsAsSuccess' -GlobalKey 'TreatSevenZipWarningsAsSuccess'
     }
 
-    # Sanitize the raw value to ensure it's a valid boolean. This prevents errors if a user puts "" in the config.
     if ($treatWarningsRawValue -is [bool]) {
         $resolvedSettings.TreatSevenZipWarningsAsSuccess = $treatWarningsRawValue
     } elseif ($treatWarningsRawValue -is [string] -and $treatWarningsRawValue.ToLowerInvariant() -eq 'true') {
@@ -131,7 +151,6 @@ function Resolve-OperationalConfiguration {
     } elseif ($treatWarningsRawValue -is [int] -and $treatWarningsRawValue -ne 0) {
         $resolvedSettings.TreatSevenZipWarningsAsSuccess = $true
     } else {
-        # Anything else (empty string, "false", random text, 0) becomes false. This is a safe default.
         $resolvedSettings.TreatSevenZipWarningsAsSuccess = $false
     }
 
@@ -139,7 +158,7 @@ function Resolve-OperationalConfiguration {
     $resolvedSettings.JobSevenZipProcessPriority = if (-not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipPriority)) {
         $CliOverrides.SevenZipPriority
     } else {
-        Get-ConfigValue -ConfigObject $JobConfig -Key 'SevenZipProcessPriority' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultSevenZipProcessPriority' -DefaultValue "Normal")
+        Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'SevenZipProcessPriority' -GlobalKey 'DefaultSevenZipProcessPriority'
     }
 
     # PinOnCreation (CLI > Job > Default false)
@@ -147,17 +166,11 @@ function Resolve-OperationalConfiguration {
         $resolvedSettings.PinOnCreation = $true
         & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: PinOnCreation set to TRUE by -Pin CLI switch." -Level "DEBUG"
     } else {
-        $pinValueFromConfig = Get-ConfigValue -ConfigObject $JobConfig -Key 'PinOnCreation' -DefaultValue $false
-        $isPinEnabled = $false # Default to safe value
-
-        if ($pinValueFromConfig -is [bool]) {
-            $isPinEnabled = $pinValueFromConfig
-        } elseif ($pinValueFromConfig -is [string] -and $pinValueFromConfig.ToLowerInvariant() -eq 'true') {
-            $isPinEnabled = $true
-        } elseif ($pinValueFromConfig -is [int] -and $pinValueFromConfig -ne 0) {
-            $isPinEnabled = $true
-        }
-        # Any other value (string "false", string "fals", etc.) will result in $isPinEnabled remaining $false.
+        $pinValueFromConfig = Get-ConfigValue -ConfigObject $JobConfig -Key 'PinOnCreation' -DefaultValue $false # Optional, can have a hardcoded default
+        $isPinEnabled = $false
+        if ($pinValueFromConfig -is [bool]) { $isPinEnabled = $pinValueFromConfig }
+        elseif ($pinValueFromConfig -is [string] -and $pinValueFromConfig.ToLowerInvariant() -eq 'true') { $isPinEnabled = $true }
+        elseif ($pinValueFromConfig -is [int] -and $pinValueFromConfig -ne 0) { $isPinEnabled = $true }
         $resolvedSettings.PinOnCreation = $isPinEnabled
         
         if ($resolvedSettings.PinOnCreation) {
@@ -165,43 +178,48 @@ function Resolve-OperationalConfiguration {
         }
     }
 
-    # Resolve Pin Reason (only relevant if PinOnCreation is true)
     $resolvedSettings.PinReason = if ($CliOverrides.ContainsKey('Reason')) { $CliOverrides.Reason } else { $null }
 
     # Archive Testing
-    $resolvedSettings.JobTestArchiveAfterCreation = if ($CliOverrides.TestArchive) { $true } else { Get-ConfigValue -ConfigObject $JobConfig -Key 'TestArchiveAfterCreation' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultTestArchiveAfterCreation' -DefaultValue $false) }
+    $resolvedSettings.JobTestArchiveAfterCreation = if ($CliOverrides.TestArchive) { $true } else { Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'TestArchiveAfterCreation' -GlobalKey 'DefaultTestArchiveAfterCreation' }
 
     # Verify Local Archive Before Transfer (CLI > Job > Global)
     if ($CliOverrides.ContainsKey('VerifyLocalArchiveBeforeTransferCLI') -and $null -ne $CliOverrides.VerifyLocalArchiveBeforeTransferCLI) {
         $resolvedSettings.VerifyLocalArchiveBeforeTransfer = $CliOverrides.VerifyLocalArchiveBeforeTransferCLI
     } else {
-        $resolvedSettings.VerifyLocalArchiveBeforeTransfer = Get-ConfigValue -ConfigObject $JobConfig -Key 'VerifyLocalArchiveBeforeTransfer' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultVerifyLocalArchiveBeforeTransfer' -DefaultValue $false)
+        $resolvedSettings.VerifyLocalArchiveBeforeTransfer = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'VerifyLocalArchiveBeforeTransfer' -GlobalKey 'DefaultVerifyLocalArchiveBeforeTransfer'
     }
 
-    # LogRetentionCount (CLI > Job > Global)
+    # LogRetentionCount (CLI > Set > Job > Global)
     if ($CliOverrides.ContainsKey('LogRetentionCountCLI') -and $null -ne $CliOverrides.LogRetentionCountCLI) {
         $resolvedSettings.LogRetentionCount = $CliOverrides.LogRetentionCountCLI
         & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Log Retention Count set by CLI override: $($CliOverrides.LogRetentionCountCLI)." -Level "DEBUG"
     } else {
+        $setLogRetention = if ($null -ne $SetSpecificConfig) { Get-ConfigValue -ConfigObject $SetSpecificConfig -Key 'LogRetentionCount' -DefaultValue $null } else { $null }
         $jobLogRetention = Get-ConfigValue -ConfigObject $JobConfig -Key 'LogRetentionCount' -DefaultValue $null
-        if ($null -ne $jobLogRetention) {
+        if ($null -ne $setLogRetention) {
+            $resolvedSettings.LogRetentionCount = $setLogRetention
+            & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Log Retention Count set by Set config: $setLogRetention." -Level "DEBUG"
+        }
+        elseif ($null -ne $jobLogRetention) {
             $resolvedSettings.LogRetentionCount = $jobLogRetention
             & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Log Retention Count set by Job config: $jobLogRetention." -Level "DEBUG"
-        } else {
-            $resolvedSettings.LogRetentionCount = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultLogRetentionCount' -DefaultValue 30
+        }
+        else {
+            $resolvedSettings.LogRetentionCount = Get-RequiredConfigValue -JobConfig @{} -GlobalConfig $GlobalConfig -JobKey 'DefaultLogRetentionCount' -GlobalKey 'DefaultLogRetentionCount'
             & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Log Retention Count set by Global config: $($resolvedSettings.LogRetentionCount)." -Level "DEBUG"
         }
     }
 
     # Log Compression Settings (Job > Global)
-    $resolvedSettings.CompressOldLogs = Get-ConfigValue -ConfigObject $JobConfig -Key 'CompressOldLogs' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'CompressOldLogs' -DefaultValue $false)
-    $resolvedSettings.OldLogCompressionFormat = Get-ConfigValue -ConfigObject $JobConfig -Key 'OldLogCompressionFormat' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'OldLogCompressionFormat' -DefaultValue "Zip")
+    $resolvedSettings.CompressOldLogs = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'CompressOldLogs' -GlobalKey 'CompressOldLogs'
+    $resolvedSettings.OldLogCompressionFormat = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'OldLogCompressionFormat' -GlobalKey 'OldLogCompressionFormat'
 
     # Free Space Check
-    $resolvedSettings.JobMinimumRequiredFreeSpaceGB = Get-ConfigValue -ConfigObject $JobConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'MinimumRequiredFreeSpaceGB' -DefaultValue 0)
-    $resolvedSettings.JobExitOnLowSpace = Get-ConfigValue -ConfigObject $JobConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key 'ExitOnLowSpaceIfBelowMinimum' -DefaultValue $false)
+    $resolvedSettings.JobMinimumRequiredFreeSpaceGB = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'MinimumRequiredFreeSpaceGB' -GlobalKey 'MinimumRequiredFreeSpaceGB'
+    $resolvedSettings.JobExitOnLowSpace = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'ExitOnLowSpaceIfBelowMinimum' -GlobalKey 'ExitOnLowSpaceIfBelowMinimum'
 
-    # Hook Script Paths
+    # Hook Script Paths (optional, can be null)
     $resolvedSettings.PreBackupScriptPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PreBackupScriptPath' -DefaultValue $null
     $resolvedSettings.PostLocalArchiveScriptPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostLocalArchiveScriptPath' -DefaultValue $null
     $resolvedSettings.PostBackupScriptOnSuccessPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostBackupScriptOnSuccessPath' -DefaultValue $null
@@ -210,7 +228,7 @@ function Resolve-OperationalConfiguration {
 
     # Post-Run Action
     $jobPostRunActionConfig = Get-ConfigValue -ConfigObject $JobConfig -Key 'PostRunAction' -DefaultValue $null
-    $globalPostRunActionDefaults = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'PostRunActionDefaults' -DefaultValue @{}
+    $globalPostRunActionDefaults = Get-RequiredConfigValue -JobConfig @{} -GlobalConfig $GlobalConfig -JobKey 'PostRunActionDefaults' -GlobalKey 'PostRunActionDefaults'
     $effectivePostRunAction = $globalPostRunActionDefaults.Clone() # Start with a copy of defaults
     if ($null -ne $jobPostRunActionConfig -and $jobPostRunActionConfig -is [hashtable]) {
         # Overlay job-specific settings if they exist
@@ -223,25 +241,22 @@ function Resolve-OperationalConfiguration {
     $resolvedSettings.PostRunAction = $effectivePostRunAction
 
     # --- Notification Settings (CLI > Job > Set > Global) ---
-    $defaultNotificationSettings = Get-ConfigValue -ConfigObject $GlobalConfig -Key 'DefaultNotificationSettings' -DefaultValue @{}
+    $defaultNotificationSettings = Get-RequiredConfigValue -JobConfig @{} -GlobalConfig $GlobalConfig -JobKey 'DefaultNotificationSettings' -GlobalKey 'DefaultNotificationSettings'
     $jobNotificationSettings = Get-ConfigValue -ConfigObject $JobConfig -Key 'NotificationSettings' -DefaultValue @{}
     $setNotificationSettings = if ($null -ne $SetSpecificConfig) { Get-ConfigValue -ConfigObject $SetSpecificConfig -Key 'NotificationSettings' -DefaultValue @{} } else { @{} }
 
-    # Build the effective settings by layering them in the correct order of precedence
     $effectiveNotificationSettings = $defaultNotificationSettings.Clone()
     $setNotificationSettings.GetEnumerator() | ForEach-Object { $effectiveNotificationSettings[$_.Name] = $_.Value }
     $jobNotificationSettings.GetEnumerator() | ForEach-Object { $effectiveNotificationSettings[$_.Name] = $_.Value }
 
-    # Apply the CLI override last, as it has the highest precedence
     if ($CliOverrides.ContainsKey('NotificationProfileNameCLI') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.NotificationProfileNameCLI)) {
         $effectiveNotificationSettings.ProfileName = $CliOverrides.NotificationProfileNameCLI
-        $effectiveNotificationSettings.Enabled = $true # Using the CLI override implies the user wants the notification enabled for this run.
+        $effectiveNotificationSettings.Enabled = $true
         & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Notification Profile overridden by CLI to '$($CliOverrides.NotificationProfileNameCLI)' and forced Enabled=true." -Level "DEBUG"
     }
     $resolvedSettings.NotificationSettings = $effectiveNotificationSettings
     # --- END Notification Settings ---
 
-    # Store a reference to the global config for any direct lookups needed later (e.g., DefaultScriptExcludeRecycleBin)
     $resolvedSettings.GlobalConfigRef = $GlobalConfig
 
     return $resolvedSettings

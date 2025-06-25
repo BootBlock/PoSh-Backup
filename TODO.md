@@ -273,15 +273,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
         *   `Config\Default.psd1`: Setting for custom HTML template path.
     *   **Acceptance Criteria:** Report generated using user-provided HTML template.
 
-39. **Enhancement: Summary Report for Backup Sets**
-    *   **Goal:** Generate an overall summary report when a Backup Set is run.
-    *   **Description:** Currently, reports are per-job. A set-level report would summarise the status of all jobs within the set, total time, total data backed up (if feasible to aggregate), etc.
-    *   **Scope & Impact:**
-        *   `PoSh-Backup.ps1`: Collect aggregate data during set execution.
-        *   `Modules\Reporting.psm1`: New function `Invoke-SetReportGenerator` or extend `Invoke-ReportGenerator`.
-        *   Reporting sub-modules: Adapt to handle set-level summary data.
-    *   **Acceptance Criteria:** A summary report is generated for a completed backup set.
-
 **VI. Code Quality, Maintainability & Testing**
 
 1. **Task: Static Code Analysis Integration (Beyond PSScriptAnalyzer)**
@@ -329,12 +320,6 @@ This is a copy of the master list I have and so may occasionally be slightly beh
     *   **Description:** Catch specific exceptions, log meaningfully, `throw` critical errors.
     *   **Scope & Impact:** Systematic review of `try/catch` in all `.psm1` files.
     *   **Acceptance Criteria:** Errors handled gracefully; logs provide clear diagnostics.
-
-7. **Task: Refactor:** - Centralise Configuration Defaults in `Default.psd1`
-    **Goal:** Remove hardcoded fallback values from Get-ConfigValue calls to make `Config\Default.psd1` the single source of truth for all default settings.
-    **Description:** Currently, many calls to Get-ConfigValue have a nested call or a hardcoded string/boolean as the final default. This makes the code less maintainable and can hide configuration issues. Refactor these calls to only look at the job config and then the global config. If a required setting is missing from both, the script should fail gracefully with an informative error, rather than using a hidden, hardcoded value.
-    **Scope & Impact:** `Modules\ConfigManagement\EffectiveConfigBuilder.psm1` and its sub-modules. Requires a careful review of all Get-ConfigValue usage.
-    **Acceptance Criteria:** The script relies solely on `Default.psd1` for default values. Removing a non-optional default from the file causes a predictable and clear error.
 
 **VII. Security (Review & Enhancements)**
 

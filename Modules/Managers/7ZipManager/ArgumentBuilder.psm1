@@ -5,12 +5,13 @@
 .DESCRIPTION
     This module contains the 'Get-PoShBackup7ZipArgument' function, responsible for
     assembling the appropriate 7-Zip command-line switches and arguments for an
-    archive creation operation based on the effective job configuration.
+    archive creation operation based on the effective job configuration. It now strictly
+    relies on Default.psd1 for all default values.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Added global exclusions wotsits.
+    Version:        1.3.0 # Refactored to remove hardcoded defaults for exclusions.
     DateCreated:    29-May-2025
-    LastModified:   24-Jun-2025
+    LastModified:   25-Jun-2025
     Purpose:        7-Zip argument construction logic for 7ZipManager.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 for Get-ConfigValue.
@@ -25,6 +26,29 @@ catch {
     Write-Error "ArgumentBuilder.psm1 (7ZipManager submodule) FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
+
+#region --- Private Helper Function ---
+function Get-RequiredConfigValueInternal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$JobConfig,
+        [Parameter(Mandatory)]
+        [hashtable]$GlobalConfig,
+        [Parameter(Mandatory)]
+        [string]$JobKey,
+        [Parameter(Mandatory)]
+        [string]$GlobalKey
+    )
+
+    $value = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null)
+
+    if ($null -eq $value) {
+        throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
+    }
+    return $value
+}
+#endregion
 
 #region --- 7-Zip Argument Builder ---
 function Get-PoShBackup7ZipArgument {
@@ -112,10 +136,9 @@ function Get-PoShBackup7ZipArgument {
             }
         }
 
-        $sevenZipArgs.Add((Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultScriptExcludeRecycleBin' -DefaultValue '-x!$RECYCLE.BIN'))
-        $sevenZipArgs.Add((Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultScriptExcludeSysVolInfo' -DefaultValue '-x!System Volume Information'))
-
-        $globalExclusions = Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultAdditionalExclusions' -DefaultValue @()
+        # Use the required config helper to ensure these defaults are loaded from config, not hardcoded.
+        $sevenZipArgs.Add((Get-RequiredConfigValueInternal -JobConfig @{} -GlobalConfig $EffectiveConfig.GlobalConfigRef -JobKey 'DefaultScriptExcludeRecycleBin' -GlobalKey 'DefaultScriptExcludeRecycleBin'))
+        $sevenZipArgs.Add((Get-RequiredConfigValueInternal -JobConfig @{} -GlobalConfig $EffectiveConfig.GlobalConfigRef -JobKey 'DefaultScriptExcludeSysVolInfo' -GlobalKey 'DefaultScriptExcludeSysVolInfo'))
 
         # --- Add Global and Job-Specific Exclusions ---
         # The key is to start with a combined list and then process them.

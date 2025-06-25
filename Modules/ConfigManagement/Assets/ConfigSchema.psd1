@@ -21,9 +21,16 @@
     TreatSevenZipWarningsAsSuccess            = @{ Type = 'boolean'; Required = $false }
     RetentionConfirmDelete                    = @{ Type = 'boolean'; Required = $false }
     UserPromptTimeoutSeconds                  = @{ Type = 'int'; Required = $false; Min = 0 }
+    DefaultArchivePasswordMethod              = @{ Type = 'string'; Required = $false; AllowedValues = @("NONE", "INTERACTIVE", "SECRETMANAGEMENT", "SECURESTRINGFILE", "PLAINTEXT") }
+    DefaultUsePassword                        = @{ Type = 'boolean'; Required = $false }
+    DefaultCredentialUserNameHint             = @{ Type = 'string'; Required = $false }
     EnableFileLogging                         = @{ Type = 'boolean'; Required = $false }
     LogDirectory                              = @{ Type = 'string'; Required = $false }
     DefaultLogRetentionCount                  = @{ Type = 'int'; Required = $false; Min = 0 }
+    DefaultRetentionCount                     = @{ Type = 'int'; Required = $false; Min = 0 }
+    DefaultDeleteToRecycleBin                 = @{ Type = 'boolean'; Required = $false }
+    DefaultTestArchiveBeforeDeletion          = @{ Type = 'boolean'; Required = $false }
+    DefaultGenerateContentsManifest         = @{ Type = 'boolean'; Required = $false }
     CompressOldLogs                           = @{ Type = 'boolean'; Required = $false }
     OldLogCompressionFormat                   = @{ Type = 'string'; Required = $false; AllowedValues = @("Zip") }
     ReportGeneratorType                       = @{ Type = 'string_or_array'; Required = $false; AllowedValues = @("HTML", "CSV", "JSON", "XML", "TXT", "MD", "None") }
@@ -182,6 +189,8 @@
             ForceAction     = @{ Type = 'boolean'; Required = $false }
         }
     }
+
+    DefaultOnErrorInJob                  = @{ Type = 'string'; Required = $false; AllowedValues = @("StopSet", "ContinueSet") }
 
     # Section for Automated Backup Verification Jobs
     VerificationJobs = @{

@@ -4,7 +4,7 @@
 # It is strongly recommended to copy this file to 'User.psd1' in the same 'Config' directory
 # and make all your modifications there. User.psd1 will override these defaults.
 #
-# Version 1.11.0: Added Google Cloud Storage target provider settings.
+# Version 1.13.0: Added global password setting defaults.
 @{
     #region --- Password Management Instructions ---
     # To protect your archives with a password, choose ONE method per job by setting 'ArchivePasswordMethod'.
@@ -98,6 +98,12 @@
                                                                       # This has no effect in a truly interactive session (like a standard PowerShell window).
     #endregion
 
+    #region --- Password Settings (Global Defaults) ---
+    DefaultArchivePasswordMethod    = "None"                          # Global default for archive password method. See instructions at top.
+    DefaultUsePassword              = $false                          # Global default for legacy 'UsePassword' setting.
+    DefaultCredentialUserNameHint   = "BackupUser"                    # Global default for the username hint in the interactive password prompt.
+    #endregion
+
     #region --- Logging Settings ---
     EnableFileLogging               = $true                           # $true to enable detailed text log files for each job run; $false to disable.
     LogDirectory                    = "Logs"                          # Directory to store log files.
@@ -107,6 +113,10 @@
     DefaultLogRetentionCount        = 30                              # Global default for the number of log files to keep per job name pattern.
                                                                       # Set to 0 to keep all log files (infinite retention).
                                                                       # Can be overridden at the job or set level.
+    DefaultRetentionCount           = 3                               # Global default for the number of LOCAL archives to keep per job.
+                                                                      # Set to 0 to keep all archives. Overridden by job-level 'LocalRetentionCount'.
+    DefaultDeleteToRecycleBin       = $false                          # Global default. $true to attempt moving old local archives to Recycle Bin.
+    DefaultTestArchiveBeforeDeletion = $false                         # Global default. $true to test an old archive's integrity before deleting it.
     CompressOldLogs                 = $false                          # If $true, log files marked for deletion by retention will be compressed into an archive instead of being permanently deleted.
     OldLogCompressionFormat         = "Zip"                           # Format for the compressed log archive. Valid values: "Zip".
     #endregion
@@ -337,6 +347,7 @@
     #region --- Checksum Settings (Global Defaults) ---
     DefaultGenerateArchiveChecksum      = $false                      # Global default. $true to generate a checksum file for the local archive.
                                                                       # For split archives, if DefaultGenerateSplitArchiveManifest is $false, this applies to the first volume (.001).
+    DefaultGenerateContentsManifest   = $false                        # Global default. $true to generate a manifest of archive contents for verification.
     DefaultChecksumAlgorithm            = "SHA256"                    # Global default. Algorithm for checksum. Valid: "SHA1", "SHA256", "SHA384", "SHA512", "MD5".
     DefaultVerifyArchiveChecksumOnTest  = $false                      # Global default. $true to verify checksum during archive test (if TestArchiveAfterCreation is also true).
                                                                       # Checksum file is named <ArchiveFileName>.<Algorithm>.checksum (e.g., MyJob_Date.7z.SHA256.checksum).
@@ -586,6 +597,12 @@
                                        # "ANY" means the action triggers if Enabled=$true, regardless of status.
         ForceAction     = $false # For "Shutdown" or "Restart", $true attempts to force the operation (e.g., closing apps without saving).
     }
+    #endregion
+
+    #region --- Backup Set Defaults ---
+    DefaultOnErrorInJob             = "StopSet"                       # Global default for how a Backup Set should behave if a job within it fails.
+                                                                      # "StopSet" (Default): The entire set will be halted.
+                                                                      # "ContinueSet": The set will continue with the next job.
     #endregion
 
     #region --- Automated Backup Verification ---
