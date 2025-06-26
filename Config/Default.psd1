@@ -803,7 +803,12 @@
                 Enabled         = $false
             }
             # PostRunAction = @{ Enabled = $false }                   # Example: Explicitly disable for this job
-            Schedule = @{ Enabled = $false } # Placeholder for this job
+
+            Schedule = @{
+                Enabled = $false
+                Type = 'Daily'
+                Time = '02:00'
+            }
         }
         "HyperV_VM_Backup_Example" = @{
             # --- Snapshot Orchestration Example ---
@@ -845,7 +850,7 @@
                 TriggerOnStatus = @("FAILURE")
             }
             Schedule = @{
-                Enabled = $true
+                Enabled = $false
                 Type = 'Daily'
                 Time = '02:00'
             }
