@@ -276,7 +276,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.34.0 # Added -VaultCredentialPath parameter.
+    Version:        1.36.0 # Refactored JobOrchestrator.
     Date:           24-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -648,7 +648,6 @@ if ($jobsToProcess.Count -gt 0) {
         Logger                   = $LoggerScriptBlock
         PSCmdlet                 = $PSCmdlet
         CliOverrideSettings      = $cliOverrideSettings
-        InvocationLine           = $MyInvocation.Line
     }
     $orchestratorResult = Invoke-PoShBackupRun @runParams
     try {

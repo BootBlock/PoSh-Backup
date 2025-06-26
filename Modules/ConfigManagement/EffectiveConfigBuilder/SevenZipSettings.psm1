@@ -11,9 +11,9 @@
     settings are missing.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Refactored to remove hardcoded defaults.
+    Version:        1.2.1 # Corrected dependency on ConfigUtils.
     DateCreated:    30-May-2025
-    LastModified:   25-Jun-2025
+    LastModified:   26-Jun-2025
     Purpose:        7-Zip specific settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -22,35 +22,12 @@
 # Explicitly import Utils.psm1 from the main Modules directory.
 # $PSScriptRoot here is Modules\ConfigManagement\EffectiveConfigBuilder.
 try {
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\..\Modules\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "SevenZipSettings.psm1 (EffectiveConfigBuilder submodule) FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
-
-#region --- Private Helper Function ---
-function Get-RequiredConfigValue {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [hashtable]$JobConfig,
-        [Parameter(Mandatory)]
-        [hashtable]$GlobalConfig,
-        [Parameter(Mandatory)]
-        [string]$JobKey,
-        [Parameter(Mandatory)]
-        [string]$GlobalKey
-    )
-
-    $value = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null)
-
-    if ($null -eq $value) {
-        throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
-    }
-    return $value
-}
-#endregion
 
 function Resolve-SevenZipConfiguration {
     [CmdletBinding()]
@@ -108,18 +85,12 @@ function Resolve-SevenZipConfiguration {
 
     if (-not [string]::IsNullOrWhiteSpace($_cliAffinity)) {
         $resolvedSettings.JobSevenZipCpuAffinity = $_cliAffinity
-        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip CPU Affinity set by CLI override: '$($_cliAffinity)'." -Level "DEBUG"
     } elseif (-not [string]::IsNullOrWhiteSpace($_jobAffinity)) {
         $resolvedSettings.JobSevenZipCpuAffinity = $_jobAffinity
-        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip CPU Affinity set by Job config: '$($_jobAffinity)'." -Level "DEBUG"
-    } elseif (-not [string]::IsNullOrWhiteSpace($_globalAffinity)) {
-        $resolvedSettings.JobSevenZipCpuAffinity = $_globalAffinity
-        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip CPU Affinity set by Global config: '$($_globalAffinity)'." -Level "DEBUG"
     } else {
-        $resolvedSettings.JobSevenZipCpuAffinity = ""
-        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip CPU Affinity not configured (using default: empty string)." -Level "DEBUG"
+        $resolvedSettings.JobSevenZipCpuAffinity = $_globalAffinity
     }
-
+    
     # 7-Zip Include/Exclude List Files (CLI > Set > Job > Global > Default empty string)
     $_cliIncludeListFile = if ($CliOverrides.ContainsKey('SevenZipIncludeListFile') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipIncludeListFile)) { $CliOverrides.SevenZipIncludeListFile } else { $null }
     $_cliExcludeListFile = if ($CliOverrides.ContainsKey('SevenZipExcludeListFile') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.SevenZipExcludeListFile)) { $CliOverrides.SevenZipExcludeListFile } else { $null }
@@ -133,38 +104,23 @@ function Resolve-SevenZipConfiguration {
     # Resolve Include List File
     if (-not [string]::IsNullOrWhiteSpace($_cliIncludeListFile)) {
         $resolvedSettings.JobSevenZipIncludeListFile = $_cliIncludeListFile
-        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Include List File set by CLI override: '$($_cliIncludeListFile)'." -Level "DEBUG"
     } elseif (-not [string]::IsNullOrWhiteSpace($SetSevenZipIncludeListFile)) {
         $resolvedSettings.JobSevenZipIncludeListFile = $SetSevenZipIncludeListFile
-        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Include List File set by Set config: '$($SetSevenZipIncludeListFile)'." -Level "DEBUG"
     } elseif (-not [string]::IsNullOrWhiteSpace($_jobIncludeListFile)) {
         $resolvedSettings.JobSevenZipIncludeListFile = $_jobIncludeListFile
-        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Include List File set by Job config: '$($_jobIncludeListFile)'." -Level "DEBUG"
     } else {
         $resolvedSettings.JobSevenZipIncludeListFile = $_globalIncludeListFile
-        if (-not [string]::IsNullOrWhiteSpace($_globalIncludeListFile)) {
-            & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Include List File set by Global config: '$($_globalIncludeListFile)'." -Level "DEBUG"
-        } else {
-            & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Include List File not configured (using default: empty string)." -Level "DEBUG"
-        }
     }
+    
     # Resolve Exclude List File
     if (-not [string]::IsNullOrWhiteSpace($_cliExcludeListFile)) {
         $resolvedSettings.JobSevenZipExcludeListFile = $_cliExcludeListFile
-        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Exclude List File set by CLI override: '$($_cliExcludeListFile)'." -Level "DEBUG"
     } elseif (-not [string]::IsNullOrWhiteSpace($SetSevenZipExcludeListFile)) {
         $resolvedSettings.JobSevenZipExcludeListFile = $SetSevenZipExcludeListFile
-        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Exclude List File set by Set config: '$($SetSevenZipExcludeListFile)'." -Level "DEBUG"
     } elseif (-not [string]::IsNullOrWhiteSpace($_jobExcludeListFile)) {
         $resolvedSettings.JobSevenZipExcludeListFile = $_jobExcludeListFile
-        & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Exclude List File set by Job config: '$($_jobExcludeListFile)'." -Level "DEBUG"
     } else {
         $resolvedSettings.JobSevenZipExcludeListFile = $_globalExcludeListFile
-        if (-not [string]::IsNullOrWhiteSpace($_globalExcludeListFile)) {
-            & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Exclude List File set by Global config: '$($_globalExcludeListFile)'." -Level "DEBUG"
-        } else {
-            & $LocalWriteLog -Message "  - Resolve-SevenZipConfiguration: 7-Zip Exclude List File not configured (using default: empty string)." -Level "DEBUG"
-        }
     }
 
     return $resolvedSettings

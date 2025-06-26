@@ -150,7 +150,7 @@
     "     - `TaskOrchestrator.psm1`: The core worker that orchestrates the builders and registers/unregisters the task.",
     "   - This refactoring isolates the complex interactions with the buggy `ScheduledTasks` module, making the feature more robust and easier to enhance.",
     "",
-    "--- Refactor: Modularise VerificationManager (Current Session) ---",
+    "--- Refactor: Modularise VerificationManager (Completed in Previous Session) ---",
     "   - Goal: Decompose the large `VerificationManager.psm1` into smaller, single-responsibility modules.",
     "   - A new directory was created: `Modules\\Managers\\VerificationManager\\`.",
     "   - `VerificationManager.psm1` was refactored into a facade that orchestrates the verification workflow.",
@@ -163,6 +163,17 @@
     "     - Corrected invalid relative paths for `Import-Module` in all new sub-modules.",
     "     - Fixed a fatal error where the `EffectiveTargetJobConfig` was not resolved and passed to the integrity checker, causing a parameter type mismatch.",
     "     - Resolved new PSScriptAnalyzer warnings for incorrect verbs and unused parameters.",
+    "",
+    "--- Refactor: Modularise JobOrchestrator (Current Session) ---",
+    "   - Goal: Decompose the large `JobOrchestrator.psm1` to improve the clarity of the main execution loop.",
+    "   - A new directory was created: `Modules\\Core\\JobOrchestrator\\`.",
+    "   - The original `JobOrchestrator.psm1` was refactored into a high-level facade.",
+    "   - New sub-modules created:",
+    "     - `PreExecutionChecker.psm1`: Handles all pre-flight checks for a job within a run, such as dependency status and `RunOnlyIfPathExists`.",
+    "     - `PostJobProcessor.psm1`: Handles all post-execution tasks for a job, such as reporting, notifications, and log retention.",
+    "   - This refactoring greatly simplifies the main loop and clarifies the job lifecycle.",
+    "   - Fixed a bug where a job skipped due to a missing path would cause a crash in the post-processing stage because its effective configuration was never resolved.",
+    "   - Resolved associated PSScriptAnalyzer warnings for unused parameters.",
     "",
     "--- Completed Core Features (Stable) ---",
     "   - **Archive Creation:** Standard, multi-volume (split), and self-extracting (SFX) archives.",
@@ -182,7 +193,7 @@
     "   - **Interactive Job/Set Selection:** When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets. This is accomplished via `Modules\ConfigManagement\JobResolver.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.35.0 # Added CommitHash to versioning."
+  main_script_poSh_backup_version = "1.36.0 # Refactored JobOrchestrator."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

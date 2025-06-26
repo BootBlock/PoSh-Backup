@@ -11,9 +11,9 @@
     if required settings are missing.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Refactored to remove hardcoded defaults.
+    Version:        1.2.1 # Corrected dependency on ConfigUtils.
     DateCreated:    30-May-2025
-    LastModified:   25-Jun-2025
+    LastModified:   26-Jun-2025
     Purpose:        Archive-specific settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -22,35 +22,12 @@
 # Explicitly import Utils.psm1 from the main Modules directory.
 # $PSScriptRoot here is Modules\ConfigManagement\EffectiveConfigBuilder.
 try {
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\..\Modules\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "ArchiveSettings.psm1 (EffectiveConfigBuilder submodule) FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
-
-#region --- Private Helper Function ---
-function Get-RequiredConfigValue {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [hashtable]$JobConfig,
-        [Parameter(Mandatory)]
-        [hashtable]$GlobalConfig,
-        [Parameter(Mandatory)]
-        [string]$JobKey,
-        [Parameter(Mandatory)]
-        [string]$GlobalKey
-    )
-
-    $value = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null)
-
-    if ($null -eq $value) {
-        throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
-    }
-    return $value
-}
-#endregion
 
 function Resolve-ArchiveConfiguration {
     [CmdletBinding()]
@@ -94,18 +71,12 @@ function Resolve-ArchiveConfiguration {
 
     if (-not [string]::IsNullOrWhiteSpace($_cliSplitVolumeSize)) {
         $resolvedSettings.SplitVolumeSize = $_cliSplitVolumeSize
-        & $LocalWriteLog -Message "  - Resolve-ArchiveConfiguration: SplitVolumeSize set by CLI override: '$($_cliSplitVolumeSize)'." -Level "DEBUG"
     } elseif (-not [string]::IsNullOrWhiteSpace($_jobSplitVolumeSize)) {
         $resolvedSettings.SplitVolumeSize = $_jobSplitVolumeSize
-        & $LocalWriteLog -Message "  - Resolve-ArchiveConfiguration: SplitVolumeSize set by Job config: '$($_jobSplitVolumeSize)'." -Level "DEBUG"
     } else {
         $resolvedSettings.SplitVolumeSize = $_globalSplitVolumeSize
-        if (-not [string]::IsNullOrWhiteSpace($_globalSplitVolumeSize)) {
-            & $LocalWriteLog -Message "  - Resolve-ArchiveConfiguration: SplitVolumeSize set by Global config: '$($_globalSplitVolumeSize)'." -Level "DEBUG"
-        } else {
-            & $LocalWriteLog -Message "  - Resolve-ArchiveConfiguration: SplitVolumeSize not configured (using default: empty string)." -Level "DEBUG"
-        }
     }
+    
     # Validate the resolved SplitVolumeSize format
     if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.SplitVolumeSize) -and $resolvedSettings.SplitVolumeSize -notmatch "^\d+[kmg]$") {
         & $LocalWriteLog -Message "[WARNING] Resolve-ArchiveConfiguration: Invalid SplitVolumeSize format '$($resolvedSettings.SplitVolumeSize)'. Expected number followed by 'k', 'm', or 'g'. Splitting will be disabled." -Level "WARNING"
@@ -125,7 +96,6 @@ function Resolve-ArchiveConfiguration {
     # Determine final JobArchiveExtension
     if ($resolvedSettings.CreateSFX) {
         $resolvedSettings.JobArchiveExtension = ".exe"
-        & $LocalWriteLog -Message "  - Resolve-ArchiveConfiguration: CreateSFX is TRUE. Effective archive extension set to '.exe'. SFX Module: $($resolvedSettings.SFXModule)." -Level "DEBUG"
     } else {
         $resolvedSettings.JobArchiveExtension = $resolvedSettings.InternalArchiveExtension
     }

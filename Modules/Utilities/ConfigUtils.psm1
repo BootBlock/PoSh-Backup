@@ -46,6 +46,29 @@ function Get-ConfigValue {
 }
 #endregion
 
+#region --- Helper Function Get-RequiredConfigValue ---
+function Get-RequiredConfigValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$JobConfig,
+        [Parameter(Mandatory)]
+        [hashtable]$GlobalConfig,
+        [Parameter(Mandatory)]
+        [string]$JobKey,
+        [Parameter(Mandatory)]
+        [string]$GlobalKey
+    )
+
+    $value = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null)
+
+    if ($null -eq $value) {
+        throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
+    }
+    return $value
+}
+#endregion
+
 #region --- Environment Variable Expansion ---
 function Expand-EnvironmentVariablesInConfig {
     [CmdletBinding()]
@@ -83,4 +106,4 @@ function Expand-EnvironmentVariablesInConfig {
 }
 #endregion
 
-Export-ModuleMember -Function Get-ConfigValue, Expand-EnvironmentVariablesInConfig
+Export-ModuleMember -Function Get-ConfigValue, Expand-EnvironmentVariablesInConfig, Get-RequiredConfigValue

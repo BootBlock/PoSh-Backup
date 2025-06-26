@@ -8,12 +8,12 @@
     log retention, 7-Zip output visibility, free space checks, archive testing,
     pre/post backup script paths, post-run system actions, the PinOnCreation flag,
     and notification settings. It now strictly relies on Default.psd1 for all default
-    values, throwing an error if a required setting is missing.
+    values, throwing an error if required settings are missing.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.0 # Refactored to remove hardcoded defaults and add Get-RequiredConfigValue helper.
+    Version:        1.5.3 # Corrected key name for DeleteLocalArchiveAfterSuccessfulTransfer.
     DateCreated:    30-May-2025
-    LastModified:   25-Jun-2025
+    LastModified:   26-Jun-2025
     Purpose:        Operational settings resolution.
     Prerequisites:  PowerShell 5.1+.
                     Depends on Utils.psm1 from the main Modules directory.
@@ -22,35 +22,12 @@
 # Explicitly import Utils.psm1 from the main Modules directory.
 # $PSScriptRoot here is Modules\ConfigManagement\EffectiveConfigBuilder.
 try {
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\..\Modules\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "OperationalSettings.psm1 (EffectiveConfigBuilder submodule) FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
-
-#region --- Private Helper Function ---
-function Get-RequiredConfigValue {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [hashtable]$JobConfig,
-        [Parameter(Mandatory)]
-        [hashtable]$GlobalConfig,
-        [Parameter(Mandatory)]
-        [string]$JobKey,
-        [Parameter(Mandatory)]
-        [string]$GlobalKey
-    )
-
-    $value = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null)
-
-    if ($null -eq $value) {
-        throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
-    }
-    return $value
-}
-#endregion
 
 function Resolve-OperationalConfiguration {
     [CmdletBinding()]
@@ -93,15 +70,16 @@ function Resolve-OperationalConfiguration {
     $resolvedSettings.DeleteToRecycleBin = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'DeleteToRecycleBin' -GlobalKey 'DefaultDeleteToRecycleBin'
     $resolvedSettings.RetentionConfirmDelete = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'RetentionConfirmDelete' -GlobalKey 'RetentionConfirmDelete'
     $resolvedSettings.TestArchiveBeforeDeletion = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'TestArchiveBeforeDeletion' -GlobalKey 'DefaultTestArchiveBeforeDeletion'
+    $resolvedSettings.DeleteLocalArchiveAfterSuccessfulTransfer = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'DeleteLocalArchiveAfterSuccessfulTransfer' -GlobalKey 'DeleteLocalArchiveAfterSuccessfulTransfer'
 
     # Password settings (defaults are defined, so Get-RequiredConfigValue is appropriate)
-    $resolvedSettings.ArchivePasswordMethod = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $JobConfig -JobKey 'ArchivePasswordMethod' -GlobalKey 'ArchivePasswordMethod' # Job key used twice as there's no global default method
-    $resolvedSettings.CredentialUserNameHint = Get-ConfigValue -ConfigObject $JobConfig -Key 'CredentialUserNameHint' -DefaultValue 'BackupUser' # This can have a hardcoded default as it's a UI hint
+    $resolvedSettings.ArchivePasswordMethod = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'ArchivePasswordMethod' -GlobalKey 'DefaultArchivePasswordMethod'
+    $resolvedSettings.CredentialUserNameHint = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'CredentialUserNameHint' -GlobalKey 'DefaultCredentialUserNameHint'
     $resolvedSettings.ArchivePasswordSecretName = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordSecretName' -DefaultValue $null
     $resolvedSettings.ArchivePasswordVaultName = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordVaultName' -DefaultValue $null
     $resolvedSettings.ArchivePasswordSecureStringPath = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordSecureStringPath' -DefaultValue $null
     $resolvedSettings.ArchivePasswordPlainText = Get-ConfigValue -ConfigObject $JobConfig -Key 'ArchivePasswordPlainText' -DefaultValue $null
-    $resolvedSettings.UsePassword = Get-ConfigValue -ConfigObject $JobConfig -Key 'UsePassword' -DefaultValue $false # Legacy
+    $resolvedSettings.UsePassword = Get-RequiredConfigValue -JobConfig $JobConfig -GlobalConfig $GlobalConfig -JobKey 'UsePassword' -GlobalKey 'DefaultUsePassword'
 
     # 7-Zip Output
     $resolvedSettings.HideSevenZipOutput = Get-RequiredConfigValue -JobConfig @{} -GlobalConfig $GlobalConfig -JobKey 'HideSevenZipOutput' -GlobalKey 'HideSevenZipOutput'
@@ -109,7 +87,6 @@ function Resolve-OperationalConfiguration {
     # VSS Settings (Skip > Use > Config). This logic is now intertwined with Snapshot provider.
     if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.SnapshotProviderName)) {
         $resolvedSettings.JobEnableVSS = $true
-        & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Infrastructure Snapshot Provider is active. VSS is implicitly enabled and managed by the provider." -Level "DEBUG"
     }
     elseif ($CliOverrides.SkipVSS) {
         $resolvedSettings.JobEnableVSS = $false
@@ -164,7 +141,6 @@ function Resolve-OperationalConfiguration {
     # PinOnCreation (CLI > Job > Default false)
     if ($CliOverrides.PinOnCreationCLI) {
         $resolvedSettings.PinOnCreation = $true
-        & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: PinOnCreation set to TRUE by -Pin CLI switch." -Level "DEBUG"
     } else {
         $pinValueFromConfig = Get-ConfigValue -ConfigObject $JobConfig -Key 'PinOnCreation' -DefaultValue $false # Optional, can have a hardcoded default
         $isPinEnabled = $false
@@ -172,10 +148,6 @@ function Resolve-OperationalConfiguration {
         elseif ($pinValueFromConfig -is [string] -and $pinValueFromConfig.ToLowerInvariant() -eq 'true') { $isPinEnabled = $true }
         elseif ($pinValueFromConfig -is [int] -and $pinValueFromConfig -ne 0) { $isPinEnabled = $true }
         $resolvedSettings.PinOnCreation = $isPinEnabled
-        
-        if ($resolvedSettings.PinOnCreation) {
-            & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: PinOnCreation set to TRUE by job configuration." -Level "DEBUG"
-        }
     }
 
     $resolvedSettings.PinReason = if ($CliOverrides.ContainsKey('Reason')) { $CliOverrides.Reason } else { $null }
@@ -193,21 +165,17 @@ function Resolve-OperationalConfiguration {
     # LogRetentionCount (CLI > Set > Job > Global)
     if ($CliOverrides.ContainsKey('LogRetentionCountCLI') -and $null -ne $CliOverrides.LogRetentionCountCLI) {
         $resolvedSettings.LogRetentionCount = $CliOverrides.LogRetentionCountCLI
-        & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Log Retention Count set by CLI override: $($CliOverrides.LogRetentionCountCLI)." -Level "DEBUG"
     } else {
         $setLogRetention = if ($null -ne $SetSpecificConfig) { Get-ConfigValue -ConfigObject $SetSpecificConfig -Key 'LogRetentionCount' -DefaultValue $null } else { $null }
         $jobLogRetention = Get-ConfigValue -ConfigObject $JobConfig -Key 'LogRetentionCount' -DefaultValue $null
         if ($null -ne $setLogRetention) {
             $resolvedSettings.LogRetentionCount = $setLogRetention
-            & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Log Retention Count set by Set config: $setLogRetention." -Level "DEBUG"
         }
         elseif ($null -ne $jobLogRetention) {
             $resolvedSettings.LogRetentionCount = $jobLogRetention
-            & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Log Retention Count set by Job config: $jobLogRetention." -Level "DEBUG"
         }
         else {
             $resolvedSettings.LogRetentionCount = Get-RequiredConfigValue -JobConfig @{} -GlobalConfig $GlobalConfig -JobKey 'DefaultLogRetentionCount' -GlobalKey 'DefaultLogRetentionCount'
-            & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Log Retention Count set by Global config: $($resolvedSettings.LogRetentionCount)." -Level "DEBUG"
         }
     }
 
@@ -252,7 +220,6 @@ function Resolve-OperationalConfiguration {
     if ($CliOverrides.ContainsKey('NotificationProfileNameCLI') -and -not [string]::IsNullOrWhiteSpace($CliOverrides.NotificationProfileNameCLI)) {
         $effectiveNotificationSettings.ProfileName = $CliOverrides.NotificationProfileNameCLI
         $effectiveNotificationSettings.Enabled = $true
-        & $LocalWriteLog -Message "  - Resolve-OperationalConfiguration: Notification Profile overridden by CLI to '$($CliOverrides.NotificationProfileNameCLI)' and forced Enabled=true." -Level "DEBUG"
     }
     $resolvedSettings.NotificationSettings = $effectiveNotificationSettings
     # --- END Notification Settings ---
