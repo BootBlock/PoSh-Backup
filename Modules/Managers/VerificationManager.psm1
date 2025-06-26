@@ -5,34 +5,28 @@
     to a sandbox environment and performing integrity checks.
 .DESCRIPTION
     This module provides the core functionality for the Automated Backup Verification feature.
-    It is designed to be invoked by the ScriptModeHandler when the -RunVerificationJobs
-    or -VerificationJobName switch is used.
+    It has been refactored into a facade that orchestrates the verification process by calling
+    specialised sub-modules for each stage of the operation:
+    - 'BackupFinder.psm1': Finds the target backup instances to be verified.
+    - 'SandboxManager.psm1': Manages the creation, preparation, and cleanup of the sandbox.
+    - 'ArchiveRestorer.psm1': Handles restoring the archive to the sandbox.
+    - 'IntegrityChecker.psm1': Performs the configured verification steps.
 
-    The main exported function, 'Invoke-PoShBackupVerification', performs the following:
-    - Reads the 'VerificationJobs' from the configuration.
-    - If a specific job name is provided, it will run only that job. Otherwise, it runs all enabled jobs.
-    - For each job to be run, it finds the latest backup(s) of the target backup job.
-    - It prepares a temporary "sandbox" directory for the restore.
-    - It restores the archive to the sandbox.
-    - It performs the configured verification steps, which can include:
-        - Testing the archive with 7-Zip (`7z t`).
-        - Verifying the checksum of every restored file against a backup manifest.
-        - Comparing the file count in the archive vs. the restored files.
-    - It logs the results of each step and provides a final status for each verification job.
-    - It cleans up the sandbox directory after the verification is complete.
+    The main exported function, 'Invoke-PoShBackupVerification', sequences these calls to
+    provide a complete, end-to-end verification workflow.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Added SpecificVerificationJobName parameter for scheduled execution.
+    Version:        2.1.0 # Fixed bug where effective config of target job was not resolved.
     DateCreated:    12-Jun-2025
-    LastModified:   20-Jun-2025
+    LastModified:   26-Jun-2025
     Purpose:        To orchestrate the automated verification of backup archives.
     Prerequisites:  PowerShell 5.1+.
-                    Depends on Utils, RetentionManager, 7ZipManager, and PasswordManager modules.
 #>
 
 #region --- CRC32 .NET Class Definition ---
+# This class needs to be loaded here so it's available to the sub-modules.
 Add-Type -TypeDefinition @"
-namespace PoShBackup.Security.Cryptography
+namespace DamienG.Security.Cryptography
 {
     using System;
     using System.Collections.Generic;
@@ -89,96 +83,18 @@ namespace PoShBackup.Security.Cryptography
 
 #region --- Module Dependencies ---
 # $PSScriptRoot here is Modules\Managers
+$verificationSubModulePath = Join-Path -Path $PSScriptRoot -ChildPath "VerificationManager"
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "RetentionManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "7ZipManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "PasswordManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Core\ConfigManager.psm1") -Force -ErrorAction Stop # Needed for EffectiveConfigBuilder
+    Import-Module -Name (Join-Path $verificationSubModulePath "BackupFinder.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $verificationSubModulePath "SandboxManager.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $verificationSubModulePath "ArchiveRestorer.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $verificationSubModulePath "IntegrityChecker.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Error "VerificationManager.psm1 FATAL: Could not import required dependent modules. Error: $($_.Exception.Message)"
+    Write-Error "VerificationManager.psm1 (Facade) FATAL: Could not import required sub-modules. Error: $($_.Exception.Message)"
     throw
-}
-#endregion
-
-#region --- Internal Helper: Initialize Sandbox ---
-function Initialize-VerificationSandboxInternal {
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
-    param(
-        [string]$SandboxPath,
-        [string]$OnDirtySandbox, # "Fail" or "CleanAndContinue"
-        [scriptblock]$Logger,
-        [System.Management.Automation.PSCmdlet]$PSCmdletInstance
-    )
-    # PSScriptAnalyzer Appeasement: Use the Logger parameter directly.
-    & $Logger -Message "VerificationManager/Initialize-VerificationSandboxInternal: Logger active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
-
-    if (-not (Test-Path -LiteralPath $SandboxPath)) {
-        & $LocalWriteLog -Message "  - Sandbox path '$SandboxPath' does not exist. Attempting to create." -Level "INFO"
-        if (-not $PSCmdletInstance.ShouldProcess($SandboxPath, "Create Sandbox Directory")) {
-            & $LocalWriteLog -Message "    - Sandbox creation skipped by user. Verification cannot proceed." -Level "WARNING"
-            return $false
-        }
-        try {
-            New-Item -Path $SandboxPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
-            & $LocalWriteLog -Message "    - Sandbox directory created successfully." -Level "SUCCESS"
-        } catch {
-            & $LocalWriteLog -Message "    - Failed to create sandbox directory. Error: $($_.Exception.Message)" -Level "ERROR"
-            return $false
-        }
-    }
-
-    $childItems = Get-ChildItem -LiteralPath $SandboxPath -Force -ErrorAction SilentlyContinue
-    if ($childItems.Count -gt 0) {
-        & $LocalWriteLog -Message "  - Sandbox path '$SandboxPath' is not empty." -Level "WARNING"
-        if ($OnDirtySandbox -eq 'Fail') {
-            & $LocalWriteLog -Message "    - 'OnDirtySandbox' is set to 'Fail'. Aborting verification." -Level "ERROR"
-            return $false
-        }
-        else { # CleanAndContinue
-            & $LocalWriteLog -Message "    - 'OnDirtySandbox' is set to 'CleanAndContinue'. Attempting to clear sandbox." -Level "INFO"
-            if (-not $PSCmdletInstance.ShouldProcess($SandboxPath, "Clear Sandbox Directory Contents")) {
-                & $LocalWriteLog -Message "    - Sandbox cleaning skipped by user. Verification cannot proceed." -Level "WARNING"
-                return $false
-            }
-            try {
-                Get-ChildItem -LiteralPath $SandboxPath -Force | Remove-Item -Recurse -Force -ErrorAction Stop
-                & $LocalWriteLog -Message "    - Sandbox cleared successfully." -Level "SUCCESS"
-            } catch {
-                & $LocalWriteLog -Message "    - Failed to clear sandbox directory. Error: $($_.Exception.Message)" -Level "ERROR"
-                return $false
-            }
-        }
-    }
-    return $true
-}
-#endregion
-
-#region --- Internal Helper: Get CRC32 Checksum ---
-function Get-FileCrc32Internal {
-    param(
-        [string]$FilePath
-    )
-    try {
-        $stream = New-Object System.IO.FileStream($FilePath, [System.IO.FileMode]::Open)
-        $hasher = New-Object DamienG.Security.Cryptography.Crc32
-        $hashBytes = $hasher.ComputeHash($stream)
-        $stream.Close()
-        $stream.Dispose()
-        
-        # Reverse the byte array to fix the endianness
-        [System.Array]::Reverse($hashBytes)
-
-        $hashString = [System.BitConverter]::ToString($hashBytes).Replace("-", "")
-        return $hashString
-    }
-    catch {
-        # This function doesn't have access to the logger, so it will throw.
-        # The calling function will catch and log the error.
-        throw "Failed to calculate CRC32 for file '$FilePath'. Error: $($_.Exception.Message)"
-    }
 }
 #endregion
 
@@ -186,12 +102,19 @@ function Get-FileCrc32Internal {
 function Invoke-PoShBackupVerification {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
+        # The complete, loaded PoSh-Backup configuration object.
         [Parameter(Mandatory = $true)]
         [hashtable]$Configuration,
+
+        # A scriptblock reference to the main Write-LogMessage function.
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
+
+        # A reference to the calling cmdlet's $PSCmdlet automatic variable.
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet,
+
+        # The name of a single verification job to run. If not provided, all enabled jobs are run.
         [Parameter(Mandatory = $false)]
         [string]$SpecificVerificationJobName
     )
@@ -229,178 +152,87 @@ function Invoke-PoShBackupVerification {
             & $LocalWriteLog -Message "Verification Job '$vJobName' is disabled. Skipping." -Level "INFO"
             continue
         }
-
-        # --- Get Verification Job Parameters ---
+        
         $targetJobName = Get-ConfigValue -ConfigObject $vJobConfig -Key 'TargetJobName' -DefaultValue $null
-        $passwordSecret = Get-ConfigValue -ConfigObject $vJobConfig -Key 'ArchivePasswordSecretName' -DefaultValue $null
-        $sandboxPath = Get-ConfigValue -ConfigObject $vJobConfig -Key 'SandboxPath' -DefaultValue $null
-        $onDirtySandbox = Get-ConfigValue -ConfigObject $vJobConfig -Key 'OnDirtySandbox' -DefaultValue "Fail"
-        $verificationSteps = @(Get-ConfigValue -ConfigObject $vJobConfig -Key 'VerificationSteps' -DefaultValue @())
-        $testLatestCount = Get-ConfigValue -ConfigObject $vJobConfig -Key 'TestLatestCount' -DefaultValue 1
-
-        if ([string]::IsNullOrWhiteSpace($targetJobName) -or [string]::IsNullOrWhiteSpace($sandboxPath)) {
-            & $LocalWriteLog -Message "Verification Job '$vJobName' is misconfigured. 'TargetJobName' and 'SandboxPath' are required. Skipping." -Level "ERROR"
+        if ([string]::IsNullOrWhiteSpace($targetJobName)) {
+            & $LocalWriteLog -Message "Verification Job '$vJobName' is misconfigured. 'TargetJobName' is required. Skipping." -Level "ERROR"
             continue
         }
-
-        $targetBackupJobConfig = $Configuration.BackupLocations[$targetJobName]
+        $targetBackupJobConfig = Get-ConfigValue -ConfigObject $Configuration.BackupLocations -Key $targetJobName -DefaultValue $null
         if ($null -eq $targetBackupJobConfig) {
             & $LocalWriteLog -Message "Verification Job '$vJobName': Target backup job '$targetJobName' not found in BackupLocations. Skipping." -Level "ERROR"
             continue
         }
 
-        # --- Find Latest Backup(s) for the Target Job ---
-        $destDirForTargetJob = Get-ConfigValue -ConfigObject $targetBackupJobConfig -Key 'DestinationDir' -DefaultValue $Configuration.DefaultDestinationDir
-        $baseNameForTargetJob = Get-ConfigValue -ConfigObject $targetBackupJobConfig -Key 'Name' -DefaultValue $targetJobName
-        $primaryExtForTargetJob = Get-ConfigValue -ConfigObject $targetBackupJobConfig -Key 'ArchiveExtension' -DefaultValue $Configuration.DefaultArchiveExtension
+        # --- NEW: Resolve the effective config for the target job ---
+        $dummyReportDataRef = [ref]@{ JobName = $targetJobName }
+        $effectiveTargetJobConfig = Get-PoShBackupJobEffectiveConfiguration -JobConfig $targetBackupJobConfig `
+            -GlobalConfig $Configuration `
+            -CliOverrides @{} `
+            -JobReportDataRef $dummyReportDataRef `
+            -Logger $Logger
+        # --- END NEW ---
 
-        & $LocalWriteLog -Message "Verification Job '$vJobName': Finding latest $testLatestCount backup(s) for '$targetJobName' in '$destDirForTargetJob'." -Level "INFO"
-        $allInstances = Find-BackupArchiveInstance -DestinationDirectory $destDirForTargetJob -ArchiveBaseFileName $baseNameForTargetJob -ArchiveExtension $primaryExtForTargetJob -Logger $Logger
+        # 1. Find the target backup instances to verify
+        $instancesToTest = Find-VerificationTarget -VerificationJobName $vJobName `
+            -VerificationJobConfig $vJobConfig `
+            -GlobalConfig $Configuration `
+            -Logger $Logger
         
-        $unpinnedInstances = $allInstances.GetEnumerator() | Where-Object { -not $_.Value.Pinned }
-        $latestInstancesToTest = $unpinnedInstances | Sort-Object { $_.Value.SortTime } -Descending | Select-Object -First $testLatestCount
-
-        if ($latestInstancesToTest.Count -eq 0) {
-            & $LocalWriteLog -Message "Verification Job '$vJobName': No unpinned backup instances found for '$targetJobName'. Nothing to verify." -Level "WARNING"
-            continue
+        if ($instancesToTest.Count -eq 0) {
+            continue # Finder logs message if no instances are found
         }
 
-        # --- Loop Through Each Instance to Test ---
-        foreach ($instanceToTest in $latestInstancesToTest) {
-            $instanceKey = $instanceToTest.Name
+        # 2. Loop through each instance and perform the verification workflow
+        foreach ($instance in $instancesToTest) {
+            $instanceKey = $instance.Name
             & $LocalWriteLog -Message "`n--- Verifying Instance: $instanceKey ---" -Level "HEADING"
-
             $overallVerificationStatus = "SUCCESS" # Assume success for this instance
 
-            # 1. Prepare Sandbox
-            if (-not (Initialize-VerificationSandboxInternal -SandboxPath $sandboxPath -OnDirtySandbox $onDirtySandbox -Logger $Logger -PSCmdletInstance $PSCmdlet)) {
+            $sandboxPath = Get-ConfigValue -ConfigObject $vJobConfig -Key 'SandboxPath' -DefaultValue $null
+            $onDirtySandbox = Get-ConfigValue -ConfigObject $vJobConfig -Key 'OnDirtySandbox' -DefaultValue "Fail"
+
+            # 2a. Prepare Sandbox
+            if (-not (Initialize-VerificationSandbox -SandboxPath $sandboxPath -OnDirtySandbox $onDirtySandbox -Logger $Logger -PSCmdletInstance $PSCmdlet)) {
                 & $LocalWriteLog -Message "Verification Job '$vJobName': Failed to prepare sandbox for instance '$instanceKey'. Aborting verification for this instance." -Level "ERROR"
                 continue
             }
 
-            # 2. Get Archive Password
-            $plainTextPassword = $null
-            if (-not [string]::IsNullOrWhiteSpace($passwordSecret)) {
-                $passwordConfig = @{ ArchivePasswordMethod = 'SecretManagement'; ArchivePasswordSecretName = $passwordSecret }
-                $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $passwordConfig -JobName "Verification of '$targetJobName'" -Logger $Logger
-                $plainTextPassword = $passwordResult.PlainTextPassword
-                if ([string]::IsNullOrWhiteSpace($plainTextPassword)) {
-                    & $LocalWriteLog -Message "Verification Job '$vJobName': Failed to retrieve password from secret '$passwordSecret'. Aborting verification for this instance." -Level "ERROR"
-                    continue
-                }
-            }
-
-            # 3. Restore Archive
-            $firstArchivePart = $instanceToTest.Value.Files | Where-Object { $_.Name -match "\.001$" -or $_.Name -eq $instanceKey } | Sort-Object Name | Select-Object -First 1
+            # 2b. Restore Archive
+            $firstArchivePart = $instance.Value.Files | Where-Object { $_.Name -match '\.001$' -or $_.Name -eq $instanceKey } | Sort-Object Name | Select-Object -First 1
             if ($null -eq $firstArchivePart) {
                 & $LocalWriteLog -Message "Verification Job '$vJobName': Could not find the main archive file/first volume for instance '$instanceKey'. Aborting verification." -Level "ERROR"
                 continue
             }
+
+            $restoreResult = Invoke-PoShBackupRestoreForVerification -ArchiveToRestorePath $firstArchivePart.FullName `
+                -SandboxPath $sandboxPath `
+                -SevenZipPath $Configuration.SevenZipPath `
+                -PasswordSecretName (Get-ConfigValue -ConfigObject $vJobConfig -Key 'ArchivePasswordSecretName' -DefaultValue $null) `
+                -TargetJobName $targetJobName `
+                -Logger $Logger `
+                -PSCmdletInstance $PSCmdlet
             
-            & $LocalWriteLog -Message "Verification Job '$vJobName': Restoring '$($firstArchivePart.FullName)' to '$sandboxPath'." -Level "INFO"
-            $restoreSuccess = Invoke-7ZipExtraction -SevenZipPathExe $Configuration.SevenZipPath `
-                                                    -ArchivePath $firstArchivePart.FullName `
-                                                    -OutputDirectory $sandboxPath `
-                                                    -PlainTextPassword $plainTextPassword `
-                                                    -Force `
-                                                    -Logger $Logger `
-                                                    -PSCmdlet $PSCmdlet
-            
-            if (-not $restoreSuccess) {
-                & $LocalWriteLog -Message "Verification Job '$vJobName': Restore of instance '$instanceKey' FAILED. Aborting further checks for this instance." -Level "ERROR"
-                continue
+            if (-not $restoreResult.Success) {
+                $overallVerificationStatus = "FAILURE"
             }
-
-            # 4. Perform Verification Steps
-            foreach ($step in $verificationSteps) {
-                & $LocalWriteLog -Message "  - Verification Step: '$step' starting..." -Level "INFO"
-                $stepSuccess = $false
-                switch ($step) {
-                    "TestArchive" {
-                        $testResult = Test-7ZipArchive -SevenZipPathExe $Configuration.SevenZipPath -ArchivePath $firstArchivePart.FullName -PlainTextPassword $plainTextPassword -Logger $Logger
-                        if ($testResult.ExitCode -eq 0) { $stepSuccess = $true }
-                    }
-                    "VerifyChecksums" {
-                        $contentsManifestFile = $instanceToTest.Value.Files | Where-Object { $_.Name -like "*.contents.manifest" } | Select-Object -First 1
-                        if ($null -eq $contentsManifestFile) {
-                            & $LocalWriteLog -Message "    - Step 'VerifyChecksums' FAILED: No contents manifest file (*.contents.manifest) found for instance '$instanceKey'." -Level "ERROR"
-                            $stepSuccess = $false
-                        } else {
-                            & $LocalWriteLog -Message "    - Found contents manifest: '$($contentsManifestFile.Name)'. Verifying restored files against manifest..." -Level "INFO"
-                            $allFilesVerified = $true
-                            try {
-                                $manifestEntries = Get-Content -LiteralPath $contentsManifestFile.FullName | Select-Object -Skip 1
-                                foreach ($entry in $manifestEntries) {
-                                    if ($entry -match '^([^,]+),(\d*),([^,]*),([^,]*),"(.*)"$') {
-                                        $crcFromManifest = $Matches[1].ToUpperInvariant()
-                                        $sizeFromManifest = [long]$Matches[2]
-                                        $modifiedFromManifest = [datetime]$Matches[3]
-                                        $attributesFromManifest = $Matches[4]
-                                        $filePathInManifest = $Matches[5]
-                                        
-                                        $restoredItemPath = Join-Path -Path $sandboxPath -ChildPath $filePathInManifest
-                                        
-                                        if ($attributesFromManifest -like "*D*") {
-                                            if (-not (Test-Path -LiteralPath $restoredItemPath -PathType Container)) {
-                                                & $LocalWriteLog -Message "      - FAILED: Directory '$filePathInManifest' listed in manifest was not found." -Level "ERROR"; $allFilesVerified = $false
-                                            } else { & $LocalWriteLog -Message "      - PASSED: Directory '$filePathInManifest' exists." -Level "DEBUG" }
-                                            continue
-                                        }
-
-                                        $restoredFileInfo = $null
-                                        try { $restoredFileInfo = Get-Item -LiteralPath $restoredItemPath -Force -ErrorAction Stop }
-                                        catch { & $LocalWriteLog -Message "      - FAILED: File '$filePathInManifest' not found in sandbox. Error: $($_.Exception.Message)" -Level "ERROR"; $allFilesVerified = $false; continue }
-
-                                        if ($restoredFileInfo.Length -ne $sizeFromManifest) {
-                                            & $LocalWriteLog -Message "      - FAILED: Size mismatch for '$filePathInManifest'. Manifest: $sizeFromManifest, Actual: $($restoredFileInfo.Length)." -Level "ERROR"; $allFilesVerified = $false
-                                        } else { & $LocalWriteLog -Message "      - PASSED: Size matches for '$filePathInManifest'." -Level "DEBUG" }
-                                        
-                                        if ([System.Math]::Abs(($restoredFileInfo.LastWriteTime - $modifiedFromManifest).TotalSeconds) -gt 1.5) {
-                                            & $LocalWriteLog -Message "      - FAILED: Modified date mismatch for '$filePathInManifest'. Manifest: $modifiedFromManifest, Actual: $($restoredFileInfo.LastWriteTime)." -Level "ERROR"; $allFilesVerified = $false
-                                        } else { & $LocalWriteLog -Message "      - PASSED: Modified date matches for '$filePathInManifest'." -Level "DEBUG" }
-
-                                        if ($crcFromManifest -ne "00000000") {
-                                            try {
-                                                $recalculatedCrc = Get-FileCrc32Internal -FilePath $restoredFileInfo.FullName
-                                                if ($recalculatedCrc -ne $crcFromManifest) {
-                                                    & $LocalWriteLog -Message "      - FAILED: CRC mismatch for '$filePathInManifest'. Manifest: $crcFromManifest, Actual: $recalculatedCrc." -Level "ERROR"; $allFilesVerified = $false
-                                                } else { & $LocalWriteLog -Message "      - PASSED: CRC matches for '$filePathInManifest'." -Level "DEBUG" }
-                                            } catch {
-                                                & $LocalWriteLog -Message "      - FAILED: Could not calculate CRC for '$filePathInManifest'. Error: $($_.Exception.Message)" -Level "ERROR"; $allFilesVerified = $false
-                                            }
-                                        }
-                                    }
-                                }
-                                $stepSuccess = $allFilesVerified
-                            } catch {
-                                & $LocalWriteLog -Message "    - Step 'VerifyChecksums' FAILED: Could not read or parse manifest file '$($contentsManifestFile.FullName)'. Error: $($_.Exception.Message)" -Level "ERROR"
-                                $stepSuccess = $false
-                            }
-                        }
-                    }
-                    "CompareFileCount" {
-                         # This is a simplified implementation.
-                        & $LocalWriteLog -Message "    - Step 'CompareFileCount' SKIPPED: Full implementation pending." -Level "WARNING"
-                        $stepSuccess = $true # Placeholder
-                    }
-                }
-
-                if ($stepSuccess) {
-                    & $LocalWriteLog -Message "  - Verification Step: '$step' PASSED." -Level "SUCCESS"
-                } else {
-                    & $LocalWriteLog -Message "  - Verification Step: '$step' FAILED." -Level "ERROR"
+            else {
+                # 2c. Perform Integrity Checks on restored files
+                $checksSuccess = Invoke-PoShBackupIntegrityCheck -VerificationJobConfig $vJobConfig `
+                    -EffectiveTargetJobConfig $effectiveTargetJobConfig `
+                    -InstanceToTest $instance `
+                    -SandboxPath $sandboxPath `
+                    -SevenZipPath $Configuration.SevenZipPath `
+                    -PlainTextPassword $restoreResult.PlainTextPassword `
+                    -Logger $Logger
+                
+                if (-not $checksSuccess) {
                     $overallVerificationStatus = "FAILURE"
                 }
             }
 
-            # 5. Cleanup Sandbox
-            & $LocalWriteLog -Message "  - Cleaning up sandbox directory '$sandboxPath'." -Level "INFO"
-            try {
-                 Get-ChildItem -LiteralPath $sandboxPath -Force | Remove-Item -Recurse -Force -ErrorAction Stop
-            } catch {
-                 & $LocalWriteLog -Message "  - Failed to clean up sandbox. Manual cleanup may be required. Error: $($_.Exception.Message)" -Level "ERROR"
-                 if ($overallVerificationStatus -ne "FAILURE") { $overallVerificationStatus = "WARNINGS" }
-            }
+            # 2d. Cleanup Sandbox
+            Clear-VerificationSandbox -SandboxPath $sandboxPath -Logger $Logger
             
             & $LocalWriteLog -Message "--- Verification for Instance '$instanceKey' Complete. Final Status: $overallVerificationStatus ---" -Level "HEADING"
             Write-Host # Add a blank line for readability between instances

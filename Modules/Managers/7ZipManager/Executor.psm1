@@ -11,9 +11,9 @@
     an option to verify internal file checksums (CRCs).
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.1 # Fixed bug in simulation message logic.
+    Version:        1.2.2 # Fixed bug in Test-7ZipArchive for TreatWarningsAsSuccess parameter.
     DateCreated:    29-May-2025
-    LastModified:   23-Jun-2025
+    LastModified:   26-Jun-2025
     Purpose:        7-Zip command execution logic for 7ZipManager.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 (for logger functionality if used directly, though logger is passed, and for Write-ConsoleBanner).
@@ -282,7 +282,7 @@ function Test-7ZipArchive {
         [Parameter(Mandatory = $false)]
         [string]$SevenZipCpuAffinityString = $null,
         [switch]$HideOutput,
-        [switch]$VerifyCRC, # NEW
+        [switch]$VerifyCRC,
         [int]$MaxRetries = 1,
         [int]$RetryDelaySeconds = 60,
         [bool]$EnableRetries = $false,
@@ -322,15 +322,33 @@ function Test-7ZipArchive {
 
     Write-ConsoleBanner -NameText "Testing Archive Integrity" -ValueText $ArchivePath -BannerWidth 78 -CenterText -PrependNewLine
 
+    # --- BUG FIX: Sanitize the TreatWarningsAsSuccess value before passing it ---
+    $sanitizedTreatWarnings = $false
+    $rawValueForWarnings = $TreatWarningsAsSuccess
+    if ($rawValueForWarnings -is [bool]) {
+        $sanitizedTreatWarnings = $rawValueForWarnings
+    }
+    elseif ($rawValueForWarnings -is [string] -and $rawValueForWarnings.ToLowerInvariant() -eq 'true') {
+        $sanitizedTreatWarnings = $true
+    }
+    elseif ($rawValueForWarnings -is [int] -and $rawValueForWarnings -ne 0) {
+        $sanitizedTreatWarnings = $true
+    }
+    # --- END BUG FIX ---
+
     $invokeParams = @{
-        SevenZipPathExe = $SevenZipPathExe; SevenZipArguments = $testArguments.ToArray()
-        ProcessPriority = $ProcessPriority; HideOutput = $HideOutput.IsPresent
-        PlainTextPassword = $PlainTextPassword
+        SevenZipPathExe           = $SevenZipPathExe
+        SevenZipArguments         = $testArguments.ToArray()
+        ProcessPriority           = $ProcessPriority
+        HideOutput                = $HideOutput.IsPresent
+        PlainTextPassword         = $PlainTextPassword
         SevenZipCpuAffinityString = $SevenZipCpuAffinityString
-        MaxRetries = $MaxRetries; RetryDelaySeconds = $RetryDelaySeconds; EnableRetries = $EnableRetries
-        TreatWarningsAsSuccess = $sanitizedTreatWarnings
-        IsSimulateMode = $false
-        Logger = $Logger
+        MaxRetries                = $MaxRetries
+        RetryDelaySeconds         = $RetryDelaySeconds
+        EnableRetries             = $EnableRetries
+        TreatWarningsAsSuccess    = $sanitizedTreatWarnings
+        IsSimulateMode            = $false
+        Logger                    = $Logger
     }
     if ((Get-Command Invoke-7ZipOperation).Parameters.ContainsKey('PSCmdlet')) {
         $invokeParams.PSCmdlet = $PSCmdlet
