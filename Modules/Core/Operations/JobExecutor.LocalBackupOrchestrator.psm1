@@ -126,7 +126,6 @@ function Invoke-PoShBackupLocalBackupExecution {
                 IsSimulateMode              = $IsSimulateMode.IsPresent
                 Logger                      = $Logger
                 PSCmdlet                    = $PSCmdlet
-                GlobalConfig                = $GlobalConfig
                 SevenZipCpuAffinityString   = $EffectiveJobConfig.JobSevenZipCpuAffinity
                 ActualConfigFile            = $ActualConfigFile
             }

@@ -11,7 +11,7 @@
     an option to verify internal file checksums (CRCs).
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.2 # Fixed bug in Test-7ZipArchive for TreatWarningsAsSuccess parameter.
+    Version:        1.2.3 # Added missing PSCmdlet parameter to Invoke-7ZipOperation and Test-7ZipArchive.
     DateCreated:    29-May-2025
     LastModified:   26-Jun-2025
     Purpose:        7-Zip command execution logic for 7ZipManager.
@@ -47,7 +47,9 @@ function Invoke-7ZipOperation {
         [bool]$EnableRetries = $false,
         [bool]$TreatWarningsAsSuccess = $false,
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
 
     & $Logger -Message "7ZipManager/Executor/Invoke-7ZipOperation: Logger parameter active. TreatWarningsAsSuccess: $TreatWarningsAsSuccess, Input Affinity: '$SevenZipCpuAffinityString'" -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -288,7 +290,9 @@ function Test-7ZipArchive {
         [bool]$EnableRetries = $false,
         [bool]$TreatWarningsAsSuccess = $false,
         [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
 
     & $Logger -Message "7ZipManager/Executor/Test-7ZipArchive: Logger parameter active. TreatWarningsAsSuccess: $TreatWarningsAsSuccess, Input Affinity: '$SevenZipCpuAffinityString'" -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -349,9 +353,7 @@ function Test-7ZipArchive {
         TreatWarningsAsSuccess    = $sanitizedTreatWarnings
         IsSimulateMode            = $false
         Logger                    = $Logger
-    }
-    if ((Get-Command Invoke-7ZipOperation).Parameters.ContainsKey('PSCmdlet')) {
-        $invokeParams.PSCmdlet = $PSCmdlet
+        PSCmdlet                  = $PSCmdlet
     }
 
     $result = Invoke-7ZipOperation @invokeParams
