@@ -48,8 +48,6 @@ function Invoke-PoShBackupLocalBackupExecution {
         [Parameter(Mandatory = $true)]
         [hashtable]$EffectiveJobConfig,
         [Parameter(Mandatory = $true)]
-        [hashtable]$GlobalConfig, # For LocalArchiveProcessor
-        [Parameter(Mandatory = $true)]
         [string]$ActualConfigFile, # For JobPreProcessor
         [Parameter(Mandatory = $true)]
         [ref]$JobReportDataRef,

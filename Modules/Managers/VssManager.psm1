@@ -15,7 +15,7 @@
       and pass the shared state to them.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.1 # Removed redundant CmdletBinding attributes from facade functions.
+    Version:        2.0.2 # Added PSSA suppression for ShouldProcess on facade functions.
     DateCreated:    17-May-2025
     LastModified:   26-Jun-2025
     Purpose:        Facade for centralised VSS management for PoSh-Backup.
@@ -44,7 +44,9 @@ catch {
 
 #region --- Exported Facade Functions ---
 
+<# PSScriptAnalyzer Suppress PSShouldProcess - Justification: This is a facade function that delegates the ShouldProcess call to the 'New-PoShBackupVssShadowCopy' function in the sub-module. #>
 function New-VSSShadowCopy {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory)] [string[]]$SourcePathsToShadow,
         [Parameter(Mandatory)] [string]$VSSContextOption,
@@ -65,7 +67,9 @@ function New-VSSShadowCopy {
     return New-PoShBackupVssShadowCopy @PSBoundParameters -VssIdHashtableRef ([ref]$Script:VssManager_ScriptRunVSSShadowIDs[$runKey])
 }
 
+<# PSScriptAnalyzer Suppress PSShouldProcess - Justification: This is a facade function that delegates the ShouldProcess call to the 'Remove-PoShBackupVssShadowCopy' function in the sub-module. #>
 function Remove-VSSShadowCopy {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory)] [switch]$IsSimulateMode,
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
