@@ -18,7 +18,7 @@
     Author:         Joe Cox/AI Assistant
     Version:        2.0.0 # Refactored to a facade with PreExecutionChecker and PostJobProcessor sub-modules.
     DateCreated:    25-May-2025
-    LastModified:   26-Jun-2025
+    LastModified:   27-Jun-2025
     Purpose:        To centralise the main job/set processing loop from PoSh-Backup.ps1.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -144,7 +144,6 @@ function Invoke-PoShBackupRun {
             $invokePoShBackupJobParams = @{
                 JobName              = $currentJobName
                 JobConfig            = $effectiveJobConfigForThisJob
-                GlobalConfig         = $Configuration
                 PSScriptRootForPaths = $PSScriptRootForPaths
                 ActualConfigFile     = $ActualConfigFile
                 JobReportDataRef     = ([ref]$currentJobReportData)

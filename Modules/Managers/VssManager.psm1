@@ -46,7 +46,6 @@ catch {
 
 <# PSScriptAnalyzer Suppress PSShouldProcess - Justification: This is a facade function that delegates the ShouldProcess call to the 'New-PoShBackupVssShadowCopy' function in the sub-module. #>
 function New-VSSShadowCopy {
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory)] [string[]]$SourcePathsToShadow,
         [Parameter(Mandatory)] [string]$VSSContextOption,
@@ -57,26 +56,25 @@ function New-VSSShadowCopy {
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
-    
+
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey)) {
         $Script:VssManager_ScriptRunVSSShadowIDs[$runKey] = @{}
     }
-    
+
     # Pass the state hashtable by reference to the creator function.
     return New-PoShBackupVssShadowCopy @PSBoundParameters -VssIdHashtableRef ([ref]$Script:VssManager_ScriptRunVSSShadowIDs[$runKey])
 }
 
 <# PSScriptAnalyzer Suppress PSShouldProcess - Justification: This is a facade function that delegates the ShouldProcess call to the 'Remove-PoShBackupVssShadowCopy' function in the sub-module. #>
 function Remove-VSSShadowCopy {
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory)] [switch]$IsSimulateMode,
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
         [Parameter(Mandatory = $false)] [switch]$Force
     )
-    
+
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey)) {
         & $Logger -Message "VssManager (Facade): No VSS session state found for PID $runKey. Nothing to clean up." -Level "DEBUG"

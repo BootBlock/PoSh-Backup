@@ -64,8 +64,6 @@ function Invoke-PoShBackupJob {
         [Parameter(Mandatory = $true)]
         [hashtable]$JobConfig, # This is the *effective* job configuration
         [Parameter(Mandatory = $true)]
-        [hashtable]$GlobalConfig,
-        [Parameter(Mandatory = $true)]
         [string]$PSScriptRootForPaths, # PSScriptRoot of the main PoSh-Backup.ps1
         [Parameter(Mandatory = $true)]
         [string]$ActualConfigFile,

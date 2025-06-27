@@ -675,6 +675,19 @@
     #region --- Backup Locations (Job Definitions) ---
     # Define individual backup jobs here. Each key in this hashtable represents a unique job name.
     BackupLocations                   = @{
+# Inside @{ ... BackupLocations = @{ ... } } in Config\User.psd1
+
+"RefactorTest" = @{
+    Name                      = "RefactorTest"
+    Path                      = "D:\posh-test" # <-- Ensure this is a real folder
+    DestinationDir            = "D:\posh-test\dest"   # <-- This is the local staging area
+    Enabled                   = $true
+    GenerateArchiveChecksum   = $true
+    ChecksumAlgorithm         = "SHA256"
+    TestArchiveAfterCreation  = $true
+    PinOnCreation             = $true
+    TargetNames               = @("ExampleUNCShare") # Or another valid target you have configured
+}
         "Projects"  = @{
             Name                      = "Projects"                    # Base name for the archive file (date stamp and extension will be appended).
             Description               = "A sample job to back up images."
