@@ -118,7 +118,6 @@ function Invoke-PoShBackupJob {
         $localBackupExecutionParams = @{
             JobName            = $JobName
             EffectiveJobConfig = $effectiveJobConfig
-            GlobalConfig       = $GlobalConfig
             ActualConfigFile   = $ActualConfigFile
             JobReportDataRef   = $JobReportDataRef
             IsSimulateMode     = $IsSimulateMode.IsPresent
