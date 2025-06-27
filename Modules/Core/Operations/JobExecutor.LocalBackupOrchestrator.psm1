@@ -85,7 +85,6 @@ function Invoke-PoShBackupLocalBackupExecution {
     $preProcessingParams = @{
         JobName            = $JobName
         EffectiveJobConfig = $EffectiveJobConfig
-        GlobalConfig       = $GlobalConfig
         IsSimulateMode     = $IsSimulateMode.IsPresent
         Logger             = $Logger
         PSCmdlet           = $PSCmdlet

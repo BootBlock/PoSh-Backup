@@ -15,7 +15,7 @@
       and pass the shared state to them.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.0 # Refactored into a facade with sub-modules.
+    Version:        2.0.1 # Removed redundant CmdletBinding attributes from facade functions.
     DateCreated:    17-May-2025
     LastModified:   26-Jun-2025
     Purpose:        Facade for centralised VSS management for PoSh-Backup.
