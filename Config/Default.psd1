@@ -400,7 +400,7 @@
         "ExampleUNCShare" = @{
             Type = "UNC" # Provider module 'Modules\Targets\UNC.Target.psm1' will handle this
             TargetSpecificSettings = @{
-                UNCRemotePath = "\\192.168.0.237\UsbVideo\Backups" # Base path on the UNC share
+                UNCRemotePath = "\\fileserver01\backups\MyPoShBackups" # Base path on the UNC share
                 # Controls if a JobName subdirectory is created under UNCRemotePath.
                 # $false (default): Archive saved directly into UNCRemotePath (e.g., \\server\share\archive.7z)
                 # $true: Archive saved into UNCRemotePath\JobName\ (e.g., \\server\share\JobName\archive.7z)
