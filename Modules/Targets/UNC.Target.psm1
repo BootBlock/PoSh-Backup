@@ -99,7 +99,6 @@ function Invoke-PoShBackupUNCTargetSettingsValidation {
 #region --- UNC Target Transfer Function ---
 <# PSScriptAnalyzer Suppress PSShouldProcess - Justification: This is a facade function that delegates all ShouldProcess calls to its sub-modules (Set-UNCTargetPath, Start-PoShBackupUNCCopy, Invoke-UNCRetentionPolicy). #>
 function Invoke-PoShBackupTargetTransfer {
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory = $true)] [string]$LocalArchivePath,
         [Parameter(Mandatory = $true)] [hashtable]$TargetInstanceConfiguration,
@@ -111,8 +110,6 @@ function Invoke-PoShBackupTargetTransfer {
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
         [Parameter(Mandatory = $true)] [hashtable]$EffectiveJobConfig,
         [Parameter(Mandatory = $true)] [long]$LocalArchiveSizeBytes,
-        [Parameter(Mandatory = $true)] [datetime]$LocalArchiveCreationTimestamp,
-        [Parameter(Mandatory = $true)] [bool]$PasswordInUse,
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
 

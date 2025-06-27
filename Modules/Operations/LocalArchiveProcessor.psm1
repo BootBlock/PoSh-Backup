@@ -89,7 +89,7 @@ function Invoke-LocalArchiveOperation {
     try {
         $destinationDirTerm = if ($EffectiveJobConfig.ResolvedTargetInstances.Count -eq 0) { "Final Destination Directory" } else { "Local Staging Directory" }
 
-        & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Performing Pre-Archive Creation Operations..." -Level "INFO"
+        & $LocalWriteLog -Message "`n[DEBUG] LocalArchiveProcessor: Performing Pre-Archive Creation Operations..." -Level "DEBUG"
         & $LocalWriteLog -Message "   - Using source(s) for 7-Zip: $(if ($CurrentJobSourcePathFor7Zip -is [array]) {($CurrentJobSourcePathFor7Zip | Where-Object {$_}) -join '; '} else {$CurrentJobSourcePathFor7Zip})" -Level "DEBUG"
 
         if (-not (Test-DestinationFreeSpace -DestDir $EffectiveJobConfig.DestinationDir -MinRequiredGB $EffectiveJobConfig.JobMinimumRequiredFreeSpaceGB -ExitOnLow $EffectiveJobConfig.JobExitOnLowSpace -IsSimulateMode:$IsSimulateMode -Logger $Logger)) {
@@ -115,7 +115,7 @@ function Invoke-LocalArchiveOperation {
             $finalArchivePathFor7ZipCommand
         }
         $reportData.FinalArchivePath = $finalArchivePathForReturn
-        & $LocalWriteLog -Message "`n[INFO] LocalArchiveProcessor: Target Archive in ${destinationDirTerm}: $finalArchivePathFor7ZipCommand (First volume/file expected at: $finalArchivePathForReturn)" -Level "INFO"
+        & $LocalWriteLog -Message "`n[DEBUG] LocalArchiveProcessor: Target Archive in ${destinationDirTerm}: $finalArchivePathFor7ZipCommand (First volume/file expected at: $finalArchivePathForReturn)" -Level "DEBUG"
 
         # --- 2. Pre-emptively delete old conflicting volumes ---
         if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.SplitVolumeSize) -and $EffectiveJobConfig.SplitVolumeSize -match "^\d+[kmg]$") {

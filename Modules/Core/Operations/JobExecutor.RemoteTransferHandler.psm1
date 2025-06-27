@@ -66,7 +66,7 @@ function Invoke-PoShBackupRemoteTransferExecution {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLog -Message "JobExecutor.RemoteTransferHandler/Invoke-PoShBackupRemoteTransferExecution: Initializing for job '$JobName'." -Level "DEBUG"
+    & $LocalWriteLog -Message "JobExecutor.RemoteTransferHandler/Invoke-PoShBackupRemoteTransferExecution: Initialising for job '$JobName'." -Level "DEBUG"
 
     $allRemoteTransfersSuccessful = $true # Assume success unless explicitly set otherwise
 

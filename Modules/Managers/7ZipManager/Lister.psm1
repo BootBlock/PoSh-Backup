@@ -42,7 +42,7 @@ function Get-7ZipArchiveListing {
         & $Logger -Message $Message -Level $Level
     }
 
-    & $LocalWriteLog -Message "7ZipManager/Lister/Get-7ZipArchiveListing: Initializing for archive '$ArchivePath'." -Level "DEBUG"
+    & $LocalWriteLog -Message "7ZipManager/Lister/Get-7ZipArchiveListing: Initialising for archive '$ArchivePath'." -Level "DEBUG"
 
     if (-not (Test-Path -LiteralPath $ArchivePath -PathType Leaf)) {
         & $LocalWriteLog -Message "7ZipManager/Lister/Get-7ZipArchiveListing: Archive not found at path '$ArchivePath'." -Level "ERROR"

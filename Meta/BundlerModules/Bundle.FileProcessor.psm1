@@ -87,7 +87,7 @@ function Add-FileToBundle {
     $null = $BundleBuilder.AppendLine("--- FILE_END ---")
     $null = $BundleBuilder.AppendLine("") # Add a blank line after each file block for readability
 
-    # Initialize return data
+    # Initialise return data
     $extractedSynopsis = $null
     $extractedDependencies = [System.Collections.Generic.List[string]]::new()
 

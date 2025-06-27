@@ -54,7 +54,7 @@ function Invoke-PoShBackupPathValidation {
     if ($IsSimulateMode.IsPresent) {
         & $LocalWriteLog -Message "SIMULATE: The existence and accessibility of all source paths would be verified." -Level "SIMULATE"
     } else {
-        & $LocalWriteLog -Message "`n[INFO] PathValidator: Performing source path validation..." -Level "INFO"
+        & $LocalWriteLog -Message "`n[DEBUG] PathValidator: Performing source path validation..." -Level "DEBUG"
     }
 
     $sourcePathsToCheck = @()
@@ -88,7 +88,7 @@ function Invoke-PoShBackupPathValidation {
     } else {
         $validSourcePaths.AddRange($sourcePathsToCheck) # For VM backups, pass paths through for the SourceResolver
     }
-    if (-not $IsSimulateMode.IsPresent) { & $LocalWriteLog -Message "[INFO] PathValidator: Source path validation completed." -Level INFO }
+    if (-not $IsSimulateMode.IsPresent) { & $LocalWriteLog -Message "[DEBUG] PathValidator: Source path validation completed." -Level DEBUG }
     
     # --- Destination Path Validation ---
     if ([string]::IsNullOrWhiteSpace($EffectiveJobConfig.DestinationDir)) {

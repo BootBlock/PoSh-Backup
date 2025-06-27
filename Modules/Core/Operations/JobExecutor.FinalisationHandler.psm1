@@ -55,7 +55,7 @@ function Invoke-PoShBackupJobFinalisation {
         }
     }
     
-    & $LocalWriteLog -Message "JobExecutor.FinalisationHandler/Invoke-PoShBackupJobFinalisation: Initializing for job '$JobName'." -Level "DEBUG"
+    & $LocalWriteLog -Message "JobExecutor.FinalisationHandler/Invoke-PoShBackupJobFinalisation: Initialising for job '$JobName'." -Level "DEBUG"
 
     $reportData = $JobReportDataRef.Value
 

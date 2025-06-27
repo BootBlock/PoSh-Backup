@@ -95,7 +95,7 @@ function Invoke-PoShBackupConfigValidation {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLog -Message "PoShBackupValidator/Invoke-PoShBackupConfigValidation: Initializing." -Level "DEBUG"
+    & $LocalWriteLog -Message "PoShBackupValidator/Invoke-PoShBackupConfigValidation: Initialising." -Level "DEBUG"
 
     if ($null -eq $Script:LoadedConfigSchema) {
         $ValidationMessagesListRef.Value.Add("CRITICAL: PoShBackupValidator cannot perform validation because the configuration schema (ConfigSchema.psd1) failed to load or was not found. Check previous errors from PoShBackupValidator.psm1 loading.")

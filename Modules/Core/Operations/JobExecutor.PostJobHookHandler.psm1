@@ -58,7 +58,7 @@ function Invoke-PoShBackupPostJobHook {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLog -Message "JobExecutor.PostJobHookHandler/Invoke-PoShBackupPostJobHook: Initializing for job '$JobName'." -Level "DEBUG"
+    & $LocalWriteLog -Message "JobExecutor.PostJobHookHandler/Invoke-PoShBackupPostJobHook: Initialising for job '$JobName'." -Level "DEBUG"
 
     $hookArgsForExternalScript = @{
         JobName      = $JobName

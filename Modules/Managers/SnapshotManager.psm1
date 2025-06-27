@@ -60,7 +60,7 @@ function New-PoShBackupSnapshot {
     )
 
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
-    & $LocalWriteLog -Message "SnapshotManager: Initializing new snapshot process for job '$JobName'." -Level "DEBUG"
+    & $LocalWriteLog -Message "SnapshotManager: Initialising new snapshot process for job '$JobName'." -Level "DEBUG"
 
     $providerType = $SnapshotProviderConfig.Type
     if ([string]::IsNullOrWhiteSpace($providerType)) {

@@ -136,7 +136,7 @@ function Invoke-PoShBackupRun {
             }
             $effectiveJobConfigForThisJob = Get-PoShBackupJobEffectiveConfiguration @effectiveConfigParams
 
-            # Initialize Log File
+            # Initialise Log File
             if ($Global:GlobalEnableFileLogging) {
                 # Logic for log file creation...
             }

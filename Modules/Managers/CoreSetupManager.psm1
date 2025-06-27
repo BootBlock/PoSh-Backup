@@ -92,7 +92,7 @@ function Invoke-PoShBackupCoreSetup {
 
     try {
         # --- 1. Import Core and Manager Modules (Moved here from ModuleLoader) ---
-        & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: Loading core and manager modules..." -Level "INFO"
+        & $LoggerScriptBlock -Message "[DEBUG] CoreSetupManager: Loading core and manager modules..." -Level "DEBUG"
 
         # Use the passed-in $PSScriptRoot (the project root) as the base for all paths.
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
@@ -108,7 +108,7 @@ function Invoke-PoShBackupCoreSetup {
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
 
-        & $LoggerScriptBlock -Message "[SUCCESS] CoreSetupManager: Core modules loaded successfully." -Level "SUCCESS"
+        & $LoggerScriptBlock -Message "[SUCCESS] CoreSetupManager: Core modules loaded successfully." -Level "DEBUG"
 
         # --- 2. Integrated Vault Unlock (early in the process) ---
         if ($CliOverrideSettings.ContainsKey('VaultCredentialPath') -and -not [string]::IsNullOrWhiteSpace($CliOverrideSettings.VaultCredentialPath)) {

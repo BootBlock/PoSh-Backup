@@ -53,7 +53,7 @@ function Invoke-PoShBackupLocalRetentionExecution {
             & $Logger -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLog -Message "JobExecutor.LocalRetentionHandler/Invoke-PoShBackupLocalRetentionExecution: Initializing for job '$JobName'." -Level "DEBUG"
+    & $LocalWriteLog -Message "JobExecutor.LocalRetentionHandler/Invoke-PoShBackupLocalRetentionExecution: Initialising for job '$JobName'." -Level "DEBUG"
 
     $vbLoaded = $false
     if ($EffectiveJobConfig.DeleteToRecycleBin) {

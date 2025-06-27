@@ -71,11 +71,11 @@ function Invoke-UserConfigCreationPromptInternal {
             & $LoggerInternal -Message $Message -Level $Level
         }
     }
-    & $LocalWriteLogInternal -Message "ConfigLoader/UserConfigHandler/Invoke-UserConfigCreationPromptInternal: Initializing." -Level "DEBUG"
+    & $LocalWriteLogInternal -Message "ConfigLoader/UserConfigHandler/Invoke-UserConfigCreationPromptInternal: Initialising." -Level "DEBUG"
 
     if (-not (Test-Path -LiteralPath $DefaultUserConfigPathInternal -PathType Leaf)) {
         if (Test-Path -LiteralPath $DefaultBaseConfigPathInternal -PathType Leaf) {
-            & $LocalWriteLogInternal -Message "[INFO] ConfigLoader/UserConfigHandler: User configuration file ('$DefaultUserConfigPathInternal') not found." -Level "INFO"
+            & $LocalWriteLogInternal -Message "[DEBUG] ConfigLoader/UserConfigHandler: User configuration file ('$DefaultUserConfigPathInternal') not found." -Level "DEBUG"
 
             # Check if we should prompt at all.
             if (($Global:IsQuietMode -eq $true) -or `
@@ -85,8 +85,8 @@ function Invoke-UserConfigCreationPromptInternal {
                 $ListBackupSetsSwitchInternal -or `
                 $SkipUserConfigCreationSwitchInternal) {
                 # In these modes, never prompt. Just inform and continue.
-                & $LocalWriteLogInternal -Message "[INFO] ConfigLoader/UserConfigHandler: Not prompting to create '$DefaultUserConfigFileNameInternal' (Quiet, TestConfig, Simulate, or List mode)." -Level "INFO"
-                & $LocalWriteLogInternal -Message "       If you wish to have user-specific overrides, please manually copy '$DefaultBaseConfigPathInternal' to '$DefaultUserConfigPathInternal' and edit it." -Level "INFO"
+                & $LocalWriteLogInternal -Message "[DEBUG] ConfigLoader/UserConfigHandler: Not prompting to create '$DefaultUserConfigFileNameInternal' (Quiet, TestConfig, Simulate, or List mode)." -Level "DEBUG"
+                & $LocalWriteLogInternal -Message "       If you wish to have user-specific overrides, please manually copy '$DefaultBaseConfigPathInternal' to '$DefaultUserConfigPathInternal' and edit it." -Level "DEBUG"
                 return
             }
 
@@ -103,7 +103,7 @@ function Invoke-UserConfigCreationPromptInternal {
 
             $decision = 1 # Default to 'No'
 
-            # CORRECTED CHECK: Use `$Host.UI.RawUI` to reliably detect if the host can handle key presses.
+            # Use `$Host.UI.RawUI` to reliably detect if the host can handle key presses.
             if ($null -ne $Host.UI.RawUI) {
                 # This is an interactive session.
                 $choiceMessage = "The user-specific configuration file '$($DefaultUserConfigFileNameInternal)' was not found in '$($DefaultConfigDirInternal)'.`nIt is recommended to create this file as it allows you to customise settings without modifying`nthe default file, ensuring your settings are not overwritten by script upgrades.`n`nWould you like to create '$($DefaultUserConfigFileNameInternal)' now by copying the contents of '$($DefaultBaseConfigFileNameInternal)'?"
@@ -111,19 +111,24 @@ function Invoke-UserConfigCreationPromptInternal {
                 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                 $userInput = $null
                 while ($true) { # Loop indefinitely until a valid key is pressed or timeout occurs
-                    $promptString = "(Y)es / (N)o"
+                    Write-Host -NoNewline "`rCreate 'User.psd1'? " -ForegroundColor 'White'
+                    Write-Host -NoNewline "[" -ForegroundColor 'White'
+                    Write-Host -NoNewline "Y" -ForegroundColor 'Green'
+                    Write-Host -NoNewline "]es / [" -ForegroundColor 'White'
+                    Write-Host -NoNewline "N" -ForegroundColor 'Yellow'
+                    Write-Host -NoNewline "]o" -ForegroundColor 'White'
+
                     if ($timeoutSeconds -gt 0) {
                         $remaining = [math]::Ceiling($timeoutSeconds - $stopwatch.Elapsed.TotalSeconds)
                         if ($remaining -le 0) {
-                            $decision = 1; # Timed out, default to No
-                            Write-Host "`nTimed out. Defaulting to 'No'." -ForegroundColor 'Yellow'
-                            break;
+                            $decision = 1; Write-Host "`nTimed out. Defaulting to 'No'." -ForegroundColor 'Yellow'; break;
                         }
-                        $promptString += " (Automatically selecting 'No' in $remaining seconds...)"
+                        Write-Host -NoNewline " (Default is '" -ForegroundColor 'White'
+                        Write-Host -NoNewline "N" -ForegroundColor 'Yellow'
+                        Write-Host -NoNewline "' in $remaining seconds): " -ForegroundColor 'White'
                     } else {
-                        $promptString += " (Waiting for input...)"
+                        Write-Host -NoNewline ": " -ForegroundColor 'White'
                     }
-                    Write-Host -NoNewline "`r$promptString "
 
                     if ($Host.UI.RawUI.KeyAvailable) {
                         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -222,13 +227,14 @@ function Invoke-UserConfigCreationPromptInternal {
                            }
                        }
                     }
+
                     exit 0
                 } catch {
                     & $LocalWriteLogInternal -Message "[ERROR] ConfigLoader/UserConfigHandler: Failed to create '$DefaultUserConfigFileNameInternal' from '$DefaultBaseConfigFileNameInternal'. Error: $($_.Exception.Message)" -Level "ERROR"
                     & $LocalWriteLogInternal -Message "          Please create '$DefaultUserConfigFileNameInternal' manually if desired. Script will continue with base configuration." -Level "WARNING"
                 }
             } else { # User chose 'No' or timed out
-                & $LocalWriteLogInternal -Message "[INFO] ConfigLoader/UserConfigHandler: User chose not to create a user config. Using defaults from '$DefaultBaseConfigFileNameInternal'." -Level "INFO"
+                & $LocalWriteLogInternal -Message "[DEBUG] ConfigLoader/UserConfigHandler: User chose not to create a user config. Using defaults from '$DefaultBaseConfigFileNameInternal'." -Level "DEBUG"
             }
         } else {
             & $LocalWriteLogInternal -Message "[WARNING] ConfigLoader/UserConfigHandler: Base configuration file ('$DefaultBaseConfigPathInternal') also not found. Cannot offer to create '$DefaultUserConfigPathInternal'." -Level "WARNING"

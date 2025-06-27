@@ -104,7 +104,7 @@ function Invoke-PoShBackupScriptMode {
     )
 
     # PSSA Appeasement: Directly use the Logger parameter once.
-    & $Logger -Message "ScriptModeHandler (Facade): Initializing. Delegating to sub-modules." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "ScriptModeHandler (Facade): Initialising. Delegating to sub-modules." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     # --- Delegate to Diagnostic Modes Handler ---
     $diagParams = @{

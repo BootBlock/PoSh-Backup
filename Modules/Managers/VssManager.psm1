@@ -10,22 +10,19 @@
     This facade is responsible for:
     - Maintaining the state of created VSS shadow copies for the current script run.
     - Importing the sub-modules.
-    - Exporting the primary functions `New-PoShBackupVssShadowCopy` and
-      `Remove-PoShBackupVssShadowCopy`, which now wrap the calls to the sub-modules
-      and pass the shared state to them.
+    - Exporting the primary functions `New-VSSShadowCopy` and `Remove-VSSShadowCopy`,
+      which now wrap the calls to the sub-modules and pass the shared state to them.
 .NOTES
     Author:         Joe Cox/AI Assistant
     Version:        2.0.2 # Added PSSA suppression for ShouldProcess on facade functions.
     DateCreated:    17-May-2025
-    LastModified:   26-Jun-2025
+    LastModified:   27-Jun-2025
     Purpose:        Facade for centralised VSS management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+. Administrator privileges.
 #>
 
 #region --- Module-Scoped State Management ---
 # This hashtable tracks VSS shadow IDs created during the current script run, keyed by PID.
-# This ensures that only shadows created by this specific invocation of PoSh-Backup are
-# targeted for cleanup. It is managed by this facade and passed by reference to the sub-modules.
 $Script:VssManager_ScriptRunVSSShadowIDs = @{}
 #endregion
 
@@ -56,13 +53,12 @@ function New-VSSShadowCopy {
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
-
+    
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey)) {
         $Script:VssManager_ScriptRunVSSShadowIDs[$runKey] = @{}
     }
-
-    # Pass the state hashtable by reference to the creator function.
+    
     return New-PoShBackupVssShadowCopy @PSBoundParameters -VssIdHashtableRef ([ref]$Script:VssManager_ScriptRunVSSShadowIDs[$runKey])
 }
 
@@ -74,14 +70,13 @@ function Remove-VSSShadowCopy {
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
         [Parameter(Mandatory = $false)] [switch]$Force
     )
-
+    
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey)) {
         & $Logger -Message "VssManager (Facade): No VSS session state found for PID $runKey. Nothing to clean up." -Level "DEBUG"
         return
     }
 
-    # Pass the state hashtable by reference to the cleanup function.
     Remove-PoShBackupVssShadowCopy @PSBoundParameters -VssIdHashtableRef ([ref]$Script:VssManager_ScriptRunVSSShadowIDs[$runKey])
 }
 

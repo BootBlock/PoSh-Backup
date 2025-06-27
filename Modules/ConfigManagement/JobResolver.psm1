@@ -101,7 +101,7 @@ function Get-JobsToProcess {
     $setPostRunAction = $null
 
     if (-not [string]::IsNullOrWhiteSpace($SpecifiedSetName)) {
-        & $LocalWriteLog -Message "`n[INFO] JobResolver: Backup Set specified by user: '$SpecifiedSetName'" -Level "INFO"
+        & $LocalWriteLog -Message "`n[DEBUG] JobResolver: Backup Set specified by user: '$SpecifiedSetName'" -Level "DEBUG"
         if ($Config.ContainsKey('BackupSets') -and $Config['BackupSets'] -is [hashtable] -and $Config['BackupSets'].ContainsKey($SpecifiedSetName)) {
             $setDefinition = $Config['BackupSets'][$SpecifiedSetName]
             $setName = $SpecifiedSetName
@@ -141,7 +141,7 @@ function Get-JobsToProcess {
     elseif (-not [string]::IsNullOrWhiteSpace($SpecifiedJobName)) {
         if ($Config.ContainsKey('BackupLocations') -and $Config['BackupLocations'] -is [hashtable] -and $Config['BackupLocations'].ContainsKey($SpecifiedJobName)) {
             $initialJobsToConsider.Add($SpecifiedJobName)
-            & $LocalWriteLog -Message "`n[INFO] JobResolver: Single Backup Location specified by user: '$SpecifiedJobName'" -Level "INFO"
+            & $LocalWriteLog -Message "`n[DEBUG] JobResolver: Single Backup Location specified by user: '$SpecifiedJobName'" -Level "DEBUG"
         }
         else {
             $availableJobsMessage = "No Backup Locations defined."
@@ -158,7 +158,7 @@ function Get-JobsToProcess {
 
         if ($allDefinedJobs.Count -eq 1 -and $allDefinedSets.Count -eq 0) {
             $initialJobsToConsider.Add($allDefinedJobs[0])
-            & $LocalWriteLog -Message "`n[INFO] JobResolver: No job/set specified. Auto-selected single defined Backup Location: '$($allDefinedJobs[0])'" -Level "INFO"
+            & $LocalWriteLog -Message "`n[DEBUG] JobResolver: No job/set specified. Auto-selected single defined Backup Location: '$($allDefinedJobs[0])'" -Level "DEBUG"
         }
         elseif ($allDefinedJobs.Count -eq 0) {
             return @{ Success = $false; ErrorMessage = "JobResolver: No job/set specified, and no Backup Locations defined. Nothing to back up." }

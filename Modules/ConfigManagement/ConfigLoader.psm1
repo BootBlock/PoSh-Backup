@@ -96,7 +96,7 @@ function Import-AppConfiguration {
     $defaultUserConfigPath = Join-Path -Path $defaultConfigDir -ChildPath $defaultUserConfigFileName
 
     if (-not [string]::IsNullOrWhiteSpace($UserSpecifiedPath)) {
-        & $LocalWriteLog -Message "`n[INFO] ConfigLoader: Using user-specified configuration file: '$($UserSpecifiedPath)'" -Level "INFO"
+        & $LocalWriteLog -Message "`n[DEBUG] ConfigLoader: Using user-specified configuration file: '$($UserSpecifiedPath)'" -Level "DEBUG"
         $primaryConfigPathForReturn = $UserSpecifiedPath
         if (-not (Test-Path -LiteralPath $UserSpecifiedPath -PathType Leaf)) {
             & $LocalWriteLog -Message "FATAL: ConfigLoader: Specified configuration file '$UserSpecifiedPath' not found." -Level "ERROR"
@@ -127,7 +127,7 @@ function Import-AppConfiguration {
                                                 -CliOverrideSettingsInternal $CliOverrideSettings
 
         $primaryConfigPathForReturn = $defaultBaseConfigPath
-        & $LocalWriteLog -Message "`n[INFO] ConfigLoader: No -ConfigFile specified by user. Loading base configuration from: '$($defaultBaseConfigPath)'" -Level "INFO"
+        & $LocalWriteLog -Message "`n[DEBUG] ConfigLoader: No -ConfigFile specified by user. Loading base configuration from: '$($defaultBaseConfigPath)'" -Level "DEBUG"
         if (-not (Test-Path -LiteralPath $defaultBaseConfigPath -PathType Leaf)) {
             & $LocalWriteLog -Message "FATAL: ConfigLoader: Base configuration file '$defaultBaseConfigPath' not found. This file is required for default operation." -Level "ERROR"
             return @{ IsValid = $false; ErrorMessage = "Base configuration file '$defaultBaseConfigPath' not found." }
@@ -142,7 +142,7 @@ function Import-AppConfiguration {
             return @{ IsValid = $false; ErrorMessage = "Failed to parse base configuration file '$defaultBaseConfigPath': $($_.Exception.Message)" }
         }
 
-        & $LocalWriteLog -Message "[INFO] ConfigLoader: Checking for user override configuration at: '$($defaultUserConfigPath)'" -Level "INFO"
+        & $LocalWriteLog -Message "[DEBUG] ConfigLoader: Checking for user override configuration at: '$($defaultUserConfigPath)'" -Level "DEBUG"
         if (Test-Path -LiteralPath $defaultUserConfigPath -PathType Leaf) {
             try {
                 $loadedUserConfiguration = Import-PowerShellDataFile -LiteralPath $defaultUserConfigPath -ErrorAction Stop

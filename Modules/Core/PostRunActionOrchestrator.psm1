@@ -138,7 +138,7 @@ function Invoke-PoShBackupPostRunActionHandler {
         return # No active action, so nothing to do.
     }
 
-    & $LocalWriteLog -Message "PostRunActionOrchestrator: Initializing post-run action handling. Overall Status: $OverallStatus" -Level "DEBUG"
+    & $LocalWriteLog -Message "PostRunActionOrchestrator: Initialising post-run action handling. Overall Status: $OverallStatus" -Level "DEBUG"
 
     $triggerStatuses = @($finalPostRunActionToConsider.TriggerOnStatus | ForEach-Object { $_.ToUpperInvariant() })
     $effectiveOverallStatusForTrigger = $OverallStatus.ToUpperInvariant()

@@ -66,19 +66,17 @@ function Invoke-PoShBackupTargetProcessing {
 
             foreach ($fileToTransferInfo in $LocalFilesToTransfer) {
                 $transferParams = @{
-                    LocalArchivePath            = $fileToTransferInfo.FullName
-                    TargetInstanceConfiguration = $targetInstanceConfig
-                    JobName                     = $JobName
-                    ArchiveFileName             = $fileToTransferInfo.Name
-                    ArchiveBaseName             = $EffectiveJobConfig.BaseFileName 
-                    ArchiveExtension            = $EffectiveJobConfig.JobArchiveExtension
-                    IsSimulateMode              = $IsSimulateMode.IsPresent
-                    Logger                      = $Logger
-                    EffectiveJobConfig          = $EffectiveJobConfig
-                    LocalArchiveSizeBytes       = $fileToTransferInfo.Length
-                    LocalArchiveCreationTimestamp = $fileToTransferInfo.CreationTime
-                    PasswordInUse               = $EffectiveJobConfig.PasswordInUseFor7Zip
-                    PSCmdlet                    = $PSCmdlet
+                    LocalArchivePath              = $fileToTransferInfo.FullName
+                    TargetInstanceConfiguration   = $targetInstanceConfig
+                    JobName                       = $JobName
+                    ArchiveFileName               = $fileToTransferInfo.Name
+                    ArchiveBaseName               = $EffectiveJobConfig.BaseFileName 
+                    ArchiveExtension              = $EffectiveJobConfig.JobArchiveExtension
+                    IsSimulateMode                = $IsSimulateMode.IsPresent
+                    Logger                        = $Logger
+                    EffectiveJobConfig            = $EffectiveJobConfig
+                    LocalArchiveSizeBytes         = $fileToTransferInfo.Length
+                    PSCmdlet                      = $PSCmdlet
                 }
                 $transferOutcome = & $invokeTargetTransferCmd @transferParams
 
