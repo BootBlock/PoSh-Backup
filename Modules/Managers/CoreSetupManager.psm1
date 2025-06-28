@@ -10,15 +10,17 @@
     '.\CoreSetupManager\' to handle specific responsibilities:
     - VaultUnlocker.psm1: Unlocks the PowerShell SecretStore vault if a credential file is provided.
     - MaintenanceModeChecker.psm1: Checks if the script should halt due to maintenance mode.
-    - DependencyChecker.psm1: Performs context-aware validation of external module dependencies.
     - JobAndDependencyResolver.psm1: Determines the final, ordered list of jobs to run.
+    - DependencyChecker.psm1: Performs context-aware validation of external module dependencies
+      based on the resolved job list.
 
-    This facade also continues to call other key managers like ConfigLoader and ScriptModeHandler.
+    This facade now directly invokes the advanced configuration validation after resolving
+    the job list, allowing for context-aware validation of backup targets.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.3.0 # Added integrated vault unlocking.
+    Version:        2.4.0 # Refactored to perform context-aware validation.
     DateCreated:    01-Jun-2025
-    LastModified:   24-Jun-2025
+    LastModified:   28-Jun-2025
     Purpose:        To orchestrate core script setup and configuration/job resolution.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -91,10 +93,9 @@ function Invoke-PoShBackupCoreSetup {
     )
 
     try {
-        # --- 1. Import Core and Manager Modules (Moved here from ModuleLoader) ---
+        # --- 1. Import Core and Manager Modules ---
         & $LoggerScriptBlock -Message "[DEBUG] CoreSetupManager: Loading core and manager modules..." -Level "DEBUG"
 
-        # Use the passed-in $PSScriptRoot (the project root) as the base for all paths.
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\Operations.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\JobOrchestrator.psm1") -Force -ErrorAction Stop
@@ -107,15 +108,16 @@ function Invoke-PoShBackupCoreSetup {
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\SystemStateManager.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
+        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\PoShBackupValidator.psm1") -Force -ErrorAction Stop -WarningAction SilentlyContinue
 
         & $LoggerScriptBlock -Message "[SUCCESS] CoreSetupManager: Core modules loaded successfully." -Level "DEBUG"
 
-        # --- 2. Integrated Vault Unlock (early in the process) ---
+        # --- 2. Integrated Vault Unlock ---
         if ($CliOverrideSettings.ContainsKey('VaultCredentialPath') -and -not [string]::IsNullOrWhiteSpace($CliOverrideSettings.VaultCredentialPath)) {
             Invoke-PoShBackupVaultUnlock -VaultCredentialPath $CliOverrideSettings.VaultCredentialPath -Logger $LoggerScriptBlock
         }
 
-        # --- 3. Configuration Loading and Validation ---
+        # --- 3. Configuration Loading (without full validation yet) ---
         $configLoadParams = @{
             UserSpecifiedPath            = $ConfigFile
             IsTestConfigMode             = [bool](($TestConfig.IsPresent) -or ($ListBackupLocations.IsPresent) -or ($ListBackupSets.IsPresent) -or ($Version.IsPresent) -or ($SyncSchedules.IsPresent) -or ($RunVerificationJobs.IsPresent) -or ($PreFlightCheck.IsPresent) -or (-not [string]::IsNullOrWhiteSpace($CliOverrideSettings.TestBackupTarget)))
@@ -128,81 +130,61 @@ function Invoke-PoShBackupCoreSetup {
             CliOverrideSettings          = $CliOverrideSettings
         }
         $configResult = Import-AppConfiguration @configLoadParams
-        if (-not $configResult.IsValid) { throw "Configuration loading or validation failed." }
+        if (-not $configResult.IsValid) { throw "Configuration loading or basic validation failed." }
         $Configuration = $configResult.Configuration
         $ActualConfigFile = $configResult.ActualPath
 
-        if ($configResult.PSObject.Properties.Name -contains 'UserConfigLoaded') {
-            if ($configResult.UserConfigLoaded) {
-                & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: User override configuration from '$($configResult.UserConfigPath)' was successfully loaded and merged." -Level "INFO"
-            }
+        if ($configResult.PSObject.Properties.Name -contains 'UserConfigLoaded' -and $configResult.UserConfigLoaded) {
+            & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: User override configuration from '$($configResult.UserConfigPath)' was successfully loaded and merged." -Level "INFO"
         }
         $Configuration['_PoShBackup_PSScriptRoot'] = $PSScriptRoot
 
-        # --- 4. Handle Script Utility Modes (which may exit) ---
+        # --- 4. Handle Script Utility Modes (which may exit before full validation) ---
+        # The utility modes now get a config that has only passed basic validation. This is acceptable.
+        # Modes like -TestConfig will perform their own full validation.
         $scriptModeParams = @{
-            ListBackupLocationsSwitch   = $ListBackupLocations.IsPresent
-            ListBackupSetsSwitch        = $ListBackupSets.IsPresent
-            TestConfigSwitch            = $TestConfig.IsPresent
-            PreFlightCheckSwitch        = $PreFlightCheck.IsPresent
-            TestBackupTarget            = $TestBackupTarget
-            RunVerificationJobsSwitch   = $RunVerificationJobs.IsPresent
-            VerificationJobName         = $VerificationJobName
-            CheckForUpdateSwitch        = $CheckForUpdate.IsPresent
-            VersionSwitch               = $Version.IsPresent
-            PinBackupPath               = $CliOverrideSettings.PinBackup
-            UnpinBackupPath             = $CliOverrideSettings.UnpinBackup
-            ListArchiveContentsPath     = $CliOverrideSettings.ListArchiveContents
-            ArchivePasswordSecretName   = $CliOverrideSettings.ArchivePasswordSecretName
-            ExtractFromArchivePath      = $CliOverrideSettings.ExtractFromArchive
-            ExtractToDirectoryPath      = $CliOverrideSettings.ExtractToDirectory
-            ItemsToExtract              = $CliOverrideSettings.ItemsToExtract
-            ForceExtract                = ([bool]$CliOverrideSettings.ForceExtract)
-            GetEffectiveConfigJobName   = $CliOverrideSettings.GetEffectiveConfig
-            ExportDiagnosticPackagePath = $CliOverrideSettings.ExportDiagnosticPackage
-            CliOverrideSettingsInternal = $CliOverrideSettings
-            Configuration               = $Configuration
-            ActualConfigFile            = $ActualConfigFile
-            ConfigLoadResult            = $configResult
-            Logger                      = $LoggerScriptBlock
-            PSCmdletInstance            = $PSCmdletInstance
-            BackupLocationNameForScope  = $BackupLocationName
-            RunSetForScope              = $RunSet
+            ListBackupLocationsSwitch = $ListBackupLocations.IsPresent; ListBackupSetsSwitch = $ListBackupSets.IsPresent
+            TestConfigSwitch = $TestConfig.IsPresent; PreFlightCheckSwitch = $PreFlightCheck.IsPresent
+            TestBackupTarget = $TestBackupTarget; RunVerificationJobsSwitch = $RunVerificationJobs.IsPresent
+            VerificationJobName = $VerificationJobName; CheckForUpdateSwitch = $CheckForUpdate.IsPresent
+            VersionSwitch = $Version.IsPresent; PinBackupPath = $CliOverrideSettings.PinBackup
+            UnpinBackupPath = $CliOverrideSettings.UnpinBackup; ListArchiveContentsPath = $CliOverrideSettings.ListArchiveContents
+            ArchivePasswordSecretName = $CliOverrideSettings.ArchivePasswordSecretName; ExtractFromArchivePath = $CliOverrideSettings.ExtractFromArchive
+            ExtractToDirectoryPath = $CliOverrideSettings.ExtractToDirectory; ItemsToExtract = $CliOverrideSettings.ItemsToExtract
+            ForceExtract = ([bool]$CliOverrideSettings.ForceExtract); GetEffectiveConfigJobName = $CliOverrideSettings.GetEffectiveConfig
+            ExportDiagnosticPackagePath = $CliOverrideSettings.ExportDiagnosticPackage; CliOverrideSettingsInternal = $CliOverrideSettings
+            Configuration = $Configuration; ActualConfigFile = $ActualConfigFile
+            ConfigLoadResult = $configResult; Logger = $LoggerScriptBlock; PSCmdletInstance = $PSCmdletInstance
+            BackupLocationNameForScope = $BackupLocationName; RunSetForScope = $RunSet
         }
-        if ($PSBoundParameters.ContainsKey('Maintenance') -and $null -ne $Maintenance) {
-            $scriptModeParams.MaintenanceSwitchValue = $Maintenance
-        }
-        if ($SyncSchedules.IsPresent) {
-            Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\ScheduleManager.psm1") -Force -ErrorAction Stop
-            Sync-PoShBackupSchedule -Configuration $Configuration -PSScriptRoot $PSScriptRoot -Logger $LoggerScriptBlock -PSCmdlet $PSCmdletInstance; exit 0
-        }
+        if ($PSBoundParameters.ContainsKey('Maintenance') -and $null -ne $Maintenance) { $scriptModeParams.MaintenanceSwitchValue = $Maintenance }
+        if ($SyncSchedules.IsPresent) { Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\ScheduleManager.psm1") -Force -ErrorAction Stop; Sync-PoShBackupSchedule -Configuration $Configuration -PSScriptRoot $PSScriptRoot -Logger $LoggerScriptBlock -PSCmdlet $PSCmdletInstance; exit 0 }
+        if (Invoke-PoShBackupScriptMode @scriptModeParams) { exit 0 }
 
-        if (Invoke-PoShBackupScriptMode @scriptModeParams) {
-            exit 0
-        }
-
-        # --- 5. Check for Maintenance Mode (if not in a utility mode) ---
+        # --- 5. Check for Maintenance Mode ---
         if (-not $Maintenance.HasValue) {
-            if ((Test-PoShBackupMaintenanceMode -Configuration $Configuration -Logger $LoggerScriptBlock) -and (-not $ForceRunInMaintenanceMode.IsPresent)) {
-                exit 0 # Halt execution as maintenance mode is active.
-            }
-            elseif ($ForceRunInMaintenanceMode.IsPresent) {
-                & $LoggerScriptBlock -Message "[WARNING] The -ForceRunInMaintenanceMode switch was used. Bypassing maintenance mode check." -Level "WARNING"
-            }
+            if ((Test-PoShBackupMaintenanceMode -Configuration $Configuration -Logger $LoggerScriptBlock) -and (-not $ForceRunInMaintenanceMode.IsPresent)) { exit 0 }
+            elseif ($ForceRunInMaintenanceMode.IsPresent) { & $LoggerScriptBlock -Message "[WARNING] The -ForceRunInMaintenanceMode switch was used. Bypassing maintenance mode check." -Level "WARNING" }
         }
 
-        # --- 6. Resolve Job Execution Plan (incl. dependencies) ---
+        # --- 6. Resolve Job Execution Plan (moved BEFORE validation) ---
         $executionPlanResult = Resolve-PoShBackupJobExecutionPlan -Configuration $Configuration `
-            -BackupLocationName $BackupLocationName `
-            -RunSet $RunSet `
-            -JobsToSkip $CliOverrideSettings.SkipJob `
-            -Logger $LoggerScriptBlock `
-            -SkipJobDependenciesSwitch:$SkipJobDependenciesSwitch.IsPresent
+            -BackupLocationName $BackupLocationName -RunSet $RunSet -JobsToSkip $CliOverrideSettings.SkipJob `
+            -Logger $LoggerScriptBlock -SkipJobDependenciesSwitch:$SkipJobDependenciesSwitch.IsPresent
 
-        # --- 7. Context-Aware Dependency Check on the final list of jobs ---
+        # --- 7. Perform Context-Aware Validation and Dependency Checks ---
+        if ($Configuration.EnableAdvancedSchemaValidation) {
+            $validationMessages = [System.Collections.Generic.List[string]]::new()
+            Invoke-PoShBackupConfigValidation -ConfigurationToValidate $Configuration -ValidationMessagesListRef ([ref]$validationMessages) -JobsToRun $executionPlanResult.JobsToProcess -Logger $LoggerScriptBlock
+            if ($validationMessages.Count -gt 0) {
+                & $LoggerScriptBlock -Message "CoreSetupManager: Advanced configuration validation FAILED with errors/warnings:" -Level "ERROR"
+                ($validationMessages | Select-Object -Unique) | ForEach-Object { & $LoggerScriptBlock -Message "  - $_" -Level "ERROR" }
+                throw "Advanced configuration validation failed. See logs for details."
+            }
+        }
         Invoke-PoShBackupDependencyCheck -Logger $LoggerScriptBlock -Configuration $Configuration -JobsToRun $executionPlanResult.JobsToProcess
 
-        # --- 8. Final Setup Steps (Log Dir and 7z Path) ---
+        # --- 8. Final Setup Steps ---
         $Global:GlobalEnableFileLogging = Get-ConfigValue -ConfigObject $Configuration -Key 'EnableFileLogging' -DefaultValue $false
         if ($Global:GlobalEnableFileLogging) {
             $logDirConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'LogDirectory' -DefaultValue 'Logs'
@@ -213,25 +195,16 @@ function Invoke-PoShBackupCoreSetup {
             }
         }
 
-        $sevenZipPathFromFinalConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'SevenZipPath'
-        if ([string]::IsNullOrWhiteSpace($sevenZipPathFromFinalConfig) -or -not (Test-Path -LiteralPath $sevenZipPathFromFinalConfig -PathType Leaf)) {
-            throw "7-Zip executable path ('$sevenZipPathFromFinalConfig') is invalid or not found after all checks."
-        }
-
-        # --- 9. Return the final execution plan to the main script ---
+        # --- 9. Return the final execution plan ---
         return @{
-            Configuration            = $Configuration
-            ActualConfigFile         = $ActualConfigFile
-            JobsToProcess            = $executionPlanResult.JobsToProcess
-            CurrentSetName           = $executionPlanResult.CurrentSetName
-            StopSetOnErrorPolicy     = $executionPlanResult.StopSetOnErrorPolicy
-            SetSpecificPostRunAction = $executionPlanResult.SetSpecificPostRunAction
+            Configuration            = $Configuration; ActualConfigFile         = $ActualConfigFile
+            JobsToProcess            = $executionPlanResult.JobsToProcess; CurrentSetName           = $executionPlanResult.CurrentSetName
+            StopSetOnErrorPolicy     = $executionPlanResult.StopSetOnErrorPolicy; SetSpecificPostRunAction = $executionPlanResult.SetSpecificPostRunAction
         }
     }
     catch {
-        # Catch errors from any step in the setup process, including vault unlocking
         & $LoggerScriptBlock -Message "[FATAL] CoreSetupManager: A critical error occurred during the setup and validation phase. Error: $($_.Exception.Message)" -Level "ERROR"
-        throw # Re-throw to halt execution in the calling script
+        throw
     }
 }
 
