@@ -11,7 +11,7 @@
     while the complex logic is managed by the sub-modules in '.\ReportingHtml\'.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        3.0.0 # Major refactoring into a facade with sub-modules.
+    Version:        3.0.1 # Major refactoring into a facade with sub-modules.
     DateCreated:    28-Jun-2025
     LastModified:   28-Jun-2025
     Purpose:        Facade for interactive HTML report generation.
@@ -61,7 +61,7 @@ function Invoke-HtmlReport {
         
         $cssOverrides = @{}; ($GlobalConfig.HtmlReportOverrideCssVariables, $JobConfig.HtmlReportOverrideCssVariables | Where-Object {$null -ne $_ -and $_ -is [hashtable]}) | ForEach-Object { $_.GetEnumerator() | ForEach-Object { $cssOverrides[$_.Name] = $_.Value } }
 
-        $assets = Get-HtmlReportAssets -PSScriptRoot $GlobalConfig['_PoShBackup_PSScriptRoot'] `
+        $assets = Get-HtmlReportAsset -PSScriptRoot $GlobalConfig['_PoShBackup_PSScriptRoot'] `
             -ThemeName $themeName `
             -LogoPath ($getReportSetting.Invoke('HtmlReportLogoPath', "")) `
             -FaviconPath ($getReportSetting.Invoke('HtmlReportFaviconPath', "")) `

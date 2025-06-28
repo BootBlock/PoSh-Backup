@@ -3,20 +3,20 @@
 .SYNOPSIS
     A sub-module for ReportingHtml.psm1. Handles loading all static assets for the report.
 .DESCRIPTION
-    This module provides the 'Get-HtmlReportAssets' function, which is responsible for
+    This module provides the 'Get-HtmlReportAsset' function, which is responsible for
     reading the main HTML template, the base and theme-specific CSS files, the client-side
     JavaScript, and any user-provided custom CSS. It also handles the loading and
     Base64 encoding of logo and favicon images.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1
     DateCreated:    28-Jun-2025
     LastModified:   28-Jun-2025
     Purpose:        To isolate the loading of all static report assets.
     Prerequisites:  PowerShell 5.1+.
 #>
 
-function Get-HtmlReportAssets {
+function Get-HtmlReportAsset {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
@@ -96,4 +96,4 @@ function Get-HtmlReportAssets {
     return $assets
 }
 
-Export-ModuleMember -Function Get-HtmlReportAssets
+Export-ModuleMember -Function Get-HtmlReportAsset
