@@ -276,7 +276,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.36.0 # Refactored JobOrchestrator.
+    Version:        1.37.0 # Refactored ReportingHtml.psm1.
     Date:           24-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories

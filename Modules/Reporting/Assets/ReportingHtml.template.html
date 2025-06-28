@@ -48,6 +48,7 @@
                     <thead>
                         <tr>
                             <th data-sortable-column='true' aria-label='Sort by Target Name'>Target Name</th>
+                            <th data-sortable-column='true' aria-label='Sort by File'>File</th>
                             <th data-sortable-column='true' aria-label='Sort by Type'>Type</th>
                             <th data-sortable-column='true' aria-label='Sort by Status'>Status</th>
                             <th data-sortable-column='true' aria-label='Sort by Remote Path'>Remote Path</th>
@@ -72,7 +73,7 @@
                 <p><strong>Manifest File:</strong> {{MANIFEST_FILE_PATH_HTML}}</p>
                 <p><strong>Overall Manifest Verification Status:</strong> <span class='{{MANIFEST_OVERALL_STATUS_CLASS}}'>{{MANIFEST_OVERALL_STATUS_HTML}}</span></p>
                 
-                {{IF_MANIFEST_VOLUMES_TABLE_START}}
+                {{IF_SHOW_MANIFEST_VOLUMES_TABLE_START}}
                 <table data-sortable-table='true'>
                     <thead>
                         <tr>
@@ -86,12 +87,12 @@
                         {{MANIFEST_VOLUMES_TABLE_ROWS_HTML}}
                     </tbody>
                 </table>
-                {{IF_MANIFEST_VOLUMES_TABLE_END}}
+                {{IF_SHOW_MANIFEST_VOLUMES_TABLE_END}}
 
-                {{IF_MANIFEST_RAW_DETAILS_START}}
+                {{IF_SHOW_MANIFEST_RAW_DETAILS_START}}
                 <p><strong>Detailed Verification Log/Notes:</strong></p>
                 <pre>{{MANIFEST_RAW_DETAILS_HTML}}</pre>
-                {{IF_MANIFEST_RAW_DETAILS_END}}
+                {{IF_SHOW_MANIFEST_RAW_DETAILS_END}}
             </details>
         </div>
         {{IF_SHOW_MANIFEST_DETAILS_END}}
@@ -145,29 +146,29 @@
                 <summary><h2>Detailed Log <span id='logFilterActiveIndicator' class='filter-active-indicator' style='display:none;'>(Filters Active)</span></h2></summary>
                 <div class='log-filters'>
                     <div><label for='logKeywordSearch'>Search Logs:</label><input type='text' id='logKeywordSearch' placeholder='Enter keyword...'></div>
-                    {{LOG_LEVEL_FILTERS_CONTROLS_HTML}} <!-- PowerShell generates the <label><input type="checkbox"...></label> and toggle buttons here -->
+                    {{LOG_LEVEL_FILTERS_CONTROLS_HTML}}
                 </div>
                 <div id='detailedLogEntries'>
-                    {{LOG_ENTRIES_LIST_HTML}} <!-- PowerShell generates <div class='log-entry'>...</div> here -->
+                    {{LOG_ENTRIES_LIST_HTML}}
                 </div>
             </details>
         </div>
         {{IF_SHOW_LOG_ENTRIES_END}}
         
-        {{IF_NO_LOG_ENTRIES_START}}
+        {{IF_SHOW_NO_LOG_ENTRIES_START}}
         <div class='details-section log-section'>
             <details id='details-logs' open>
                 <summary><h2>Detailed Log</h2></summary>
                 <p>No log entries were recorded or available for this HTML report.</p>
             </details>
         </div>
-        {{IF_NO_LOG_ENTRIES_END}}
+        {{IF_SHOW_NO_LOG_ENTRIES_END}}
 
         <footer>
             {{FOOTER_COMPANY_NAME_HTML}} PoSh Backup Script - Report Generated on {{REPORT_GENERATION_DATE_TEXT}}
         </footer>
     </div>
-    {{JAVASCRIPT_CONTENT_BLOCK}} <!-- For the <script>...</script> block -->
+    {{JAVASCRIPT_CONTENT_BLOCK}}
     <button type="button" id="scrollToTopBtn" title="Go to top" aria-label="Scroll to top of page">▲</button>
 </body>
 </html>

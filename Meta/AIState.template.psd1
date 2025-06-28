@@ -36,12 +36,23 @@
 
   conversation_summary            = @(
     "--- Project Overview & Status ---",
-    "Development of a comprehensive, modular PowerShell backup solution (PoSh-Backup v1.35.0).",
+    "Development of a comprehensive, modular PowerShell backup solution (PoSh-Backup v1.37.0).",
     "The project is heavily modularised into `Core`, `Managers`, `Utilities`, `Operations`, `Reporting`, and `Targets`.",
     "Bundler script `Generate-ProjectBundleForAI.ps1` (v__BUNDLER_VERSION_PLACEHOLDER__) is used to maintain session context.",
     "",
-    "Added additional parameters to Write-NameValue; try and make use of them.",
-    ""
+    "--- Refactor: Modularise ReportingHtml.psm1 (Completed in this Session) ---",
+    "   - Goal: Decompose the large `ReportingHtml.psm1` to improve maintainability and isolate logic, without changing its public interface.",
+    "   - New Directory: `Modules\\Reporting\\ReportingHtml\\` created to house the sub-modules.",
+    "   - `ReportingHtml.psm1` (v2.0.5 -> v3.0.0) refactored into a lightweight facade.",
+    "   - New Sub-Modules Created:",
+    "     - `AssetLoader.psm1` (v1.0.0): Handles loading all static assets (HTML template, CSS, JS) and embedding images.",
+    "     - `HtmlFragmentGenerator.psm1` (v1.0.0): Contains the core logic to convert report data into dynamic HTML fragments for each section.",
+    "     - `ReportAssembler.psm1` (v1.0.0): Takes the template and fragments and assembles the final HTML file.",
+    "     - `HtmlUtils.psm1` (v1.0.0): A common utility to provide a shared, correctly exported `ConvertTo-SafeHtml` function/alias.",
+    "   - **Bug Fixes during Refactoring:**",
+    "     - **Initial Failure:** `ConvertTo-SafeHtml` was not recognized by the facade because its alias was not being exported by the sub-module. Fixed by creating a common `HtmlUtils.psm1` and explicitly exporting the alias with `Export-ModuleMember -Alias`.",
+    "     - **Second Failure:** A `Cannot convert value to type System.String` error occurred because PowerShell's `-f` operator was creating an `object[]` when its inputs were not guaranteed strings. Fixed by explicitly casting the retrieved config values to `[string]` in the facade *before* passing them to the `-f` operator.",
+    "     - **Final Failure:** A regression where `{{...}}` placeholders were left in the HTML. This was caused by an inconsistent regex escaping strategy in `ReportAssembler.psm1`. Fixed by using single-quoted literal strings for all regex patterns to avoid double-quoted string parsing ambiguity.",
     "",
     "--- Feature: Desktop (Toast) Notifications (Completed in Previous Session) ---",
     "   - Goal: Add a 'Desktop' notification provider for native Windows toast notifications.",
@@ -206,7 +217,7 @@
     "   - **Interactive Job/Set Selection:** When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets. This is accomplished via `Modules\ConfigManagement\JobResolver.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.36.0 # Refactored JobOrchestrator."
+  main_script_poSh_backup_version = "1.37.0 # Refactored ReportingHtml.psm1."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

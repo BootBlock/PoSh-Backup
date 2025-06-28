@@ -22,15 +22,16 @@
         a.  Calls 'Invoke-PoShBackupSnapshotCleanup' to remove any infrastructure snapshots.
         b.  Calls 'Invoke-PoShBackupVssCleanup' to remove any OS-level shadow copies.
         c.  Clears any in-memory plain text password.
-        d.  Calls 'Invoke-PoShBackupJobFinalisation'.
-        e.  Calls 'Invoke-PoShBackupPostJobHook'.
+        d.  Assigns the collected global logs to the job's report data object.
+        e.  Calls 'Invoke-PoShBackupJobFinalisation'.
+        f.  Calls 'Invoke-PoShBackupPostJobHook'.
     6.  Returns overall job status.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.7.1 # Pass IsSimulateMode to snapshot cleanup handler.
+    Version:        1.7.2 # Fixed missing log data in reports.
     DateCreated:    30-May-2025
-    LastModified:   23-Jun-2025
+    LastModified:   28-Jun-2025
     Purpose:        Handles the execution logic for individual backup jobs.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules and target provider modules.
@@ -39,7 +40,7 @@
 #>
 
 # Explicitly import Utils.psm1 and other direct dependencies.
-# $PSScriptRoot here refers to the directory of JobExecutor.psm1 (Modules\Core\Operations).
+# $PSScriptRoot here is Modules\Core\Operations.
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalBackupOrchestrator.psm1") -Force -ErrorAction Stop
@@ -47,7 +48,7 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalRetentionHandler.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.RemoteTransferHandler.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.VssCleanupHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.SnapshotCleanupHandler.psm1") -Force -ErrorAction Stop # NEW
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.SnapshotCleanupHandler.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.FinalisationHandler.psm1") -Force -ErrorAction Stop
 }
 catch {
@@ -88,22 +89,27 @@ function Invoke-PoShBackupJob {
     }
     & $LocalWriteLog -Message "Core/Operations/JobExecutor/Invoke-PoShBackupJob: Logger parameter active for job '$JobName'." -Level "DEBUG"
 
+    # Initialise job-specific state variables
     $currentJobStatus = "SUCCESS"
     $finalLocalArchivePath = $null
     $archiveFileNameOnly = $null
     $VSSPathsToCleanUp = $null
-    $snapshotSessionToCleanUp = $null # NEW
+    $snapshotSessionToCleanUp = $null
     $reportData = $JobReportDataRef.Value
-    $reportData.IsSimulationReport = $IsSimulateMode.IsPresent
-    $reportData.TargetTransfers = [System.Collections.Generic.List[object]]::new()
-    $reportData.ArchiveChecksum = "N/A"
-    $reportData.ArchiveChecksumAlgorithm = "N/A"
-    $reportData.ArchiveChecksumFile = "N/A"
-    $reportData.ArchiveChecksumVerificationStatus = "Not Performed"
     $plainTextPasswordToClearAfterJob = $null
     $effectiveJobConfig = $null
     $skipRemoteTransfersDueToLocalVerificationFailure = $false
 
+    # Initialise global and report data structures for this job run
+    $Global:GlobalJobLogEntries = [System.Collections.Generic.List[object]]::new()
+    $Global:GlobalJobHookScriptData = [System.Collections.Generic.List[object]]::new()
+    $reportData.IsSimulationReport = $IsSimulateMode.IsPresent
+    $reportData.TargetTransfers = [System.Collections.Generic.List[object]]::new()
+    $reportData.HookScripts = $Global:GlobalJobHookScriptData # Assign the reference
+    $reportData.ArchiveChecksum = "N/A"
+    $reportData.ArchiveChecksumAlgorithm = "N/A"
+    $reportData.ArchiveChecksumFile = "N/A"
+    $reportData.ArchiveChecksumVerificationStatus = "Not Performed"
 
     if (-not ($reportData.PSObject.Properties.Name -contains 'ScriptStartTime')) {
         $reportData['ScriptStartTime'] = Get-Date
@@ -218,6 +224,10 @@ function Invoke-PoShBackupJob {
             }
             catch { & $LocalWriteLog -Message "[WARNING] Exception while clearing plain text password from JobExecutor module memory for job '$JobName'. Error: $($_.Exception.Message)" -Level WARNING }
         }
+        
+        # *** THIS IS THE FIX ***
+        # Copy the globally collected log entries into the job-specific report object before finalisation.
+        $reportData.LogEntries = $Global:GlobalJobLogEntries
 
         Invoke-PoShBackupJobFinalisation -JobName $JobName `
             -JobReportDataRef $JobReportDataRef `

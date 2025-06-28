@@ -5,9 +5,9 @@
 #
 @{
     # --- Version & Build Information ---
-    InstalledVersion         = "1.36.0"                           # The semantic version of the PoSh-Backup.ps1 script.
+    InstalledVersion         = "1.37.0"                           # The semantic version of the PoSh-Backup.ps1 script.
     CommitHash               = "N/A"                              # The short Git commit hash of this specific build for precise issue tracking.
-    ReleaseDate              = "2025-06-27"                       # The official release date of this version (YYYY-MM-DD).
+    ReleaseDate              = "2025-06-28"                       # The official release date of this version (YYYY-MM-DD).
 
     # --- Update & Distribution Information ---
     DistributionType         = "ZipPackage"                       # How this version was likely distributed (e.g., "ZipPackage", "GitClone").
