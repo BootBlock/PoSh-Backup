@@ -41,8 +41,6 @@ function Test-PoShBackupTargetConnectivity {
     param(
         [Parameter(Mandatory = $true)]
         [hashtable]$TargetSpecificSettings,
-        [Parameter(Mandatory = $false)]
-        [string]$CredentialsSecretName, # This is inside TargetSpecificSettings
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
