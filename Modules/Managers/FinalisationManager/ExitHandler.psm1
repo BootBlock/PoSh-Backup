@@ -44,7 +44,7 @@ function Invoke-PoShBackupExit {
         [scriptblock]$Logger
     )
 
-    & $Logger -Message "FinalisationManager/ExitHandler: Logger active." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "" -Level "DEBUG" -ErrorAction SilentlyContinue
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
 
     # --- Pause Behaviour ---

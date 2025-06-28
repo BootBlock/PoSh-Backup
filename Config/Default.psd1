@@ -675,19 +675,6 @@
     #region --- Backup Locations (Job Definitions) ---
     # Define individual backup jobs here. Each key in this hashtable represents a unique job name.
     BackupLocations                   = @{
-# Inside @{ ... BackupLocations = @{ ... } } in Config\User.psd1
-
-"RefactorTest" = @{
-    Name                      = "RefactorTest"
-    Path                      = "D:\posh-test"
-    DestinationDir            = "D:\posh-test\dest"
-    Enabled                   = $true
-    GenerateArchiveChecksum   = $true
-    ChecksumAlgorithm         = "SHA256"
-    TestArchiveAfterCreation  = $true
-    PinOnCreation             = $true
-    TargetNames               = @("ExampleUNCShare")                  # Or another valid target you have configured
-}
         "Projects"  = @{
             Name                      = "Projects"                    # Base name for the archive file (date stamp and extension will be appended).
             Description               = "A sample job to back up images."
@@ -771,6 +758,7 @@
             # }
             Schedule = @{ Enabled = $false } # Placeholder for this job
         }
+
         "AnExample_WithRemoteTarget" = @{
             Name                       = "MyImportantDocuments"
             Description                = "An example job that uses a remote UNC target and creates a split ZIP archive."
@@ -823,6 +811,7 @@
                 Time = '02:00'
             }
         }
+
         "HyperV_VM_Backup_Example" = @{
             # --- Snapshot Orchestration Example ---
             Description              = "An example job showing how to back up specific folders from a Hyper-V VM snapshot."
@@ -868,6 +857,7 @@
                 Time = '02:00'
             }
         }
+
         #region --- Comprehensive Example (Commented Out for Reference) ---
         <#
         "ComprehensiveExample_WebApp" = @{
