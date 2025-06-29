@@ -40,17 +40,21 @@ function Get-PoShBackupSecureStringFilePassword {
     & $Logger -Message "PasswordManager/SecureStringFile.Provider: Logger active for path '$SecureStringPath'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
-    
-    if (-not (Test-Path -LiteralPath $SecureStringPath -PathType Leaf)) {
-        throw "SecureStringFile not found at the specified path: '$SecureStringPath'."
-    }
 
-    & $LocalWriteLog -Message "`n[INFO] Attempting to retrieve archive password from SecureStringFile: '$SecureStringPath'." -Level INFO
+    & $LocalWriteLog -Message "`n[INFO] Attempting to retrieve archive password from SecureStringFile: '$SecureStringPath'." -Level "INFO"
+
+    if (-not (Test-Path -LiteralPath $SecureStringPath -PathType Leaf)) {
+        $errorMessage = "SecureStringFile not found at the specified path: '$SecureStringPath'."
+        $adviceMessage = "ADVICE: Please ensure the path is correct in your configuration and that the file has not been moved or deleted."
+        & $LocalWriteLog -Message $errorMessage -Level "ERROR"
+        & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+        throw $errorMessage
+    }
 
     try {
         $secureString = Import-Clixml -LiteralPath $SecureStringPath -ErrorAction Stop
         if ($secureString -is [System.Security.SecureString]) {
-            & $LocalWriteLog -Message "  - Password successfully retrieved from SecureStringFile '$SecureStringPath'." -Level SUCCESS
+            & $LocalWriteLog -Message "  - Password successfully retrieved from SecureStringFile '$SecureStringPath'." -Level "SUCCESS"
             return ConvertFrom-PoShBackupSecureString -SecureString $secureString
         }
         else {
@@ -58,7 +62,11 @@ function Get-PoShBackupSecureStringFilePassword {
         }
     }
     catch {
-        throw "Failed to read or decrypt SecureStringFile '$SecureStringPath'. Ensure the file was created correctly and is accessible by the current user. Error: $($_.Exception.Message)"
+        $errorMessage = "Failed to read or decrypt SecureStringFile '$SecureStringPath'. Error: $($_.Exception.Message)"
+        $adviceMessage = "ADVICE: This usually happens if the file was created by a different user account or on a different computer. It can only be decrypted by the same user who created it on the same machine."
+        & $LocalWriteLog -Message "[ERROR] $errorMessage" -Level "ERROR"
+        & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+        throw $errorMessage
     }
 }
 

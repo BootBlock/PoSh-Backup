@@ -122,7 +122,7 @@ function Format-DependencyGraphInternal {
             Write-DependencyNode -JobName $job -IndentLevel 0 -Map $DependencyMap -Processed $processedJobs -OutputListRef ([ref]$outputLines)
         }
     }
-    
+
     return $outputLines
 }
 #endregion
@@ -150,7 +150,7 @@ function Invoke-PoShBackupConfigTest {
             & $Logger -Message $Message -Level $Level
         }
     }
-    
+
     Write-ConsoleBanner -NameText "Configuration Test Mode" -ValueText "Summary" -CenterText -PrependNewLine
 
     & $LocalWriteLog -Message "  Configuration file(s) loaded and validated successfully from:" -Level "SUCCESS"
@@ -183,13 +183,13 @@ function Invoke-PoShBackupConfigTest {
 
     if ($Configuration.BackupLocations -is [hashtable] -and $Configuration.BackupLocations.Count -gt 0) {
         Write-ConsoleBanner -NameText "Defined Backup Jobs" -BannerWidth 78 -CenterText -PrependNewLine
-    
+
         $jobDetailsList = [System.Collections.Generic.List[hashtable]]::new()
         $maxWidths = @{ JobName = 10; Enabled = 7; Sources = 7; DependsOn = 10; Notes = 5 }
 
         foreach ($jobNameKey in ($Configuration.BackupLocations.Keys | Sort-Object)) {
             $jobConf = $Configuration.BackupLocations[$jobNameKey]
-        
+
             $notes = [System.Collections.Generic.List[string]]::new()
             if ((@(Get-ConfigValue -ConfigObject $jobConf -Key 'TargetNames' -DefaultValue @())).Count -eq 0) { $notes.Add("Local Only") }
             if ((Get-ConfigValue -ConfigObject $jobConf -Key 'EnableVSS' -DefaultValue $Configuration.EnableVSS) -ne $true) { $notes.Add("VSS Disabled") }
@@ -214,7 +214,7 @@ function Invoke-PoShBackupConfigTest {
 
         $headerData = @{ JobName = "Job Name"; Enabled = "Enabled"; Sources = "Sources"; DependsOn = "Depends On"; Notes = "Notes" }
         Write-FormattedTableRowInternal -ColumnWidths $maxWidths -RowData $headerData -ColorMap @{ Default = $Global:ColourHeading }
-    
+
         $headerUnderline = @{}
         $headerData.Keys | ForEach-Object { $headerUnderline[$_] = "-" * $maxWidths[$_] }
         Write-FormattedTableRowInternal -ColumnWidths $maxWidths -RowData $headerUnderline -ColorMap @{ Default = $Global:ColourHeading }
@@ -273,7 +273,7 @@ function Invoke-PoShBackupConfigTest {
     }
 
     $validationMessages = if ($ConfigLoadResult.ContainsKey('ValidationMessages')) { $ConfigLoadResult.ValidationMessages } else { @() }
-    
+
     $finalBannerColor = '$Global:ColourError'
     $finalBannerValue = "Finished with Errors ($($validationMessages.Count))"
     $finalBannerBorderColor = '$Global:ColourError'
@@ -283,6 +283,12 @@ function Invoke-PoShBackupConfigTest {
         $finalBannerValue = "All Checks Passed"
         $finalBannerBorderColor = '$Global:ColourSuccess'
     }
+
+    Write-ConsoleBanner -NameText "Next Steps & Tips" -BannerWidth 78 -CenterText -PrependNewLine
+    & $LocalWriteLog -Message "  - To run a single job  : .\\PoSh-Backup.ps1 -BackupLocationName ""YourJobName""" -Level "ADVICE"
+    & $LocalWriteLog -Message "  - To run a backup set  : .\\PoSh-Backup.ps1 -RunSet ""YourSetName""" -Level "ADVICE"
+    & $LocalWriteLog -Message "  - To simulate a run    : ... -Simulate" -Level "ADVICE"
+    & $LocalWriteLog -Message "  - To see all parameters: Get-Help .\\PoSh-Backup.ps1 -Full" -Level "ADVICE"
 
     Write-ConsoleBanner -NameText "Final Test Result" `
                         -ValueText $finalBannerValue `

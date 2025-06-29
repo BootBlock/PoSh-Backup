@@ -40,7 +40,7 @@
     "The project is heavily modularised into `Core`, `Managers`, `Utilities`, `Operations`, `Reporting`, and `Targets`.",
     "Bundler script `Generate-ProjectBundleForAI.ps1` (v__BUNDLER_VERSION_PLACEHOLDER__) is used to maintain session context.",
     "",
-    "--- Refactor: Modularise ReportingHtml.psm1 (Completed in this Session) ---",
+    "--- Refactor: Modularise ReportingHtml.psm1 (Completed) ---",
     "   - Goal: Decompose the large `ReportingHtml.psm1` to improve maintainability and isolate logic, without changing its public interface.",
     "   - New Directory: `Modules\\Reporting\\ReportingHtml\\` created to house the sub-modules.",
     "   - `ReportingHtml.psm1` (v2.0.5 -> v3.0.0) refactored into a lightweight facade.",
@@ -54,6 +54,28 @@
     "     - **Second Failure:** A `Cannot convert value to type System.String` error occurred because PowerShell's `-f` operator was creating an `object[]` when its inputs were not guaranteed strings. Fixed by explicitly casting the retrieved config values to `[string]` in the facade *before* passing them to the `-f` operator.",
     "     - **Final Failure:** A regression where `{{...}}` placeholders were left in the HTML. This was caused by an inconsistent regex escaping strategy in `ReportAssembler.psm1`. Fixed by using single-quoted literal strings for all regex patterns to avoid double-quoted string parsing ambiguity.",
     "",
+    "--- Feature: Actionable Advice & Enhanced Error Handling (Completed) ---",
+    "   - Goal: Improve user experience by providing clear, actionable advice for common configuration errors and environmental issues.",
+    "   - New Log Level: Added a new 'ADVICE' log level with a distinct colour (`DarkCyan`) to `InitialisationManager.psm1` to make suggestions stand out.",
+    "   - Implemented in the following areas:",
+    "     - **Missing Admin Privileges:** Checks added to `-SyncSchedules` (`ScheduleManager.psm1`) and VSS creation (`VssManager\\Creator.psm1`), advising the user to re-launch as an administrator.",
+    "     - **Locked Secret Vault:** The central `CredentialUtils.psm1` now advises running `Unlock-SecretStore` when a secret retrieval fails.",
+    "     - **Missing Dependencies:** `DependencyChecker.psm1` now provides the exact `Install-Module` command needed for missing external modules.",
+    "     - **Missing Executables:** Checks added for missing `7z.exe` (`7ZipManager\\Discovery.psm1`), `robocopy.exe` (`UNC\\UNCTransferAgent.psm1`), and for archive testing (`PostArchiveProcessor.psm1`) with advice on how to resolve.",
+    "     - **SFTP Host Key Errors:** `SFTP.SessionManager.psm1` now detects host key validation failures and advises the user on how to accept the new key.",
+    "     - **Configuration Errors & Warnings:**",
+    "       - **Missing Source Paths:** `PathValidator.psm1` gives advice for missing source paths.",
+    "       - **Circular Dependencies:** `JobDependencyManager.psm1` advises on how to find and fix dependency loops.",
+    "       - **Empty Backup Sets:** `JobResolver.psm1` now provides a clear error and advice.",
+    "       - **Invalid Target Names:** `BasicValidator.psm1` advises on fixing references to non-existent backup targets.",
+    "       - **Mismatched Archive Type/Extension:** `BasicValidator.psm1` warns the user if, for example, `ArchiveType` is `-tzip` but `ArchiveExtension` is `.7z`.",
+    "       - **Invalid Split Volume Format:** `ArchiveSettings.psm1` advises on the correct format (e.g., '100m').",
+    "       - **SFX/Split Conflict:** `ArchiveSettings.psm1` now advises on how to resolve this configuration conflict.",
+    "     - **Insecure Settings:**",
+    "       - **PlainText Passwords:** The warning in `PasswordManager\\PlainText.Provider.psm1` is now more prominent and advises using SecretManagement.",
+    "       - **Recycle Bin on Network:** The warning in `RetentionManager.psm1` is enhanced with advice to disable the setting for network shares.",
+    "     - **SecureStringFile Failures:** `PasswordManager\\SecureStringFile.Provider.psm1` now gives specific advice for file-not-found and decryption errors.",
+    "   - This initiative makes the script significantly easier to troubleshoot and configure correctly.", "",
     "--- Feature: Desktop (Toast) Notifications (Completed in Previous Session) ---",
     "   - Goal: Add a 'Desktop' notification provider for native Windows toast notifications.",
     "   - Stage 1 (Initial Native API): Attempted to use WinRT APIs directly via `[Windows.UI.Notifications.ToastNotificationManager,...]`. This FAILED in PowerShell 5.1 with a `Cannot find an overload for ToString and the argument count: 1` error due to a known parser bug.",
@@ -217,7 +239,7 @@
     "   - **Interactive Job/Set Selection:** When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets. This is accomplished via `Modules\ConfigManagement\JobResolver.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.37.0 # Refactored ReportingHtml.psm1."
+  main_script_poSh_backup_version = "1.38.0 # Added extensive actionable advice for common errors."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

@@ -99,7 +99,7 @@ function Invoke-PoShBackupDependencyCheck {
                             if ($Config.BackupTargets.ContainsKey($targetName)) {
                                 $targetDef = $Config.BackupTargets[$targetName]
                                 if ($targetDef -isnot [hashtable]) { continue }
-                                
+
                                 # Check for top-level secret keys
                                 if ($targetDef.ContainsKey('CredentialsSecretName') -and (-not [string]::IsNullOrWhiteSpace($targetDef.CredentialsSecretName))) { return $true }
 
@@ -115,7 +115,7 @@ function Invoke-PoShBackupDependencyCheck {
                             }
                         }
                     }
-                    
+
                     # Condition 3: Job uses a notification profile that has a secret defined.
                     $notificationSettings = $jobConf.NotificationSettings
                     if ($notificationSettings -is [hashtable] -and $notificationSettings.Enabled -eq $true -and -not [string]::IsNullOrWhiteSpace($notificationSettings.ProfileName)) {
@@ -163,10 +163,10 @@ function Invoke-PoShBackupDependencyCheck {
             InstallHint = 'Install-Module BurntToast -Scope CurrentUser'
             Condition   = {
                 param($Config, $ActiveJobs)
-                
+
                 # This dependency is only relevant on PowerShell 7+
                 if ($PSVersionTable.PSVersion.Major -lt 6) {
-                    return $false 
+                    return $false
                 }
 
                 # Check if any active job uses a Desktop notification profile.
@@ -174,7 +174,7 @@ function Invoke-PoShBackupDependencyCheck {
                     foreach ($jobName in $ActiveJobs) {
                         if (-not $Config.BackupLocations.ContainsKey($jobName)) { continue }
                         $jobConf = $Config.BackupLocations[$jobName]
-                        
+
                         # We must check the effective settings, considering set-level overrides too.
                         # This simplified check looks at the job's direct config. A full implementation
                         # would need the final effective notification settings. For now, this is a good heuristic.
@@ -203,16 +203,21 @@ function Invoke-PoShBackupDependencyCheck {
             & $LocalWriteLog -Message "  - Condition met for '$($moduleInfo.RequiredFor)'. Checking for module: '$moduleName'." -Level "DEBUG"
 
             if (-not (Get-Module -Name $moduleName -ListAvailable)) {
-                $errorMessage = "Required PowerShell module '$moduleName' is not installed. This module is necessary for the '$($moduleInfo.RequiredFor)' functionality. Please install it by running: $($moduleInfo.InstallHint)"
-                $missingModules.Add($errorMessage)
+                $missingModules.Add($moduleInfo)
             }
         }
     }
 
     if ($missingModules.Count -gt 0) {
-        $fullErrorMessage = "FATAL: One or more required PowerShell modules are missing for the configured features. Please install them to ensure full functionality.`n"
-        $fullErrorMessage += ($missingModules -join "`n")
-        throw $fullErrorMessage
+        $fullErrorMessage = "FATAL: One or more required PowerShell modules are missing for the configured features."
+        & $LocalWriteLog -Message $fullErrorMessage -Level "ERROR"
+
+        foreach ($missingItem in $missingModules) {
+            & $LocalWriteLog -Message "  - Module '$($missingItem.ModuleName)' is required for '$($missingItem.RequiredFor)'." -Level "ERROR"
+            & $LocalWriteLog -Message ("    ADVICE: To resolve this, run the following command in PowerShell: " + $missingItem.InstallHint) -Level "ADVICE"
+        }
+
+        throw "Required module(s) missing. Please see the log for details and installation commands."
     }
 
     & $LocalWriteLog -Message "CoreSetupManager/DependencyChecker: All conditionally required external modules found." -Level "SUCCESS"

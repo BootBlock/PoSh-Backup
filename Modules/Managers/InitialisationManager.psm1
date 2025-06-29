@@ -47,9 +47,11 @@ function Invoke-PoShBackupInitialSetup {
     $Global:ColourHeading                       = "White"
     $Global:ColourSimulate                      = "Magenta"
     $Global:ColourAdmin                         = "Orange"
+    $Global:ColourAdvice                        = "DarkCyan"
 
     # --- Define Global Status-to-Colour Map ---
     $Global:StatusToColourMap = @{
+        "ADVICE"            = $Global:ColourAdvice
         "SUCCESS"           = $Global:ColourSuccess
         "WARNINGS"          = $Global:ColourWarning
         "WARNING"           = $Global:ColourWarning

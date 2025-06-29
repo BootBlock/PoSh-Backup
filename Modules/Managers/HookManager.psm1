@@ -92,19 +92,26 @@ function Invoke-PoShBackupHook {
         }
     }
 
-    if ([string]::IsNullOrWhiteSpace($ScriptPath)) { return } 
+    if ([string]::IsNullOrWhiteSpace($ScriptPath)) { return }
 
     & $LocalWriteLog -Message "`n[INFO] HookManager: Attempting to execute $HookType script: $ScriptPath" -Level "HOOK"
     if (-not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) {
-        & $LocalWriteLog -Message "[INFO] HookManager: $HookType script not found at '$ScriptPath'. Skipping execution." -Level "INFO"
+        $errorMessage = "Hook script configured for '$HookType' was not found at the specified path."
+        $adviceMessage = "Please ensure the file exists at '$ScriptPath' or remove the path from your configuration."
+
+        & $LocalWriteLog -Message $errorMessage -Level "ERROR"
+        & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+
         if ($Global:GlobalJobHookScriptData -is [System.Collections.Generic.List[object]]) {
-            $Global:GlobalJobHookScriptData.Add([PSCustomObject]@{ Name = $HookType; Path = $ScriptPath; Status = "Not Found"; Output = "Script file not found at specified path." })
+            $Global:GlobalJobHookScriptData.Add([PSCustomObject]@{ Name = $HookType; Path = $ScriptPath; Status = "Failure (Not Found)"; Output = $errorMessage })
         }
+        # We do not 'return' here, allowing the main job to continue but logging this as a configuration failure for the hook.
+        # This prevents a typo in an optional post-job script from halting a critical backup.
         return
     }
 
     $outputLog = [System.Collections.Generic.List[string]]::new()
-    $status = "Success" 
+    $status = "Success"
     try {
         if ($IsSimulateMode.IsPresent) {
             & $LocalWriteLog -Message "SIMULATE: The $HookType script at '$ScriptPath' would be executed." -Level "SIMULATE"
@@ -119,7 +126,7 @@ function Invoke-PoShBackupHook {
             foreach ($key in $HookParameters.Keys) {
                 $value = $HookParameters[$key]
                 if ($value -is [bool] -or $value -is [switch]) {
-                    if ($value) { 
+                    if ($value) {
                         $paramString += " -$key"
                     }
                 }
@@ -158,14 +165,14 @@ function Invoke-PoShBackupHook {
                 $errorMessageForLog = "HookManager: $HookType script '$ScriptPath' exited with a non-zero error code: $($proc.ExitCode)."
                 & $LocalWriteLog -Message "[ERROR] $errorMessageForLog" -Level "ERROR"
                 $status = "Failure (ExitCode $($proc.ExitCode))"
-    
+
                 # Add a clear error message with the exit code to the report's output field.
                 $outputLog.Add($errorMessageForLog)
 
                 if (-not [string]::IsNullOrWhiteSpace($stdErrContent)) {
                     & $LocalWriteLog -Message "    $HookType Script STDERR:" -Level "ERROR"
                     $outputLog.Add("--- STDERR ---") # Add a separator for clarity in the report
-                    $stdErrContent.Split([Environment]::NewLine) | ForEach-Object { 
+                    $stdErrContent.Split([Environment]::NewLine) | ForEach-Object {
                         & $LocalWriteLog -Message "      | $_" -Level "ERROR" -NoTimestampToLogFile
                         $outputLog.Add($_)           # Add the raw line to the report output
                     }

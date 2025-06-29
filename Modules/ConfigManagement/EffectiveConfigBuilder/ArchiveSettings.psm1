@@ -46,7 +46,8 @@ function Resolve-ArchiveConfiguration {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -71,32 +72,42 @@ function Resolve-ArchiveConfiguration {
 
     if (-not [string]::IsNullOrWhiteSpace($_cliSplitVolumeSize)) {
         $resolvedSettings.SplitVolumeSize = $_cliSplitVolumeSize
-    } elseif (-not [string]::IsNullOrWhiteSpace($_jobSplitVolumeSize)) {
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($_jobSplitVolumeSize)) {
         $resolvedSettings.SplitVolumeSize = $_jobSplitVolumeSize
-    } else {
+    }
+    else {
         $resolvedSettings.SplitVolumeSize = $_globalSplitVolumeSize
     }
-    
+
     # Validate the resolved SplitVolumeSize format
     if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.SplitVolumeSize) -and $resolvedSettings.SplitVolumeSize -notmatch "^\d+[kmg]$") {
-        & $LocalWriteLog -Message "[WARNING] Resolve-ArchiveConfiguration: Invalid SplitVolumeSize format '$($resolvedSettings.SplitVolumeSize)'. Expected number followed by 'k', 'm', or 'g'. Splitting will be disabled." -Level "WARNING"
+        $warningMessage = "Invalid SplitVolumeSize format '$($resolvedSettings.SplitVolumeSize)'. Splitting will be disabled for this job."
+        $adviceMessage = "ADVICE: The format must be a number followed immediately by 'k', 'm', or 'g' (e.g., '700m', '4g')."
+        & $LocalWriteLog -Message "[WARNING] Resolve-ArchiveConfiguration: $warningMessage" -Level "WARNING"
+        & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
         $resolvedSettings.SplitVolumeSize = "" # Disable if invalid
     }
 
     # Conflict: SplitVolumeSize takes precedence over CreateSFX
     if (-not [string]::IsNullOrWhiteSpace($resolvedSettings.SplitVolumeSize) -and $resolvedSettings.CreateSFX) {
         $jobNameForLog = if ($JobConfig.ContainsKey('Name')) { $JobConfig.Name } else { "Current Job" }
-        & $LocalWriteLog -Message "[WARNING] Resolve-ArchiveConfiguration: Both SplitVolumeSize ('$($resolvedSettings.SplitVolumeSize)') and CreateSFX (`$true`) are configured for job '$jobNameForLog'. SplitVolumeSize takes precedence; SFX creation will be disabled for this job." -Level "WARNING"
-        $resolvedSettings.CreateSFX = $false # Disable SFX
+        $warningMessage = "Both SplitVolumeSize ('$($resolvedSettings.SplitVolumeSize)') and CreateSFX (`$true`) are configured for job '$jobNameForLog'. SplitVolumeSize takes precedence; SFX creation will be disabled for this job."
+        $adviceMessage = "ADVICE: If you intended to create a self-extracting archive, remove or comment out the 'SplitVolumeSize' setting for this job in your configuration."
+        & $LocalWriteLog -Message "[WARNING] Resolve-ArchiveConfiguration: $warningMessage" -Level "WARNING"
+        & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+        $resolvedSettings.CreateSFX = $false
         $reportData.SFXCreationOverriddenBySplit = $true
-    } else {
+    }
+    else {
         $reportData.SFXCreationOverriddenBySplit = $false
     }
 
     # Determine final JobArchiveExtension
     if ($resolvedSettings.CreateSFX) {
         $resolvedSettings.JobArchiveExtension = ".exe"
-    } else {
+    }
+    else {
         $resolvedSettings.JobArchiveExtension = $resolvedSettings.InternalArchiveExtension
     }
 
@@ -114,7 +125,7 @@ function Resolve-ArchiveConfiguration {
             $resolvedSettings.GenerateArchiveChecksum = $false # Manifest takes precedence
         }
     }
-    
+
     return $resolvedSettings
 }
 

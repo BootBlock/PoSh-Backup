@@ -45,6 +45,13 @@ function New-PoShBackupVssShadowCopy {
 
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
 
+    if (-not (Test-AdminPrivilege -Logger $Logger)) {
+        $errorMessage = "VSS operations require Administrator privileges, but the script is running in a non-elevated session."
+        & $LocalWriteLog -Message $errorMessage -Level "ERROR"
+        & $LocalWriteLog -Message "To use VSS, please re-launch PowerShell using the 'Run as Administrator' option." -Level "ADVICE"
+        throw $errorMessage
+    }
+
     $currentCallShadowIDs = $VssIdHashtableRef.Value
     & $LocalWriteLog -Message "`n[INFO] VssManager/Creator: Initialising Volume Shadow Copy Service (VSS) operations..." -Level "VSS"
     $mappedShadowPaths = @{}
@@ -127,7 +134,7 @@ function New-PoShBackupVssShadowCopy {
             }
         } catch { & $LocalWriteLog -Message "[WARNING] VssManager/Creator: Error during VSS mapping for '$originalFullPath': $($_.Exception.Message)." -Level WARNING }
     }
-    
+
     return $mappedShadowPaths
 }
 #endregion

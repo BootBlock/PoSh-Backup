@@ -68,7 +68,7 @@ function Get-AvailableDriveLetterInternal-HyperV {
     $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "DEBUG") & $Logger -Message $MessageParam -Level $LevelParam }
 
     $existingDriveLetters = (Get-PSDrive -PSProvider 'FileSystem').Name
-    foreach ($letter in 'Z','Y','X','W','V','U','T','S','R','Q','P','O','N','M','L','K','J','I','H','G','F','E','D') {
+    foreach ($letter in 'Z', 'Y', 'X', 'W', 'V', 'U', 'T', 'S', 'R', 'Q', 'P', 'O', 'N', 'M', 'L', 'K', 'J', 'I', 'H', 'G', 'F', 'E', 'D') {
         if ($letter -notin $existingDriveLetters) {
             & $LocalWriteLog -Message "HyperV.Snapshot Provider: Found available drive letter: $letter"
             return $letter
@@ -106,13 +106,13 @@ function New-PoShBackupSnapshotInternal {
     & $LocalWriteLog -Message "HyperV.Snapshot Provider: Initializing snapshot creation for VM '$ResourceToSnapshot'." -Level "DEBUG"
 
     $result = @{
-        Success             = $false
-        SessionId           = $null
-        ProviderType        = "HyperV"
-        VMName              = $ResourceToSnapshot
-        SnapshotObject      = $null
-        MountedVhdInfo      = @{} # Maps VHD path to @{Disk=[DiskObj]; AssignedLetter='G'; AssignedPartitionNumber=2}
-        ErrorMessage        = "An unknown error occurred."
+        Success        = $false
+        SessionId      = $null
+        ProviderType   = "HyperV"
+        VMName         = $ResourceToSnapshot
+        SnapshotObject = $null
+        MountedVhdInfo = @{} # Maps VHD path to @{Disk=[DiskObj]; AssignedLetter='G'; AssignedPartitionNumber=2}
+        ErrorMessage   = "An unknown error occurred."
     }
 
     if (-not (Get-Module -Name Hyper-V -ListAvailable)) {
@@ -154,7 +154,7 @@ function New-PoShBackupSnapshotInternal {
         }
 
         & $LocalWriteLog -Message "HyperV.Snapshot Provider: Creating application-consistent checkpoint for VM '$($vm.Name)'..." -Level "INFO"
-        
+
         $checkpointParams = @{ VM = $vm; ErrorAction = 'Stop'; Passthru = $true }
         $snapshot = Checkpoint-VM @checkpointParams
 
@@ -191,12 +191,20 @@ function New-PoShBackupSnapshotInternal {
         $result.ErrorMessage = $null
     }
     catch {
-        & $LocalWriteLog -Message "HyperV.Snapshot Provider: An error occurred during snapshot creation or mount. Error: $($_.Exception.Message)" -Level "ERROR"
+        $errorMessage = "An error occurred during snapshot creation or mount. Error: $($_.Exception.Message)"
+        & $LocalWriteLog -Message "HyperV.Snapshot Provider: $errorMessage" -Level "ERROR"
         $result.ErrorMessage = $_.Exception.Message
+
+        # Add specific advice for common mount failures
+        if ($errorMessage -match 'mount|online|partition|drive letter') {
+            $adviceMessage = "ADVICE: This can happen if the host's SAN Policy is 'OfflineShared' or 'OfflineAll'. To fix, run 'diskpart' as an Administrator and use the commands 'san policy' to view and 'san policy=OnlineAll' to set the policy, then try again."
+            & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+        }
+
         # Attempt to clean up a partial success (e.g., snapshot created but mount failed)
         if ($null -ne $result.SnapshotObject) {
             & $LocalWriteLog -Message "HyperV.Snapshot Provider: Attempting to clean up partially created snapshot..." -Level "WARNING"
-            $removeParams = @{ SnapshotSession = $result; PSCmdlet = $PSCmdlet }
+            $removeParams = @{ SnapshotSession = $result; PSCmdlet = $PSCmdlet; IsSimulateMode = $IsSimulateMode }
             Remove-PoShBackupSnapshotInternal @removeParams
         }
         return $result
@@ -230,17 +238,18 @@ function Get-PoShBackupSnapshotPathsInternal {
             $partitions | ForEach-Object { & $LocalWriteLog -Message ("    - [DIAGNOSTIC]   -> Partition #$($_.PartitionNumber), Type: $($_.Type), Size: $([math]::Round($_.Size / 1GB, 2)) GB, DriveLetter: '$($_.DriveLetter)', IsActive: $($_.IsActive), IsBoot: $($_.IsBoot)") -Level "INFO" }
 
             $mainPartition = $partitions | Where-Object { $_.Type -notin 'Recovery', 'System', 'Reserved', 'Unknown' } | Sort-Object Size -Descending | Select-Object -First 1
-            
+
             if ($null -eq $mainPartition) {
                 & $LocalWriteLog -Message "    - [WARNING] HyperV.Snapshot Provider: Could not find a suitable main data partition on disk $($disk.Number)." -Level "WARNING"
                 continue
             }
             & $LocalWriteLog -Message "  - [DIAGNOSTIC] Selected main partition #$($mainPartition.PartitionNumber) for drive letter assignment." -Level "INFO"
-            
+
             if ($mainPartition.DriveLetter) {
                 $mountedPaths.Add("$($mainPartition.DriveLetter):")
                 & $LocalWriteLog -Message "    - [INFO] Found existing drive letter '$($mainPartition.DriveLetter):' for partition $($mainPartition.PartitionNumber) on disk $($disk.Number)." -Level "INFO"
-            } else {
+            }
+            else {
                 & $LocalWriteLog -Message "    - [INFO] Partition #$($mainPartition.PartitionNumber) on disk $($disk.Number) has no drive letter. Attempting to assign one..." -Level "INFO"
                 $availableLetter = Get-AvailableDriveLetterInternal-HyperV -Logger $Logger
                 if ($availableLetter) {
@@ -251,10 +260,12 @@ function Get-PoShBackupSnapshotPathsInternal {
                         $mountInfo.AssignedLetter = $availableLetter
                         $mountInfo.AssignedPartitionNumber = $mainPartition.PartitionNumber
                         & $LocalWriteLog -Message "      - [SUCCESS] HyperV.Snapshot Provider: Successfully assigned drive letter '$($availableLetter):' to partition #$($mainPartition.PartitionNumber)." -Level "SUCCESS"
-                    } catch {
+                    }
+                    catch {
                         & $LocalWriteLog -Message "      - [CRITICAL ERROR] FAILED to assign drive letter '$($availableLetter):' to partition #$($mainPartition.PartitionNumber). Exception: $($_.ToString())" -Level "ERROR"
                     }
-                } else {
+                }
+                else {
                     & $LocalWriteLog -Message "    - [WARNING] No available drive letters found (D-Z)." -Level "WARNING"
                 }
             }
@@ -294,7 +305,8 @@ function Remove-PoShBackupSnapshotInternal {
                     Write-Verbose "HyperV.Snapshot Provider: Removing assigned drive letter '$($mountInfo.AssignedLetter):'."
                     try {
                         Remove-PartitionAccessPath -DiskNumber $mountInfo.Disk.Number -PartitionNumber $mountInfo.AssignedPartitionNumber -DriveLetter $mountInfo.AssignedLetter -ErrorAction Stop | Out-Null
-                    } catch {
+                    }
+                    catch {
                         Write-Warning "HyperV.Snapshot Provider: Failed to remove assigned drive letter '$($mountInfo.AssignedLetter)'. Manual cleanup may be required. Error: $($_.Exception.Message)"
                     }
                 }

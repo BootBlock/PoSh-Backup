@@ -138,8 +138,8 @@ function Invoke-PoShBackupPostArchiveProcessing {
         }
         else {
             $volumeFiles = Get-ChildItem -Path (Split-Path -Path $FinalArchivePathFor7ZipCommand -Parent) -Filter ($FinalArchivePathFor7ZipCommand + ".*") |
-                           Where-Object { $_.Name -match ([regex]::Escape($FinalArchivePathFor7ZipCommand) + "\.\d{3,}") } |
-                           Sort-Object Name
+            Where-Object { $_.Name -match ([regex]::Escape($FinalArchivePathFor7ZipCommand) + "\.\d{3,}") } |
+            Sort-Object Name
             if ($volumeFiles.Count -gt 0) {
                 $manifestContentBuilder = [System.Text.StringBuilder]::new()
                 $allVolumeHashesSuccessful = $true
@@ -148,7 +148,8 @@ function Invoke-PoShBackupPostArchiveProcessing {
                     if ($null -ne $volHash) {
                         $null = $manifestContentBuilder.AppendLine("$($volHash.ToUpperInvariant())  $($volumeFile.Name)")
                         $volumeChecksumsForReport.Add(@{VolumeName = $volumeFile.Name; Checksum = $volHash.ToUpperInvariant() })
-                    } else {
+                    }
+                    else {
                         & $LocalWriteLog -Message "[ERROR] Failed to generate checksum for volume '$($volumeFile.FullName)'. Manifest will be incomplete." -Level "ERROR"
                         $null = $manifestContentBuilder.AppendLine("ERROR_GENERATING_CHECKSUM  $($volumeFile.Name)")
                         $volumeChecksumsForReport.Add(@{VolumeName = $volumeFile.Name; Checksum = "Error" })
@@ -159,12 +160,14 @@ function Invoke-PoShBackupPostArchiveProcessing {
                     [System.IO.File]::WriteAllText($manifestFilePath, $manifestContentBuilder.ToString(), [System.Text.Encoding]::UTF8)
                     & $LocalWriteLog -Message "  - Checksum manifest file created: '$manifestFilePath'" -Level "SUCCESS"
                     $reportData.ArchiveChecksum = if ($allVolumeHashesSuccessful) { "Manifest Generated Successfully" } else { "Manifest Generated (With Errors)" }
-                } catch {
+                }
+                catch {
                     & $LocalWriteLog -Message "[ERROR] Failed to write checksum manifest file '$manifestFilePath'. Error: $($_.Exception.Message)" -Level "ERROR"
                     $reportData.ArchiveChecksum = "Error (Failed to write manifest file)"
                     if ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
                 }
-            } else {
+            }
+            else {
                 & $LocalWriteLog -Message "[WARNING] No volume files found for '$FinalArchivePathFor7ZipCommand' after archive creation. Cannot generate manifest." -Level "WARNING"
                 $reportData.ArchiveChecksum = "Skipped (No volumes found)"
             }
@@ -182,7 +185,8 @@ function Invoke-PoShBackupPostArchiveProcessing {
             $reportData.ArchiveChecksumFile = $checksumFilePath
             & $LocalWriteLog -Message "SIMULATE: Would generate a $($EffectiveJobConfig.ChecksumAlgorithm) checksum for the archive '$FinalArchivePathForReturn' and save it to '$checksumFilePath'." -Level "SIMULATE"
             $reportData.ArchiveChecksum = "SIMULATED_CHECKSUM_VALUE"
-        } else {
+        }
+        else {
             $archiveFileItem = Get-Item -LiteralPath $FinalArchivePathForReturn -ErrorAction SilentlyContinue
             if ($null -ne $archiveFileItem -and $archiveFileItem.Exists) {
                 $checksumFilePath = "$($archiveFileItem.FullName).$checksumFileExtension"
@@ -193,17 +197,20 @@ function Invoke-PoShBackupPostArchiveProcessing {
                     try {
                         [System.IO.File]::WriteAllText($checksumFilePath, "$($generatedHash.ToUpperInvariant())  $($archiveNameForInChecksumFile)", [System.Text.Encoding]::UTF8)
                         & $LocalWriteLog -Message "  - Checksum file created: '$checksumFilePath' with content: '$($generatedHash.ToUpperInvariant())  $($archiveNameForInChecksumFile)'" -Level "SUCCESS"
-                    } catch {
+                    }
+                    catch {
                         & $LocalWriteLog -Message "[ERROR] Failed to write checksum file '$checksumFilePath'. Error: $($_.Exception.Message)" -Level "ERROR"
                         $reportData.ArchiveChecksum = "Error (Failed to write file)"
                         if ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
                     }
-                } else {
+                }
+                else {
                     & $LocalWriteLog -Message "[ERROR] Checksum generation failed for '$FinalArchivePathForReturn'." -Level "ERROR"
                     $reportData.ArchiveChecksum = "Error (Generation failed)"
                     if ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
                 }
-            } else {
+            }
+            else {
                 & $LocalWriteLog -Message "[WARNING] Archive file '$FinalArchivePathForReturn' not found. Skipping checksum generation." -Level "WARNING"
                 $reportData.ArchiveChecksum = "Skipped (Archive not found)"
             }
@@ -214,7 +221,17 @@ function Invoke-PoShBackupPostArchiveProcessing {
     $shouldTestArchiveNow = $EffectiveJobConfig.JobTestArchiveAfterCreation -or $EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer
     $reportData.ArchiveTested = $shouldTestArchiveNow
     if ($shouldTestArchiveNow) {
-        if ($IsSimulateMode.IsPresent) {
+        if ([string]::IsNullOrWhiteSpace($sevenZipPathGlobal) -or -not (Test-Path -LiteralPath $sevenZipPathGlobal -PathType Leaf)) {
+            $errorMessage = "Archive testing is enabled for job '$($EffectiveJobConfig.BaseFileName)', but the 7-Zip executable was not found."
+            $adviceMessage = "ADVICE: Please ensure 7-Zip is installed and the 'SevenZipPath' is correctly set in your configuration."
+            & $LocalWriteLog -Message "[ERROR] $errorMessage" -Level "ERROR"
+            & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+            $reportData.ArchiveTestResult = "FAILED (7-Zip Not Found)"
+            if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentStatus = "FAILURE" }
+            elseif ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
+            # Skip the rest of the testing logic
+        }
+        elseif ($IsSimulateMode.IsPresent) {
             & $LocalWriteLog -Message "SIMULATE: Would test the integrity of the newly created archive '$FinalArchivePathForReturn'." -Level "SIMULATE"
             $reportData.ArchiveTestResult = "Not Performed (Simulation Mode)"
             $reportData.ArchiveChecksumVerificationStatus = "Skipped (Simulation Mode)"
@@ -256,8 +273,8 @@ function Invoke-PoShBackupPostArchiveProcessing {
     if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.PostLocalArchiveScriptPath)) {
         & $LocalWriteLog -Message "`n[INFO] PostArchiveProcessor: Executing Post-Local-Archive Hook..." -Level "INFO"
         $hookArgsForLocalArchive = @{
-            JobName      = $EffectiveJobConfig.BaseFileName; Status = $currentStatus
-            ArchivePath  = $FinalArchivePathForReturn; ConfigFile = $ActualConfigFile
+            JobName = $EffectiveJobConfig.BaseFileName; Status = $currentStatus
+            ArchivePath = $FinalArchivePathForReturn; ConfigFile = $ActualConfigFile
             SimulateMode = $IsSimulateMode.IsPresent
         }
         if ($reportData.ContainsKey('ArchiveChecksum') -and $reportData.ArchiveChecksum -notlike "N/A*" -and $reportData.ArchiveChecksum -notlike "Error*") {
@@ -274,7 +291,7 @@ function Invoke-PoShBackupPostArchiveProcessing {
 
     # --- Pinning Logic ---
     if ($EffectiveJobConfig.PinOnCreation) {
-         & $LocalWriteLog -Message "`n[INFO] PinOnCreation is enabled for this job. Pinning newly created archive..." -Level "INFO"
+        & $LocalWriteLog -Message "`n[INFO] PinOnCreation is enabled for this job. Pinning newly created archive..." -Level "INFO"
         $pathToPin = $FinalArchivePathFor7ZipCommand
         if ($IsSimulateMode.IsPresent) {
             & $LocalWriteLog -Message "SIMULATE: Would pin the new backup by creating a marker file for '$pathToPin'." -Level "SIMULATE"
@@ -285,16 +302,19 @@ function Invoke-PoShBackupPostArchiveProcessing {
                 try {
                     Add-PoShBackupPin -Path $pathToPin -Reason $EffectiveJobConfig.PinReason -Logger $Logger
                     $reportData.ArchivePinned = "Yes"
-                } catch {
+                }
+                catch {
                     $pinError = "Failed to pin archive '$pathToPin'. Error: $($_.Exception.Message)"
                     & $LocalWriteLog -Message "[ERROR] $pinError" -Level "ERROR"
                     $reportData.ArchivePinned = "Failed"; if ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
                 }
-            } else {
+            }
+            else {
                 & $LocalWriteLog -Message "[INFO] Pinning of archive '$pathToPin' skipped by user (ShouldProcess)." -Level "INFO"
                 $reportData.ArchivePinned = "No (Skipped by user)"
             }
-        } else {
+        }
+        else {
             & $LocalWriteLog -Message "[WARNING] Cannot pin archive because the primary archive file was not found at '$FinalArchivePathForReturn'." -Level "WARNING"
             $reportData.ArchivePinned = "Skipped (Archive Not Found)"
         }

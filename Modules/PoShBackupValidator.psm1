@@ -83,7 +83,8 @@ function Invoke-PoShBackupConfigValidation {
 
     if (-not (Get-Command Test-SchemaRecursiveInternal -ErrorAction SilentlyContinue)) {
         $ValidationMessagesListRef.Value.Add("CRITICAL: PoShBackupValidator: Core schema validation function 'Test-SchemaRecursiveInternal' not found. Sub-module 'SchemaExecutionEngine.psm1' might have failed to load. Generic schema validation skipped.")
-    } else {
+    }
+    else {
         Test-SchemaRecursiveInternal -ConfigObject $ConfigurationToValidate -Schema $Script:LoadedConfigSchema -ValidationMessages $ValidationMessagesListRef -CurrentPath "Configuration"
     }
 
@@ -148,15 +149,22 @@ function Invoke-PoShBackupConfigValidation {
 
             try {
                 Import-Module -Name $targetProviderModulePath -Force -ErrorAction Stop -WarningAction SilentlyContinue
-                $validatorCmd = Get-Command $validationFunctionName -Module (Get-Module -Name $targetProviderModuleName.Replace(".psm1","")) -ErrorAction SilentlyContinue
+                $validatorCmd = Get-Command $validationFunctionName -Module (Get-Module -Name $targetProviderModuleName.Replace(".psm1", "")) -ErrorAction SilentlyContinue
 
                 if ($validatorCmd) {
                     & $LocalWriteLog -Message "PoShBackupValidator: Invoking specific settings validation for target '$targetName' (Type: '$targetType')." -Level "DEBUG"
                     & $validatorCmd -TargetInstanceConfiguration $targetInstance -TargetInstanceName $targetName -ValidationMessagesListRef $ValidationMessagesListRef -Logger $Logger
-                } else {
-                    $ValidationMessagesListRef.Value.Add("PoShBackupValidator: Validation function '$validationFunctionName' not found in provider module '$targetProviderModuleName' for target '$targetName'.")
                 }
-            } catch {
+                else {
+                    $errorMessage = "Validation function '$validationFunctionName' not found in provider module '$targetProviderModuleName' for target '$targetName'."
+                    $adviceMessage = "ADVICE: For custom target providers, ensure you have implemented and exported a function named '$validationFunctionName' to perform target-specific settings validation."
+                    $ValidationMessagesListRef.Value.Add($errorMessage)
+                    # Also log it for immediate feedback during -TestConfig
+                    & $LocalWriteLog -Message "[WARNING] PoShBackupValidator: $errorMessage" -Level "WARNING"
+                    & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+                }
+            }
+            catch {
                 $ValidationMessagesListRef.Value.Add("PoShBackupValidator: Error loading or executing validation for target '$targetName' (Type: '$targetType'). Module: '$targetProviderModuleName'. Error: $($_.Exception.Message)")
             }
         }

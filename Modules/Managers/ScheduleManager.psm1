@@ -68,8 +68,12 @@ function Sync-PoShBackupSchedule {
     & $LocalWriteLog -Message "ScheduleManager: Starting synchronisation of scheduled tasks." -Level "HEADING"
 
     if (-not (Test-AdminPrivilege -Logger $Logger)) {
-        & $LocalWriteLog -Message "ScheduleManager: This script must be run with Administrator privileges to manage scheduled tasks. Aborting." -Level "ERROR"
-        return
+        $errorMessage = "ScheduleManager: Synchronising schedules requires Administrator privileges."
+        $adviceMessage = "Please re-launch your PowerShell session using the 'Run as Administrator' option and try again."
+        & $LocalWriteLog -Message $errorMessage -Level "ERROR"
+        & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+
+        throw "Insufficient privileges for scheduled task management."
     }
 
     $createdTasks = [System.Collections.Generic.List[string]]::new()

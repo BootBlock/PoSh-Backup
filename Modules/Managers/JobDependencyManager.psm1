@@ -37,7 +37,10 @@ function Test-CycleInJobRecursiveInternal ($currentJob, $currentPathMessage, $de
                 continue
             }
             if ($visitingHashtable.ContainsKey($prerequisite)) {
-                $ValidationMessagesListRef.Value.Add("Circular Dependency Detected: $($currentPathMessage) -> $prerequisite (forms a cycle).")
+                $errorMessage = "Circular Dependency Detected: $($currentPathMessage) -> $prerequisite (forms a cycle)."
+                $adviceMessage = "ADVICE: To fix this, review the 'DependsOnJobs' setting for the listed jobs and remove the circular reference."
+                if (-not ($ValidationMessagesListRef.Value -contains $errorMessage)) { $ValidationMessagesListRef.Value.Add($errorMessage) }
+                if (-not ($ValidationMessagesListRef.Value -contains $adviceMessage)) { $ValidationMessagesListRef.Value.Add($adviceMessage) }
                 return $true # Cycle found
             }
             if (-not $processedHashtable.ContainsKey($prerequisite)) {
@@ -113,8 +116,10 @@ function Test-PoShBackupJobDependencyGraph {
                     $dependencyListForValidation[$jobName] += $depJobName
 
                     if ($jobNamesArray -notcontains $depJobName) {
-                        # Check against PowerShell array
-                        $ValidationMessagesListRef.Value.Add("Job Dependency Error: Job '$jobName' has a dependency on a non-existent job '$depJobName'.")
+                        $errorMessage = "Job Dependency Error: Job '$jobName' has a dependency on a non-existent job '$depJobName'."
+                        $adviceMessage = "ADVICE: Check for a typo in the 'DependsOnJobs' array for '$jobName', or ensure the job '$depJobName' is defined in 'BackupLocations'."
+                        $ValidationMessagesListRef.Value.Add($errorMessage)
+                        $ValidationMessagesListRef.Value.Add($adviceMessage)
                     }
                     elseif ($AllBackupLocations.ContainsKey($depJobName)) {
                         $depJobConf = $AllBackupLocations[$depJobName]

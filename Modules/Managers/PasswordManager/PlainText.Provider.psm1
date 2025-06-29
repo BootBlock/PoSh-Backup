@@ -36,9 +36,14 @@ function Get-PoShBackupPlainTextPassword {
     if ([string]::IsNullOrWhiteSpace($PlainTextPassword)) {
         throw "ArchivePasswordMethod is 'PlainText' but 'ArchivePasswordPlainText' is empty or not defined in the configuration for job '$JobName'."
     }
-    
-    & $LocalWriteLog -Message "[SECURITY WARNING] Using PLAIN TEXT password from configuration for job '$JobName'. This is INSECURE and NOT RECOMMENDED for production environments." -Level "WARNING"
-    
+
+    $warningMessage = "Using PLAIN TEXT password from configuration for job '$JobName'."
+    $adviceMessage = "ADVICE: This is a significant security risk. It is strongly recommended to use the 'SecretManagement' method instead to keep credentials secure."
+    & $LocalWriteLog -Message "****************** SECURITY WARNING ******************" -Level "ERROR"
+    & $LocalWriteLog -Message $warningMessage -Level "ERROR"
+    & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+    & $LocalWriteLog -Message "****************************************************" -Level "ERROR"
+
     return $PlainTextPassword
 }
 

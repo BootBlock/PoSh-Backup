@@ -96,9 +96,14 @@ function Get-PoShBackupSecret {
         }
     }
     catch {
-        $userFriendlyError = "Failed to retrieve secret '{0}' for {1}. This can often happen if the Secret Vault is locked. Try running `Unlock-SecretStore` before executing the script." -f $SecretName, $SecretPurposeForLog
-        & $LocalWriteLog -Message "[ERROR] $userFriendlyError" -Level "ERROR"
-        & $LocalWriteLog -Message "  - Underlying SecretManagement Error: $($_.Exception.Message)" -Level "DEBUG"
+        $errorMessage = "Failed to retrieve secret '{0}' for {1}." -f $SecretName, $SecretPurposeForLog
+        $adviceMessage = "This can often happen if the Secret Vault is locked. Try running `Unlock-SecretStore` in your PowerShell session before executing the script."
+
+        & $LocalWriteLog -Message ($errorMessage + " Error: " + $_.Exception.Message) -Level "ERROR"
+        & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+
+        # Re-throw a clean, user-friendly exception.
+        throw $errorMessage
     }
     return $null
 }

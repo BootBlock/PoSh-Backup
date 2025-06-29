@@ -30,7 +30,8 @@
 # $PSScriptRoot here is Modules\ConfigManagement.
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
-} catch {
+}
+catch {
     Write-Error "JobResolver.psm1 FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
@@ -77,12 +78,12 @@ function Get-JobsToProcess {
     & $Logger -Message "JobResolver/Get-JobsToProcess: Initialising job/set resolution." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     # --- START: Configurable colours for the interactive menu ---
-    $menuInstructionColour  = "White"
-    $menuJobColour          = "Green"
-    $menuSetColour          = "Cyan"
-    $menuHeaderColour       = "Gray"
-    $menuNumberColour       = "DarkYellow"
-    $menuQuitColour         = "Red"
+    $menuInstructionColour = "White"
+    $menuJobColour = "Green"
+    $menuSetColour = "Cyan"
+    $menuHeaderColour = "Gray"
+    $menuNumberColour = "DarkYellow"
+    $menuQuitColour = "Red"
     # --- END: Configurable colours ---
 
     $LocalWriteLog = {
@@ -112,7 +113,7 @@ function Get-JobsToProcess {
                 if ($initialJobsToConsider.Count -eq 0) {
                     return @{ Success = $false; ErrorMessage = "JobResolver: Backup Set '$setName' defined but 'JobNames' list is empty/invalid." }
                 }
-                
+
                 # Refactored to use global default
                 $globalOnErrorPolicy = Get-ConfigValue -ConfigObject $Config -Key 'DefaultOnErrorInJob' -DefaultValue "StopSet"
                 $setOnErrorPolicy = Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue $globalOnErrorPolicy
@@ -126,7 +127,11 @@ function Get-JobsToProcess {
                 & $LocalWriteLog -Message "  - JobResolver: Policy for set on job failure: $(if($stopSetOnErrorPolicy){'StopSet'}else{'ContinueSet'})" -Level "INFO"
             }
             else {
-                return @{ Success = $false; ErrorMessage = "JobResolver: Backup Set '$setName' defined but has no 'JobNames' listed." }
+                $errorMessage = "Backup Set '$setName' has an empty 'JobNames' list."
+                $adviceMessage = "ADVICE: To fix this, add at least one valid job name to the 'JobNames' array for this set in your configuration file."
+                & $LocalWriteLog -Message "[ERROR] $errorMessage" -Level "ERROR"
+                & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+                return @{ Success = $false; ErrorMessage = $errorMessage }
             }
         }
         else {
@@ -163,7 +168,8 @@ function Get-JobsToProcess {
         elseif ($allDefinedJobs.Count -eq 0) {
             return @{ Success = $false; ErrorMessage = "JobResolver: No job/set specified, and no Backup Locations defined. Nothing to back up." }
         }
-        else { # Multiple jobs and/or sets exist, so prompt the user.
+        else {
+            # Multiple jobs and/or sets exist, so prompt the user.
             Write-Host
             Write-ConsoleBanner -NameText "PoSh Backup" -ValueText "Interactive Selection" -CenterText
             Write-Host "Please select a Backup Job or a Backup Set to run:" -ForegroundColor $menuInstructionColour
@@ -205,7 +211,8 @@ function Get-JobsToProcess {
                     $jobLine -match "^(\s*\d+\.)(.*)$" | Out-Null
                     Write-Host $Matches[1] -ForegroundColor $menuNumberColour -NoNewline
                     Write-Host $Matches[2].PadRight($leftColumnWidth - $Matches[1].Length) -ForegroundColor $menuJobColour -NoNewline
-                } else {
+                }
+                else {
                     Write-Host (" " * $leftColumnWidth) -NoNewline
                 }
 
@@ -239,10 +246,12 @@ function Get-JobsToProcess {
                         $index = [int]$selectionStr
                         if ($menuMap.ContainsKey($index)) {
                             $validSelections.Add($menuMap[$index])
-                        } else {
+                        }
+                        else {
                             $invalidInputs.Add($selectionStr)
                         }
-                    } else {
+                    }
+                    else {
                         $invalidInputs.Add($selectionStr)
                     }
                 }
@@ -262,13 +271,14 @@ function Get-JobsToProcess {
                         $setDefinition = $Config.BackupSets[$setName]
                         $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @())
                         $jobNamesInSet | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) { $initialJobsToConsider.Add($_.Trim()) } }
-                        
+
                         $globalOnErrorPolicy = Get-ConfigValue -ConfigObject $Config -Key 'DefaultOnErrorInJob' -DefaultValue "StopSet"
                         $setOnErrorPolicy = Get-ConfigValue -ConfigObject $setDefinition -Key 'OnErrorInJob' -DefaultValue $globalOnErrorPolicy
                         $stopSetOnErrorPolicy = if (($setOnErrorPolicy -as [string]).ToUpperInvariant() -eq "CONTINUESET") { $false } else { $true }
 
                         if ($setDefinition.ContainsKey('PostRunAction')) { $setPostRunAction = $setDefinition.PostRunAction }
-                    } else {
+                    }
+                    else {
                         # --- SCENARIO 2: User selected one or more jobs, or a mix ---
                         # This is an ad-hoc run. We just collect the jobs.
                         # Set a transient name for logging/display purposes.
@@ -281,7 +291,9 @@ function Get-JobsToProcess {
                             if ($selectedItem.Type -eq 'Job') {
                                 $initialJobsToConsider.Add($selectedItem.Name)
                                 & $LocalWriteLog -Message "  - Job '$($selectedItem.Name)' added to run list." -Level "DEBUG"
-                            } else { # It's a set
+                            }
+                            else {
+                                # It's a set
                                 $setDefinition = $Config.BackupSets[$selectedItem.Name]
                                 $jobNamesInSet = @(Get-ConfigValue -ConfigObject $setDefinition -Key 'JobNames' -DefaultValue @())
                                 $jobNamesInSet | ForEach-Object { if (-not [string]::IsNullOrWhiteSpace($_)) { $initialJobsToConsider.Add($_.Trim()) } }
@@ -303,10 +315,12 @@ function Get-JobsToProcess {
             $isJobEnabled = Get-ConfigValue -ConfigObject $jobConfForEnableCheck -Key 'Enabled' -DefaultValue $true
             if ($isJobEnabled) {
                 $enabledJobs.Add($jobNameCandidate)
-            } else {
+            }
+            else {
                 & $LocalWriteLog -Message "  - JobResolver: Job '$jobNameCandidate' is disabled (Enabled = `$false). It will be skipped." -Level "INFO"
             }
-        } else {
+        }
+        else {
             & $LocalWriteLog -Message "  - JobResolver: Job '$jobNameCandidate' listed in set '$setName' not found in BackupLocations. Skipping." -Level "WARNING"
         }
     }
@@ -320,11 +334,13 @@ function Get-JobsToProcess {
         foreach ($jobToRunCandidate in $enabledJobs) {
             if ($jobToRunCandidate -in $jobsToSkipCleaned) {
                 & $LocalWriteLog -Message "  - JobResolver: Job '$jobToRunCandidate' has been SKIPPED from the current run due to the -SkipJob parameter." -Level "WARNING"
-            } else {
+            }
+            else {
                 $finalJobsToRun.Add($jobToRunCandidate)
             }
         }
-    } else {
+    }
+    else {
         $finalJobsToRun.AddRange($enabledJobs)
     }
 

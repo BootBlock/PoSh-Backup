@@ -127,10 +127,16 @@ function Test-DestinationFreeSpace {
         & $LocalWriteLog -Message "   - SystemUtils: Available free space on drive $($destDrive.Name) (hosting '$DestDir'): $freeSpaceGB GB" -Level "INFO"
 
         if ($freeSpaceGB -lt $MinRequiredGB) {
-            & $LocalWriteLog -Message "[WARNING] SystemUtils: Low disk space on destination. Available: $freeSpaceGB GB, Required: $MinRequiredGB GB." -Level WARNING
+            & $LocalWriteLog -Message "[WARNING] SystemUtils: Low disk space on destination. Available: $freeSpaceGB GB, Required: $MinRequiredGB GB." -Level "WARNING"
             if ($ExitOnLow) {
-                & $LocalWriteLog -Message "FATAL: SystemUtils: Exiting job due to insufficient free disk space (ExitOnLowSpaceIfBelowMinimum is true)." -Level ERROR
+                $adviceMessage = "ADVICE: Free up space on drive $($destDrive.Name): or lower the 'MinimumRequiredFreeSpaceGB' setting in your configuration."
+                & $LocalWriteLog -Message "FATAL: SystemUtils: Exiting job due to insufficient free disk space (ExitOnLowSpaceIfBelowMinimum is true)." -Level "ERROR"
+                & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
                 return $false
+            }
+            else {
+                $adviceMessage = "ADVICE: The backup will proceed, but may fail if the destination drive runs out of space. To halt the job in this scenario, set 'ExitOnLowSpaceIfBelowMinimum = `$true' in the job or global configuration."
+                & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
             }
         }
         else {

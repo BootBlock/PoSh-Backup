@@ -159,12 +159,31 @@ function Invoke-BasicConfigValidation {
                                 $ValidationMessagesListRef.Value.Add("ConfigLoader/BasicValidator: BackupLocation '$jobKey': 'TargetNames' array contains an invalid (non-string or empty) target name reference.")
                                 break
                             }
-                            if (-not $Configuration.ContainsKey('BackupTargets') -or `
-                                    $Configuration.BackupTargets -isnot [hashtable] -or `
-                                    -not $Configuration.BackupTargets.ContainsKey($targetNameRef)) {
-                                $ValidationMessagesListRef.Value.Add("ConfigLoader/BasicValidator: BackupLocation '$jobKey': TargetName '$targetNameRef' referenced in 'TargetNames' is not defined in the global 'BackupTargets' section.")
+                            if (-not $Configuration.ContainsKey('BackupTargets') -or $Configuration.BackupTargets -isnot [hashtable] -or -not $Configuration.BackupTargets.ContainsKey($targetNameRef)) {
+                                $errorMessage = "BackupLocation '$jobKey': TargetName '$targetNameRef' is not defined in the global 'BackupTargets' section."
+                                $adviceMessage = "ADVICE: Check for a typo or ensure a target named '$targetNameRef' is defined under the 'BackupTargets' hashtable in your configuration."
+                                if (-not ($ValidationMessagesListRef.Value -contains $errorMessage)) { $ValidationMessagesListRef.Value.Add($errorMessage) }
+                                if (-not ($ValidationMessagesListRef.Value -contains $adviceMessage)) { $ValidationMessagesListRef.Value.Add($adviceMessage) }
                             }
                         }
+                    }
+                }
+
+                # Check for mismatch between archive type and extension
+                $jobArchiveType = Get-ConfigValue -ConfigObject $jobConfig -Key 'ArchiveType' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'DefaultArchiveType' -DefaultValue '-t7z')
+                $jobArchiveExtension = Get-ConfigValue -ConfigObject $jobConfig -Key 'ArchiveExtension' -DefaultValue (Get-ConfigValue -ConfigObject $Configuration -Key 'DefaultArchiveExtension' -DefaultValue '.7z')
+
+                $isZipType = $jobArchiveType.ToLowerInvariant() -eq '-tzip'
+                $isZipExt = $jobArchiveExtension.ToLowerInvariant() -eq '.zip'
+                $is7zType = $jobArchiveType.ToLowerInvariant() -eq '-t7z'
+                $is7zExt = $jobArchiveExtension.ToLowerInvariant() -eq '.7z'
+
+                if (($isZipType -and -not $isZipExt) -or ($is7zType -and -not $is7zExt)) {
+                    $errorMessage = "Configuration Warning for job '$jobKey': The configured ArchiveType ('$jobArchiveType') does not align with the ArchiveExtension ('$jobArchiveExtension')."
+                    $adviceMessage = "ADVICE: It is strongly recommended to align these settings. For example, if using '-tzip', set the extension to '.zip'."
+                    if (-not ($ValidationMessagesListRef.Value -contains $errorMessage)) {
+                        $ValidationMessagesListRef.Value.Add($errorMessage)
+                        $ValidationMessagesListRef.Value.Add($adviceMessage)
                     }
                 }
             }

@@ -39,15 +39,15 @@ function New-PoShBackupSftpSession {
     )
 
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
-    
+
     $sftpServer = $TargetSpecificSettings.SFTPServerAddress
     $sftpPort = if ($TargetSpecificSettings.ContainsKey('SFTPPort')) { $TargetSpecificSettings.SFTPPort } else { 22 }
     $sftpUser = $TargetSpecificSettings.SFTPUserName
     $skipHostKeyCheck = if ($TargetSpecificSettings.ContainsKey('SkipHostKeyCheck')) { $TargetSpecificSettings.SkipHostKeyCheck } else { $false }
-    
+
     $securePassphrase = $null
     $securePassword = $null
-    
+
     try {
         if (-not $PSCmdletInstance.ShouldProcess($sftpServer, "Establish SFTP Session")) {
             return @{ Success = $false; Session = $null; ErrorMessage = "SFTP Session creation for '$sftpServer' skipped by user." }
@@ -64,7 +64,7 @@ function New-PoShBackupSftpSession {
         $sftpPassword = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPPasswordSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Password"
         $sftpKeyFilePath = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPKeyFileSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Key File Path"
         $sftpKeyPassphrase = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPKeyFilePassphraseSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Key Passphrase"
-        
+
         if (-not [string]::IsNullOrWhiteSpace($sftpKeyFilePath)) {
             if (-not (Test-Path -LiteralPath $sftpKeyFilePath -PathType Leaf)) { throw "SFTP Key File not found at path '$sftpKeyFilePath'." }
             $sessionParams.KeyFile = $sftpKeyFilePath
@@ -85,12 +85,23 @@ function New-PoShBackupSftpSession {
 
         $sftpSession = New-SSHSession @sessionParams
         if (-not $sftpSession) { throw "Failed to establish SSH session (New-SSHSession returned null)." }
-        
+
         & $LocalWriteLog -Message ("    - SFTP.SessionManager: SSH Session established (ID: $($sftpSession.SessionId)).") -Level "SUCCESS"
         return @{ Success = $true; Session = $sftpSession }
 
     } catch {
-        return @{ Success = $false; Session = $null; ErrorMessage = "Failed to create SFTP session. Error: $($_.Exception.Message)" }
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match 'key exchange|host key') {
+            $advice = "This often means the SSH host key is new or has changed. To fix, either:"
+            $advice += "`n      1. (Recommended) Connect once manually in an interactive PowerShell session (`New-SSHSession -ComputerName $sftpServer -Credential(Get-Credential)) to accept and save the host key."
+            $advice += "`n      2. (Less Secure) Set 'SkipHostKeyCheck = `$true' in this target's configuration in User.psd1 to bypass this security check."
+            & $LocalWriteLog -Message "Failed to establish SFTP session due to a host key issue." -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
+            return @{ Success = $false; Session = $null; ErrorMessage = "SFTP host key validation failed. Please see log for advice." }
+        }
+        else {
+            return @{ Success = $false; Session = $null; ErrorMessage = "Failed to create SFTP session. Error: $errorMessage" }
+        }
     } finally {
         # SecureStrings must be disposed of after the cmdlet that uses them has finished.
         if ($securePassword) { $securePassword.Dispose() }

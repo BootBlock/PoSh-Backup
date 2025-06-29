@@ -72,11 +72,15 @@ function Invoke-PoShBackupPathValidation {
             if ($IsSimulateMode.IsPresent -or (Test-Path -Path $path -ErrorAction SilentlyContinue)) {
                 $validSourcePaths.Add($path)
             } else {
-                $errorMessage = "Source path '$path' not found or no items match the pattern for job '$JobName'."
-                & $LocalWriteLog -Message "[WARNING] PathValidator: $errorMessage" -Level WARNING
+                $errorMessage = "Source path '$path' not found or is not accessible for job '$JobName'."
+                $adviceMessage = "ADVICE: Please check for typos in your configuration. If it is a network path, ensure the share is online and accessible by the user running the script."
+                & $LocalWriteLog -Message "[WARNING] PathValidator: $errorMessage" -Level "WARNING"
+                & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+
                 switch ($onSourceNotFoundAction) {
                     'FAILJOB' { throw (New-Object System.IO.FileNotFoundException($errorMessage, $path)) }
                     'SKIPJOB' { return @{ Status = 'SkipJob'; ErrorMessage = "Job skipped because source path '$path' was not found and policy is 'SkipJob'." } }
+                    # 'WarnAndContinue' is handled by the loop continuing
                 }
             }
         }
@@ -89,7 +93,7 @@ function Invoke-PoShBackupPathValidation {
         $validSourcePaths.AddRange($sourcePathsToCheck) # For VM backups, pass paths through for the SourceResolver
     }
     if (-not $IsSimulateMode.IsPresent) { & $LocalWriteLog -Message "[DEBUG] PathValidator: Source path validation completed." -Level DEBUG }
-    
+
     # --- Destination Path Validation ---
     if ([string]::IsNullOrWhiteSpace($EffectiveJobConfig.DestinationDir)) {
         throw (New-Object System.IO.DirectoryNotFoundException("${destinationDirTerm} for job '$JobName' is not defined. Cannot proceed."))

@@ -54,8 +54,11 @@ function Invoke-PoShBackupTargetProcessing {
         $targetProviderModulePath = Join-Path -Path $PSScriptRootForPaths -ChildPath "Modules\Targets\$targetProviderModuleName"
 
         if (-not (Test-Path -LiteralPath $targetProviderModulePath -PathType Leaf)) {
-            & $LocalWriteLog -Message "[ERROR] TargetProcessor: Target Provider module '$targetProviderModuleName' not found. Skipping transfer to '$targetInstanceName'." -Level "ERROR"
-            $reportData.TargetTransfers.Add(@{ TargetName = $targetInstanceName; TargetType = $targetInstanceType; Status = "Failure (Provider Not Found)"; ErrorMessage = "Provider module '$targetProviderModuleName' not found."})
+            $errorMessage = "Target Provider module '$targetProviderModuleName' not found for target '$targetInstanceName'."
+            $adviceMessage = "ADVICE: Please ensure the file exists at '$targetProviderModulePath'. If you have removed this file, you may need to restore it from the original project files."
+            & $LocalWriteLog -Message "[ERROR] $errorMessage" -Level "ERROR"
+            & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+            $reportData.TargetTransfers.Add(@{ TargetName = $targetInstanceName; TargetType = $targetInstanceType; Status = "Failure (Provider Not Found)"; ErrorMessage = $errorMessage })
             $allTransfersSuccessfulOverall = $false; continue
         }
 
@@ -70,7 +73,7 @@ function Invoke-PoShBackupTargetProcessing {
                     TargetInstanceConfiguration   = $targetInstanceConfig
                     JobName                       = $JobName
                     ArchiveFileName               = $fileToTransferInfo.Name
-                    ArchiveBaseName               = $EffectiveJobConfig.BaseFileName 
+                    ArchiveBaseName               = $EffectiveJobConfig.BaseFileName
                     ArchiveExtension              = $EffectiveJobConfig.JobArchiveExtension
                     IsSimulateMode                = $IsSimulateMode.IsPresent
                     Logger                        = $Logger
@@ -87,7 +90,7 @@ function Invoke-PoShBackupTargetProcessing {
                     TransferSize          = $transferOutcome.TransferSize; TransferSizeFormatted = $transferOutcome.TransferSizeFormatted
                 }
                 if ($transferOutcome.ContainsKey('ReplicationDetails')) { $currentTransferReport.ReplicationDetails = $transferOutcome.ReplicationDetails }
-                
+
                 $reportData.TargetTransfers.Add($currentTransferReport)
 
                 if (-not $transferOutcome.Success) {
@@ -101,13 +104,13 @@ function Invoke-PoShBackupTargetProcessing {
             & $LocalWriteLog -Message "[ERROR] TargetProcessor: Critical error during transfer processing for Target '$targetInstanceName'. Error: $($_.Exception.ToString())" -Level "ERROR"
             $allTransfersSuccessfulOverall = $false
         }
-        
+
         if (-not $allTransfersSuccessfulOverall) {
              & $LocalWriteLog -Message "  - TargetProcessor: Halting further transfers to other targets for job '$JobName' due to failure with target '$targetInstanceName'." -Level "WARNING"
             break # Stop processing other targets
         }
     }
-    
+
     return $allTransfersSuccessfulOverall
 }
 

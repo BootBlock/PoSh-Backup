@@ -48,7 +48,7 @@ function Find-SevenZipExecutable {
     }
 
     & $LocalWriteLog -Message "  - 7ZipManager/Discovery: Attempting to auto-detect 7z.exe..." -Level "DEBUG"
-    
+
     $checkedLocations = [System.Collections.Generic.List[string]]::new()
     $commonPaths = @(
         (Join-Path -Path $env:ProgramFiles -ChildPath "7-Zip\7z.exe"),
@@ -75,7 +75,10 @@ function Find-SevenZipExecutable {
         & $LocalWriteLog -Message "    - 7ZipManager/Discovery: 7z.exe not found in system PATH (Get-Command error: $($_.Exception.Message))." -Level "DEBUG"
     }
 
+    $adviceMessage = "To fix this, either install 7-Zip and ensure its folder is in your system's PATH, or manually edit your 'User.psd1' configuration file and set the 'SevenZipPath' key to the full path of '7z.exe'."
+    & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
     & $LocalWriteLog -Message "    - 7ZipManager/Discovery: Auto-detection failed to find 7z.exe in common locations or system PATH. Please ensure 'SevenZipPath' is set in the configuration." -Level "DEBUG"
+
     return @{ FoundPath = $null; CheckedPaths = $checkedLocations }
 }
 #endregion

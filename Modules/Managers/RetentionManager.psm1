@@ -90,7 +90,10 @@ function Invoke-BackupRetentionPolicy {
     $isNetworkPath = $false; try { if (-not [string]::IsNullOrWhiteSpace($DestinationDirectory)) { $uriCheck = [uri]$DestinationDirectory; if ($uriCheck.IsUnc) { $isNetworkPath = $true } } } catch { & $LocalWriteLog -Message "  - RetentionManager (Facade): Debug: Could not parse '$DestinationDirectory' as URI to check IsUnc. Assuming not a UNC path for Recycle Bin warning. Error: $($_.Exception.Message)" -Level "DEBUG" }
 
     if ($effectiveSendToRecycleBin -and $isNetworkPath) {
-        & $LocalWriteLog -Message "[WARNING] RetentionManager (Facade): 'DeleteToRecycleBin' is enabled for a network destination ('$DestinationDirectory'). This can be unreliable. Consider setting to `$false." -Level WARNING
+        $warningMessage = "RetentionManager (Facade): 'DeleteToRecycleBin' is enabled for a network destination ('$DestinationDirectory'). This can be unreliable."
+        $adviceMessage = "ADVICE: It is recommended to set 'DeleteToRecycleBin = `$false' for jobs writing to network shares to ensure permanent and predictable deletion."
+        & $LocalWriteLog -Message $warningMessage -Level "WARNING"
+        & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
     }
     & $LocalWriteLog -Message "   - Effective Deletion Method for old archives: $(if ($effectiveSendToRecycleBin) {'Send to Recycle Bin'} else {'Permanent Delete'})"
 

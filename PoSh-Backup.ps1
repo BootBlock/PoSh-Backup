@@ -276,8 +276,8 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.37.0 # Refactored ReportingHtml.psm1.
-    Date:           24-Jun-2025
+    Version:        1.38.0 # Added extensive actionable advice for common errors.
+    Date:           29-Jun-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
                     'Core\', 'Managers\', 'Operations\', 'Reporting\', 'Targets\', 'Utilities\'.
