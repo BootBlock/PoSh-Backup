@@ -1,3 +1,4 @@
+# Modules\Reporting\ReportingTxt.psm1
 <#
 .SYNOPSIS
     Generates plain text (.txt) summary reports for PoSh-Backup jobs.
@@ -23,9 +24,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Added Multi-Volume Manifest details section and FileTransferred to TargetTransfers.
+    Version:        1.3.1 # Refactored to use StringBuilder and handle complex types gracefully.
     DateCreated:    14-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   29-Jun-2025
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
 #>
@@ -54,13 +55,13 @@ function Invoke-TxtReport {
         None. This function creates a file in the specified ReportDirectory.
     #>
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$ReportDirectory,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$JobName,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [hashtable]$ReportData,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
 
@@ -69,7 +70,8 @@ function Invoke-TxtReport {
         param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
         if (-not [string]::IsNullOrWhiteSpace($ForegroundColour)) {
             & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-        } else {
+        }
+        else {
             & $Logger -Message $Message -Level $Level
         }
     }
@@ -83,8 +85,9 @@ function Invoke-TxtReport {
 
     $reportContent = [System.Text.StringBuilder]::new()
     $separatorLine = "-" * 70
-    $subSeparatorLine = "  " + ("-" * 66) 
-    $keyPadWidth = 38 # Increased padding for keys
+    $subSeparatorLine = "    " + ("-" * 66)
+    $keyPadWidth = 38
+    $indent = "  "
 
     $null = $reportContent.AppendLine("PoSh Backup Report - Job: $JobName")
     $null = $reportContent.AppendLine("Generated: $(Get-Date)")
@@ -95,57 +98,76 @@ function Invoke-TxtReport {
     }
     $null = $reportContent.AppendLine($separatorLine)
 
-    $null = $reportContent.AppendLine("SUMMARY:")
-    $excludedFromSummary = @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', 
-                             '_PoShBackup_PSScriptRoot', 'TargetTransfers', 'VolumeChecksums', 
-                             'ManifestVerificationDetails', 'ManifestVerificationResults')
-    $ReportData.GetEnumerator() | Where-Object {$_.Name -notin $excludedFromSummary} | ForEach-Object {
-        $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $_ -replace "`r`n", " " -replace "`n", " " }) -join '; ' } else { ($_.Value | Out-String).Trim() }
-        $null = $reportContent.AppendLine("  $($_.Name.PadRight($keyPadWidth)): $value")
+    $null = $reportContent.AppendLine($indent + "SUMMARY:")
+    $excludedFromSummary = @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport',
+        '_PoShBackup_PSScriptRoot', 'TargetTransfers', 'VolumeChecksums',
+        'ManifestVerificationDetails', 'ManifestVerificationResults')
+
+    $ReportData.GetEnumerator() | Where-Object { $_.Name -notin $excludedFromSummary } | ForEach-Object {
+        $value = ""
+        if ($_.Value -is [System.TimeSpan]) {
+            $ts = $_.Value
+            $value = "{0}.{1:d2}:{2:d2}:{3:d2}" -f $ts.Days, $ts.Hours, $ts.Minutes, $ts.Seconds
+        }
+        elseif ($_.Value -is [array]) {
+            $value = ($_.Value | ForEach-Object { $_ -replace "`r`n", " " -replace "`n", " " }) -join '; '
+        }
+        elseif ($_.Value -is [hashtable]) {
+            $htStrings = $_.Value.GetEnumerator() | ForEach-Object { "$($_.Name)=$($_.Value)" }
+            $value = "{ $($htStrings -join '; ') }"
+        }
+        else {
+            $value = ($_.Value | Out-String).Trim() -replace "`r`n", " " -replace "`n", " "
+        }
+        $null = $reportContent.AppendLine($indent + "  $($_.Name.PadRight($keyPadWidth)): $value")
     }
     $null = $reportContent.AppendLine($separatorLine)
 
     if ($ReportData.ContainsKey('JobConfiguration') -and $null -ne $ReportData.JobConfiguration) {
-        $null = $reportContent.AppendLine("CONFIGURATION USED FOR JOB '$JobName':")
+        $null = $reportContent.AppendLine($indent + "CONFIGURATION USED FOR JOB '$JobName':")
         $ReportData.JobConfiguration.GetEnumerator() | Sort-Object Name | ForEach-Object {
             $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $_ -replace "`r`n", " " -replace "`n", " " }) -join '; ' } else { ($_.Value | Out-String).Trim() }
-            $null = $reportContent.AppendLine("  $($_.Name.PadRight($keyPadWidth)): $value")
+            if ($_.Value -is [hashtable]) {
+                $htStrings = $_.Value.GetEnumerator() | ForEach-Object { "$($_.Name)=$($_.Value)" }
+                $value = "{ $($htStrings -join '; ') }"
+            }
+            $null = $reportContent.AppendLine($indent + "  $($_.Name.PadRight($keyPadWidth)): $value")
         }
         $null = $reportContent.AppendLine($separatorLine)
     }
 
     if ($ReportData.ContainsKey('HookScripts') -and $null -ne $ReportData.HookScripts -and $ReportData.HookScripts.Count -gt 0) {
-        $null = $reportContent.AppendLine("HOOK SCRIPTS EXECUTED:")
+        $null = $reportContent.AppendLine($indent + "HOOK SCRIPTS EXECUTED:")
         $ReportData.HookScripts | ForEach-Object {
-            $null = $reportContent.AppendLine("  Hook Type : $($_.Name)")
-            $null = $reportContent.AppendLine("  Path      : $($_.Path)")
-            $null = $reportContent.AppendLine("  Status    : $($_.Status)")
+            $null = $reportContent.AppendLine($indent + "  Hook Type : $($_.Name)")
+            $null = $reportContent.AppendLine($indent + "  Path      : $($_.Path)")
+            $null = $reportContent.AppendLine($indent + "  Status    : $($_.Status)")
             if (-not [string]::IsNullOrWhiteSpace($_.Output)) {
-                $indentedOutput = ($_.Output.TrimEnd() -split '\r?\n' | ForEach-Object { "              $_" }) -join [Environment]::NewLine
-                $null = $reportContent.AppendLine("  Output    : $($indentedOutput.TrimStart())")
+                $indentedOutput = ($_.Output.TrimEnd() -split '\r?\n' | ForEach-Object { ($indent + "              $_") }) -join [Environment]::NewLine
+                $null = $reportContent.AppendLine($indent + "  Output    : $($indentedOutput.TrimStart())")
             }
-            $null = $reportContent.AppendLine() 
+            $null = $reportContent.AppendLine()
         }
         $null = $reportContent.AppendLine($separatorLine)
     }
 
     if ($ReportData.ContainsKey('TargetTransfers') -and $null -ne $ReportData.TargetTransfers -and $ReportData.TargetTransfers.Count -gt 0) {
-        $null = $reportContent.AppendLine("REMOTE TARGET TRANSFERS:")
+        $null = $reportContent.AppendLine($indent + "REMOTE TARGET TRANSFERS:")
         foreach ($transferEntry in $ReportData.TargetTransfers) {
-            $null = $reportContent.AppendLine("  Target Name : $($transferEntry.TargetName)")
-            $fileTransferredDisplay = if ($transferEntry.PSObject.Properties.Name -contains 'FileTransferred') { $transferEntry.FileTransferred } else { 'N/A (Archive)'}
-            $null = $reportContent.AppendLine("  File Xferred: $fileTransferredDisplay")
-            $null = $reportContent.AppendLine("  Target Type : $($transferEntry.TargetType)")
-            $null = $reportContent.AppendLine("  Status      : $($transferEntry.Status)")
-            $null = $reportContent.AppendLine("  Remote Path : $($transferEntry.RemotePath)")
-            $null = $reportContent.AppendLine("  Duration    : $($transferEntry.TransferDuration)")
-            $null = $reportContent.AppendLine("  Size        : $($transferEntry.TransferSizeFormatted)")
+            $null = $reportContent.AppendLine($indent + "  Target Name : $($transferEntry.TargetName)")
+            $fileTransferredDisplay = if ($transferEntry.PSObject.Properties.Name -contains 'FileTransferred') { $transferEntry.FileTransferred } else { 'N/A (Archive)' }
+            $null = $reportContent.AppendLine($indent + "  File Xferred: $fileTransferredDisplay")
+            $null = $reportContent.AppendLine($indent + "  Target Type : $($transferEntry.TargetType)")
+            $null = $reportContent.AppendLine($indent + "  Status      : $($transferEntry.Status)")
+            $null = $reportContent.AppendLine($indent + "  Remote Path : $($transferEntry.RemotePath)")
+            $null = $reportContent.AppendLine($indent + "  Duration    : $($transferEntry.TransferDuration)")
+            $null = $reportContent.AppendLine($indent + "  Size        : $($transferEntry.TransferSizeFormatted)")
             if (-not [string]::IsNullOrWhiteSpace($transferEntry.ErrorMessage)) {
-                $indentedError = ($transferEntry.ErrorMessage.TrimEnd() -split '\r?\n' | ForEach-Object { "                $_" }) -join [Environment]::NewLine
-                $null = $reportContent.AppendLine("  Error Msg   : $($indentedError.TrimStart())")
+                $indentedError = ($transferEntry.ErrorMessage.TrimEnd() -split '\r?\n' | ForEach-Object { ($indent + "                $_") }) -join [Environment]::NewLine
+                $null = $reportContent.AppendLine($indent + "  Error Msg   : $($indentedError.TrimStart())")
             }
             if ($ReportData.TargetTransfers.IndexOf($transferEntry) -lt ($ReportData.TargetTransfers.Count - 1)) {
-                $null = $reportContent.AppendLine($subSeparatorLine) 
+                $null = $reportContent.AppendLine($subSeparatorLine)
             }
         }
         $null = $reportContent.AppendLine($separatorLine)
@@ -159,37 +181,38 @@ function Invoke-TxtReport {
     $hasManifestRawDetails = $ReportData.ContainsKey('ManifestVerificationDetails') -and -not [string]::IsNullOrWhiteSpace($ReportData.ManifestVerificationDetails)
 
     if ($generateManifest -and ($hasManifestFile -or $hasManifestVerificationResults -or $hasVolumeChecksumsForDisplay)) {
-        $null = $reportContent.AppendLine("ARCHIVE MANIFEST & VOLUME VERIFICATION:")
+        $null = $reportContent.AppendLine($indent + "ARCHIVE MANIFEST & VOLUME VERIFICATION:")
         if ($hasManifestFile) {
-            $null = $reportContent.AppendLine("  Manifest File: $($ReportData.ArchiveChecksumFile)")
+            $null = $reportContent.AppendLine($indent + "  Manifest File: $($ReportData.ArchiveChecksumFile)")
         }
         if ($ReportData.ContainsKey('ArchiveChecksumVerificationStatus')) {
-            $null = $reportContent.AppendLine("  Overall Manifest Verification Status: $($ReportData.ArchiveChecksumVerificationStatus)")
+            $null = $reportContent.AppendLine($indent + "  Overall Manifest Verification Status: $($ReportData.ArchiveChecksumVerificationStatus)")
         }
-        $null = $reportContent.AppendLine() # Blank line for spacing
+        $null = $reportContent.AppendLine()
 
         if ($hasManifestVerificationResults) {
-            $null = $reportContent.AppendLine("  Volume Verification Details:")
+            $null = $reportContent.AppendLine($indent + "  Volume Verification Details:")
             $ReportData.ManifestVerificationResults | ForEach-Object {
-                $null = $reportContent.AppendLine("    Volume            : $($_.VolumeName)")
-                $null = $reportContent.AppendLine("    Expected Checksum : $($_.ExpectedChecksum)")
-                $null = $reportContent.AppendLine("    Actual Checksum   : $($_.ActualChecksum)")
-                $null = $reportContent.AppendLine("    Status            : $($_.Status)")
-                $null = $reportContent.AppendLine("    ------------------------------------")
-            }
-        } elseif ($hasVolumeChecksumsForDisplay) {
-            $null = $reportContent.AppendLine("  Generated Volume Checksums (Verification Not Performed):")
-            $ReportData.VolumeChecksums | ForEach-Object {
-                $null = $reportContent.AppendLine("    Volume            : $($_.VolumeName)")
-                $null = $reportContent.AppendLine("    Generated Checksum: $($_.Checksum)")
-                $null = $reportContent.AppendLine("    ------------------------------------")
+                $null = $reportContent.AppendLine($indent + "    Volume            : $($_.VolumeName)")
+                $null = $reportContent.AppendLine($indent + "    Expected Checksum : $($_.ExpectedChecksum)")
+                $null = $reportContent.AppendLine($indent + "    Actual Checksum   : $($_.ActualChecksum)")
+                $null = $reportContent.AppendLine($indent + "    Status            : $($_.Status)")
+                $null = $reportContent.AppendLine($indent + "    ------------------------------------")
             }
         }
-        
+        elseif ($hasVolumeChecksumsForDisplay) {
+            $null = $reportContent.AppendLine($indent + "  Generated Volume Checksums (Verification Not Performed):")
+            $ReportData.VolumeChecksums | ForEach-Object {
+                $null = $reportContent.AppendLine($indent + "    Volume            : $($_.VolumeName)")
+                $null = $reportContent.AppendLine($indent + "    Generated Checksum: $($_.Checksum)")
+                $null = $reportContent.AppendLine($indent + "    ------------------------------------")
+            }
+        }
+
         if ($hasManifestRawDetails) {
             $null = $reportContent.AppendLine()
-            $null = $reportContent.AppendLine("  Detailed Verification Log/Notes:")
-            $indentedDetails = ($ReportData.ManifestVerificationDetails.TrimEnd() -split '\r?\n' | ForEach-Object { "    $_" }) -join [Environment]::NewLine
+            $null = $reportContent.AppendLine($indent + "  Detailed Verification Log/Notes:")
+            $indentedDetails = ($ReportData.ManifestVerificationDetails.TrimEnd() -split '\r?\n' | ForEach-Object { ($indent + "    $_") }) -join [Environment]::NewLine
             $null = $reportContent.AppendLine($indentedDetails)
         }
         $null = $reportContent.AppendLine($separatorLine)
@@ -197,9 +220,10 @@ function Invoke-TxtReport {
     # --- END ---
 
     if ($ReportData.ContainsKey('LogEntries') -and $null -ne $ReportData.LogEntries -and $ReportData.LogEntries.Count -gt 0) {
-        $null = $reportContent.AppendLine("DETAILED LOG:")
+        $null = $reportContent.AppendLine($indent + "DETAILED LOG:")
         $ReportData.LogEntries | ForEach-Object {
-            $null = $reportContent.AppendLine("$($_.Timestamp) [$($_.Level.ToUpper().PadRight(8))] $($_.Message)")
+            $logLine = "$($_.Timestamp) [$($_.Level.ToUpper().PadRight(8))] $($_.Message.Trim())"
+            $null = $reportContent.AppendLine($indent + "  $logLine")
         }
         $null = $reportContent.AppendLine($separatorLine)
     }
@@ -207,8 +231,9 @@ function Invoke-TxtReport {
     try {
         Set-Content -Path $reportFullPath -Value $reportContent.ToString() -Encoding UTF8 -Force
         & $LocalWriteLog -Message "  - TXT report generated successfully: '$reportFullPath'" -Level "SUCCESS"
-    } catch {
-         & $LocalWriteLog -Message "[ERROR] Failed to generate TXT report '$reportFullPath' for job '$JobName'. Error: $($_.Exception.Message)" -Level "ERROR"
+    }
+    catch {
+        & $LocalWriteLog -Message "[ERROR] Failed to generate TXT report '$reportFullPath' for job '$JobName'. Error: $($_.Exception.Message)" -Level "ERROR"
     }
     & $LocalWriteLog -Message "[INFO] TXT Report generation process finished for job '$JobName'." -Level "INFO"
 }

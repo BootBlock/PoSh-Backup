@@ -1,3 +1,4 @@
+# Modules\Reporting\ReportingMd.psm1
 <#
 .SYNOPSIS
     Generates Markdown (.md) formatted reports for PoSh-Backup jobs.
@@ -21,15 +22,15 @@
     - An "Archive Manifest & Volume Verification" section (if applicable), detailing
       the manifest file, overall verification status, and a table of per-volume
       checksums and their verification statuses.
-    - A "Detailed Log" section with log entries in fenced code blocks.
+    - A "Detailed Log" section with log entries in a single fenced code block.
 
     Helper functions handle basic Markdown escaping.
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.0 # Added Multi-Volume Manifest details section.
+    Version:        1.4.2 # Refactored Detailed Log generation for correct formatting.
     DateCreated:    14-May-2025
-    LastModified:   01-Jun-2025
+    LastModified:   29-Jun-2025
     Purpose:        Markdown (.md) report generation sub-module for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Called by the main Reporting.psm1 orchestrator module.
@@ -82,6 +83,14 @@ function Invoke-MdReport {
     $EscapeMarkdownTableContent = {
         param($Content)
         if ($null -eq $Content) { return "" }
+        if ($Content -is [System.TimeSpan]) {
+            $ts = $Content
+            return "{0}.{1:d2}:{2:d2}:{3:d2}" -f $ts.Days, $ts.Hours, $ts.Minutes, $ts.Seconds
+        }
+        if ($Content -is [hashtable]) {
+            $htStrings = $Content.GetEnumerator() | ForEach-Object { "$($_.Name)=$($_.Value)" }
+            return "{ $($htStrings -join '; ') }"
+        }
         return $Content.ToString() -replace '\|', '\|' -replace '\r?\n', '<br />'
     }
     $EscapeMarkdownCodeContent = {
@@ -89,7 +98,7 @@ function Invoke-MdReport {
         if ($null -eq $Content) { return "" }
         return $Content.ToString() -replace '`', '\`' -replace '\*', '\*' -replace '_', '\_' -replace '\[', '\[' -replace '\]', '\]'
     }
-    $LocalConvertToSafeHtml = { # For <pre> in table
+    $LocalConvertToSafeHtml = {
         param([string]$TextToEncode)
         if ($null -eq $TextToEncode) { return '' }
         return $TextToEncode -replace '&', '&' -replace '<', '<' -replace '>', '>' -replace '"', '"' -replace "'", '&#39;'
@@ -117,25 +126,25 @@ function Invoke-MdReport {
 
     $null = $reportContent.AppendLine("## Summary")
     $null = $reportContent.AppendLine("")
-    $null = $reportContent.AppendLine("| Item                                | Detail |") 
-    $null = $reportContent.AppendLine("| :---------------------------------- | :----- |") 
-    $excludedFromSummary = @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport', 
-                             '_PoShBackup_PSScriptRoot', 'TargetTransfers', 'VolumeChecksums', 
+    $null = $reportContent.AppendLine("| Item                                | Detail |")
+    $null = $reportContent.AppendLine("| :---------------------------------- | :----- |")
+    $excludedFromSummary = @('LogEntries', 'JobConfiguration', 'HookScripts', 'IsSimulationReport',
+                             '_PoShBackup_PSScriptRoot', 'TargetTransfers', 'VolumeChecksums',
                              'ManifestVerificationDetails', 'ManifestVerificationResults')
     $ReportData.GetEnumerator() | Where-Object {$_.Name -notin $excludedFromSummary} | ForEach-Object {
         $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $EscapeMarkdownTableContent.Invoke($_) }) -join '; ' } else { $EscapeMarkdownTableContent.Invoke($_.Value) }
-        $null = $reportContent.AppendLine("| $($EscapeMarkdownTableContent.Invoke($_.Name).PadRight(35)) | $value |") 
+        $null = $reportContent.AppendLine("| $($EscapeMarkdownTableContent.Invoke($_.Name).PadRight(35)) | $value |")
     }
     $null = $reportContent.AppendLine("")
 
     if ($ReportData.ContainsKey('JobConfiguration') -and $null -ne $ReportData.JobConfiguration) {
         $null = $reportContent.AppendLine("## Configuration Used for Job '$($JobName | ForEach-Object {$EscapeMarkdownCodeContent.Invoke($_)})'")
         $null = $reportContent.AppendLine("")
-        $null = $reportContent.AppendLine("| Setting                             | Value |") 
-        $null = $reportContent.AppendLine("| :---------------------------------- | :---- |") 
+        $null = $reportContent.AppendLine("| Setting                             | Value |")
+        $null = $reportContent.AppendLine("| :---------------------------------- | :---- |")
         $ReportData.JobConfiguration.GetEnumerator() | Sort-Object Name | ForEach-Object {
             $value = if ($_.Value -is [array]) { ($_.Value | ForEach-Object { $EscapeMarkdownTableContent.Invoke($_) }) -join '; ' } else { $EscapeMarkdownTableContent.Invoke($_.Value) }
-            $null = $reportContent.AppendLine("| $($EscapeMarkdownTableContent.Invoke($_.Name).PadRight(35)) | $value |") 
+            $null = $reportContent.AppendLine("| $($EscapeMarkdownTableContent.Invoke($_.Name).PadRight(35)) | $value |")
         }
         $null = $reportContent.AppendLine("")
     }
@@ -163,7 +172,7 @@ function Invoke-MdReport {
             $targetNameMd = & $EscapeMarkdownTableContent $transferEntry.TargetName
             $fileTransferredMd = & $EscapeMarkdownTableContent ($transferEntry.FileTransferred | Out-String).Trim()
             $targetTypeMd = & $EscapeMarkdownTableContent $transferEntry.TargetType
-            $targetStatusMd = "**$(& $EscapeMarkdownTableContent $transferEntry.Status)**" 
+            $targetStatusMd = "**$(& $EscapeMarkdownTableContent $transferEntry.Status)**"
             $remotePathMd = & $EscapeMarkdownTableContent $transferEntry.RemotePath
             $durationMd = & $EscapeMarkdownTableContent $transferEntry.TransferDuration
             $sizeFormattedMd = & $EscapeMarkdownTableContent $transferEntry.TransferSizeFormatted
@@ -203,7 +212,7 @@ function Invoke-MdReport {
                 $null = $reportContent.AppendLine("| $volName | $expHash | $actHash | $volStatus |")
             }
             $null = $reportContent.AppendLine("")
-        } elseif ($hasVolumeChecksumsForDisplay) { # Fallback to generated checksums if no verification results
+        } elseif ($hasVolumeChecksumsForDisplay) {
             $null = $reportContent.AppendLine("*The following checksums were generated for each volume (verification not performed or results unavailable):*")
             $null = $reportContent.AppendLine("")
             $null = $reportContent.AppendLine("| Volume Filename   | Generated Checksum                  |")
@@ -219,7 +228,7 @@ function Invoke-MdReport {
         if ($hasManifestRawDetails) {
             $null = $reportContent.AppendLine("### Detailed Verification Log/Notes:")
             $null = $reportContent.AppendLine(('```text'))
-            $null = $reportContent.AppendLine($ReportData.ManifestVerificationDetails) # Assuming this is already a simple string
+            $null = $reportContent.AppendLine($ReportData.ManifestVerificationDetails)
             $null = $reportContent.AppendLine(('```'))
             $null = $reportContent.AppendLine("")
         }
@@ -229,13 +238,13 @@ function Invoke-MdReport {
     if ($ReportData.ContainsKey('LogEntries') -and $null -ne $ReportData.LogEntries -and $ReportData.LogEntries.Count -gt 0) {
         $null = $reportContent.AppendLine("## Detailed Log")
         $null = $reportContent.AppendLine("")
+        $null = $reportContent.AppendLine(('```text'))
         $ReportData.LogEntries | ForEach-Object {
             $logLine = "$($_.Timestamp) [$($_.Level.ToUpper())] $($_.Message)"
-            $null = $reportContent.AppendLine(('```text')) 
             $null = $reportContent.AppendLine(($EscapeMarkdownCodeContent.Invoke($logLine)))
-            $null = $reportContent.AppendLine(('```'))
-            $null = $reportContent.AppendLine("")
         }
+        $null = $reportContent.AppendLine(('```'))
+        $null = $reportContent.AppendLine("")
     }
 
     try {

@@ -719,7 +719,7 @@
             # SevenZipIncludeListFile = "D:\MyIncludes.txt"           # Job-specific include list file.
             # SevenZipExcludeListFile = "D:\MyExcludes.txt"           # Job-specific exclude list file.
             SevenZipTempDirectory   = ""                              # Optional. Job-specific path for 7-Zip's temporary files. Overrides global default. Must already exist.
-            ReportGeneratorType     = @("HTML")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
+            ReportGeneratorType     = @("MD")                       # Report type(s) for this job. Overrides global ReportGeneratorType.
             FollowSymbolicLinks     = $false                          # Job-specific override for following symbolic links.
             TreatSevenZipWarningsAsSuccess = $false                   # Optional per-job override. If $true, 7-Zip exit code 1 (Warning) is treated as success for this job.
 

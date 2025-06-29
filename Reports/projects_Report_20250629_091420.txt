@@ -1,0 +1,212 @@
+PoSh Backup Report - Job: projects
+Generated: 06/29/2025 09:14:20
+----------------------------------------------------------------------
+SUMMARY:
+  VerifyArchiveChecksumOnTest           : True
+  JobName                               : projects
+  ScriptStartTime                       : 29 June 2025 09:14:18
+  EffectiveJobLogRetentionCount         : 10
+  SnapshotAttempted                     : False
+  SevenZipIncludeListFile               : 
+  ChecksumAlgorithm                     : SHA256
+  SevenZipExitCode                      : 0
+  VSSAttempted                          : False
+  SnapshotStatus                        : Not Enabled
+  SevenZipCpuAffinity                   : 
+  SourcePath                            : P:\Images\*
+  SevenZipExcludeListFile               : 
+  ArchiveChecksum                       : C63317AEB33E7EA67DE4034C216C257571C7C81F115DB015B3ED32D7BB7E783E
+  ArchiveChecksumVerificationStatus     : Not Performed
+  ArchiveTested                         : False
+  ArchiveChecksumAlgorithm              : N/A
+  VSSUsed                               : False
+  GenerateContentsManifest              : True
+  GenerateArchiveChecksum               : True
+  ArchiveSizeFormatted                  : 12.79 MB
+  TotalDuration                         : Days              : 0
+Hours             : 0
+Minutes           : 0
+Seconds           : 1
+Milliseconds      : 910
+Ticks             : 19101456
+TotalDays         : 2.21081666666667E-05
+TotalHours        : 0.000530596
+TotalMinutes      : 0.03183576
+TotalSeconds      : 1.9101456
+TotalMilliseconds : 1910.1456
+  ArchiveChecksumFile                   : D:\Backups\Projects [2025-Jun-29_09_14_18].7z.sha256
+  VSSStatus                             : Not Enabled
+  ContentsManifestStatus                : Generated
+  EffectiveSourcePath                   : P:\Images\*
+  SFXCreationOverriddenBySplit          : False
+  SFXModule                             : Console
+  PasswordSource                        : None (Explicitly Configured)
+  ContentsManifestFile                  : D:\Backups\Projects [2025-Jun-29_09_14_18].7z.contents.manifest
+  ArchiveSizeBytes                      : 13408051
+  VerifyLocalArchiveBeforeTransfer      : False
+  ScriptEndTime                         : 29 June 2025 09:14:20
+  OverallStatus                         : SUCCESS
+  TreatSevenZipWarningsAsSuccess        : False
+  RetryAttemptsMade                     : 1
+  FinalArchivePath                      : D:\Backups\Projects [2025-Jun-29_09_14_18].7z
+  PinOnCreation                         : False
+  TotalDurationSeconds                  : 1.9101456
+  SevenZipPriority                      : Normal
+  GenerateSplitArchiveManifest          : False
+  CreateSFX                             : False
+  RetriesEnabled                        : True
+  SplitVolumeSize                       : 
+  CompressionTime                       : 00:00:01.6013541
+----------------------------------------------------------------------
+CONFIGURATION USED FOR JOB 'projects':
+  ArchivePasswordMethod                 : None
+  ChecksumAlgorithm                     : SHA256
+  CreateSFX                             : False
+  DeleteLocalArchiveAfterSuccessfulTransfer: True
+  DeleteToRecycleBin                    : False
+  DependsOnJobs                         : 
+  Description                           : A sample job to back up images.
+  DestinationDir                        : D:\Backups
+  Enabled                               : True
+  EnableVSS                             : False
+  FollowSymbolicLinks                   : False
+  GenerateArchiveChecksum               : True
+  GenerateContentsManifest              : True
+  LocalRetentionCount                   : 1
+  LogRetentionCount                     : 10
+  Name                                  : Projects
+  NotificationSettings                  : Name                           Value
+----                           -----
+Enabled                        False
+ProfileName                    Desktop
+TriggerOnStatus                {ANY}
+  OnSourcePathNotFound                  : FailJob
+  Path                                  : P:\Images\*
+  PinOnCreation                         : False
+  PostBackupScriptAlwaysPath            : 
+  PostBackupScriptOnFailurePath         : 
+  PostBackupScriptOnSuccessPath         : 
+  PostLocalArchiveScriptPath            : 
+  PreBackupScriptPath                   : 
+  ReportGeneratorType                   : Txt
+  RetentionConfirmDelete                : False
+  RunOnlyIfPathExists                   : True
+  Schedule                              : Name                           Value
+----                           -----
+Enabled                        False
+  SevenZipCpuAffinity                   : 
+  SevenZipProcessPriority               : Normal
+  SevenZipTempDirectory                 : 
+  SFXModule                             : Console
+  TestArchiveBeforeDeletion             : False
+  TreatSevenZipWarningsAsSuccess        : False
+  VerifyArchiveChecksumOnTest           : True
+----------------------------------------------------------------------
+DETAILED LOG:
+2025-06-29 09:14:18 [DEBUG   ] JobExecutor.LocalBackupOrchestrator/Invoke-PoShBackupLocalBackupExecution: Initialising for job 'projects'.
+2025-06-29 09:14:18 [DEBUG   ] JobPreProcessor (Facade): Orchestrating pre-processing for job 'projects'.
+2025-06-29 09:14:18 [DEBUG   ] PathValidator: Logger parameter active for job 'projects'.
+2025-06-29 09:14:18 [DEBUG   ] PathValidator: Initialising for job 'projects'.
+2025-06-29 09:14:18 [DEBUG   ] 
+[DEBUG] PathValidator: Performing source path validation...
+2025-06-29 09:14:18 [DEBUG   ] [DEBUG] PathValidator: Source path validation completed.
+2025-06-29 09:14:18 [INFO    ] [INFO] PathValidator: Final Destination Directory 'D:\Backups' for job 'projects' does not exist. Attempting to create...
+2025-06-29 09:14:18 [SUCCESS ]   - Final Destination Directory created successfully.
+2025-06-29 09:14:18 [DEBUG   ] CredentialAndHookHandler: Initialising for job 'projects'.
+2025-06-29 09:14:18 [DEBUG   ] Invoke-PoShBackupHook: Logger parameter active for hook 'PreBackup'.
+2025-06-29 09:14:18 [DEBUG   ] SourceResolver: Initialising for job 'projects'.
+2025-06-29 09:14:18 [DEBUG   ] LocalArchiveProcessor (Facade): Orchestrating local archive operation. CPU Affinity String: ''
+2025-06-29 09:14:18 [DEBUG   ] 
+[DEBUG] LocalArchiveProcessor: Performing Pre-Archive Creation Operations...
+2025-06-29 09:14:18 [DEBUG   ]    - Using source(s) for 7-Zip: P:\Images\*
+2025-06-29 09:14:18 [DEBUG   ] SystemUtils/Test-DestinationFreeSpace: Logger parameter active for path 'D:\Backups'.
+2025-06-29 09:14:18 [INFO    ] 
+[INFO] SystemUtils: Checking destination free space for 'D:\Backups'...
+2025-06-29 09:14:18 [INFO    ]    - Minimum free space required: 5 GB
+2025-06-29 09:14:18 [INFO    ]    - SystemUtils: Available free space on drive D (hosting 'D:\Backups'): 87.9 GB
+2025-06-29 09:14:18 [SUCCESS ]    - SystemUtils: Free space check: OK (Available: 87.9 GB, Required: 5 GB)
+2025-06-29 09:14:18 [DEBUG   ] 
+[DEBUG] LocalArchiveProcessor: Target Archive in Final Destination Directory: D:\Backups\Projects [2025-Jun-29_09_14_18].7z (First volume/file expected at: D:\Backups\Projects [2025-Jun-29_09_14_18].7z)
+2025-06-29 09:14:18 [DEBUG   ] ArchiveCreator: Initialising for job 'Projects'.
+2025-06-29 09:14:18 [DEBUG   ] 7ZipManager/ArgumentBuilder/Get-PoShBackup7ZipArgument: Logger parameter active.
+2025-06-29 09:14:18 [DEBUG   ] 7ZipManager/Executor/Invoke-7ZipOperation: Logger active. TreatWarningsAsSuccess: False, Input Affinity: ''
+2025-06-29 09:14:20 [DEBUG   ] ArchiveCreator: 7-Zip process completed with exit code 0.
+2025-06-29 09:14:20 [DEBUG   ] FileUtils/Get-ArchiveSizeFormatted: Logger parameter active for path 'D:\Backups\Projects [2025-Jun-29_09_14_18].7z'.
+2025-06-29 09:14:20 [DEBUG   ] PostArchiveProcessor: Initialising post-archive processing for job 'Projects'.
+2025-06-29 09:14:20 [INFO    ] 
+[INFO] PostArchiveProcessor: Generating manifest of archive contents for 'D:\Backups\Projects [2025-Jun-29_09_14_18].7z'...
+2025-06-29 09:14:20 [DEBUG   ] 7ZipManager/Lister/Get-7ZipArchiveListing: Logger parameter active.
+2025-06-29 09:14:20 [DEBUG   ] 7ZipManager/Lister/Get-7ZipArchiveListing: Initialising for archive 'D:\Backups\Projects [2025-Jun-29_09_14_18].7z'.
+2025-06-29 09:14:20 [DEBUG   ] 7ZipManager/Lister/Get-7ZipArchiveListing: Executing: & "C:\Program Files\7-Zip\7z.exe" l -slt D:\Backups\Projects [2025-Jun-29_09_14_18].7z
+2025-06-29 09:14:20 [SUCCESS ]   - Contents manifest created: 'D:\Backups\Projects [2025-Jun-29_09_14_18].7z.contents.manifest'
+2025-06-29 09:14:20 [INFO    ] 
+[INFO] PostArchiveProcessor: Generating checksum for archive 'D:\Backups\Projects [2025-Jun-29_09_14_18].7z'...
+2025-06-29 09:14:20 [DEBUG   ] FileUtils/Get-PoshBackupFileHash: Logger parameter active for path 'D:\Backups\Projects [2025-Jun-29_09_14_18].7z', Algorithm 'SHA256'.
+2025-06-29 09:14:20 [DEBUG   ]   - FileUtils: Generating SHA256 hash for file 'D:\Backups\Projects [2025-Jun-29_09_14_18].7z'...
+2025-06-29 09:14:20 [DEBUG   ]     - FileUtils: SHA256 hash generated successfully: C63317AEB33E7EA67DE4034C216C257571C7C81F115DB015B3ED32D7BB7E783E.
+2025-06-29 09:14:20 [SUCCESS ]   - Checksum file created: 'D:\Backups\Projects [2025-Jun-29_09_14_18].7z.sha256' with content: 'C63317AEB33E7EA67DE4034C216C257571C7C81F115DB015B3ED32D7BB7E783E  Projects [2025-Jun-29_09_14_18].7z'
+2025-06-29 09:14:20 [DEBUG   ] PostArchiveProcessor: Post-archive processing completed with status 'SUCCESS'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.LocalBackupOrchestrator/Invoke-PoShBackupLocalBackupExecution: Local backup execution phase complete for job 'projects'. Status: SUCCESS
+2025-06-29 09:14:20 [INFO    ]  - Job Settings for 'projects' (derived from configuration and CLI overrides):
+2025-06-29 09:14:20 [INFO    ]    - Effective Source Path(s) (after VSS/Snapshot if any): P:\Images\*
+2025-06-29 09:14:20 [INFO    ]    - Destination/Staging Dir: D:\Backups
+2025-06-29 09:14:20 [INFO    ]    - Archive Base Name      : Projects
+2025-06-29 09:14:20 [INFO    ]    - Archive Password Method: None (Source: None (Explicitly Configured))
+2025-06-29 09:14:20 [INFO    ]    - Treat 7-Zip Warnings as Success: False
+2025-06-29 09:14:20 [INFO    ]    - 7-Zip CPU Affinity     : Not Set (Uses 7-Zip Default)
+2025-06-29 09:14:20 [INFO    ]    - Split Volume Size      : Not Set (Single Volume)
+2025-06-29 09:14:20 [INFO    ]    - Verify Local Archive Before Transfer: False
+2025-06-29 09:14:20 [INFO    ]    - Local Retention Deletion Confirmation: False
+2025-06-29 09:14:20 [INFO    ]    - Generate Archive Checksum: True
+2025-06-29 09:14:20 [INFO    ]    - Checksum Algorithm       : SHA256
+2025-06-29 09:14:20 [INFO    ]    - Verify Checksum on Test  : True
+2025-06-29 09:14:20 [INFO    ]    - Remote Target Name(s)  : (None specified - local backup only)
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.LocalRetentionHandler/Invoke-PoShBackupLocalRetentionExecution: Initialising for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] RetentionManager/Invoke-BackupRetentionPolicy (Facade): Logger active for base 'Projects', ext '.7z'. ConfirmDelete: False
+2025-06-29 09:14:20 [DEBUG   ] 
+[DEBUG] RetentionManager (Facade): Applying Backup Retention Policy for archives matching base name 'Projects' and primary extension '.7z'...
+2025-06-29 09:14:20 [INFO    ]    - Destination Directory: D:\Backups
+2025-06-29 09:14:20 [INFO    ]    - Configured Total Retention Count (target instances after current backup completes): 1
+2025-06-29 09:14:20 [INFO    ]    - Configured Retention Deletion Confirmation: Disabled (Item-Level Cmdlet will use -Confirm:$false)
+2025-06-29 09:14:20 [INFO    ]    - Effective Deletion Method for old archives: Permanent Delete
+2025-06-29 09:14:20 [DEBUG   ] RetentionManager (Facade): Temporarily set ErrorActionPreference to 'Stop'.
+2025-06-29 09:14:20 [DEBUG   ] RetentionManager (Facade): Calling Find-BackupArchiveInstance...
+2025-06-29 09:14:20 [DEBUG   ] RetentionManager/Scanner/Find-BackupArchiveInstance: Logger active for base 'Projects', ext '.7z'.
+2025-06-29 09:14:20 [DEBUG   ]    - RetentionManager/Scanner: Using dynamic date stamp regex pattern: '\[\d{4}\-\w{3}\-\d{2}_\d{2}_\d{2}_\d{2}\]'
+2025-06-29 09:14:20 [DEBUG   ]    - RetentionManager/Scanner: Scanning for files with filter pattern: 'Projects*' in 'D:\Backups'
+2025-06-29 09:14:20 [DEBUG   ]    - RetentionManager/Scanner: Found 1 logical backup instance(s) after processing and manifest/pin scan.
+2025-06-29 09:14:20 [DEBUG   ] RetentionManager (Facade): Find-BackupArchiveInstance returned 1 instance(s).
+2025-06-29 09:14:20 [DEBUG   ] RetentionManager (Facade): Attempting to sort 1 unpinned instance(s)...
+2025-06-29 09:14:20 [DEBUG   ] RetentionManager (Facade): Successfully sorted instances. Count: 1.
+2025-06-29 09:14:20 [DEBUG   ] RetentionManager (Facade): Total sorted unpinned instances: 1. Configured to keep: 1.
+2025-06-29 09:14:20 [INFO    ]    - RetentionManager (Facade): Number of existing unpinned backup instances (1) is at or below target old instances to preserve (). No older instances to delete.
+2025-06-29 09:14:20 [DEBUG   ] RetentionManager (Facade): Restored ErrorActionPreference to 'Continue'.
+2025-06-29 09:14:20 [INFO    ] [INFO] RetentionManager (Facade): Retention policy application finished for job pattern 'Projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.LocalRetentionHandler/Invoke-PoShBackupLocalRetentionExecution: Local retention execution phase complete for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.RemoteTransferHandler/Invoke-PoShBackupRemoteTransferExecution: Initialising for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.RemoteTransferHandler: No remote targets configured for job 'projects'. Skipping remote transfers.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.RemoteTransferHandler/Invoke-PoShBackupRemoteTransferExecution: Remote transfer execution phase complete for job 'projects'. Success: True
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.SnapshotCleanupHandler/Invoke-PoShBackupSnapshotCleanup: Logger parameter active for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.SnapshotCleanupHandler/Invoke-PoShBackupSnapshotCleanup: Initializing for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.SnapshotCleanupHandler: No snapshot session was tracked for job 'projects'. Skipping snapshot cleanup.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.SnapshotCleanupHandler/Invoke-PoShBackupSnapshotCleanup: Snapshot cleanup phase complete for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.VssCleanupHandler/Invoke-PoShBackupVssCleanup: Initializing for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.VssCleanupHandler: No VSS paths were tracked for job 'projects'. Skipping VSS cleanup.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.VssCleanupHandler/Invoke-PoShBackupVssCleanup: VSS cleanup phase complete for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.FinalisationHandler/Invoke-PoShBackupJobFinalisation: Logger parameter confirmed active for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.FinalisationHandler/Invoke-PoShBackupJobFinalisation: Initialising for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.FinalisationHandler/Invoke-PoShBackupJobFinalisation: Job finalisation tasks complete for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.PostJobHookHandler/Invoke-PoShBackupPostJobHook: Initialising for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] Invoke-PoShBackupHook: Logger parameter active for hook 'PostBackupOnSuccess'.
+2025-06-29 09:14:20 [DEBUG   ] Invoke-PoShBackupHook: Logger parameter active for hook 'PostBackupAlways'.
+2025-06-29 09:14:20 [DEBUG   ] JobExecutor.PostJobHookHandler/Invoke-PoShBackupPostJobHook: Post-job hook execution phase complete for job 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] PostJobProcessor: Starting post-job processing for 'projects'.
+2025-06-29 09:14:20 [DEBUG   ] Invoke-ReportGenerator: Logger parameter active for job 'projects'.
+2025-06-29 09:14:20 [INFO    ] 
+[INFO] Report generation requested for job 'projects'. Type: 'TXT'.
+2025-06-29 09:14:20 [DEBUG   ]   - Attempting to load reporting sub-module: 'ReportingTXT.psm1' from 'P:\Source\PowerShell\PoSh-Backup\Modules\Reporting\ReportingTXT.psm1'
+2025-06-29 09:14:20 [DEBUG   ]   - Executing report function 'Invoke-TXTReport' for job 'projects'...
+2025-06-29 09:14:20 [DEBUG   ] Invoke-TxtReport: Logger parameter active for job 'projects'.
+2025-06-29 09:14:20 [INFO    ] [INFO] TXT Report generation process started for job 'projects'.
+----------------------------------------------------------------------
+
