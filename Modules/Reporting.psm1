@@ -221,9 +221,7 @@ function Invoke-ReportGenerator {
                                             (Get-ConfigValue -ConfigObject $GlobalConfig -Key $typeSpecificDirKey -DefaultValue $ReportDirectory) # Fallback chain
 
                 # Resolve relative paths from the main script root
-                if (-not ([System.IO.Path]::IsPathRooted($specificReportDirectory))) {
-                    $specificReportDirectory = Join-Path -Path $mainScriptRoot -ChildPath $specificReportDirectory
-                }
+                $specificReportDirectory = Resolve-PoShBackupPath -PathToResolve $specificReportDirectory -ScriptRoot $mainScriptRoot
 
                 # Ensure the target report directory exists
                 if (-not (Test-Path -LiteralPath $specificReportDirectory -PathType Container)) {

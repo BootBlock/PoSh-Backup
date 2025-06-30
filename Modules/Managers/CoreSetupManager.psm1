@@ -188,7 +188,7 @@ function Invoke-PoShBackupCoreSetup {
         $Global:GlobalEnableFileLogging = Get-ConfigValue -ConfigObject $Configuration -Key 'EnableFileLogging' -DefaultValue $false
         if ($Global:GlobalEnableFileLogging) {
             $logDirConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'LogDirectory' -DefaultValue 'Logs'
-            $Global:GlobalLogDirectory = if ([System.IO.Path]::IsPathRooted($logDirConfig)) { $logDirConfig } else { Join-Path -Path $PSScriptRoot -ChildPath $logDirConfig }
+            $Global:GlobalLogDirectory = Resolve-PoShBackupPath -PathToResolve $logDirConfig -ScriptRoot $PSScriptRoot
             if (-not (Test-Path -LiteralPath $Global:GlobalLogDirectory -PathType Container)) {
                 try { New-Item -Path $Global:GlobalLogDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null; & $LoggerScriptBlock -Message "[INFO] CoreSetupManager: Log directory '$Global:GlobalLogDirectory' created." -Level "INFO" }
                 catch { & $LoggerScriptBlock -Message "[WARNING] CoreSetupManager: Failed to create log directory. File logging may be impacted. Error: $($_.Exception.Message)" -Level "WARNING"; $Global:GlobalEnableFileLogging = $false }
@@ -197,9 +197,9 @@ function Invoke-PoShBackupCoreSetup {
 
         # --- 9. Return the final execution plan ---
         return @{
-            Configuration            = $Configuration; ActualConfigFile         = $ActualConfigFile
-            JobsToProcess            = $executionPlanResult.JobsToProcess; CurrentSetName           = $executionPlanResult.CurrentSetName
-            StopSetOnErrorPolicy     = $executionPlanResult.StopSetOnErrorPolicy; SetSpecificPostRunAction = $executionPlanResult.SetSpecificPostRunAction
+            Configuration = $Configuration; ActualConfigFile = $ActualConfigFile
+            JobsToProcess = $executionPlanResult.JobsToProcess; CurrentSetName = $executionPlanResult.CurrentSetName
+            StopSetOnErrorPolicy = $executionPlanResult.StopSetOnErrorPolicy; SetSpecificPostRunAction = $executionPlanResult.SetSpecificPostRunAction
         }
     }
     catch {

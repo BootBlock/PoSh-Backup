@@ -22,7 +22,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.16.0 # Added Update.psm1 for update checking.
+    Version:        1.17.0 # Added PathResolver.psm1
     DateCreated:    10-May-2025
     LastModified:   31-May-2025
     Purpose:        Facade for core utility functions for the PoSh-Backup solution.
@@ -46,6 +46,7 @@ try {
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "StringUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "CredentialUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "RetentionUtils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "PathResolver.psm1") -Force -ErrorAction Stop
 
     # Update.psm1 is lazy-loaded by ScriptModeHandler.psm1, so it's not imported here directly.
     # However, to make its function available via the Utils facade if ScriptModeHandler *does* load it,
@@ -77,5 +78,5 @@ catch {
 # Adding Invoke-PoShBackupUpdateCheckAndApply here. If Update.psm1 is loaded by ScriptModeHandler,
 # this makes the function discoverable via `Get-Command Utils\Invoke-PoShBackupUpdateCheckAndApply`.
 # However, direct calls should still be ScriptModeHandler -> Update.psm1.
-Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Get-PoShBackupSecret, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Group-BackupInstancesByTimestamp, Write-ConsoleBanner, Get-ScriptVersionFromContent, Invoke-PoShBackupUpdateCheckAndApply, Expand-EnvironmentVariablesInConfig, Format-FileSize, Get-RequiredConfigValue
+Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Get-PoShBackupSecret, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Group-BackupInstancesByTimestamp, Write-ConsoleBanner, Get-ScriptVersionFromContent, Invoke-PoShBackupUpdateCheckAndApply, Expand-EnvironmentVariablesInConfig, Format-FileSize, Get-RequiredConfigValue, Resolve-PoShBackupPath
 #endregion

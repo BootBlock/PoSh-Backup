@@ -42,14 +42,11 @@ function Test-PoShBackupMaintenanceMode {
     $maintModeEnabledByConfig = Get-ConfigValue -ConfigObject $Configuration -Key 'MaintenanceModeEnabled' -DefaultValue $false
     $maintModeFilePath = Get-ConfigValue -ConfigObject $Configuration -Key 'MaintenanceModeFilePath' -DefaultValue '.\.maintenance'
     
-    $maintModeFileFullPath = $maintModeFilePath
-    if (-not [System.IO.Path]::IsPathRooted($maintModeFilePath)) {
-        $scriptRootPath = $Configuration['_PoShBackup_PSScriptRoot']
-        if ([string]::IsNullOrWhiteSpace($scriptRootPath)) {
-            & $Logger -Message "  - [ERROR] MaintenanceModeChecker: Cannot resolve relative maintenance file path because script root is unknown. Check cannot proceed." -Level "ERROR"
-            return $false # Fails open, allowing script to proceed but with an error logged.
-        }
-        $maintModeFileFullPath = Join-Path -Path $scriptRootPath -ChildPath $maintModeFilePath
+    $scriptRootPath = $Configuration['_PoShBackup_PSScriptRoot']
+    $maintModeFileFullPath = Resolve-PoShBackupPath -PathToResolve $maintModeFilePath -ScriptRoot $scriptRootPath
+    if ([string]::IsNullOrWhiteSpace($maintModeFileFullPath)) {
+        & $Logger -Message "  - [ERROR] MaintenanceModeChecker: Could not resolve the path for the maintenance flag file. Check cannot proceed." -Level "ERROR"
+        return $false
     }
     
     & $Logger -Message "CoreSetupManager/MaintenanceModeChecker: Checking for maintenance file at resolved path: '$maintModeFileFullPath'" -Level "DEBUG"

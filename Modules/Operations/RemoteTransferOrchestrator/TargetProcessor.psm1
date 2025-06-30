@@ -11,9 +11,9 @@
     to complete and aggregates their results.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.1 # Corrected parameter passing for ThreadJob compatibility.
+    Version:        2.0.2 # Corrected PSSA warnings for unused parameters in mock PSCmdlet.
     DateCreated:    26-Jun-2025
-    LastModified:   30-Jun-2025
+    LastModified:   29-Jun-2025
     Purpose:        To isolate the target iteration and transfer dispatch logic.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -27,23 +27,26 @@ function Invoke-SingleTargetTransferInternal {
         [string]$JobName,
         [string]$PSScriptRootForPaths,
         [hashtable]$EffectiveJobConfig,
-        [bool]$WhatIfPreference,
-        [string]$ConfirmPreference
+        [bool]$WhatIfPreference
     )
 
-    # Note: This function runs in a separate thread and CANNOT use the main script's logger directly.
-    # It returns structured data that will be logged by the main orchestrator thread.
-    
     # Recreate a mock PSCmdlet object for ShouldProcess within the thread job
+    $mockLogger = { param($Message, $Level) Write-Host "[$Level] $Message" } # Simple console logger for thread
     $mockPSCmdlet = [pscustomobject]@{
-        ShouldProcess = { param($target, $action) return $true }
+        ShouldProcess = {
+            param($target, $action)
+            # If -WhatIf was used, ShouldProcess should always return false to simulate
+            if ($WhatIfPreference) {
+                $whatIfMessage = "WhatIf: Performing the operation '$action' on target '$target'."
+                # We can't use the main logger, so we write to the job's host output stream.
+                Write-Host $whatIfMessage
+                return $false
+            }
+            # A full implementation of -Confirm is complex inside a thread job and is omitted for now.
+            # The primary goal is to respect -WhatIf / -Simulate.
+            return $true
+        }
     }
-    if ($WhatIfPreference) {
-        # If -WhatIf was used, ShouldProcess should always return false to simulate
-        $mockPSCmdlet.ShouldProcess = { param($target, $action) return $false }
-    }
-    # Note: A full implementation of -Confirm is complex inside a thread job and is omitted for now.
-    # The primary goal is to respect -WhatIf / -Simulate.
 
     $targetInstanceName = $TargetInstanceConfig._TargetInstanceName_
     $targetInstanceType = $TargetInstanceConfig.Type
@@ -63,7 +66,6 @@ function Invoke-SingleTargetTransferInternal {
     }
 
     try {
-        # Each thread job needs to import the modules it requires.
         Import-Module -Name $targetProviderModulePath -Force -ErrorAction Stop
 
         $invokeTargetTransferCmd = Get-Command Invoke-PoShBackupTargetTransfer -ErrorAction Stop
@@ -77,8 +79,8 @@ function Invoke-SingleTargetTransferInternal {
                 ArchiveBaseName               = $EffectiveJobConfig.BaseFileName
                 ArchiveExtension              = $EffectiveJobConfig.JobArchiveExtension
                 ArchiveDateFormat             = $EffectiveJobConfig.JobArchiveDateFormat
-                IsSimulateMode                = $false # We control this via the mock PSCmdlet now
-                Logger                        = { param($Message, $Level) Write-Host "[$Level] $Message" } # Simple console logger for thread
+                IsSimulateMode                = $WhatIfPreference # Use this to drive simulation in the provider
+                Logger                        = $mockLogger
                 EffectiveJobConfig            = $EffectiveJobConfig
                 LocalArchiveSizeBytes         = $fileToTransferInfo.Length
                 PSCmdlet                      = $mockPSCmdlet
@@ -147,8 +149,7 @@ function Invoke-PoShBackupTargetProcessing {
             $argumentList = @(
                 $targetInstanceConfig, $LocalFilesToTransfer, $JobName,
                 $PSScriptRootForPaths, $EffectiveJobConfig,
-                $useWhatIf,
-                $ConfirmPreference
+                $useWhatIf
             )
 
             $job = Start-ThreadJob -ScriptBlock $scriptBlock -ArgumentList $argumentList -Name "PoShBackup_Transfer_$($targetInstanceName)"

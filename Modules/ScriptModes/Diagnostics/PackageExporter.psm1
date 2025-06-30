@@ -175,7 +175,7 @@ function Invoke-ExportDiagnosticPackage {
 
         # 2. Copy and Sanitise Configuration Files
         & $LocalWriteLog -Message "  - Copying and sanitising configuration files..." -Level "INFO"
-        $configSourceDir = Join-Path -Path $PSScriptRoot -ChildPath "Config"
+        $configSourceDir = Resolve-PoShBackupPath -PathToResolve "Config" -ScriptRoot $PSScriptRoot
         if (Test-Path -LiteralPath $configSourceDir -PathType Container) {
             $configDestDir = Join-Path -Path $tempDir -ChildPath "Config"
             New-Item -Path $configDestDir -ItemType Directory -Force | Out-Null
@@ -220,7 +220,7 @@ function Invoke-ExportDiagnosticPackage {
 
         # 3. Gather Recent Logs
         & $LocalWriteLog -Message "  - Gathering recent log files..." -Level "INFO"
-        $logSourceDir = Join-Path -Path $PSScriptRoot -ChildPath "Logs"
+        $logSourceDir = Resolve-PoShBackupPath -PathToResolve "Logs" -ScriptRoot $PSScriptRoot
         if (Test-Path -LiteralPath $logSourceDir -PathType Container) {
             $logDestDir = Join-Path -Path $tempDir -ChildPath "Logs"
             New-Item -Path $logDestDir -ItemType Directory -Force | Out-Null
