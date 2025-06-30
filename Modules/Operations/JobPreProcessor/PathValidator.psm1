@@ -53,7 +53,8 @@ function Invoke-PoShBackupPathValidation {
     # --- Source Path Validation ---
     if ($IsSimulateMode.IsPresent) {
         & $LocalWriteLog -Message "SIMULATE: The existence and accessibility of all source paths would be verified." -Level "SIMULATE"
-    } else {
+    }
+    else {
         & $LocalWriteLog -Message "`n[DEBUG] PathValidator: Performing source path validation..." -Level "DEBUG"
     }
 
@@ -71,7 +72,8 @@ function Invoke-PoShBackupPathValidation {
         foreach ($path in $sourcePathsToCheck) {
             if ($IsSimulateMode.IsPresent -or (Test-Path -Path $path -ErrorAction SilentlyContinue)) {
                 $validSourcePaths.Add($path)
-            } else {
+            }
+            else {
                 $errorMessage = "Source path '$path' not found or is not accessible for job '$JobName'."
                 $adviceMessage = "ADVICE: Please check for typos in your configuration. If it is a network path, ensure the share is online and accessible by the user running the script."
                 & $LocalWriteLog -Message "[WARNING] PathValidator: $errorMessage" -Level "WARNING"
@@ -89,10 +91,38 @@ function Invoke-PoShBackupPathValidation {
             & $LocalWriteLog -Message "[WARNING] PathValidator: $finalErrorMessage" -Level "WARNING"
             return @{ Status = 'SkipJob'; ErrorMessage = $finalErrorMessage }
         }
-    } else {
+    }
+    else {
         $validSourcePaths.AddRange($sourcePathsToCheck) # For VM backups, pass paths through for the SourceResolver
     }
     if (-not $IsSimulateMode.IsPresent) { & $LocalWriteLog -Message "[DEBUG] PathValidator: Source path validation completed." -Level DEBUG }
+
+    # --- Recursive Path Validation (Destination cannot be inside Source) ---
+    if (-not $IsSimulateMode.IsPresent -and $EffectiveJobConfig.SourceIsVMName -ne $true) {
+        try {
+            $resolvedDestPath = (Resolve-Path -LiteralPath $EffectiveJobConfig.DestinationDir -ErrorAction Stop).Path.TrimEnd('\')
+
+            foreach ($sourcePath in $sourcePathsToCheck) {
+                if (-not (Test-Path -LiteralPath $sourcePath)) { continue } # Skip check if source doesn't exist yet anyway
+
+                $resolvedSourcePath = (Resolve-Path -LiteralPath $sourcePath -ErrorAction Stop).Path.TrimEnd('\')
+
+                if ($resolvedDestPath -eq $resolvedSourcePath -or $resolvedDestPath.StartsWith($resolvedSourcePath + [System.IO.Path]::DirectorySeparatorChar)) {
+                    $errorMessage = "CRITICAL CONFIGURATION ERROR for job '$JobName': The destination directory ('$resolvedDestPath') cannot be the same as or a sub-directory of a source path ('$resolvedSourcePath')."
+                    $adviceMessage = "ADVICE: To prevent a recursive backup loop, please change the 'DestinationDir' for this job to a location outside of any source paths."
+                    & $LocalWriteLog -Message $errorMessage -Level "ERROR"
+                    & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+                    throw $errorMessage
+                }
+            }
+        }
+        catch {
+            # This catches errors from Resolve-Path if a path is invalid, which is a failure condition itself.
+            $errorMessage = "Path validation failed for job '$JobName' while checking for recursive paths. A source or destination path might be invalid. Error: $($_.Exception.Message)"
+            & $LocalWriteLog -Message $errorMessage -Level "ERROR"
+            throw $errorMessage
+        }
+    }
 
     # --- Destination Path Validation ---
     if ([string]::IsNullOrWhiteSpace($EffectiveJobConfig.DestinationDir)) {
@@ -101,12 +131,14 @@ function Invoke-PoShBackupPathValidation {
     if (-not (Test-Path -LiteralPath $EffectiveJobConfig.DestinationDir -PathType Container)) {
         if ($IsSimulateMode.IsPresent) {
             & $LocalWriteLog -Message "SIMULATE: The ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)' would be created if it did not exist." -Level "SIMULATE"
-        } else {
+        }
+        else {
             & $LocalWriteLog -Message "[INFO] PathValidator: ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)' for job '$JobName' does not exist. Attempting to create..."
             if ($PSCmdletInstance.ShouldProcess($EffectiveJobConfig.DestinationDir, "Create ${destinationDirTerm}")) {
                 try { New-Item -Path $EffectiveJobConfig.DestinationDir -ItemType Directory -Force -ErrorAction Stop | Out-Null; & $LocalWriteLog -Message "  - ${destinationDirTerm} created successfully." -Level SUCCESS }
                 catch { throw (New-Object System.IO.IOException("Failed to create ${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)'. Error: $($_.Exception.Message)", $_.Exception)) }
-            } else {
+            }
+            else {
                 return @{ Status = 'FailJob'; ErrorMessage = "${destinationDirTerm} '$($EffectiveJobConfig.DestinationDir)' creation skipped by user." }
             }
         }
