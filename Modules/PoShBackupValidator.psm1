@@ -18,9 +18,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.1 # BUGFIX: Fixed HashSet.ToArray() call for PowerShell 5.1 compatibility.
+    Version:        1.9.2 # FIX: Pass the required DependencyMap to Test-PoShBackupJobDependencyGraph.
     DateCreated:    14-May-2025
-    LastModified:   28-Jun-2025
+    LastModified:   01-Jul-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
 #>
 
@@ -46,6 +46,7 @@ else {
 }
 
 try {
+    # JobDependencyManager now exports Get-PoShBackupJobDependencyMap and Test-PoShBackupJobDependencyGraph
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
     $subModulesPath = Join-Path -Path $PSScriptRoot -ChildPath "PoShBackupValidator"
     Import-Module -Name (Join-Path -Path $subModulesPath -ChildPath "SchemaExecutionEngine.psm1") -Force -ErrorAction Stop
@@ -91,7 +92,12 @@ function Invoke-PoShBackupConfigValidation {
 
     if ($ConfigurationToValidate.ContainsKey('BackupLocations') -and $ConfigurationToValidate.BackupLocations -is [hashtable] -and (Get-Command Test-PoShBackupJobDependencyGraph -ErrorAction SilentlyContinue)) {
         & $LocalWriteLog -Message "PoShBackupValidator: Performing job dependency validation..." -Level "DEBUG"
-        Test-PoShBackupJobDependencyGraph -AllBackupLocations $ConfigurationToValidate.BackupLocations -ValidationMessagesListRef $ValidationMessagesListRef -Logger $Logger
+        # --- FIX: First, build the dependency map, then pass it to the validator ---
+        $dependencyMap = Get-PoShBackupJobDependencyMap -AllBackupLocations $ConfigurationToValidate.BackupLocations
+        Test-PoShBackupJobDependencyGraph -AllBackupLocations $ConfigurationToValidate.BackupLocations `
+            -DependencyMap $dependencyMap `
+            -ValidationMessagesListRef $ValidationMessagesListRef `
+            -Logger $Logger
     }
 
     # --- Context-Aware Target Validation Logic ---
@@ -115,7 +121,6 @@ function Invoke-PoShBackupConfigValidation {
                     }
                 }
             }
-            # THIS IS THE FIX: Convert HashSet to Array in a compatible way
             $targetsToValidate = @($requiredTargetNames)
             & $LocalWriteLog -Message "  - Required targets for this run: $(if($targetsToValidate.Count -gt 0){$targetsToValidate -join ', '}else{'None'})" -Level "DEBUG"
         }
@@ -159,7 +164,6 @@ function Invoke-PoShBackupConfigValidation {
                     $errorMessage = "Validation function '$validationFunctionName' not found in provider module '$targetProviderModuleName' for target '$targetName'."
                     $adviceMessage = "ADVICE: For custom target providers, ensure you have implemented and exported a function named '$validationFunctionName' to perform target-specific settings validation."
                     $ValidationMessagesListRef.Value.Add($errorMessage)
-                    # Also log it for immediate feedback during -TestConfig
                     & $LocalWriteLog -Message "[WARNING] PoShBackupValidator: $errorMessage" -Level "WARNING"
                     & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
                 }

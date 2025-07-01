@@ -11,9 +11,9 @@
     to bypass dependency resolution if the -SkipJobDependencies switch is used.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Added logic for -SkipJobDependencies switch.
+    Version:        1.1.1 # FIX: Pass correct parameters to Get-JobExecutionOrder.
     DateCreated:    17-Jun-2025
-    LastModified:   23-Jun-2025
+    LastModified:   01-Jul-2025
     Purpose:        To centralise job resolution and dependency ordering.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -74,8 +74,12 @@ function Resolve-PoShBackupJobExecutionPlan {
         }
         else {
             & $Logger -Message "CoreSetupManager/JobAndDependencyResolver: Building job execution order considering dependencies..." -Level "INFO"
-            $executionOrderResult = Get-JobExecutionOrder -InitialJobsToConsider $jobResolutionResult.JobsToRun `
+
+            # FIX: Build the dependency map first, then pass it with the correct parameter names.
+            $dependencyMap = Get-PoShBackupJobDependencyMap -AllBackupLocations $Configuration.BackupLocations
+            $executionOrderResult = Get-JobExecutionOrder -InitialJobsToRun $jobResolutionResult.JobsToRun `
                 -AllBackupLocations $Configuration.BackupLocations `
+                -DependencyMap $dependencyMap `
                 -Logger $Logger
 
             if (-not $executionOrderResult.Success) {
