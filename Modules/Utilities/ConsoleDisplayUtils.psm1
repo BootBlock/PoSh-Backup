@@ -9,7 +9,7 @@
     drawing text banners with borders and custom colors.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.4 # Write-ConsoleBanner now respects $Global:IsQuietMode.
+    Version:        1.2.0 # Added Start-CancellableCountdown
     DateCreated:    29-May-2025
     LastModified:   06-Jun-2025
     Purpose:        Console display enhancement utilities for PoSh-Backup.
@@ -151,7 +151,7 @@ function Write-ConsoleBanner {
 
     Write-NameValue -name "Longer Name" -value "Some Value" -namePadding 20
     # Output:   Longer Name         : Some Value
-    
+
     Write-NameValue -name "Empty Value" -value $null -namePadding 20
     # Output:   Empty Value         : -
 #>
@@ -176,4 +176,52 @@ function Write-NameValue {
     Write-Host $valueToDisplay -ForegroundColor $valueForegroundColor
 }
 
-Export-ModuleMember -Function Write-ConsoleBanner, Write-NameValue
+#region --- Cancellable Countdown Timer ---
+function Start-CancellableCountdown {
+    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$DelaySeconds,
+        [Parameter(Mandatory = $true)]
+        [string]$ActionDisplayName,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance
+    )
+    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
+
+    if ($DelaySeconds -le 0) {
+        return $true # No delay, proceed with action
+    }
+
+    if (-not $PSCmdletInstance.ShouldProcess("System (Action: $ActionDisplayName)", "Display $DelaySeconds-second Cancellable Countdown")) {
+        & $LocalWriteLog -Message "ConsoleDisplayUtils: Cancellable countdown for action '$ActionDisplayName' skipped by user (ShouldProcess)." -Level "INFO"
+        return $false
+    }
+
+    & $LocalWriteLog -Message "ConsoleDisplayUtils: Action '$ActionDisplayName' will occur in $DelaySeconds seconds. Press 'C' to cancel." -Level "WARNING"
+
+    $cancelled = $false
+    for ($i = $DelaySeconds; $i -gt 0; $i--) {
+        Write-Host -NoNewline "`rAction '$ActionDisplayName' in $i seconds... (Press 'C' to cancel) "
+        if ($Host.UI.RawUI.KeyAvailable) {
+            $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            if ($key.Character -eq 'c' -or $key.Character -eq 'C') {
+                $cancelled = $true
+                break
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+    Write-Host "`r" # Clear the countdown line
+
+    if ($cancelled) {
+        & $LocalWriteLog -Message "ConsoleDisplayUtils: Action '$ActionDisplayName' CANCELLED by user." -Level "INFO"
+        return $false
+    }
+    return $true
+}
+#endregion
+
+Export-ModuleMember -Function Write-ConsoleBanner, Write-NameValue, Start-CancellableCountdown

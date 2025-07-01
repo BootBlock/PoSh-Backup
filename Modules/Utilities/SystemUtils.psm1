@@ -7,7 +7,7 @@
     system states, such as verifying administrator privileges and checking disk free space.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Added Test-HibernateEnabled
     DateCreated:    25-May-2025
     LastModified:   25-May-2025
     Purpose:        System interaction utilities for PoSh-Backup.
@@ -150,4 +150,40 @@ function Test-DestinationFreeSpace {
 }
 #endregion
 
-Export-ModuleMember -Function Test-AdminPrivilege, Test-DestinationFreeSpace
+#region --- Test Hibernate Enabled ---
+function Test-HibernateEnabled {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Logger
+    )
+
+    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
+
+    try {
+        $powerCfgOutput = powercfg /a
+        if ($powerCfgOutput -join ' ' -match "Hibernation has not been enabled|The hiberfile is not reserved") {
+            & $LocalWriteLog -Message "  - Hibernate Check: Hibernation is NOT currently enabled on this system (per powercfg /a)." -Level "DEBUG"
+            return $false
+        }
+
+        $hibernateRegKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Power"
+        if (Test-Path $hibernateRegKey) {
+            $hibernateEnabledValue = Get-ItemProperty -Path $hibernateRegKey -Name "HibernateEnabled" -ErrorAction SilentlyContinue
+            if ($null -ne $hibernateEnabledValue -and $hibernateEnabledValue.HibernateEnabled -eq 1) {
+                & $LocalWriteLog -Message "  - Hibernate Check: Hibernation IS enabled on this system (Registry: HibernateEnabled=1)." -Level "DEBUG"
+                return $true
+            } elseif ($null -ne $hibernateEnabledValue) {
+                & $LocalWriteLog -Message "  - Hibernate Check: Hibernation is NOT enabled on this system (Registry: HibernateEnabled=$($hibernateEnabledValue.HibernateEnabled))." -Level "DEBUG"
+                return $false
+            }
+        }
+        return ($powerCfgOutput -join ' ' -notmatch "Hibernation has not been enabled|The hiberfile is not reserved")
+    } catch {
+        & $LocalWriteLog -Message "[WARNING] SystemUtils: Error checking hibernation status. Error: $($_.Exception.Message)" -Level "WARNING"
+        return $false # Assume not enabled if check fails
+    }
+}
+#endregion
+
+Export-ModuleMember -Function Test-AdminPrivilege, Test-DestinationFreeSpace, Test-HibernateEnabled

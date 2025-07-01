@@ -32,10 +32,12 @@
 # $PSScriptRoot here is Modules\Core\
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path $PSScriptRoot "..\Managers\SystemStateManager.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Error "PostRunActionOrchestrator.psm1 FATAL: Could not import required dependent modules (Utils.psm1 or SystemStateManager.psm1). Error: $($_.Exception.Message)"
+    Write-Error "PostRunActionOrchestrator.psm1 FATAL: Could not import required dependent modules. Error: $($_.Exception.Message)"
     throw
 }
 #endregion

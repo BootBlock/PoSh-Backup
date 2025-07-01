@@ -3,122 +3,34 @@
 .SYNOPSIS
     Manages system state changes like shutdown, restart, hibernate, logoff, sleep, or lock workstation,
     typically invoked after PoSh-Backup job/set completion.
-
 .DESCRIPTION
     This module provides the functionality to perform various system power and session actions.
-    It includes features for a delayed action with a user-cancellable countdown, checking
-    for hibernation support, and simulating actions for test runs.
+    It orchestrates the process by:
+    - Calling 'Test-HibernateEnabled' from SystemUtils.psm1 to validate the hibernate action.
+    - Calling 'Start-CancellableCountdown' from ConsoleDisplayUtils.psm1 to manage the user-cancellable delay.
+    - Executing the final system state change command (e.g., shutdown.exe, rundll32.exe).
 
-    The primary exported function, Invoke-SystemStateAction, is designed to be called by
+    The main exported function, Invoke-SystemStateAction, is designed to be called by
     the main PoSh-Backup script with parameters derived from job, set, or CLI configurations.
-
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Enhanced -Simulate output to be more descriptive.
+    Version:        2.0.0 # Refactored to use utility modules for checks and countdown.
     DateCreated:    22-May-2025
-    LastModified:   23-Jun-2025
+    LastModified:   01-Jul-2025
     Purpose:        To provide controlled system state change capabilities for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Administrator privileges may be required for actions like Shutdown, Restart, Hibernate.
 #>
 
-#region --- Internal Helper: Test Hibernate Enabled ---
-function Test-HibernateEnabledInternal {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger
-    )
-
-    # Defensive PSSA appeasement
-    & $Logger -Message "SystemStateManager/Test-HibernateEnabledInternal: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
-
-    try {
-        # Check powercfg /a output for hibernation status
-        $powerCfgOutput = powercfg /a
-        if ($powerCfgOutput -join ' ' -match "Hibernation has not been enabled|The hiberfile is not reserved") {
-            & $LocalWriteLog -Message "  - Hibernate Check: Hibernation is NOT currently enabled on this system (per powercfg /a)." -Level "INFO"
-            return $false
-        }
-        # More robust check: Query registry if powercfg is ambiguous or for confirmation
-        # HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power -> HibernateEnabled (DWORD: 1 for enabled, 0 for disabled)
-        $hibernateRegKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Power"
-        if (Test-Path $hibernateRegKey) {
-            $hibernateEnabledValue = Get-ItemProperty -Path $hibernateRegKey -Name "HibernateEnabled" -ErrorAction SilentlyContinue
-            if ($null -ne $hibernateEnabledValue -and $hibernateEnabledValue.HibernateEnabled -eq 1) {
-                & $LocalWriteLog -Message "  - Hibernate Check: Hibernation IS enabled on this system (Registry: HibernateEnabled=1)." -Level "DEBUG"
-                return $true
-            } elseif ($null -ne $hibernateEnabledValue) {
-                & $LocalWriteLog -Message "  - Hibernate Check: Hibernation is NOT enabled on this system (Registry: HibernateEnabled=$($hibernateEnabledValue.HibernateEnabled))." -Level "INFO"
-                return $false
-            }
-        }
-        # Fallback if registry check fails but powercfg didn't explicitly say disabled
-        # This path is less likely if powercfg /a is reliable.
-        & $LocalWriteLog -Message "  - Hibernate Check: Hibernation status could not be definitively confirmed via registry, relying on powercfg output (if it didn't explicitly state disabled, assuming enabled)." -Level "DEBUG"
-        # If powercfg didn't say "not enabled", we assume it might be.
-        # This is a weaker confirmation but better than nothing if registry fails.
-        return ($powerCfgOutput -join ' ' -notmatch "Hibernation has not been enabled|The hiberfile is not reserved")
-
-    } catch {
-        & $LocalWriteLog -Message "[WARNING] SystemStateManager/Test-HibernateEnabledInternal: Error checking hibernation status. Error: $($_.Exception.Message)" -Level "WARNING"
-        return $false # Assume not enabled if check fails
-    }
+#region --- Module Dependencies ---
+# $PSScriptRoot here is Modules\Managers
+try {
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
 }
-#endregion
-
-#region --- Internal Helper: Start Cancellable Countdown ---
-# PSScriptAnalyzer Suppress PSUseApprovedVerbs[Start-CancellableCountdownInternal] - 'Start' is descriptive for this internal helper that manages a countdown process, not directly a state-changing verb for end-user.
-function Start-CancellableCountdownInternal {
-    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')] # Added SupportsShouldProcess
-    param(
-        [Parameter(Mandatory = $true)]
-        [int]$DelaySeconds,
-        [Parameter(Mandatory = $true)]
-        [string]$ActionDisplayName,
-        [Parameter(Mandatory = $true)]
-        [scriptblock]$Logger,
-        [Parameter(Mandatory = $true)] # Added PSCmdletInstance
-        [System.Management.Automation.PSCmdlet]$PSCmdletInstance
-    )
-    # Defensive PSSA appeasement
-    & $Logger -Message "SystemStateManager/Start-CancellableCountdownInternal: Logger parameter active for action '$ActionDisplayName'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
-
-    if ($DelaySeconds -le 0) {
-        return $true # No delay, proceed with action
-    }
-
-    # Respect -WhatIf and -Confirm before starting the countdown
-    if (-not $PSCmdletInstance.ShouldProcess("System (Action: $ActionDisplayName)", "Display $DelaySeconds-second Cancellable Countdown")) {
-        & $LocalWriteLog -Message "SystemStateManager: Cancellable countdown for action '$ActionDisplayName' skipped by user (ShouldProcess)." -Level "INFO"
-        return $false # Indicate that the countdown (and thus the action) should not proceed
-    }
-
-    & $LocalWriteLog -Message "SystemStateManager: Action '$ActionDisplayName' will occur in $DelaySeconds seconds. Press 'C' to cancel." -Level "WARNING"
-
-    $cancelled = $false
-    for ($i = $DelaySeconds; $i -gt 0; $i--) {
-        Write-Host -NoNewline "`rAction '$ActionDisplayName' in $i seconds... (Press 'C' to cancel) " # Extra space to clear previous longer numbers
-        if ($Host.UI.RawUI.KeyAvailable) {
-            $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-            if ($key.Character -eq 'c' -or $key.Character -eq 'C') {
-                $cancelled = $true
-                break
-            }
-        }
-        Start-Sleep -Seconds 1
-    }
-    Write-Host "`r" # Clear the countdown line
-
-    if ($cancelled) {
-        & $LocalWriteLog -Message "SystemStateManager: Action '$ActionDisplayName' CANCELLED by user." -Level "INFO"
-        return $false # Action cancelled
-    }
-    return $true # Proceed with action
+catch {
+    Write-Error "SystemStateManager.psm1 FATAL: Could not import required utility modules. Error: $($_.Exception.Message)"
+    throw
 }
 #endregion
 
@@ -178,9 +90,6 @@ function Invoke-SystemStateAction {
         [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
 
-    # Defensive PSSA appeasement
-    & $Logger -Message "SystemStateManager/Invoke-SystemStateAction: Logger parameter active for action '$Action'." -Level "DEBUG" -ErrorAction SilentlyContinue
-
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
 
     $actionDisplayName = $Action
@@ -191,7 +100,7 @@ function Invoke-SystemStateAction {
     & $LocalWriteLog -Message "SystemStateManager: Preparing to invoke system action: '$actionDisplayName'." -Level "INFO"
 
     if ($Action -eq "Hibernate") {
-        if (-not (Test-HibernateEnabledInternal -Logger $Logger)) {
+        if (-not (Test-HibernateEnabled -Logger $Logger)) {
             & $LocalWriteLog -Message "[WARNING] SystemStateManager: Action 'Hibernate' requested, but hibernation is not enabled on this system. Skipping action." -Level "WARNING"
             return $false
         }
@@ -217,21 +126,18 @@ function Invoke-SystemStateAction {
         return $true
     }
 
-    # Proceed with countdown if delay is configured
     if ($DelaySeconds -gt 0) {
-        # Pass PSCmdletInstance to the countdown function
-        if (-not (Start-CancellableCountdownInternal -DelaySeconds $DelaySeconds -ActionDisplayName $actionDisplayName -Logger $Logger -PSCmdletInstance $PSCmdletInstance)) {
-            return $false # Action was cancelled or skipped by ShouldProcess in countdown
+        if (-not (Start-CancellableCountdown -DelaySeconds $DelaySeconds -ActionDisplayName $actionDisplayName -Logger $Logger -PSCmdletInstance $PSCmdletInstance)) {
+            return $false # Action was cancelled or skipped
         }
     }
 
-    # Confirm actual execution with ShouldProcess
     if (-not $PSCmdletInstance.ShouldProcess("System", "Perform Action: $actionDisplayName")) {
         & $LocalWriteLog -Message "SystemStateManager: Action '$actionDisplayName' skipped by user (ShouldProcess)." -Level "INFO"
         return $false
     }
 
-    & $LocalWriteLog -Message "SystemStateManager: EXECUTING system action: '$actionDisplayName' NOW." -Level "WARNING" # Warning level for visibility
+    & $LocalWriteLog -Message "SystemStateManager: EXECUTING system action: '$actionDisplayName' NOW." -Level "WARNING"
     try {
         switch ($Action) {
             "Shutdown" {
@@ -246,7 +152,7 @@ function Invoke-SystemStateAction {
                 rundll32.exe powrprof.dll,SetSuspendState Hibernate
             }
             "LogOff" {
-                shutdown.exe /l | Out-Null # /l forces logoff, no /f needed typically
+                shutdown.exe /l | Out-Null
             }
             "Sleep" {
                 rundll32.exe powrprof.dll,SetSuspendState Sleep
