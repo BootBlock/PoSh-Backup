@@ -13,7 +13,7 @@
     on how to correct the configuration.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # FIX: Re-added and used Logger parameter to fix PSSA warning correctly.
     DateCreated:    01-Jul-2025
     LastModified:   01-Jul-2025
     Purpose:        To isolate the dependency graph validation logic.
@@ -89,10 +89,11 @@ function Test-PoShBackupJobDependencyGraph {
         [scriptblock]$Logger
     )
 
+    & $Logger -Message "GraphValidator/Test-PoShBackupJobDependencyGraph: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO")
         if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) { & $Logger -Message $Message -Level $Level }
     }
-    & $LocalWriteLog -Message "JobDependencyManager/GraphValidator: Initialising validation." -Level "DEBUG"
 
     if ($null -eq $AllBackupLocations -or $AllBackupLocations.Count -eq 0) {
         & $LocalWriteLog -Message "GraphValidator: No backup locations defined. Skipping dependency validation." -Level "DEBUG"

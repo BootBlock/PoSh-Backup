@@ -11,7 +11,7 @@
     already been validated for cycles.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.2 # FIX: Removed unused AllBackupLocations param, used Logger param.
     DateCreated:    01-Jul-2025
     LastModified:   01-Jul-2025
     Purpose:        To isolate the job execution ordering logic (topological sort).
@@ -37,29 +37,28 @@ function Get-JobExecutionOrder {
         [Parameter(Mandatory = $true)]
         [System.Collections.Generic.List[string]]$InitialJobsToRun,
         [Parameter(Mandatory = $true)]
-        [hashtable]$AllBackupLocations,
-        [Parameter(Mandatory = $true)]
         [hashtable]$DependencyMap,
         [Parameter(Mandatory = $false)]
         [scriptblock]$Logger
     )
 
+    & $Logger -Message "ExecutionPlanner/Get-JobExecutionOrder: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO")
         if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) { & $Logger -Message $Message -Level $Level }
     }
-    & $LocalWriteLog -Message "ExecutionPlanner: Initialising job execution order build." -Level "DEBUG"
 
     # 1. Expand the initial list to include all dependencies recursively
     $relevantJobsSet = @{} # Use Hashtable as a set for efficient lookups
     $queueForExpansion = New-Object System.Collections.Queue
-
+    
     foreach ($jobName in $InitialJobsToRun) {
         if (-not $relevantJobsSet.ContainsKey($jobName)) {
             $relevantJobsSet[$jobName] = $true
             $queueForExpansion.Enqueue($jobName)
         }
     }
-
+    
     while ($queueForExpansion.Count -gt 0) {
         $currentJob = $queueForExpansion.Dequeue()
         if ($DependencyMap.ContainsKey($currentJob)) {
@@ -71,19 +70,19 @@ function Get-JobExecutionOrder {
             }
         }
     }
-
+    
     $jobsToOrder = @($relevantJobsSet.Keys)
     & $LocalWriteLog -Message "ExecutionPlanner: Full list of relevant jobs for ordering (including dependencies): $($jobsToOrder -join ', ')" -Level "DEBUG"
 
     # 2. Perform Topological Sort (Kahn's algorithm) on the relevant jobs
     $adj = @{}       # Adjacency list: Prerequisite -> [Dependents]
     $inDegree = @{}  # In-degree count for each job
-
+    
     foreach ($jobName in $jobsToOrder) {
         $adj[$jobName] = @()
         $inDegree[$jobName] = 0
     }
-
+    
     foreach ($jobName in $jobsToOrder) {
         if ($DependencyMap.ContainsKey($jobName)) {
             foreach ($prerequisite in $DependencyMap[$jobName]) {
@@ -94,19 +93,19 @@ function Get-JobExecutionOrder {
             }
         }
     }
-
+    
     $queueForSorting = New-Object System.Collections.Queue
     foreach ($jobName in $jobsToOrder) {
         if ($inDegree[$jobName] -eq 0) {
             $queueForSorting.Enqueue($jobName)
         }
     }
-
+    
     $orderedJobsList = [System.Collections.Generic.List[string]]::new()
     while ($queueForSorting.Count -gt 0) {
         $u = $queueForSorting.Dequeue()
         $orderedJobsList.Add($u)
-
+        
         if ($adj.ContainsKey($u)) {
             foreach ($v in $adj[$u]) {
                 $inDegree[$v]--
@@ -126,7 +125,7 @@ function Get-JobExecutionOrder {
         & $LocalWriteLog -Message "ExecutionPlanner: $errorMessage" -Level "ERROR"
         return @{ Success = $false; OrderedJobs = @(); ErrorMessage = $errorMessage }
     }
-
+    
     & $LocalWriteLog -Message "ExecutionPlanner: Successfully built execution order with $($orderedJobsList.Count) job(s)." -Level "DEBUG"
     return @{ Success = $true; OrderedJobs = $orderedJobsList; ErrorMessage = $null }
 }

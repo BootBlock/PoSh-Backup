@@ -189,6 +189,9 @@ function Start-CancellableCountdown {
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
+
+    & $Logger -Message "ConsoleDisplayUtils/Start-CancellableCountdown: Logger parameter active for action '$ActionDisplayName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
 
     if ($DelaySeconds -le 0) {

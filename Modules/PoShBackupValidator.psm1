@@ -18,7 +18,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.2 # FIX: Pass the required DependencyMap to Test-PoShBackupJobDependencyGraph.
+    Version:        1.9.3 # FIX: Pass the required DependencyMap to Test-PoShBackupJobDependencyGraph.
     DateCreated:    14-May-2025
     LastModified:   01-Jul-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.

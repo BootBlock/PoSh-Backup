@@ -2,11 +2,12 @@
 Logs/*.log
 Logs/*.zip
 Logs/*.7z
-Reports/*.csv
-Reports/*.xml
-Reports/*.md
-Reports/*.html
 Reports/*.7z
+Reports/*.csv
+Reports/*.html
+Reports/*.md
+Reports/*.txt
+Reports/*.xml
 Reports/*.zip
 Releases/*.7z
 Releases/*.zip

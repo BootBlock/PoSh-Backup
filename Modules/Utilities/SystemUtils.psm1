@@ -158,6 +158,8 @@ function Test-HibernateEnabled {
         [scriptblock]$Logger
     )
 
+    & $Logger -Message "SystemUtils/Test-HibernateEnabled: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
 
     try {

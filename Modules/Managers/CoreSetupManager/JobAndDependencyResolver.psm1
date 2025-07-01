@@ -11,7 +11,7 @@
     to bypass dependency resolution if the -SkipJobDependencies switch is used.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.1 # FIX: Pass correct parameters to Get-JobExecutionOrder.
+    Version:        1.1.2 # FIX: Corrected parameters for Get-JobExecutionOrder call.
     DateCreated:    17-Jun-2025
     LastModified:   01-Jul-2025
     Purpose:        To centralise job resolution and dependency ordering.
@@ -66,7 +66,6 @@ function Resolve-PoShBackupJobExecutionPlan {
     # Step 2: Build the final execution order based on the initial list and dependencies.
     $executionOrderResult = @{ Success = $true; OrderedJobs = @() } # Default for case where no jobs are left
     if ($jobResolutionResult.JobsToRun.Count -gt 0) {
-        # --- NEW LOGIC for -SkipJobDependencies ---
         if ($SkipJobDependenciesSwitch.IsPresent -and -not [string]::IsNullOrWhiteSpace($BackupLocationName)) {
             & $Logger -Message "CoreSetupManager/JobAndDependencyResolver: The -SkipJobDependencies switch is active. Bypassing dependency resolution and running only '$BackupLocationName'." -Level "WARNING"
             $executionOrderResult.OrderedJobs = [System.Collections.Generic.List[string]]::new()
@@ -75,10 +74,9 @@ function Resolve-PoShBackupJobExecutionPlan {
         else {
             & $Logger -Message "CoreSetupManager/JobAndDependencyResolver: Building job execution order considering dependencies..." -Level "INFO"
 
-            # FIX: Build the dependency map first, then pass it with the correct parameter names.
+            # Build the dependency map first, then pass it to the planner.
             $dependencyMap = Get-PoShBackupJobDependencyMap -AllBackupLocations $Configuration.BackupLocations
             $executionOrderResult = Get-JobExecutionOrder -InitialJobsToRun $jobResolutionResult.JobsToRun `
-                -AllBackupLocations $Configuration.BackupLocations `
                 -DependencyMap $dependencyMap `
                 -Logger $Logger
 
