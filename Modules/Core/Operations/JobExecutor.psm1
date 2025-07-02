@@ -3,9 +3,9 @@
 .SYNOPSIS
     Executes the core backup operations for a single PoSh-Backup job.
     This module is a sub-component of the Core Operations facade.
-    It now delegates pre-processing (including snapshot orchestration), local archiving,
-    post-job hook execution, local retention policy execution, remote transfer orchestration,
-    snapshot/VSS cleanup, and report data finalisation to respective sub-modules.
+    It now lazy-loads its sub-modules for pre-processing, local archiving,
+    post-job hook execution, local retention, remote transfers, and cleanup,
+    improving overall script performance.
 
 .DESCRIPTION
     The JobExecutor module orchestrates the lifecycle of processing a single backup job.
@@ -13,25 +13,16 @@
 
     The primary exported function, Invoke-PoShBackupJob, performs the following sequence:
     1.  Receives the effective configuration.
-    2.  Calls 'Invoke-PoShBackupLocalBackupExecution' to handle pre-processing (including
-        infrastructure snapshots via SnapshotManager), and local archive creation/testing.
-    3.  Calls 'Invoke-PoShBackupLocalRetentionExecution'.
-    4.  If local operations were successful and remote targets are defined (and not skipped),
-        calls 'Invoke-PoShBackupRemoteTransferExecution'.
-    5.  In the 'finally' block:
-        a.  Calls 'Invoke-PoShBackupSnapshotCleanup' to remove any infrastructure snapshots.
-        b.  Calls 'Invoke-PoShBackupVssCleanup' to remove any OS-level shadow copies.
-        c.  Clears any in-memory plain text password.
-        d.  Assigns the collected global logs to the job's report data object.
-        e.  Calls 'Invoke-PoShBackupJobFinalisation'.
-        f.  Calls 'Invoke-PoShBackupPostJobHook'.
-    6.  Returns overall job status.
-
+    2.  Lazy-loads and calls 'Invoke-PoShBackupLocalBackupExecution' to handle pre-processing and local archive creation.
+    3.  Lazy-loads and calls 'Invoke-PoShBackupLocalRetentionExecution'.
+    4.  If local operations were successful, lazy-loads and calls 'Invoke-PoShBackupRemoteTransferExecution'.
+    5.  In the 'finally' block, it lazy-loads and calls the appropriate cleanup handlers for snapshots, VSS,
+        passwords, and post-job hooks.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.7.2 # Fixed missing log data in reports.
+    Version:        1.8.0 # Refactored to lazy-load all sub-modules.
     DateCreated:    30-May-2025
-    LastModified:   28-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        Handles the execution logic for individual backup jobs.
     Prerequisites:  PowerShell 5.1+, 7-Zip installed.
                     All core PoSh-Backup modules and target provider modules.
@@ -39,22 +30,16 @@
                     Administrator privileges for VSS and potentially for snapshot providers.
 #>
 
-# Explicitly import Utils.psm1 and other direct dependencies.
+# Explicitly import Utils.psm1 as it's used directly by this orchestrator.
 # $PSScriptRoot here is Modules\Core\Operations.
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalBackupOrchestrator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.PostJobHookHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalRetentionHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.RemoteTransferHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.VssCleanupHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.SnapshotCleanupHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.FinalisationHandler.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Error "JobExecutor.psm1 (in Modules\Core\Operations) FATAL: Could not import one or more dependent modules. Error: $($_.Exception.Message)"
+    Write-Error "JobExecutor.psm1 (in Modules\Core\Operations) FATAL: Could not import Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
+
 
 #region --- Main Job Processing Function ---
 function Invoke-PoShBackupJob {
@@ -119,16 +104,25 @@ function Invoke-PoShBackupJob {
         $effectiveJobConfig = $JobConfig
 
         # --- Call Local Backup Orchestrator (Handles PreProcessing and LocalArchiveOperation) ---
-        $localBackupExecutionParams = @{
-            JobName            = $JobName
-            EffectiveJobConfig = $effectiveJobConfig
-            ActualConfigFile   = $ActualConfigFile
-            JobReportDataRef   = $JobReportDataRef
-            IsSimulateMode     = $IsSimulateMode.IsPresent
-            Logger             = $Logger
-            PSCmdlet           = $PSCmdlet
+        try {
+            Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalBackupOrchestrator.psm1") -Force -ErrorAction Stop
+            $localBackupExecutionParams = @{
+                JobName            = $JobName
+                EffectiveJobConfig = $effectiveJobConfig
+                ActualConfigFile   = $ActualConfigFile
+                JobReportDataRef   = $JobReportDataRef
+                IsSimulateMode     = $IsSimulateMode.IsPresent
+                Logger             = $Logger
+                PSCmdlet           = $PSCmdlet
+            }
+            $localBackupResult = Invoke-PoShBackupLocalBackupExecution @localBackupExecutionParams
         }
-        $localBackupResult = Invoke-PoShBackupLocalBackupExecution @localBackupExecutionParams
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Core\Operations\JobExecutor.LocalBackupOrchestrator.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[FATAL] JobExecutor: Could not load or execute the LocalBackupOrchestrator. Job cannot proceed. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
+            throw # Re-throw as this is a critical failure
+        }
 
         $currentJobStatus = $localBackupResult.LocalBackupStatus
         $finalLocalArchivePath = $localBackupResult.FinalLocalArchivePath
@@ -164,26 +158,33 @@ function Invoke-PoShBackupJob {
         }
 
         # Only proceed with retention and remote transfers if the local backup operation was successful or had warnings.
-        # A FAILURE or a SKIP status should bypass these steps.
-        $allRemoteTransfersSucceeded = $true # Default to true if not applicable
+        $allRemoteTransfersSucceeded = $true
         if ($currentJobStatus -in 'SUCCESS', 'WARNINGS') {
-            Invoke-PoShBackupLocalRetentionExecution -JobName $JobName `
-                -EffectiveJobConfig $effectiveJobConfig `
-                -IsSimulateMode:$IsSimulateMode `
-                -Logger $Logger `
-                -PSCmdlet $PSCmdlet
+            try {
+                Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.LocalRetentionHandler.psm1") -Force -ErrorAction Stop
+                Invoke-PoShBackupLocalRetentionExecution -JobName $JobName `
+                    -EffectiveJobConfig $effectiveJobConfig `
+                    -IsSimulateMode:$IsSimulateMode `
+                    -Logger $Logger `
+                    -PSCmdlet $PSCmdlet
+            }
+            catch { & $LocalWriteLog -Message "[ERROR] JobExecutor: Could not load or execute the LocalRetentionHandler. Local retention skipped. Error: $($_.Exception.Message)" -Level "ERROR" }
 
-            $allRemoteTransfersSucceeded = Invoke-PoShBackupRemoteTransferExecution -JobName $JobName `
-                -EffectiveJobConfig $effectiveJobConfig `
-                -FinalLocalArchivePath $finalLocalArchivePath `
-                -ArchiveFileNameOnly $archiveFileNameOnly `
-                -JobReportDataRef $JobReportDataRef `
-                -IsSimulateMode:$IsSimulateMode `
-                -Logger $Logger `
-                -PSCmdlet $PSCmdlet `
-                -PSScriptRootForPaths $PSScriptRootForPaths `
-                -CurrentJobStatusForTransferCheck $currentJobStatus `
-                -SkipRemoteTransfersDueToLocalVerificationFailure $skipRemoteTransfersDueToLocalVerificationFailure
+            try {
+                Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.RemoteTransferHandler.psm1") -Force -ErrorAction Stop
+                $allRemoteTransfersSucceeded = Invoke-PoShBackupRemoteTransferExecution -JobName $JobName `
+                    -EffectiveJobConfig $effectiveJobConfig `
+                    -FinalLocalArchivePath $finalLocalArchivePath `
+                    -ArchiveFileNameOnly $archiveFileNameOnly `
+                    -JobReportDataRef $JobReportDataRef `
+                    -IsSimulateMode:$IsSimulateMode `
+                    -Logger $Logger `
+                    -PSCmdlet $PSCmdlet `
+                    -PSScriptRootForPaths $PSScriptRootForPaths `
+                    -CurrentJobStatusForTransferCheck $currentJobStatus `
+                    -SkipRemoteTransfersDueToLocalVerificationFailure $skipRemoteTransfersDueToLocalVerificationFailure
+            }
+            catch { & $LocalWriteLog -Message "[ERROR] JobExecutor: Could not load or execute the RemoteTransferHandler. Remote transfers skipped. Error: $($_.Exception.Message)" -Level "ERROR"; $allRemoteTransfersSucceeded = $false }
 
             if (-not $allRemoteTransfersSucceeded) {
                 if ($currentJobStatus -ne "FAILURE") { $currentJobStatus = "WARNINGS" }
@@ -191,64 +192,34 @@ function Invoke-PoShBackupJob {
         }
         else {
             & $LocalWriteLog -Message "[INFO] JobExecutor: Skipping local retention and remote transfers for job '$JobName' due to local operation status: '$currentJobStatus'." -Level "INFO"
-            $allRemoteTransfersSucceeded = $false # Effectively not successful as they didn't run.
+            $allRemoteTransfersSucceeded = $false
         }
     }
     catch {
         $errorMessageText = "FATAL UNHANDLED EXCEPTION in Invoke-PoShBackupJob for job '$JobName': $($_.Exception.ToString())"
         & $LocalWriteLog -Message $errorMessageText -Level "ERROR"
+        & $LocalWriteLog -Message "ADVICE: An unexpected error occurred. This could be due to a misconfiguration, a permissions issue, or a bug. Review the full error message above for clues." -Level "ADVICE"
         $currentJobStatus = "FAILURE"
         $reportData.ErrorMessage = if ([string]::IsNullOrWhiteSpace($reportData.ErrorMessage)) { $_.Exception.ToString() } else { "$($reportData.ErrorMessage); $($_.Exception.ToString())" }
         Write-Error -Message $errorMessageText -Exception $_.Exception -ErrorAction Continue
     }
     finally {
-        # Snapshot cleanup (must run BEFORE VSS cleanup)
-        Invoke-PoShBackupSnapshotCleanup -SnapshotSession $snapshotSessionToCleanUp `
-            -JobName $JobName `
-            -Logger $Logger `
-            -PSCmdlet $PSCmdlet `
-            -IsSimulateMode:$IsSimulateMode.IsPresent
-
-        Invoke-PoShBackupVssCleanup -VSSPathsToCleanUp $VSSPathsToCleanUp `
-            -JobName $JobName `
-            -IsSimulateMode:$IsSimulateMode `
-            -Logger $Logger
+        try { Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.SnapshotCleanupHandler.psm1") -Force -ErrorAction Stop; Invoke-PoShBackupSnapshotCleanup -SnapshotSession $snapshotSessionToCleanUp -JobName $JobName -Logger $Logger -PSCmdlet $PSCmdlet -IsSimulateMode:$IsSimulateMode.IsPresent } catch { & $LocalWriteLog "[ERROR] JobExecutor: Failed to load/run SnapshotCleanupHandler. Error: $($_.Exception.Message)" "ERROR" }
+        try { Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.VssCleanupHandler.psm1") -Force -ErrorAction Stop; Invoke-PoShBackupVssCleanup -VSSPathsToCleanUp $VSSPathsToCleanUp -JobName $JobName -IsSimulateMode:$IsSimulateMode -Logger $Logger } catch { & $LocalWriteLog "[ERROR] JobExecutor: Failed to load/run VssCleanupHandler. Error: $($_.Exception.Message)" "ERROR" }
 
         if (-not [string]::IsNullOrWhiteSpace($plainTextPasswordToClearAfterJob)) {
-            try {
-                $plainTextPasswordToClearAfterJob = $null
-                Remove-Variable plainTextPasswordToClearAfterJob -Scope Script -ErrorAction SilentlyContinue
-                [System.GC]::Collect()
-                [System.GC]::WaitForPendingFinalizers()
-                & $LocalWriteLog -Message "   - Plain text password for job '$JobName' cleared from JobExecutor module memory." -Level DEBUG
-            }
+            try { $plainTextPasswordToClearAfterJob = $null; Remove-Variable plainTextPasswordToClearAfterJob -Scope Script -ErrorAction SilentlyContinue; [System.GC]::Collect(); [System.GC]::WaitForPendingFinalizers(); & $LocalWriteLog -Message "   - Plain text password for job '$JobName' cleared from JobExecutor module memory." -Level DEBUG }
             catch { & $LocalWriteLog -Message "[WARNING] Exception while clearing plain text password from JobExecutor module memory for job '$JobName'. Error: $($_.Exception.Message)" -Level WARNING }
         }
-        
-        # *** THIS IS THE FIX ***
-        # Copy the globally collected log entries into the job-specific report object before finalisation.
+
         $reportData.LogEntries = $Global:GlobalJobLogEntries
 
-        Invoke-PoShBackupJobFinalisation -JobName $JobName `
-            -JobReportDataRef $JobReportDataRef `
-            -CurrentJobStatus $currentJobStatus `
-            -IsSimulateMode:$IsSimulateMode `
-            -PlainTextPasswordToClear $null `
-            -Logger $Logger
+        try { Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.FinalisationHandler.psm1") -Force -ErrorAction Stop; Invoke-PoShBackupJobFinalisation -JobName $JobName -JobReportDataRef $JobReportDataRef -CurrentJobStatus $currentJobStatus -IsSimulateMode:$IsSimulateMode -PlainTextPasswordToClear $null -Logger $Logger } catch { & $LocalWriteLog "[ERROR] JobExecutor: Failed to load/run FinalisationHandler. Error: $($_.Exception.Message)" "ERROR" }
 
         if ($null -ne $effectiveJobConfig) {
-            Invoke-PoShBackupPostJobHook -JobName $JobName `
-                -ReportDataOverallStatus $reportData.OverallStatus `
-                -FinalLocalArchivePath $finalLocalArchivePath `
-                -ActualConfigFile $ActualConfigFile `
-                -IsSimulateMode:$IsSimulateMode `
-                -EffectiveJobConfig $effectiveJobConfig `
-                -ReportData $reportData `
-                -Logger $Logger
+            try { Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.PostJobHookHandler.psm1") -Force -ErrorAction Stop; Invoke-PoShBackupPostJobHook -JobName $JobName -ReportDataOverallStatus $reportData.OverallStatus -FinalLocalArchivePath $finalLocalArchivePath -ActualConfigFile $ActualConfigFile -IsSimulateMode:$IsSimulateMode -EffectiveJobConfig $effectiveJobConfig -ReportData $reportData -Logger $Logger } catch { & $LocalWriteLog "[ERROR] JobExecutor: Failed to load/run PostJobHookHandler. Error: $($_.Exception.Message)" "ERROR" }
         }
-        else {
-            & $LocalWriteLog -Message "[WARNING] JobExecutor: EffectiveJobConfig was not resolved. Post-job hooks cannot be executed for job '$JobName'." -Level "WARNING"
-        }
+        else { & $LocalWriteLog -Message "[WARNING] JobExecutor: EffectiveJobConfig was not resolved. Post-job hooks cannot be executed for job '$JobName'." -Level "WARNING" }
     }
 
     return @{ Status = $currentJobStatus }

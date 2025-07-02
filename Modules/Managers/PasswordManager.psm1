@@ -2,39 +2,23 @@
 <#
 .SYNOPSIS
     Acts as a facade to manage the retrieval of archive passwords for PoSh-Backup jobs
-    by delegating to provider-specific sub-modules.
+    by lazy-loading and delegating to provider-specific sub-modules.
 .DESCRIPTION
     This module abstracts the archive password acquisition logic for PoSh-Backup. It provides a
     centralised and secure way to obtain passwords required for encrypting 7-Zip archives.
     The main exported function, Get-PoShBackupArchivePassword, determines the configured password
-    retrieval method and calls the appropriate provider sub-module located in the
+    retrieval method and lazy-loads the appropriate provider sub-module from the
     '.\PasswordManager\' directory to perform the actual retrieval.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.0 # Refactored into a facade with provider sub-modules.
+    Version:        2.1.0 # Refactored to lazy-load provider sub-modules.
     DateCreated:    10-May-2025
-    LastModified:   26-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        Facade for centralised password management for archive encryption.
     Prerequisites:  PowerShell 5.1+.
 #>
 
-#region --- Module Dependencies ---
-# $PSScriptRoot here is Modules\Managers
-try {
-    # Import the utility and provider modules.
-    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
-    $providerPath = Join-Path -Path $PSScriptRoot -ChildPath "PasswordManager"
-    Import-Module -Name (Join-Path -Path $providerPath -ChildPath "Common.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $providerPath -ChildPath "Interactive.Provider.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $providerPath -ChildPath "SecretManagement.Provider.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $providerPath -ChildPath "SecureStringFile.Provider.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $providerPath -ChildPath "PlainText.Provider.psm1") -Force -ErrorAction Stop
-}
-catch {
-    Write-Error "PasswordManager.psm1 (Facade) FATAL: Could not import a dependent module. Error: $($_.Exception.Message)"
-    throw
-}
-#endregion
+# No eager module imports are needed here. They will be lazy-loaded.
 
 #region --- Exported Function ---
 function Get-PoShBackupArchivePassword {
@@ -81,31 +65,42 @@ function Get-PoShBackupArchivePassword {
     try {
         switch ($effectivePasswordMethod) {
             "INTERACTIVE" {
-                $passwordSource = "Interactive (Get-Credential)"
-                $userNameHint = Get-RequiredConfigValue -JobConfig $JobConfigForPassword -GlobalConfig $GlobalConfig -JobKey 'CredentialUserNameHint' -GlobalKey 'DefaultCredentialUserNameHint'
-                $plainTextPassword = Get-PoShBackupInteractivePassword -JobName $JobName -UserNameHint $userNameHint -Logger $Logger
+                try {
+                    Import-Module -Name (Join-Path $PSScriptRoot "PasswordManager\Interactive.Provider.psm1") -Force -ErrorAction Stop
+                    $passwordSource = "Interactive (Get-Credential)"
+                    $userNameHint = Get-RequiredConfigValue -JobConfig $JobConfigForPassword -GlobalConfig $GlobalConfig -JobKey 'CredentialUserNameHint' -GlobalKey 'DefaultCredentialUserNameHint'
+                    $plainTextPassword = Get-PoShBackupInteractivePassword -JobName $JobName -UserNameHint $userNameHint -Logger $Logger
+                } catch { throw "Could not load or execute the Interactive password provider. Error: $($_.Exception.Message)" }
             }
             "SECRETMANAGEMENT" {
-                $passwordSource = "SecretManagement"
-                $secretName = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordSecretName'
-                $secretVault = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordVaultName'
-                if ([string]::IsNullOrWhiteSpace($secretName)) { throw "'ArchivePasswordMethod' is 'SecretManagement' but 'ArchivePasswordSecretName' is not defined for job '$JobName'." }
-                $plainTextPassword = Get-PoShBackupSecretManagementPassword -SecretName $secretName -VaultName $secretVault -Logger $Logger
+                try {
+                    Import-Module -Name (Join-Path $PSScriptRoot "PasswordManager\SecretManagement.Provider.psm1") -Force -ErrorAction Stop
+                    $passwordSource = "SecretManagement"
+                    $secretName = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordSecretName'
+                    $secretVault = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordVaultName'
+                    if ([string]::IsNullOrWhiteSpace($secretName)) { throw "'ArchivePasswordMethod' is 'SecretManagement' but 'ArchivePasswordSecretName' is not defined for job '$JobName'." }
+                    $plainTextPassword = Get-PoShBackupSecretManagementPassword -SecretName $secretName -VaultName $secretVault -Logger $Logger
+                } catch { throw "Could not load or execute the SecretManagement password provider. Error: $($_.Exception.Message)" }
             }
             "SECURESTRINGFILE" {
-                $passwordSource = "SecureStringFile"
-                $secureStringPath = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordSecureStringPath'
-                if ([string]::IsNullOrWhiteSpace($secureStringPath)) { throw "'ArchivePasswordMethod' is 'SecureStringFile' but 'ArchivePasswordSecureStringPath' is not defined for job '$JobName'." }
-                $plainTextPassword = Get-PoShBackupSecureStringFilePassword -SecureStringPath $secureStringPath -Logger $Logger
+                try {
+                    Import-Module -Name (Join-Path $PSScriptRoot "PasswordManager\SecureStringFile.Provider.psm1") -Force -ErrorAction Stop
+                    $passwordSource = "SecureStringFile"
+                    $secureStringPath = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordSecureStringPath'
+                    if ([string]::IsNullOrWhiteSpace($secureStringPath)) { throw "'ArchivePasswordMethod' is 'SecureStringFile' but 'ArchivePasswordSecureStringPath' is not defined for job '$JobName'." }
+                    $plainTextPassword = Get-PoShBackupSecureStringFilePassword -SecureStringPath $secureStringPath -Logger $Logger
+                } catch { throw "Could not load or execute the SecureStringFile password provider. Error: $($_.Exception.Message)" }
             }
             "PLAINTEXT" {
-                $passwordSource = "PlainText (Insecure)"
-                $plainTextPasswordFromConfig = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordPlainText'
-                $plainTextPassword = Get-PoShBackupPlainTextPassword -PlainTextPassword $plainTextPasswordFromConfig -JobName $JobName -Logger $Logger
+                try {
+                    Import-Module -Name (Join-Path $PSScriptRoot "PasswordManager\PlainText.Provider.psm1") -Force -ErrorAction Stop
+                    $passwordSource = "PlainText (Insecure)"
+                    $plainTextPasswordFromConfig = Get-ConfigValue -ConfigObject $JobConfigForPassword -Key 'ArchivePasswordPlainText'
+                    $plainTextPassword = Get-PoShBackupPlainTextPassword -PlainTextPassword $plainTextPasswordFromConfig -JobName $JobName -Logger $Logger
+                } catch { throw "Could not load or execute the PlainText password provider. Error: $($_.Exception.Message)" }
             }
             "NONE" {
                 $passwordSource = "None (Explicitly Configured or Defaulted)"
-                # No action needed, $plainTextPassword remains $null
             }
             default {
                 throw "Invalid or unrecognised 'ArchivePasswordMethod' ('$($passwordMethodFromConfig)') specified for job '$JobName'."
@@ -113,7 +108,9 @@ function Get-PoShBackupArchivePassword {
         }
     }
     catch {
-        # The provider modules will log the detailed error. The facade just needs to re-throw to halt the job.
+        $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\PasswordManager\' and its sub-modules exist and are not corrupted."
+        & $LocalWriteLog -Message "[FATAL] PasswordManager (Facade): $_.Exception.Message" -Level "ERROR"
+        & $LocalWriteLog -Message $advice -Level "ADVICE"
         throw $_.Exception
     }
 

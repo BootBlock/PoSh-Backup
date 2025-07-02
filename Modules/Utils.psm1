@@ -2,81 +2,192 @@
 <#
 .SYNOPSIS
     Provides a collection of essential utility functions for the PoSh-Backup script.
-    This module now acts as a facade, importing and re-exporting functions from
-    more specialised utility modules located in '.\Modules\Utilities\' (including the new
-    Update.psm1 for update checking) and the core logging function from
-    '.\Modules\Managers\LogManager.psm1'.
+    This module now acts as a true facade, lazy-loading its specialised utility
+    sub-modules on demand. It is now paired with a module manifest (.psd1).
 .DESCRIPTION
-    This module centralises common helper functions used throughout the PoSh-Backup solution,
-    promoting code reusability, consistency, and maintainability. By acting as a facade,
-    it allows other parts of the PoSh-Backup system to continue importing a single 'Utils.psm1'
-    while the underlying utility functions are organised into more focused sub-modules:
-    - ConfigUtils.psm1: Handles safe retrieval of configuration values.
-    - SystemUtils.psm1: Handles system-level interactions (admin checks, free space).
-    - FileUtils.psm1: Handles file-specific operations (size formatting, hashing).
-    - StringUtils.psm1: Handles string manipulation and extraction (e.g., version parsing).
-    - ConsoleDisplayUtils.psm1: Handles enhanced console output like banners.
-    - Update.psm1 (New): Handles checking for and applying updates to PoSh-Backup.
-    And the core logging function:
-    - LogManager.psm1 (in Modules\Managers\): Handles message logging.
-
+    This module centralises common helper functions used throughout the PoSh-Backup solution.
+    By acting as a facade, it provides wrapper functions that, when called, will dynamically
+    import the required sub-module from '.\Modules\Utilities\' and then execute the real function.
+    This improves startup performance by ensuring utility collections are only loaded when needed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.17.0 # Added PathResolver.psm1
+    Version:        1.18.2 # FIX: Corrected Write-LogMessage import to prevent recursion.
     DateCreated:    10-May-2025
-    LastModified:   31-May-2025
+    LastModified:   02-Jul-2025
     Purpose:        Facade for core utility functions for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+.
-                    Sub-modules (ConfigUtils.psm1, SystemUtils.psm1, FileUtils.psm1, StringUtils.psm1,
-                    ConsoleDisplayUtils.psm1, Update.psm1) must exist in '.\Modules\Utilities\'.
-                    LogManager.psm1 must exist in '.\Modules\Managers\'.
 #>
 
-#region --- Sub-Module Imports ---
-# $PSScriptRoot here is Modules\
-$utilitiesSubModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Utilities"
-$managersSubModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Managers" # Path to Managers directory
+# No eager module imports are needed here. They will be lazy-loaded by the wrapper functions.
 
-try {
-    # Import from Utilities
-    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "ConfigUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "SystemUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "FileUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "StringUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "CredentialUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "RetentionUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $utilitiesSubModulePath -ChildPath "PathResolver.psm1") -Force -ErrorAction Stop
+#region --- Facade Functions ---
 
-    # Update.psm1 is lazy-loaded by ScriptModeHandler.psm1, so it's not imported here directly.
-    # However, to make its function available via the Utils facade if ScriptModeHandler *does* load it,
-    # we can attempt to get its exported members if the module is already loaded in the session.
-    # This is a bit of a workaround for facade pattern with lazy loading.
-    # A cleaner way might be for ScriptModeHandler to call Update.psm1 functions directly after its own import.
-    # For now, we'll assume ScriptModeHandler handles the direct call after lazy loading Update.psm1.
-    # If Invoke-PoShBackupUpdateCheckAndApply needs to be callable from other places *through* Utils.psm1
-    # *without* ScriptModeHandler having loaded it first, then Update.psm1 would need to be eagerly loaded here.
-    # Given the current design (lazy load in ScriptModeHandler), we will NOT import Update.psm1 here.
-    # ScriptModeHandler will be responsible for calling it.
-    # We will, however, add its function to the Export-ModuleMember list,
-    # so if it *is* loaded into the session by ScriptModeHandler, it *could* be discoverable via Utils.
-    # This is a compromise. The primary invocation path is ScriptModeHandler -> Update.psm1 directly.
-
-    # Import Write-LogMessage from LogManager.psm1 in Managers directory
-    Import-Module -Name (Join-Path -Path $managersSubModulePath -ChildPath "LogManager.psm1") -Force -Function Write-LogMessage -ErrorAction Stop
-
+function Get-ConfigValue {
+    [CmdletBinding()]
+    param ( [object]$ConfigObject, [string]$Key, [object]$DefaultValue )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConfigUtils.psm1") -Force -ErrorAction Stop
+        return Get-ConfigValue @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the ConfigUtils sub-module. Error: $($_.Exception.Message)" }
 }
-catch {
-    # If any essential sub-module fails to import, Utils.psm1 cannot function correctly.
-    Write-Error "Utils.psm1 (Facade) FATAL: Could not import required sub-modules. Error: $($_.Exception.Message)"
-    throw # Re-throw to stop further execution of this module loading.
+
+function Get-RequiredConfigValue {
+    [CmdletBinding()]
+    param( [hashtable]$JobConfig, [hashtable]$GlobalConfig, [string]$JobKey, [string]$GlobalKey )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConfigUtils.psm1") -Force -ErrorAction Stop
+        return Get-RequiredConfigValue @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the ConfigUtils sub-module. Error: $($_.Exception.Message)" }
 }
+
+function Expand-EnvironmentVariablesInConfig {
+    [CmdletBinding()]
+    param( [hashtable]$ConfigObject, [string[]]$KeysToExpand, [scriptblock]$Logger )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConfigUtils.psm1") -Force -ErrorAction Stop
+        return Expand-EnvironmentVariablesInConfig @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the ConfigUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Write-ConsoleBanner {
+    [CmdletBinding()]
+    param( [string]$NameText, [string]$NameForegroundColor = '$Global:ColourInfo', [string]$ValueText, [string]$ValueForegroundColor = '$Global:ColourValue', [int]$BannerWidth = 50, [string]$BorderForegroundColor = '$Global:ColourBorder', [switch]$CenterText, [switch]$PrependNewLine, [switch]$AppendNewLine )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
+        Write-ConsoleBanner @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the ConsoleDisplayUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Write-NameValue {
+    param( [string]$name, [string]$value, [Int16]$namePadding = 0, [string]$defaultValue = '-', [string]$nameForegroundColor = "DarkGray", [string]$valueForegroundColor = "Gray" )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
+        Write-NameValue @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the ConsoleDisplayUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Start-CancellableCountdown {
+    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')]
+    param( [int]$DelaySeconds, [string]$ActionDisplayName, [scriptblock]$Logger, [System.Management.Automation.PSCmdlet]$PSCmdletInstance )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
+        return Start-CancellableCountdown @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the ConsoleDisplayUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Get-PoShBackupSecret {
+    [CmdletBinding()]
+    [OutputType([object])]
+    param( [string]$SecretName, [string]$VaultName, [scriptblock]$Logger, [string]$SecretPurposeForLog = "Credential", [switch]$AsPlainText, [switch]$AsCredential )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\CredentialUtils.psm1") -Force -ErrorAction Stop
+        return Get-PoShBackupSecret @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the CredentialUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Get-ArchiveSizeFormatted {
+    [CmdletBinding()]
+    param( [string]$PathToArchive, [scriptblock]$Logger )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\FileUtils.psm1") -Force -ErrorAction Stop
+        return Get-ArchiveSizeFormatted @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the FileUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Format-FileSize {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param( [long]$Bytes )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\FileUtils.psm1") -Force -ErrorAction Stop
+        return Format-FileSize @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the FileUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Get-PoshBackupFileHash {
+    [CmdletBinding()]
+    param( [string]$FilePath, [ValidateSet("SHA1", "SHA256", "SHA384", "SHA512", "MD5")] [string]$Algorithm, [scriptblock]$Logger )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\FileUtils.psm1") -Force -ErrorAction Stop
+        return Get-PoshBackupFileHash @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the FileUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Resolve-PoShBackupPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param( [string]$PathToResolve, [string]$ScriptRoot )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\PathResolver.psm1") -Force -ErrorAction Stop
+        return Resolve-PoShBackupPath @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the PathResolver sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Group-BackupInstancesByTimestamp {
+    [CmdletBinding()]
+    param( [array]$FileObjectList, [string]$ArchiveBaseName, [string]$ArchiveDateFormat, [string]$PrimaryArchiveExtension, [scriptblock]$Logger )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\RetentionUtils.psm1") -Force -ErrorAction Stop
+        return Group-BackupInstancesByTimestamp @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the RetentionUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Get-ScriptVersionFromContent {
+    [CmdletBinding()]
+    param( [string]$ScriptContent, [string]$ScriptNameForWarning = "script" )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\StringUtils.psm1") -Force -ErrorAction Stop
+        return Get-ScriptVersionFromContent @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the StringUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Test-AdminPrivilege {
+    [CmdletBinding()]
+    param( [scriptblock]$Logger )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
+        return Test-AdminPrivilege @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the SystemUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Test-DestinationFreeSpace {
+    [CmdletBinding()]
+    param( [string]$DestDir, [int]$MinRequiredGB, [bool]$ExitOnLow, [switch]$IsSimulateMode, [scriptblock]$Logger )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
+        return Test-DestinationFreeSpace @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the SystemUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Test-HibernateEnabled {
+    [CmdletBinding()]
+    param( [scriptblock]$Logger )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
+        return Test-HibernateEnabled @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the SystemUtils sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Write-LogMessage {
+    [CmdletBinding()]
+    param( [string]$Message, [string]$ForegroundColour, [switch]$NoNewLine, [string]$Level = "INFO", [switch]$NoTimestampToLogFile = $false )
+    try {
+        # *** FIX: Import the actual logger, not the manager facade ***
+        Import-Module -Name (Join-Path $PSScriptRoot "Managers\LogManager\Logger.psm1") -Force -ErrorAction Stop
+        Write-LogMessage @PSBoundParameters
+    } catch { Write-Error "Utils.psm1 Facade: Could not load the Logger sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Invoke-PoShBackupUpdateCheckAndApply {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+    param( [scriptblock]$Logger, [string]$PSScriptRootForPaths, [System.Management.Automation.PSCmdlet]$PSCmdletInstance )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\Update.psm1") -Force -ErrorAction Stop
+        Invoke-PoShBackupUpdateCheckAndApply @PSBoundParameters
+    } catch { throw "Utils.psm1 Facade: Could not load the Update sub-module. Error: $($_.Exception.Message)" }
+}
+
 #endregion
 
-#region --- Exported Functions ---
-# Re-export all functions from the imported utility sub-modules and Write-LogMessage from LogManager.
-# Adding Invoke-PoShBackupUpdateCheckAndApply here. If Update.psm1 is loaded by ScriptModeHandler,
-# this makes the function discoverable via `Get-Command Utils\Invoke-PoShBackupUpdateCheckAndApply`.
-# However, direct calls should still be ScriptModeHandler -> Update.psm1.
-Export-ModuleMember -Function Write-LogMessage, Get-ConfigValue, Get-PoShBackupSecret, Test-AdminPrivilege, Test-DestinationFreeSpace, Get-ArchiveSizeFormatted, Get-PoshBackupFileHash, Group-BackupInstancesByTimestamp, Write-ConsoleBanner, Get-ScriptVersionFromContent, Invoke-PoShBackupUpdateCheckAndApply, Expand-EnvironmentVariablesInConfig, Format-FileSize, Get-RequiredConfigValue, Resolve-PoShBackupPath
-#endregion
+# Corrected and completed list of all functions to export from the facade.
+Export-ModuleMember -Function Get-ConfigValue, Get-RequiredConfigValue, Expand-EnvironmentVariablesInConfig, Write-ConsoleBanner, Write-NameValue, Start-CancellableCountdown, Get-PoShBackupSecret, Get-ArchiveSizeFormatted, Format-FileSize, Get-PoshBackupFileHash, Resolve-PoShBackupPath, Group-BackupInstancesByTimestamp, Get-ScriptVersionFromContent, Test-AdminPrivilege, Test-DestinationFreeSpace, Test-HibernateEnabled, Write-LogMessage, Invoke-PoShBackupUpdateCheckAndApply

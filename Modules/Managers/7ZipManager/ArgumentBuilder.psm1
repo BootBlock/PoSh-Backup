@@ -9,15 +9,14 @@
     relies on Default.psd1 for all default values.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.0 # Refactored to remove hardcoded defaults for exclusions.
+    Version:        1.3.2 # FIX: Added direct import of Utils.psm1 to resolve dependency.
     DateCreated:    29-May-2025
-    LastModified:   25-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        7-Zip argument construction logic for 7ZipManager.
     Prerequisites:  PowerShell 5.1+.
-                    Relies on Utils.psm1 for Get-ConfigValue.
 #>
 
-# Explicitly import Utils.psm1 from the main Modules directory.
+#region --- Module Dependencies ---
 # $PSScriptRoot here is Modules\Managers\7ZipManager.
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
@@ -26,8 +25,9 @@ catch {
     Write-Error "ArgumentBuilder.psm1 (7ZipManager submodule) FATAL: Could not import dependent module Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
+#endregion
 
-#region --- Private Helper Function ---
+#region --- Internal Helper Function ---
 function Get-RequiredConfigValueInternal {
     [CmdletBinding()]
     param(
@@ -62,160 +62,130 @@ function Get-PoShBackup7ZipArgument {
         [scriptblock]$Logger
     )
 
-    begin {
-        # Initialisation if needed, though most logic is for single execution
+    # PSSA Appeasement: Directly use the Logger parameter once.
+    & $Logger -Message "7ZipManager/ArgumentBuilder/Get-PoShBackup7ZipArgument: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
+
+    $LocalWriteLog = {
+        param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
+        if ($null -ne $ForegroundColour) {
+            & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
+        }
+        else {
+            & $Logger -Message $Message -Level $Level
+        }
     }
 
-    process {
-        # This block is intentionally empty as the function processes parameters,
-        # not streamed pipeline objects for its main argument building logic.
-        # Adding it to satisfy PSScriptAnalyzer's PSAvoidCmdletPipelineOverrides.
+    $sevenZipArgs = [System.Collections.Generic.List[string]]::new()
+    $sevenZipArgs.Add("a")
+
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobArchiveType)) { $sevenZipArgs.Add($EffectiveConfig.JobArchiveType) }
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobCompressionLevel)) { $sevenZipArgs.Add($EffectiveConfig.JobCompressionLevel) }
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobCompressionMethod)) { $sevenZipArgs.Add($EffectiveConfig.JobCompressionMethod) }
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobDictionarySize)) { $sevenZipArgs.Add($EffectiveConfig.JobDictionarySize) }
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobWordSize)) { $sevenZipArgs.Add($EffectiveConfig.JobWordSize) }
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSolidBlockSize)) { $sevenZipArgs.Add($EffectiveConfig.JobSolidBlockSize) }
+    if ($EffectiveConfig.JobCompressOpenFiles) { $sevenZipArgs.Add("-ssw") }
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.ThreadsSetting)) { $sevenZipArgs.Add($EffectiveConfig.ThreadsSetting) }
+
+    if ($EffectiveConfig.FollowSymbolicLinks -ne $true) {
+        $sevenZipArgs.Add("-snl")
     }
 
-    end {
-        # PSSA Appeasement: Directly use the Logger parameter once.
-        & $Logger -Message "7ZipManager/ArgumentBuilder/Get-PoShBackup7ZipArgument: Logger parameter active." -Level "DEBUG" -ErrorAction SilentlyContinue
-
-        $LocalWriteLog = {
-            param([string]$Message, [string]$Level = "INFO", [string]$ForegroundColour)
-            if ($null -ne $ForegroundColour) {
-                & $Logger -Message $Message -Level $Level -ForegroundColour $ForegroundColour
-            }
-            else {
-                & $Logger -Message $Message -Level $Level
-            }
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipTempDirectory)) {
+        $tempDirPath = $EffectiveConfig.JobSevenZipTempDirectory
+        if (Test-Path -LiteralPath $tempDirPath -PathType Container) {
+            $sevenZipArgs.Add("-w`"$tempDirPath`"")
+            & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added custom temporary directory switch: '-w`"$tempDirPath`"'." -Level "DEBUG"
         }
-
-        $sevenZipArgs = [System.Collections.Generic.List[string]]::new()
-        $sevenZipArgs.Add("a")
-
-        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobArchiveType)) { $sevenZipArgs.Add($EffectiveConfig.JobArchiveType) }
-        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobCompressionLevel)) { $sevenZipArgs.Add($EffectiveConfig.JobCompressionLevel) }
-        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobCompressionMethod)) { $sevenZipArgs.Add($EffectiveConfig.JobCompressionMethod) }
-        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobDictionarySize)) { $sevenZipArgs.Add($EffectiveConfig.JobDictionarySize) }
-        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobWordSize)) { $sevenZipArgs.Add($EffectiveConfig.JobWordSize) }
-        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSolidBlockSize)) { $sevenZipArgs.Add($EffectiveConfig.JobSolidBlockSize) }
-        if ($EffectiveConfig.JobCompressOpenFiles) { $sevenZipArgs.Add("-ssw") }
-        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.ThreadsSetting)) { $sevenZipArgs.Add($EffectiveConfig.ThreadsSetting) }
-
-        # Do not follow symbolic links/junctions if set within the config.
-        if ($EffectiveConfig.FollowSymbolicLinks -ne $true) {
-            $sevenZipArgs.Add("-snl")
+        else {
+            & $LocalWriteLog -Message "[WARNING] 7ZipManager/ArgumentBuilder: Configured 7-Zip temporary directory '$tempDirPath' not found or is not a directory. 7-Zip will use the system default. Please create this directory." -Level "WARNING"
         }
+    }
 
-        # Add custom temporary directory switch (-w) if configured and valid
-        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipTempDirectory)) {
-            $tempDirPath = $EffectiveConfig.JobSevenZipTempDirectory
-            if (Test-Path -LiteralPath $tempDirPath -PathType Container) {
-                $sevenZipArgs.Add("-w`"$tempDirPath`"") # Format is -w"C:\Path\To\Temp" with no space
-                & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added custom temporary directory switch: '-w`"$tempDirPath`"'." -Level "DEBUG"
-            }
-            else {
-                & $LocalWriteLog -Message "[WARNING] 7ZipManager/ArgumentBuilder: Configured 7-Zip temporary directory '$tempDirPath' not found or is not a directory. 7-Zip will use the system default. Please create this directory." -Level "WARNING"
+    if ($EffectiveConfig.ContainsKey('CreateSFX') -and $EffectiveConfig.CreateSFX -eq $true) {
+        $sfxModuleSwitch = "-sfx"
+        if ($EffectiveConfig.ContainsKey('SFXModule')) {
+            $sfxModuleType = $EffectiveConfig.SFXModule.ToString().ToUpperInvariant()
+            switch ($sfxModuleType) {
+                "GUI" { $sfxModuleSwitch = "-sfx7zS.sfx" }
+                "INSTALLER" { $sfxModuleSwitch = "-sfx7zSD.sfx" }
             }
         }
+        $sevenZipArgs.Add($sfxModuleSwitch)
+        & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added SFX switch '$sfxModuleSwitch' (SFXModule type: '$($EffectiveConfig.SFXModule)')." -Level "DEBUG"
+    }
 
-        if ($EffectiveConfig.ContainsKey('CreateSFX') -and $EffectiveConfig.CreateSFX -eq $true) {
-            $sfxModuleSwitch = "-sfx"
-            if ($EffectiveConfig.ContainsKey('SFXModule')) {
-                $sfxModuleType = $EffectiveConfig.SFXModule.ToString().ToUpperInvariant()
-                switch ($sfxModuleType) {
-                    "GUI" { $sfxModuleSwitch = "-sfx7zS.sfx" }
-                    "INSTALLER" { $sfxModuleSwitch = "-sfx7zSD.sfx" }
-                }
-            }
-            $sevenZipArgs.Add($sfxModuleSwitch)
-            & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added SFX switch '$sfxModuleSwitch' (SFXModule type: '$($EffectiveConfig.SFXModule)')." -Level "DEBUG"
+    if ($EffectiveConfig.ContainsKey('SplitVolumeSize') -and -not [string]::IsNullOrWhiteSpace($EffectiveConfig.SplitVolumeSize)) {
+        $volumeSize = $EffectiveConfig.SplitVolumeSize
+        if ($volumeSize -match "^\d+[kmg]$") {
+            $sevenZipArgs.Add(("-v" + $volumeSize))
+            & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added multi-volume switch '-v$volumeSize'." -Level "DEBUG"
         }
+    }
 
-        if ($EffectiveConfig.ContainsKey('SplitVolumeSize') -and -not [string]::IsNullOrWhiteSpace($EffectiveConfig.SplitVolumeSize)) {
-            $volumeSize = $EffectiveConfig.SplitVolumeSize
-            if ($volumeSize -match "^\d+[kmg]$") {
-                $sevenZipArgs.Add(("-v" + $volumeSize))
-                & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added multi-volume switch '-v$volumeSize'." -Level "DEBUG"
-            }
-        }
+    $sevenZipArgs.Add((Get-RequiredConfigValueInternal -JobConfig @{} -GlobalConfig $EffectiveConfig.GlobalConfigRef -JobKey 'DefaultScriptExcludeRecycleBin' -GlobalKey 'DefaultScriptExcludeRecycleBin'))
+    $sevenZipArgs.Add((Get-RequiredConfigValueInternal -JobConfig @{} -GlobalConfig $EffectiveConfig.GlobalConfigRef -JobKey 'DefaultScriptExcludeSysVolInfo' -GlobalKey 'DefaultScriptExcludeSysVolInfo'))
 
-        # Use the required config helper to ensure these defaults are loaded from config, not hardcoded.
-        $sevenZipArgs.Add((Get-RequiredConfigValueInternal -JobConfig @{} -GlobalConfig $EffectiveConfig.GlobalConfigRef -JobKey 'DefaultScriptExcludeRecycleBin' -GlobalKey 'DefaultScriptExcludeRecycleBin'))
-        $sevenZipArgs.Add((Get-RequiredConfigValueInternal -JobConfig @{} -GlobalConfig $EffectiveConfig.GlobalConfigRef -JobKey 'DefaultScriptExcludeSysVolInfo' -GlobalKey 'DefaultScriptExcludeSysVolInfo'))
+    $allAdditionalExclusions = @()
+    $globalExclusions = Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultAdditionalExclusions' -DefaultValue @()
+    $jobExclusions = Get-ConfigValue -ConfigObject $EffectiveConfig -Key 'JobAdditionalExclusions' -DefaultValue @()
 
-        # --- Add Global and Job-Specific Exclusions ---
-        # The key is to start with a combined list and then process them.
-        $allAdditionalExclusions = @()
-        $globalExclusions = Get-ConfigValue -ConfigObject $EffectiveConfig.GlobalConfigRef -Key 'DefaultAdditionalExclusions' -DefaultValue @()
-        $jobExclusions = Get-ConfigValue -ConfigObject $EffectiveConfig -Key 'JobAdditionalExclusions' -DefaultValue @()
+    if ($globalExclusions -is [array] -and $globalExclusions.Count -gt 0) {
+        $allAdditionalExclusions += $globalExclusions
+        & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Found $($globalExclusions.Count) global exclusion(s) from 'DefaultAdditionalExclusions'." -Level "DEBUG"
+    }
+    if ($jobExclusions -is [array] -and $jobExclusions.Count -gt 0) {
+        $allAdditionalExclusions += $jobExclusions
+        & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Found $($jobExclusions.Count) job-specific exclusion(s) from 'AdditionalExclusions'." -Level "DEBUG"
+    }
 
-        if ($globalExclusions -is [array] -and $globalExclusions.Count -gt 0) {
-            $allAdditionalExclusions += $globalExclusions
-            & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Found $($globalExclusions.Count) global exclusion(s) from 'DefaultAdditionalExclusions'." -Level "DEBUG"
-        }
-        if ($jobExclusions -is [array] -and $jobExclusions.Count -gt 0) {
-            $allAdditionalExclusions += $jobExclusions
-            & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Found $($jobExclusions.Count) job-specific exclusion(s) from 'AdditionalExclusions'." -Level "DEBUG"
-        }
-
-        if ($allAdditionalExclusions.Count -gt 0) {
-            foreach ($exclusion in $allAdditionalExclusions) {
-                if (-not [string]::IsNullOrWhiteSpace($exclusion)) {
-                    # No need to auto-prefix with -x! as the user should provide the full switch.
-                    $sevenZipArgs.Add($exclusion.Trim())
-                }
+    if ($allAdditionalExclusions.Count -gt 0) {
+        foreach ($exclusion in $allAdditionalExclusions) {
+            if (-not [string]::IsNullOrWhiteSpace($exclusion)) {
+                $sevenZipArgs.Add($exclusion.Trim())
             }
         }
+    }
 
-        if ($EffectiveConfig.JobAdditionalExclusions -is [array] -and $EffectiveConfig.JobAdditionalExclusions.Count -gt 0) {
-            $EffectiveConfig.JobAdditionalExclusions | ForEach-Object {
-                if (-not [string]::IsNullOrWhiteSpace($_)) {
-                    $exclusion = $_.Trim()
-                    if (-not ($exclusion.StartsWith("-x!") -or $exclusion.StartsWith("-xr!") -or $exclusion.StartsWith("-i!") -or $exclusion.StartsWith("-ir!"))) {
-                        $exclusion = "-x!$($exclusion)"
-                    }
-                    $sevenZipArgs.Add($exclusion)
-                }
-            }
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipIncludeListFile)) {
+        if (Test-Path -LiteralPath $EffectiveConfig.JobSevenZipIncludeListFile -PathType Leaf) {
+            $sevenZipArgs.Add("-i@`"$($EffectiveConfig.JobSevenZipIncludeListFile)`"")
+            & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added include list file: '$($EffectiveConfig.JobSevenZipIncludeListFile)'." -Level "DEBUG"
         }
+        else {
+            & $LocalWriteLog -Message "[WARNING] 7ZipManager/ArgumentBuilder: Specified 7-Zip Include List File '$($EffectiveConfig.JobSevenZipIncludeListFile)' not found. It will be ignored." -Level "WARNING"
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipExcludeListFile)) {
+        if (Test-Path -LiteralPath $EffectiveConfig.JobSevenZipExcludeListFile -PathType Leaf) {
+            $sevenZipArgs.Add("-x@`"$($EffectiveConfig.JobSevenZipExcludeListFile)`"")
+            & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added exclude list file: '$($EffectiveConfig.JobSevenZipExcludeListFile)'." -Level "DEBUG"
+        }
+        else {
+            & $LocalWriteLog -Message "[WARNING] 7ZipManager/ArgumentBuilder: Specified 7-Zip Exclude List File '$($EffectiveConfig.JobSevenZipExcludeListFile)' not found. It will be ignored." -Level "WARNING"
+        }
+    }
 
-        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipIncludeListFile)) {
-            if (Test-Path -LiteralPath $EffectiveConfig.JobSevenZipIncludeListFile -PathType Leaf) {
-                $sevenZipArgs.Add("-i@`"$($EffectiveConfig.JobSevenZipIncludeListFile)`"")
-                & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added include list file: '$($EffectiveConfig.JobSevenZipIncludeListFile)'." -Level "DEBUG"
-            }
-            else {
-                & $LocalWriteLog -Message "[WARNING] 7ZipManager/ArgumentBuilder: Specified 7-Zip Include List File '$($EffectiveConfig.JobSevenZipIncludeListFile)' not found. It will be ignored." -Level "WARNING"
-            }
-        }
-        if (-not [string]::IsNullOrWhiteSpace($EffectiveConfig.JobSevenZipExcludeListFile)) {
-            if (Test-Path -LiteralPath $EffectiveConfig.JobSevenZipExcludeListFile -PathType Leaf) {
-                $sevenZipArgs.Add("-x@`"$($EffectiveConfig.JobSevenZipExcludeListFile)`"")
-                & $LocalWriteLog -Message "  - 7ZipManager/ArgumentBuilder: Added exclude list file: '$($EffectiveConfig.JobSevenZipExcludeListFile)'." -Level "DEBUG"
-            }
-            else {
-                & $LocalWriteLog -Message "[WARNING] 7ZipManager/ArgumentBuilder: Specified 7-Zip Exclude List File '$($EffectiveConfig.JobSevenZipExcludeListFile)' not found. It will be ignored." -Level "WARNING"
-            }
-        }
+    if ([string]::IsNullOrWhiteSpace($FinalArchivePath)) {
+        & $LocalWriteLog -Message "[CRITICAL] Final Archive Path is NULL or EMPTY in 7ZipManager/ArgumentBuilder/Get-PoShBackup7ZipArgument. 7-Zip command will likely fail or use an unexpected name." -Level ERROR
+    }
+    $sevenZipArgs.Add($FinalArchivePath)
 
-        if ([string]::IsNullOrWhiteSpace($FinalArchivePath)) {
-            & $LocalWriteLog -Message "[CRITICAL] Final Archive Path is NULL or EMPTY in 7ZipManager/ArgumentBuilder/Get-PoShBackup7ZipArgument. 7-Zip command will likely fail or use an unexpected name." -Level ERROR
-        }
-        $sevenZipArgs.Add($FinalArchivePath)
-
-        if ($null -ne $CurrentJobSourcePathFor7Zip -and $CurrentJobSourcePathFor7Zip.Count -gt 0) {
-            foreach ($sourcePathItem in $CurrentJobSourcePathFor7Zip) {
-                if (-not [string]::IsNullOrWhiteSpace($sourcePathItem)) {
-                    $sevenZipArgs.Add($sourcePathItem)
-                }
+    if ($null -ne $CurrentJobSourcePathFor7Zip -and $CurrentJobSourcePathFor7Zip.Count -gt 0) {
+        foreach ($sourcePathItem in $CurrentJobSourcePathFor7Zip) {
+            if (-not [string]::IsNullOrWhiteSpace($sourcePathItem)) {
+                $sevenZipArgs.Add($sourcePathItem)
             }
         }
-        elseif ($null -eq $CurrentJobSourcePathFor7Zip) {
-            & $LocalWriteLog -Message "[WARNING] 7ZipManager/ArgumentBuilder: CurrentJobSourcePathFor7Zip was null. No source files will be added by path." -Level "WARNING"
-        }
-        elseif ($CurrentJobSourcePathFor7Zip.Count -eq 0) {
-            & $LocalWriteLog -Message "[INFO] 7ZipManager/ArgumentBuilder: CurrentJobSourcePathFor7Zip was an empty array. No source files will be added by path (this might be intended if using list files)." -Level "INFO"
-        }
+    }
+    elseif ($null -eq $CurrentJobSourcePathFor7Zip) {
+        & $LocalWriteLog -Message "[WARNING] 7ZipManager/ArgumentBuilder: CurrentJobSourcePathFor7Zip was null. No source files will be added by path." -Level "WARNING"
+    }
+    elseif ($CurrentJobSourcePathFor7Zip.Count -eq 0) {
+        & $LocalWriteLog -Message "[INFO] 7ZipManager/ArgumentBuilder: CurrentJobSourcePathFor7Zip was an empty array. No source files will be added by path (this might be intended if using list files)." -Level "INFO"
+    }
 
-        return $sevenZipArgs.ToArray()
-    } # end of "end" block
+    return $sevenZipArgs.ToArray()
 }
 #endregion
 

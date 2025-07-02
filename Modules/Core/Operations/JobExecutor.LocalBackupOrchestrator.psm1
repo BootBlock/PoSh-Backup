@@ -4,13 +4,13 @@
     Orchestrates the pre-processing and local archive creation phases of a PoSh-Backup job.
     This is a sub-module of JobExecutor.psm1.
 .DESCRIPTION
-    This module provides the 'Invoke-PoShBackupLocalBackupExecution' function.
-    It is responsible for:
-    1. Calling 'Invoke-PoShBackupJobPreProcessing' to handle snapshotting, VSS, password retrieval,
-       source path validation, destination checks, and pre-backup hooks.
+    This module provides the 'Invoke-PoShBackupLocalBackupExecution' function. It is
+    responsible for lazy-loading and then orchestrating its sub-modules:
+    1. It calls 'Invoke-PoShBackupJobPreProcessing' from 'JobPreProcessor.psm1' to handle
+       snapshotting, VSS, password retrieval, path validation, and pre-backup hooks.
     2. Based on the status from pre-processing (Proceed, SkipJob, FailJob), it either:
-        - Calls 'Invoke-LocalArchiveOperation' to create the local archive, generate checksums,
-          and perform local tests.
+        - Calls 'Invoke-LocalArchiveOperation' from 'LocalArchiveProcessor.psm1' to create the
+          local archive, generate checksums, and perform local tests.
         - Skips the job gracefully if a source path was not found and the policy is 'SkipJob'.
         - Fails the job if pre-processing failed.
     3. It determines if remote transfers should be skipped based on local archive
@@ -19,26 +19,12 @@
     paths, and any necessary data for subsequent steps like snapshot/VSS cleanup or password clearing.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.2.0 # Added handling for pre-processor status (Proceed, SkipJob, FailJob).
+    Version:        1.3.0 # Refactored to lazy-load dependencies.
     DateCreated:    30-May-2025
-    LastModified:   17-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To modularise the main local backup sequence from JobExecutor.
     Prerequisites:  PowerShell 5.1+.
-                    Depends on Modules\Operations\JobPreProcessor.psm1 and
-                    Modules\Operations\LocalArchiveProcessor.psm1.
 #>
-
-# Explicitly import dependent modules from the 'Modules\Operations' directory.
-# $PSScriptRoot here is Modules\Core\Operations.
-try {
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Operations\JobPreProcessor.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Operations\LocalArchiveProcessor.psm1") -Force -ErrorAction Stop
-    # Utils.psm1 is used by the imported modules, assumed to be loaded by the calling context (JobExecutor)
-}
-catch {
-    Write-Error "JobExecutor.LocalBackupOrchestrator.psm1 FATAL: Could not import dependent modules. Error: $($_.Exception.Message)"
-    throw
-}
 
 function Invoke-PoShBackupLocalBackupExecution {
     [CmdletBinding()]
@@ -78,18 +64,30 @@ function Invoke-PoShBackupLocalBackupExecution {
     $snapshotSessionFromOps = $null
     $plainTextPasswordToClearFromOps = $null
     $skipRemoteTransfersDueToLocalVerification = $false
+    $preProcessingResult = $null
 
     # --- Call Job Pre-Processor ---
-    $preProcessingParams = @{
-        JobName            = $JobName
-        EffectiveJobConfig = $EffectiveJobConfig
-        IsSimulateMode     = $IsSimulateMode.IsPresent
-        Logger             = $Logger
-        PSCmdlet           = $PSCmdlet
-        ActualConfigFile   = $ActualConfigFile
-        JobReportDataRef   = $JobReportDataRef # Pass the ref
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "..\..\Operations\JobPreProcessor.psm1") -Force -ErrorAction Stop
+        $preProcessingParams = @{
+            JobName            = $JobName
+            EffectiveJobConfig = $EffectiveJobConfig
+            IsSimulateMode     = $IsSimulateMode.IsPresent
+            Logger             = $Logger
+            PSCmdlet           = $PSCmdlet
+            ActualConfigFile   = $ActualConfigFile
+            JobReportDataRef   = $JobReportDataRef
+        }
+        $preProcessingResult = Invoke-PoShBackupJobPreProcessing @preProcessingParams
     }
-    $preProcessingResult = Invoke-PoShBackupJobPreProcessing @preProcessingParams
+    catch {
+        $errorMessage = "Could not load or execute the JobPreProcessor module. Job cannot proceed. Error: $($_.Exception.Message)"
+        $adviceMessage = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Operations\JobPreProcessor.psm1' exists and is not corrupted."
+        & $LocalWriteLog -Message "[FATAL] LocalBackupOrchestrator: $errorMessage" -Level "ERROR"
+        & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+        # Since pre-processing failed critically, we must ensure the job fails.
+        $preProcessingResult = @{ Status = 'FailJob'; ErrorMessage = $errorMessage }
+    }
 
     # The pre-processor now returns a detailed status.
     switch ($preProcessingResult.Status) {
@@ -115,18 +113,28 @@ function Invoke-PoShBackupLocalBackupExecution {
             $plainTextPasswordToClearFromOps = $preProcessingResult.PlainTextPasswordToClear
 
             # --- Call Local Archive Processor ---
-            $localArchiveOpParams = @{
-                EffectiveJobConfig          = $EffectiveJobConfig
-                CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip
-                ArchivePasswordPlainText    = $actualPlainTextPasswordFromPreProcessing
-                JobReportDataRef            = $JobReportDataRef # Pass the ref
-                IsSimulateMode              = $IsSimulateMode.IsPresent
-                Logger                      = $Logger
-                PSCmdlet                    = $PSCmdlet
-                SevenZipCpuAffinityString   = $EffectiveJobConfig.JobSevenZipCpuAffinity
-                ActualConfigFile            = $ActualConfigFile
+            try {
+                Import-Module -Name (Join-Path $PSScriptRoot "..\..\Operations\LocalArchiveProcessor.psm1") -Force -ErrorAction Stop
+                $localArchiveOpParams = @{
+                    EffectiveJobConfig          = $EffectiveJobConfig
+                    CurrentJobSourcePathFor7Zip = $currentJobSourcePathFor7Zip
+                    ArchivePasswordPlainText    = $actualPlainTextPasswordFromPreProcessing
+                    JobReportDataRef            = $JobReportDataRef
+                    IsSimulateMode              = $IsSimulateMode.IsPresent
+                    Logger                      = $Logger
+                    PSCmdlet                    = $PSCmdlet
+                    SevenZipCpuAffinityString   = $EffectiveJobConfig.JobSevenZipCpuAffinity
+                    ActualConfigFile            = $ActualConfigFile
+                }
+                $localArchiveResult = Invoke-LocalArchiveOperation @localArchiveOpParams
             }
-            $localArchiveResult = Invoke-LocalArchiveOperation @localArchiveOpParams
+            catch {
+                $errorMessage = "Could not load or execute the LocalArchiveProcessor module. Job has failed. Error: $($_.Exception.Message)"
+                $adviceMessage = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Operations\LocalArchiveProcessor.psm1' exists and is not corrupted."
+                & $LocalWriteLog -Message "[FATAL] LocalBackupOrchestrator: $errorMessage" -Level "ERROR"
+                & $LocalWriteLog -Message $adviceMessage -Level "ADVICE"
+                $localArchiveResult = @{ Status = 'FAILURE'; ErrorMessage = $errorMessage }
+            }
 
             $currentLocalJobStatus = $localArchiveResult.Status # This will be SUCCESS, WARNINGS, or FAILURE
             $finalLocalArchivePathFromOps = $localArchiveResult.FinalArchivePath

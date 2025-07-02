@@ -5,70 +5,28 @@
     typically invoked after PoSh-Backup job/set completion.
 .DESCRIPTION
     This module provides the functionality to perform various system power and session actions.
-    It orchestrates the process by:
-    - Calling 'Test-HibernateEnabled' from SystemUtils.psm1 to validate the hibernate action.
-    - Calling 'Start-CancellableCountdown' from ConsoleDisplayUtils.psm1 to manage the user-cancellable delay.
-    - Executing the final system state change command (e.g., shutdown.exe, rundll32.exe).
+    It orchestrates the process by lazy-loading its dependencies:
+    - It calls 'Test-HibernateEnabled' from SystemUtils.psm1 (loaded on-demand) to validate the hibernate action.
+    - It calls 'Start-CancellableCountdown' from ConsoleDisplayUtils.psm1 (loaded on-demand) to manage the user-cancellable delay.
+    - It executes the final system state change command (e.g., shutdown.exe, rundll32.exe).
 
     The main exported function, Invoke-SystemStateAction, is designed to be called by
-    the main PoSh-Backup script with parameters derived from job, set, or CLI configurations.
+    the PostRunActionOrchestrator.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.0 # Refactored to use utility modules for checks and countdown.
+    Version:        2.1.0 # Refactored to lazy-load utility modules.
     DateCreated:    22-May-2025
-    LastModified:   01-Jul-2025
+    LastModified:   02-Jul-2025
     Purpose:        To provide controlled system state change capabilities for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     Administrator privileges may be required for actions like Shutdown, Restart, Hibernate.
 #>
 
-#region --- Module Dependencies ---
-# $PSScriptRoot here is Modules\Managers
-try {
-    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
-}
-catch {
-    Write-Error "SystemStateManager.psm1 FATAL: Could not import required utility modules. Error: $($_.Exception.Message)"
-    throw
-}
-#endregion
+# No eager module imports are needed here. They will be lazy-loaded.
 
 #region --- Exported Function: Invoke-SystemStateAction ---
 function Invoke-SystemStateAction {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
-    <#
-    .SYNOPSIS
-        Performs a configured system state action (e.g., shutdown, restart) after a delay,
-        with an option for the user to cancel during the countdown.
-    .DESCRIPTION
-        This function executes a specified system power or session action.
-        It supports a delay before execution, during which the user can cancel the action
-        by pressing 'C' in the console. It also handles simulation mode and checks for
-        hibernation support if that action is requested.
-    .PARAMETER Action
-        The system state action to perform.
-        Valid values: "Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock".
-    .PARAMETER DelaySeconds
-        The number of seconds to wait before performing the action.
-        During this delay, the user can cancel by pressing 'C'. Defaults to 0 (no delay).
-    .PARAMETER ForceAction
-        A switch. If specified, for actions like Shutdown or Restart, it attempts to force
-        the operation (e.g., closing applications without saving).
-    .PARAMETER IsSimulateMode
-        A switch. If $true, the action is logged as if it would occur, but no actual
-        system state change is performed.
-    .PARAMETER Logger
-        A mandatory scriptblock reference to the 'Write-LogMessage' function.
-    .PARAMETER PSCmdletInstance
-        A mandatory reference to the calling cmdlet's $PSCmdlet automatic variable.
-        Used for `ShouldProcess` calls to respect -WhatIf and -Confirm.
-    .EXAMPLE
-        # Invoke-SystemStateAction -Action "Shutdown" -DelaySeconds 30 -Logger ${function:Write-LogMessage} -PSCmdletInstance $PSCmdlet
-    .OUTPUTS
-        System.Boolean
-        $true if the action was successfully initiated (or simulated), $false if cancelled or skipped.
-    #>
     param(
         [Parameter(Mandatory = $true)]
         [ValidateSet("Shutdown", "Restart", "Hibernate", "LogOff", "Sleep", "Lock")]
@@ -100,8 +58,14 @@ function Invoke-SystemStateAction {
     & $LocalWriteLog -Message "SystemStateManager: Preparing to invoke system action: '$actionDisplayName'." -Level "INFO"
 
     if ($Action -eq "Hibernate") {
-        if (-not (Test-HibernateEnabled -Logger $Logger)) {
-            & $LocalWriteLog -Message "[WARNING] SystemStateManager: Action 'Hibernate' requested, but hibernation is not enabled on this system. Skipping action." -Level "WARNING"
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
+            if (-not (Test-HibernateEnabled -Logger $Logger)) {
+                & $LocalWriteLog -Message "[WARNING] SystemStateManager: Action 'Hibernate' requested, but hibernation is not enabled on this system. Skipping action." -Level "WARNING"
+                return $false
+            }
+        } catch {
+            & $LocalWriteLog -Message "[ERROR] SystemStateManager: Could not load SystemUtils to check hibernate status. Skipping action. Error: $($_.Exception.Message)" -Level "ERROR"
             return $false
         }
     }
@@ -127,8 +91,16 @@ function Invoke-SystemStateAction {
     }
 
     if ($DelaySeconds -gt 0) {
-        if (-not (Start-CancellableCountdown -DelaySeconds $DelaySeconds -ActionDisplayName $actionDisplayName -Logger $Logger -PSCmdletInstance $PSCmdletInstance)) {
-            return $false # Action was cancelled or skipped
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
+            if (-not (Start-CancellableCountdown -DelaySeconds $DelaySeconds -ActionDisplayName $actionDisplayName -Logger $Logger -PSCmdletInstance $PSCmdletInstance)) {
+                return $false # Action was cancelled or skipped
+            }
+        }
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Utilities\ConsoleDisplayUtils.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[ERROR] SystemStateManager: Could not load ConsoleDisplayUtils for countdown. Action will proceed immediately. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
         }
     }
 

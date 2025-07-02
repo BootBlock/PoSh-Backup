@@ -14,9 +14,9 @@
     - Pinning the new archive if configured.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1 # Incorporates PSCmdlet fix for testing.
+    Version:        1.1.1 # Suppressed PSSA false positive for $testResult.
     DateCreated:    26-Jun-2025
-    LastModified:   26-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To isolate post-archive-creation processing steps.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -25,9 +25,6 @@
 # $PSScriptRoot here is Modules\Operations\LocalArchiveProcessor
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Managers\PinManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Managers\HookManager.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "PostArchiveProcessor.psm1 FATAL: Could not import a dependent module. Error: $($_.Exception.Message)"
@@ -35,6 +32,7 @@ catch {
 }
 #endregion
 
+<# PSScriptAnalyzer Suppress PSUseDeclaredVarsMoreThanAssignments - Justification: The variable '$testResult' is incorrectly flagged as unused. It is used on subsequent lines to access its properties (e.g., '$testResult.ExitCode', '$testResult.AttemptsMade'). This is a PSSA false positive. #>
 function Invoke-PoShBackupPostArchiveProcessing {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -83,43 +81,26 @@ function Invoke-PoShBackupPostArchiveProcessing {
         $manifestDir = Split-Path -Path $archiveForManifestGeneration -Parent
         $contentsManifestFileName = Join-Path -Path $manifestDir -ChildPath "$($baseManifestName).contents.manifest"
 
-        $reportData.ContentsManifestFile = $contentsManifestFileName
+        $reportData.ContentsManifestStatus = "Not Generated"
         if ($IsSimulateMode.IsPresent) {
             & $LocalWriteLog -Message "SIMULATE: A detailed manifest of all files within the archive would be generated and saved to '$contentsManifestFileName'." -Level "SIMULATE"
             $reportData.ContentsManifestStatus = "Simulated"
         }
         elseif (Test-Path -LiteralPath $FinalArchivePathForReturn -PathType Leaf) {
-            $archiveContents = Get-7ZipArchiveListing -SevenZipPathExe $sevenZipPathGlobal -ArchivePath $FinalArchivePathForReturn -PlainTextPassword $ArchivePasswordPlainText -Logger $Logger
-            if ($null -ne $archiveContents) {
-                $manifestContent = $archiveContents | ForEach-Object {
-                    $crc = if ($_.Attributes -notlike "D*" -and $_.'CRC') { $_.'CRC' } else { "00000000" }
-                    $size = $_.'Size'
-                    $modified = $_.'Modified'
-                    $attributes = $_.'Attributes'
-                    $path = $_.'Path'
-                    "$crc,$size,$modified,$attributes,`"$path`""
-                }
-                try {
-                    $manifestHeader = "# PoSh-Backup Contents Manifest. Fields: CRC,Size,Modified,Attributes,Path"
-                    $finalManifestContent = @($manifestHeader) + $manifestContent
-                    [System.IO.File]::WriteAllLines($contentsManifestFileName, $finalManifestContent, [System.Text.Encoding]::UTF8)
+            try {
+                Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
+                $archiveContents = Get-7ZipArchiveListing -SevenZipPathExe $sevenZipPathGlobal -ArchivePath $FinalArchivePathForReturn -PlainTextPassword $ArchivePasswordPlainText -Logger $Logger
+                if ($null -ne $archiveContents) {
+                    $manifestContent = $archiveContents | ForEach-Object { "$($_.CRC),$($_.Size),$($_.Modified),$($_.Attributes),`"$($_.Path)`"" }
+                    [System.IO.File]::WriteAllLines($contentsManifestFileName, @("# PoSh-Backup Contents Manifest. Fields: CRC,Size,Modified,Attributes,Path") + $manifestContent, [System.Text.Encoding]::UTF8)
                     & $LocalWriteLog -Message "  - Contents manifest created: '$contentsManifestFileName'" -Level "SUCCESS"
                     $reportData.ContentsManifestStatus = "Generated"
-                }
-                catch {
-                    & $LocalWriteLog -Message "[ERROR] Failed to write contents manifest file '$contentsManifestFileName'. Error: $($_.Exception.Message)" -Level "ERROR"
-                    $reportData.ContentsManifestStatus = "Error (File Write Failed)"
-                }
+                } else { throw "Get-7ZipArchiveListing returned null." }
+            } catch {
+                & $LocalWriteLog -Message "[ERROR] Failed to list archive contents or write manifest file '$contentsManifestFileName'. Error: $($_.Exception.Message)" -Level "ERROR"
+                $reportData.ContentsManifestStatus = "Error"
             }
-            else {
-                & $LocalWriteLog -Message "[ERROR] Failed to list archive contents to create manifest for '$archiveForManifestGeneration'." -Level "ERROR"
-                $reportData.ContentsManifestStatus = "Error (Could not list archive)"
-            }
-        }
-        else {
-            & $LocalWriteLog -Message "[WARNING] Archive not found at '$FinalArchivePathForReturn'. Skipping contents manifest generation." -Level "WARNING"
-            $reportData.ContentsManifestStatus = "Skipped (Archive Not Found)"
-        }
+        } else { & $LocalWriteLog -Message "[WARNING] Archive not found at '$FinalArchivePathForReturn'. Skipping contents manifest generation." -Level "WARNING"; $reportData.ContentsManifestStatus = "Skipped" }
     }
 
     # --- Generate checksum of the archive file(s) themselves ---
@@ -229,7 +210,6 @@ function Invoke-PoShBackupPostArchiveProcessing {
             $reportData.ArchiveTestResult = "FAILED (7-Zip Not Found)"
             if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentStatus = "FAILURE" }
             elseif ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
-            # Skip the rest of the testing logic
         }
         elseif ($IsSimulateMode.IsPresent) {
             & $LocalWriteLog -Message "SIMULATE: Would test the integrity of the newly created archive '$FinalArchivePathForReturn'." -Level "SIMULATE"
@@ -237,30 +217,40 @@ function Invoke-PoShBackupPostArchiveProcessing {
             $reportData.ArchiveChecksumVerificationStatus = "Skipped (Simulation Mode)"
         }
         elseif (Test-Path -LiteralPath $FinalArchivePathForReturn -PathType Leaf) {
-            $testArchiveParams = @{
-                SevenZipPathExe           = $sevenZipPathGlobal
-                ArchivePath               = $FinalArchivePathForReturn
-                PlainTextPassword         = $ArchivePasswordPlainText
-                ProcessPriority           = $EffectiveJobConfig.JobSevenZipProcessPriority
-                SevenZipCpuAffinityString = $EffectiveJobConfig.JobSevenZipCpuAffinity
-                HideOutput                = $EffectiveJobConfig.HideOutput
-                VerifyCRC                 = $EffectiveJobConfig.VerifyArchiveChecksumOnTest
-                MaxRetries                = $EffectiveJobConfig.JobMaxRetryAttempts
-                RetryDelaySeconds         = $EffectiveJobConfig.JobRetryDelaySeconds
-                EnableRetries             = $EffectiveJobConfig.JobEnableRetries
-                TreatWarningsAsSuccess    = $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess
-                Logger                    = $Logger
-                PSCmdlet                  = $PSCmdlet
-            }
-            $testResult = Test-7ZipArchive @testArchiveParams
-            $reportData.TestRetryAttemptsMade = $testResult.AttemptsMade
+            try {
+                Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
+                $testArchiveParams = @{
+                    SevenZipPathExe           = $sevenZipPathGlobal
+                    ArchivePath               = $FinalArchivePathForReturn
+                    PlainTextPassword         = $ArchivePasswordPlainText
+                    ProcessPriority           = $EffectiveJobConfig.JobSevenZipProcessPriority
+                    SevenZipCpuAffinityString = $EffectiveJobConfig.JobSevenZipCpuAffinity
+                    HideOutput                = $EffectiveJobConfig.HideOutput
+                    VerifyCRC                 = $EffectiveJobConfig.VerifyArchiveChecksumOnTest
+                    MaxRetries                = $EffectiveJobConfig.JobMaxRetryAttempts
+                    RetryDelaySeconds         = $EffectiveJobConfig.JobRetryDelaySeconds
+                    EnableRetries             = $EffectiveJobConfig.JobEnableRetries
+                    TreatWarningsAsSuccess    = $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess
+                    Logger                    = $Logger
+                    PSCmdlet                  = $PSCmdlet
+                }
+                $testResult = Test-7ZipArchive @testArchiveParams
+                $reportData.TestRetryAttemptsMade = $testResult.AttemptsMade
 
-            if ($testResult.ExitCode -eq 0) { $reportData.ArchiveTestResult = "PASSED (7z t)" }
-            elseif ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess) { $reportData.ArchiveTestResult = "PASSED (7z t Warning, treated as success)" }
-            else {
-                $reportData.ArchiveTestResult = "FAILED (7z t Exit Code: $($testResult.ExitCode))"
-                if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentStatus = "FAILURE" }
-                elseif ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
+                if ($testResult.ExitCode -eq 0) { $reportData.ArchiveTestResult = "PASSED (7z t)" }
+                elseif ($testResult.ExitCode -eq 1 -and $EffectiveJobConfig.TreatSevenZipWarningsAsSuccess) { $reportData.ArchiveTestResult = "PASSED (7z t Warning, treated as success)" }
+                else {
+                    $reportData.ArchiveTestResult = "FAILED (7z t Exit Code: $($testResult.ExitCode))"
+                    if ($EffectiveJobConfig.VerifyLocalArchiveBeforeTransfer) { $currentStatus = "FAILURE" }
+                    elseif ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
+                }
+            }
+            catch {
+                $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\7ZipManager.psm1' and its sub-modules exist and are not corrupted."
+                & $LocalWriteLog -Message "[ERROR] PostArchiveProcessor: Could not load or execute the 7ZipManager. Archive testing skipped. Error: $($_.Exception.Message)" -Level "ERROR"
+                & $LocalWriteLog -Message $advice -Level "ADVICE"
+                $reportData.ArchiveTestResult = "FAILED (Module Load Error)"
+                if ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
             }
         }
         else {
@@ -272,21 +262,29 @@ function Invoke-PoShBackupPostArchiveProcessing {
     # --- Post Local Archive Hook ---
     if (-not [string]::IsNullOrWhiteSpace($EffectiveJobConfig.PostLocalArchiveScriptPath)) {
         & $LocalWriteLog -Message "`n[INFO] PostArchiveProcessor: Executing Post-Local-Archive Hook..." -Level "INFO"
-        $hookArgsForLocalArchive = @{
-            JobName = $EffectiveJobConfig.BaseFileName; Status = $currentStatus
-            ArchivePath = $FinalArchivePathForReturn; ConfigFile = $ActualConfigFile
-            SimulateMode = $IsSimulateMode.IsPresent
+        try {
+            Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Managers\HookManager.psm1") -Force -ErrorAction Stop
+            $hookArgsForLocalArchive = @{
+                JobName = $EffectiveJobConfig.BaseFileName; Status = $currentStatus
+                ArchivePath = $FinalArchivePathForReturn; ConfigFile = $ActualConfigFile
+                SimulateMode = $IsSimulateMode.IsPresent
+            }
+            if ($reportData.ContainsKey('ArchiveChecksum') -and $reportData.ArchiveChecksum -notlike "N/A*" -and $reportData.ArchiveChecksum -notlike "Error*") {
+                $hookArgsForLocalArchive.ArchiveChecksum = $reportData.ArchiveChecksum
+                $hookArgsForLocalArchive.ArchiveChecksumAlgorithm = $reportData.ArchiveChecksumAlgorithm
+                $hookArgsForLocalArchive.ArchiveChecksumFile = $reportData.ArchiveChecksumFile
+            }
+            Invoke-PoShBackupHook -ScriptPath $EffectiveJobConfig.PostLocalArchiveScriptPath `
+                -HookType "PostLocalArchive" `
+                -HookParameters $hookArgsForLocalArchive `
+                -IsSimulateMode:$IsSimulateMode `
+                -Logger $Logger
         }
-        if ($reportData.ContainsKey('ArchiveChecksum') -and $reportData.ArchiveChecksum -notlike "N/A*" -and $reportData.ArchiveChecksum -notlike "Error*") {
-            $hookArgsForLocalArchive.ArchiveChecksum = $reportData.ArchiveChecksum
-            $hookArgsForLocalArchive.ArchiveChecksumAlgorithm = $reportData.ArchiveChecksumAlgorithm
-            $hookArgsForLocalArchive.ArchiveChecksumFile = $reportData.ArchiveChecksumFile
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\HookManager.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[ERROR] PostArchiveProcessor: Could not load or execute the HookManager. Post-local-archive hook skipped. Error: $($_.Exception.Message)" -Level "ERROR"
+            if ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
         }
-        Invoke-PoShBackupHook -ScriptPath $EffectiveJobConfig.PostLocalArchiveScriptPath `
-            -HookType "PostLocalArchive" `
-            -HookParameters $hookArgsForLocalArchive `
-            -IsSimulateMode:$IsSimulateMode `
-            -Logger $Logger
     }
 
     # --- Pinning Logic ---
@@ -300,11 +298,12 @@ function Invoke-PoShBackupPostArchiveProcessing {
         elseif (Test-Path -LiteralPath $FinalArchivePathForReturn -PathType Leaf) {
             if ($PSCmdlet.ShouldProcess($pathToPin, "Pin Archive")) {
                 try {
+                    Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Managers\PinManager.psm1") -Force -ErrorAction Stop
                     Add-PoShBackupPin -Path $pathToPin -Reason $EffectiveJobConfig.PinReason -Logger $Logger
                     $reportData.ArchivePinned = "Yes"
                 }
                 catch {
-                    $pinError = "Failed to pin archive '$pathToPin'. Error: $($_.Exception.Message)"
+                    $pinError = "Failed to load PinManager or pin archive '$pathToPin'. Error: $($_.Exception.Message)"
                     & $LocalWriteLog -Message "[ERROR] $pinError" -Level "ERROR"
                     $reportData.ArchivePinned = "Failed"; if ($currentStatus -ne "FAILURE") { $currentStatus = "WARNINGS" }
                 }

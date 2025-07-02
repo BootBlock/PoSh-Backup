@@ -5,29 +5,18 @@
     This is a sub-module of JobExecutor.psm1.
 .DESCRIPTION
     This module provides the 'Invoke-PoShBackupLocalRetentionExecution' function.
-    It encapsulates the logic for applying the local retention policy, including
-    loading necessary assemblies for Recycle Bin operations, determining the correct
-    archive extension for retention (especially for multi-volume archives), and
-    calling the main RetentionManager's Invoke-BackupRetentionPolicy function.
+    It encapsulates the logic for applying the local retention policy by lazy-loading the
+    main RetentionManager. It handles loading necessary assemblies for Recycle Bin operations,
+    determines the correct archive extension for retention (especially for multi-volume archives),
+    and calls the main RetentionManager's Invoke-BackupRetentionPolicy function.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Refactored to lazy-load RetentionManager.
     DateCreated:    30-May-2025
-    LastModified:   30-May-2025
+    LastModified:   02-Jul-2025
     Purpose:        To modularise local retention policy execution from JobExecutor.
     Prerequisites:  PowerShell 5.1+.
-                    Depends on Modules\Managers\RetentionManager.psm1.
 #>
-
-# Explicitly import RetentionManager.psm1 from the parent 'Modules\Managers' directory.
-# $PSScriptRoot here is Modules\Core\Operations.
-try {
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Managers\RetentionManager.psm1") -Force -ErrorAction Stop
-}
-catch {
-    Write-Error "JobExecutor.LocalRetentionHandler.psm1 FATAL: Could not import RetentionManager.psm1. Error: $($_.Exception.Message)"
-    throw
-}
 
 function Invoke-PoShBackupLocalRetentionExecution {
     [CmdletBinding(SupportsShouldProcess=$true)] # ADDED SupportsShouldProcess
@@ -88,7 +77,15 @@ function Invoke-PoShBackupLocalRetentionExecution {
     }
 
     if ($PSCmdlet.ShouldProcess("Local Retention Policy for job '$JobName'", "Apply")) {
-        Invoke-BackupRetentionPolicy @retentionPolicyParams
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "..\..\Managers\RetentionManager.psm1") -Force -ErrorAction Stop
+            Invoke-BackupRetentionPolicy @retentionPolicyParams
+        }
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\RetentionManager.psm1' and its sub-modules exist and are not corrupted."
+            & $LocalWriteLog -Message "[ERROR] LocalRetentionHandler: Could not load or execute the RetentionManager facade. Local retention skipped. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
+        }
     }
     else {
         & $LocalWriteLog -Message "JobExecutor.LocalRetentionHandler: Local retention policy for job '$JobName' skipped by user (ShouldProcess)." -Level "WARNING"

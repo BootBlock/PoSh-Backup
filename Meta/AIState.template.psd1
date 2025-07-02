@@ -40,6 +40,14 @@
     "The project is heavily modularised into `Core`, `Managers`, `Utilities`, `Operations`, `Reporting`, and `Targets`.",
     "Bundler script `Generate-ProjectBundleForAI.ps1` (v__BUNDLER_VERSION_PLACEHOLDER__) is used to maintain session context.",
     "",
+    "--- Refactor: Lazy Loading & Performance (Completed) ---",
+    "   - Goal: Significantly improve script startup time by loading modules on demand.",
+    "   - **Diagnosis:** The previous eager-loading strategy in `CoreSetupManager` and other facades caused a noticeable delay on every run.",
+    "   - **Implementation:**",
+    "     - Refactored `CoreSetupManager` to only load modules essential for configuration and utility modes.",
+    "     - All other orchestrator/facade modules (`JobOrchestrator`, `FinalisationManager`, `ScriptModeHandler`, `7ZipManager`, `VssManager`, `RetentionManager`, `NotificationManager`, `PasswordManager`, `ScheduleManager`, and all Target Providers) were modified to lazy-load their sub-modules/dependencies just-in-time within `try/catch` blocks.",
+    "   - **Result:** Drastically reduced startup time for simple operations like `-ListJobs` or `-TestConfig`, as operational modules are no longer loaded unless a full backup run is initiated.",
+    "",
     "--- Feature: Actionable Advice & Enhanced Error Handling (Completed) ---",
     "   - Goal: Improve user experience by providing clear, actionable advice for common configuration errors and environmental issues.",
     "   - New Log Level: Added a new 'ADVICE' log level with a distinct colour (`DarkCyan`) to `InitialisationManager.psm1` to make suggestions stand out.",
@@ -99,7 +107,7 @@
     "   - **Reporting & Logging:** Multi-format reports (HTML, JSON, CSV, etc.) and robust log file management with automated retention/compression."
   )
 
-  main_script_poSh_backup_version = "1.39.0 # Added extensive actionable advice for common errors."
+  main_script_poSh_backup_version = "1.40.0 # Implemented lazy loading for core operational modules."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Manages the creation, update, and deletion of Windows Scheduled Tasks for PoSh-Backup jobs.
-    This module now acts as a facade for its sub-modules.
+    This module now acts as a facade, lazy-loading its sub-modules as needed.
 .DESCRIPTION
     This module provides the functionality to synchronise the schedule configurations defined
     in the PoSh-Backup config file with the Windows Task Scheduler. It reads the 'Schedule'
@@ -13,14 +13,14 @@
     - Ensuring the main 'PoSh-Backup' task folder exists in Task Scheduler.
     - Getting a list of all existing tasks in that folder.
     - Iterating through all defined backup jobs and verification jobs from the configuration.
-    - Calling 'Invoke-ScheduledItemSync' from its 'TaskOrchestrator.psm1' sub-module for each item.
+    - Lazy-loading and calling 'Invoke-ScheduledItemSync' from its 'TaskOrchestrator.psm1' sub-module for each item.
     - Cleaning up any orphaned tasks that no longer exist in the configuration.
     - Displaying a final summary of actions taken.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.0 # Refactored into a facade with sub-modules.
+    Version:        2.1.1 # FIX: Corrected shadowed $PSScriptRoot parameter causing incorrect path resolution.
     DateCreated:    08-Jun-2025
-    LastModified:   25-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To manage Windows Scheduled Tasks based on PoSh-Backup configuration.
     Prerequisites:  PowerShell 5.1+.
                     Requires Administrator privileges to create/modify scheduled tasks.
@@ -31,7 +31,6 @@
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "ScheduleManager\TaskOrchestrator.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "ScheduleManager.psm1 (Facade) FATAL: Could not import required dependent modules. Error: $($_.Exception.Message)"
@@ -49,7 +48,7 @@ function Sync-PoShBackupSchedule {
 
         # The root path of the main PoSh-Backup.ps1 script, used to build task actions.
         [Parameter(Mandatory = $true)]
-        [string]$PSScriptRoot,
+        [string]$MainScriptRoot,
 
         # A scriptblock reference to the main Write-LogMessage function.
         [Parameter(Mandatory = $true)]
@@ -82,7 +81,7 @@ function Sync-PoShBackupSchedule {
     $skippedTasks = [System.Collections.Generic.List[string]]::new()
 
     $taskFolder = "\PoSh-Backup"
-    $mainScriptPath = Join-Path -Path $PSScriptRoot -ChildPath "PoSh-Backup.ps1"
+    $mainScriptPath = Join-Path -Path $MainScriptRoot -ChildPath "PoSh-Backup.ps1"
 
     # Ensure the task folder exists
     try {
@@ -106,18 +105,29 @@ function Sync-PoShBackupSchedule {
     $allDefinedVJobNames = if ($Configuration.ContainsKey('VerificationJobs')) { @($Configuration.VerificationJobs.Keys) } else { @() }
     $allManagedTaskNames = @($allDefinedJobNames | ForEach-Object { "PoSh-Backup - $_" }) + @($allDefinedVJobNames | ForEach-Object { "PoSh-Backup Verification - $_" })
 
-    # --- Step 1: Process and synchronise backup jobs defined in the configuration ---
-    foreach ($jobName in $allDefinedJobNames) {
-        $jobConfig = $Configuration.BackupLocations[$jobName]
-        $taskName = "PoSh-Backup - $($jobName -replace '[\\/:*?"<>|]', '_')"
-        Invoke-ScheduledItemSync -ItemName $jobName -ItemConfig $jobConfig -ItemType 'Job' -TaskName $taskName -MainScriptPath $mainScriptPath -ExistingTask ($allTasksInPoshBackupFolder | Where-Object { $_.TaskName -eq $taskName }) -TaskFolder $taskFolder -CreatedTasks ([ref]$createdTasks) -UpdatedTasks ([ref]$updatedTasks) -RemovedTasks ([ref]$removedTasks) -SkippedTasks ([ref]$skippedTasks) -Logger $Logger -PSCmdlet $PSCmdlet
-    }
+    try {
+        # Use the automatic $PSScriptRoot variable, which correctly points to this module's directory.
+        Import-Module -Name (Join-Path $PSScriptRoot "ScheduleManager\TaskOrchestrator.psm1") -Force -ErrorAction Stop
 
-    # --- Step 2: Process and synchronise verification jobs defined in the configuration ---
-    foreach ($vJobName in $allDefinedVJobNames) {
-        $vJobConfig = $Configuration.VerificationJobs[$vJobName]
-        $taskName = "PoSh-Backup Verification - $($vJobName -replace '[\\/:*?"<>|]', '_')"
-        Invoke-ScheduledItemSync -ItemName $vJobName -ItemConfig $vJobConfig -ItemType 'Verification' -TaskName $taskName -MainScriptPath $mainScriptPath -ExistingTask ($allTasksInPoshBackupFolder | Where-Object { $_.TaskName -eq $taskName }) -TaskFolder $taskFolder -CreatedTasks ([ref]$createdTasks) -UpdatedTasks ([ref]$updatedTasks) -RemovedTasks ([ref]$removedTasks) -SkippedTasks ([ref]$skippedTasks) -Logger $Logger -PSCmdlet $PSCmdlet
+        # --- Step 1: Process and synchronise backup jobs defined in the configuration ---
+        foreach ($jobName in $allDefinedJobNames) {
+            $jobConfig = $Configuration.BackupLocations[$jobName]
+            $taskName = "PoSh-Backup - $($jobName -replace '[\\/:*?"<>|]', '_')"
+            Invoke-ScheduledItemSync -ItemName $jobName -ItemConfig $jobConfig -ItemType 'Job' -TaskName $taskName -MainScriptPath $mainScriptPath -ExistingTask ($allTasksInPoshBackupFolder | Where-Object { $_.TaskName -eq $taskName }) -TaskFolder $taskFolder -CreatedTasks ([ref]$createdTasks) -UpdatedTasks ([ref]$updatedTasks) -RemovedTasks ([ref]$removedTasks) -SkippedTasks ([ref]$skippedTasks) -Logger $Logger -PSCmdlet $PSCmdlet
+        }
+
+        # --- Step 2: Process and synchronise verification jobs defined in the configuration ---
+        foreach ($vJobName in $allDefinedVJobNames) {
+            $vJobConfig = $Configuration.VerificationJobs[$vJobName]
+            $taskName = "PoSh-Backup Verification - $($vJobName -replace '[\\/:*?"<>|]', '_')"
+            Invoke-ScheduledItemSync -ItemName $vJobName -ItemConfig $vJobConfig -ItemType 'Verification' -TaskName $taskName -MainScriptPath $mainScriptPath -ExistingTask ($allTasksInPoshBackupFolder | Where-Object { $_.TaskName -eq $taskName }) -TaskFolder $taskFolder -CreatedTasks ([ref]$createdTasks) -UpdatedTasks ([ref]$updatedTasks) -RemovedTasks ([ref]$removedTasks) -SkippedTasks ([ref]$skippedTasks) -Logger $Logger -PSCmdlet $PSCmdlet
+        }
+    }
+    catch {
+        $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\ScheduleManager\TaskOrchestrator.psm1' exists and is not corrupted."
+        & $LocalWriteLog -Message "[FATAL] ScheduleManager: Could not load or execute the TaskOrchestrator module. Schedule sync aborted. Error: $($_.Exception.Message)" -Level "ERROR"
+        & $LocalWriteLog -Message $advice -Level "ADVICE"
+        return
     }
 
     # --- Step 3: Clean up orphaned tasks ---

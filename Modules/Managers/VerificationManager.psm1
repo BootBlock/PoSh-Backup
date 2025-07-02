@@ -5,8 +5,8 @@
     to a sandbox environment and performing integrity checks.
 .DESCRIPTION
     This module provides the core functionality for the Automated Backup Verification feature.
-    It has been refactored into a facade that orchestrates the verification process by calling
-    specialised sub-modules for each stage of the operation:
+    It has been refactored into a facade that orchestrates the verification process by
+    lazy-loading and calling specialised sub-modules for each stage of the operation:
     - 'BackupFinder.psm1': Finds the target backup instances to be verified.
     - 'SandboxManager.psm1': Manages the creation, preparation, and cleanup of the sandbox.
     - 'ArchiveRestorer.psm1': Handles restoring the archive to the sandbox.
@@ -16,9 +16,9 @@
     provide a complete, end-to-end verification workflow.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.1.0 # Fixed bug where effective config of target job was not resolved.
+    Version:        2.2.0 # Refactored to lazy-load sub-modules.
     DateCreated:    12-Jun-2025
-    LastModified:   26-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To orchestrate the automated verification of backup archives.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -81,40 +81,16 @@ namespace DamienG.Security.Cryptography
 "@ -ErrorAction SilentlyContinue
 #endregion
 
-#region --- Module Dependencies ---
-# $PSScriptRoot here is Modules\Managers
-$verificationSubModulePath = Join-Path -Path $PSScriptRoot -ChildPath "VerificationManager"
-try {
-    Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\Core\ConfigManager.psm1") -Force -ErrorAction Stop # Needed for EffectiveConfigBuilder
-    Import-Module -Name (Join-Path $verificationSubModulePath "BackupFinder.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $verificationSubModulePath "SandboxManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $verificationSubModulePath "ArchiveRestorer.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $verificationSubModulePath "IntegrityChecker.psm1") -Force -ErrorAction Stop
-}
-catch {
-    Write-Error "VerificationManager.psm1 (Facade) FATAL: Could not import required sub-modules. Error: $($_.Exception.Message)"
-    throw
-}
-#endregion
-
 #region --- Exported Function ---
 function Invoke-PoShBackupVerification {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
-        # The complete, loaded PoSh-Backup configuration object.
         [Parameter(Mandatory = $true)]
         [hashtable]$Configuration,
-
-        # A scriptblock reference to the main Write-LogMessage function.
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
-
-        # A reference to the calling cmdlet's $PSCmdlet automatic variable.
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet,
-
-        # The name of a single verification job to run. If not provided, all enabled jobs are run.
         [Parameter(Mandatory = $false)]
         [string]$SpecificVerificationJobName
     )
@@ -152,7 +128,7 @@ function Invoke-PoShBackupVerification {
             & $LocalWriteLog -Message "Verification Job '$vJobName' is disabled. Skipping." -Level "INFO"
             continue
         }
-        
+
         $targetJobName = Get-ConfigValue -ConfigObject $vJobConfig -Key 'TargetJobName' -DefaultValue $null
         if ([string]::IsNullOrWhiteSpace($targetJobName)) {
             & $LocalWriteLog -Message "Verification Job '$vJobName' is misconfigured. 'TargetJobName' is required. Skipping." -Level "ERROR"
@@ -164,78 +140,72 @@ function Invoke-PoShBackupVerification {
             continue
         }
 
-        # --- NEW: Resolve the effective config for the target job ---
-        $dummyReportDataRef = [ref]@{ JobName = $targetJobName }
-        $effectiveTargetJobConfig = Get-PoShBackupJobEffectiveConfiguration -JobConfig $targetBackupJobConfig `
-            -GlobalConfig $Configuration `
-            -CliOverrides @{} `
-            -JobReportDataRef $dummyReportDataRef `
-            -Logger $Logger
-        # --- END NEW ---
+        $effectiveTargetJobConfig = try {
+            Import-Module -Name (Join-Path $PSScriptRoot "..\Core\ConfigManager.psm1") -Force -ErrorAction Stop
+            $dummyReportDataRef = [ref]@{ JobName = $targetJobName }
+            Get-PoShBackupJobEffectiveConfiguration -JobConfig $targetBackupJobConfig -GlobalConfig $Configuration -CliOverrides @{} -JobReportDataRef $dummyReportDataRef -Logger $Logger
+        } catch { & $LocalWriteLog -Message "[ERROR] VerificationManager: Failed to resolve effective config for target job '$targetJobName'. Error: $($_.Exception.Message)" -Level "ERROR"; continue }
 
         # 1. Find the target backup instances to verify
-        $instancesToTest = Find-VerificationTarget -VerificationJobName $vJobName `
-            -VerificationJobConfig $vJobConfig `
-            -GlobalConfig $Configuration `
-            -Logger $Logger
-        
-        if ($instancesToTest.Count -eq 0) {
-            continue # Finder logs message if no instances are found
-        }
+        $instancesToTest = try {
+            Import-Module -Name (Join-Path $PSScriptRoot "VerificationManager\BackupFinder.psm1") -Force -ErrorAction Stop
+            Find-VerificationTarget -VerificationJobName $vJobName -VerificationJobConfig $vJobConfig -GlobalConfig $Configuration -Logger $Logger
+        } catch { & $LocalWriteLog -Message "[ERROR] VerificationManager: Could not load or run the BackupFinder module. Skipping job '$vJobName'. Error: $($_.Exception.Message)" -Level "ERROR"; continue }
+
+        if ($instancesToTest.Count -eq 0) { continue }
 
         # 2. Loop through each instance and perform the verification workflow
         foreach ($instance in $instancesToTest) {
             $instanceKey = $instance.Name
             & $LocalWriteLog -Message "`n--- Verifying Instance: $instanceKey ---" -Level "HEADING"
-            $overallVerificationStatus = "SUCCESS" # Assume success for this instance
+            $overallVerificationStatus = "SUCCESS"
 
             $sandboxPath = Get-ConfigValue -ConfigObject $vJobConfig -Key 'SandboxPath' -DefaultValue $null
             $onDirtySandbox = Get-ConfigValue -ConfigObject $vJobConfig -Key 'OnDirtySandbox' -DefaultValue "Fail"
 
-            # 2a. Prepare Sandbox
-            if (-not (Initialize-VerificationSandbox -SandboxPath $sandboxPath -OnDirtySandbox $onDirtySandbox -Logger $Logger -PSCmdletInstance $PSCmdlet)) {
-                & $LocalWriteLog -Message "Verification Job '$vJobName': Failed to prepare sandbox for instance '$instanceKey'. Aborting verification for this instance." -Level "ERROR"
-                continue
-            }
+            try {
+                # 2a. Prepare Sandbox
+                Import-Module -Name (Join-Path $PSScriptRoot "VerificationManager\SandboxManager.psm1") -Force -ErrorAction Stop
+                if (-not (Initialize-VerificationSandbox -SandboxPath $sandboxPath -OnDirtySandbox $onDirtySandbox -Logger $Logger -PSCmdletInstance $PSCmdlet)) {
+                    throw "Failed to prepare sandbox for instance '$instanceKey'."
+                }
 
-            # 2b. Restore Archive
-            $firstArchivePart = $instance.Value.Files | Where-Object { $_.Name -match '\.001$' -or $_.Name -eq $instanceKey } | Sort-Object Name | Select-Object -First 1
-            if ($null -eq $firstArchivePart) {
-                & $LocalWriteLog -Message "Verification Job '$vJobName': Could not find the main archive file/first volume for instance '$instanceKey'. Aborting verification." -Level "ERROR"
-                continue
-            }
+                # 2b. Restore Archive
+                $firstArchivePart = $instance.Value.Files | Where-Object { $_.Name -match '\.001$' -or $_.Name -eq $instanceKey } | Sort-Object Name | Select-Object -First 1
+                if ($null -eq $firstArchivePart) { throw "Could not find the main archive file/first volume for instance '$instanceKey'." }
 
-            $restoreResult = Invoke-PoShBackupRestoreForVerification -ArchiveToRestorePath $firstArchivePart.FullName `
-                -SandboxPath $sandboxPath `
-                -SevenZipPath $Configuration.SevenZipPath `
-                -PasswordSecretName (Get-ConfigValue -ConfigObject $vJobConfig -Key 'ArchivePasswordSecretName' -DefaultValue $null) `
-                -TargetJobName $targetJobName `
-                -Logger $Logger `
-                -PSCmdletInstance $PSCmdlet
-            
-            if (-not $restoreResult.Success) {
+                Import-Module -Name (Join-Path $PSScriptRoot "VerificationManager\ArchiveRestorer.psm1") -Force -ErrorAction Stop
+                $restoreResult = Invoke-PoShBackupRestoreForVerification -ArchiveToRestorePath $firstArchivePart.FullName `
+                    -SandboxPath $sandboxPath -SevenZipPath $Configuration.SevenZipPath `
+                    -PasswordSecretName (Get-ConfigValue -ConfigObject $vJobConfig -Key 'ArchivePasswordSecretName' -DefaultValue $null) `
+                    -TargetJobName $targetJobName -Logger $Logger -PSCmdletInstance $PSCmdlet
+
+                if (-not $restoreResult.Success) { throw "Restore of '$($firstArchivePart.FullName)' FAILED." }
+
+                # 2c. Perform Integrity Checks on restored files
+                Import-Module -Name (Join-Path $PSScriptRoot "VerificationManager\IntegrityChecker.psm1") -Force -ErrorAction Stop
+                $checksSuccess = Invoke-PoShBackupIntegrityCheck -VerificationJobConfig $vJobConfig `
+                    -EffectiveTargetJobConfig $effectiveTargetJobConfig -InstanceToTest $instance -SandboxPath $sandboxPath `
+                    -SevenZipPath $Configuration.SevenZipPath -PlainTextPassword $restoreResult.PlainTextPassword -Logger $Logger
+
+                if (-not $checksSuccess) { $overallVerificationStatus = "FAILURE" }
+            }
+            catch {
+                $advice = "ADVICE: This could be due to a missing sub-module file in 'Modules\Managers\VerificationManager\'. Please check the error message for specifics."
+                & $LocalWriteLog -Message "[ERROR] Verification Job '$vJobName': A critical error occurred during instance verification. Error: $($_.Exception.Message)" -Level "ERROR"
+                & $LocalWriteLog -Message $advice -Level "ADVICE"
                 $overallVerificationStatus = "FAILURE"
             }
-            else {
-                # 2c. Perform Integrity Checks on restored files
-                $checksSuccess = Invoke-PoShBackupIntegrityCheck -VerificationJobConfig $vJobConfig `
-                    -EffectiveTargetJobConfig $effectiveTargetJobConfig `
-                    -InstanceToTest $instance `
-                    -SandboxPath $sandboxPath `
-                    -SevenZipPath $Configuration.SevenZipPath `
-                    -PlainTextPassword $restoreResult.PlainTextPassword `
-                    -Logger $Logger
-                
-                if (-not $checksSuccess) {
-                    $overallVerificationStatus = "FAILURE"
-                }
+            finally {
+                # 2d. Cleanup Sandbox
+                try {
+                    Import-Module -Name (Join-Path $PSScriptRoot "VerificationManager\SandboxManager.psm1") -Force -ErrorAction Stop
+                    Clear-VerificationSandbox -SandboxPath $sandboxPath -Logger $Logger
+                } catch { & $LocalWriteLog -Message "[ERROR] VerificationManager: Failed to load SandboxManager for cleanup. Manual cleanup may be required." -Level "ERROR" }
             }
 
-            # 2d. Cleanup Sandbox
-            Clear-VerificationSandbox -SandboxPath $sandboxPath -Logger $Logger
-            
             & $LocalWriteLog -Message "--- Verification for Instance '$instanceKey' Complete. Final Status: $overallVerificationStatus ---" -Level "HEADING"
-            Write-Host # Add a blank line for readability between instances
+            Write-Host
         }
     }
 }

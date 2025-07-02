@@ -2,12 +2,12 @@
 <#
 .SYNOPSIS
     Acts as a facade to handle informational and utility script modes for PoSh-Backup.
-    It determines which mode is requested and delegates execution to the appropriate sub-module.
+    It determines which mode is requested and lazy-loads the appropriate sub-module for execution.
 .DESCRIPTION
     This module is the primary entry point for handling any PoSh-Backup execution mode that
     is not a standard backup run. It checks for parameters like -TestConfig, -ListBackupLocations,
-    -PinBackup, -TestBackupTarget, etc., and orchestrates the call to the correct specialized
-    sub-module located in '.\Modules\ScriptModes\'.
+    -PinBackup, etc., and orchestrates the call to the correct specialized sub-module located
+    in '.\Modules\ScriptModes\'. This on-demand loading improves script startup performance.
 
     The sub-modules it manages are:
     - Diagnostics.psm1: For -TestConfig, -GetEffectiveConfig, -ExportDiagnosticPackage, -TestBackupTarget, -PreFlightCheck.
@@ -18,26 +18,14 @@
     If a sub-module successfully handles a mode, this script will exit with a code of 0.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.3.1 # Added PreFlightCheck parameter.
+    Version:        2.4.0 # Refactored to lazy-load sub-modules.
     DateCreated:    24-May-2025
-    LastModified:   22-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To orchestrate and delegate informational/utility script execution modes.
     Prerequisites:  PowerShell 5.1+.
 #>
 
-#region --- Module Dependencies ---
-# $PSScriptRoot here is Modules\
-try {
-    Import-Module -Name (Join-Path $PSScriptRoot "ScriptModes\Diagnostics.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "ScriptModes\Listing.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "ScriptModes\ArchiveManagement.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "ScriptModes\MaintenanceAndVerification.psm1") -Force -ErrorAction Stop
-}
-catch {
-    Write-Error "ScriptModeHandler.psm1 FATAL: Could not import required sub-modules from 'Modules\ScriptModes\'. Error: $($_.Exception.Message)"
-    throw
-}
-#endregion
+# No eager module imports are needed here. They will be lazy-loaded.
 
 #region --- Exported Function: Invoke-PoShBackupScriptMode ---
 function Invoke-PoShBackupScriptMode {
@@ -49,7 +37,7 @@ function Invoke-PoShBackupScriptMode {
         [bool]$ListBackupSetsSwitch,
         [Parameter(Mandatory = $true)]
         [bool]$TestConfigSwitch,
-        [Parameter(Mandatory = $true)] # NEW
+        [Parameter(Mandatory = $true)]
         [bool]$PreFlightCheckSwitch,
         [Parameter(Mandatory = $true)]
         [bool]$RunVerificationJobsSwitch,
@@ -103,84 +91,44 @@ function Invoke-PoShBackupScriptMode {
         [string]$RunSetForScope
     )
 
-    # PSSA Appeasement: Directly use the Logger parameter once.
-    & $Logger -Message "ScriptModeHandler (Facade): Initialising. Delegating to sub-modules." -Level "DEBUG" -ErrorAction SilentlyContinue
+    $isDiagnosticMode = $TestConfigSwitch -or $PreFlightCheckSwitch -or (-not [string]::IsNullOrWhiteSpace($GetEffectiveConfigJobName)) -or (-not [string]::IsNullOrWhiteSpace($ExportDiagnosticPackagePath)) -or (-not [string]::IsNullOrWhiteSpace($TestBackupTarget))
+    $isArchiveMgmtMode = (-not [string]::IsNullOrWhiteSpace($PinBackupPath)) -or (-not [string]::IsNullOrWhiteSpace($UnpinBackupPath)) -or (-not [string]::IsNullOrWhiteSpace($ListArchiveContentsPath)) -or (-not [string]::IsNullOrWhiteSpace($ExtractFromArchivePath))
+    $isListingMode = $ListBackupLocationsSwitch -or $ListBackupSetsSwitch -or $VersionSwitch
+    $isMaintVerifyMode = $RunVerificationJobsSwitch -or (-not [string]::IsNullOrWhiteSpace($VerificationJobName)) -or ($PSBoundParameters.ContainsKey('MaintenanceSwitchValue'))
 
-    # --- Delegate to Diagnostic Modes Handler ---
-    $diagParams = @{
-        TestConfigSwitch            = $TestConfigSwitch
-        PreFlightCheckSwitch        = $PreFlightCheckSwitch
-        GetEffectiveConfigJobName   = $GetEffectiveConfigJobName
-        ExportDiagnosticPackagePath = $ExportDiagnosticPackagePath
-        TestBackupTarget            = $TestBackupTarget
-        CliOverrideSettingsInternal = $CliOverrideSettingsInternal
-        Configuration               = $Configuration
-        ActualConfigFile            = $ActualConfigFile
-        ConfigLoadResult            = $ConfigLoadResult
-        Logger                      = $Logger
-        PSCmdletInstance            = $PSCmdletInstance
-        BackupLocationNameForScope  = $BackupLocationNameForScope
-        RunSetForScope              = $RunSetForScope
+    if ($isDiagnosticMode) {
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "ScriptModes\Diagnostics.psm1") -Force -ErrorAction Stop
+            $diagParams = @{ TestConfigSwitch = $TestConfigSwitch; PreFlightCheckSwitch = $PreFlightCheckSwitch; GetEffectiveConfigJobName = $GetEffectiveConfigJobName; ExportDiagnosticPackagePath = $ExportDiagnosticPackagePath; TestBackupTarget = $TestBackupTarget; CliOverrideSettingsInternal = $CliOverrideSettingsInternal; Configuration = $Configuration; ActualConfigFile = $ActualConfigFile; ConfigLoadResult = $ConfigLoadResult; Logger = $Logger; PSCmdletInstance = $PSCmdletInstance; BackupLocationNameForScope = $BackupLocationNameForScope; RunSetForScope = $RunSetForScope }
+            if (Invoke-PoShBackupDiagnosticMode @diagParams) { return $true }
+        } catch { & $Logger "[FATAL] ScriptModeHandler: Failed to load Diagnostics sub-module. Error: $($_.Exception.Message)" "ERROR"; throw }
     }
 
-    # >>====> Script execution dies here
-    if (Invoke-PoShBackupDiagnosticMode @diagParams) {
-        return $true
+    if ($isArchiveMgmtMode) {
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "ScriptModes\ArchiveManagement.psm1") -Force -ErrorAction Stop
+            $archiveMgmtParams = @{ PinBackupPath = $PinBackupPath; PinReason = $PinReason; UnpinBackupPath = $UnpinBackupPath; ListArchiveContentsPath = $ListArchiveContentsPath; ExtractFromArchivePath = $ExtractFromArchivePath; ExtractToDirectoryPath = $ExtractToDirectoryPath; ItemsToExtract = $ItemsToExtract; ForceExtract = $ForceExtract; ArchivePasswordSecretName = $ArchivePasswordSecretName; Configuration = $Configuration; Logger = $Logger; PSCmdletInstance = $PSCmdletInstance }
+            if (Invoke-PoShBackupArchiveManagementMode @archiveMgmtParams) { return $true }
+        } catch { & $Logger "[FATAL] ScriptModeHandler: Failed to load ArchiveManagement sub-module. Error: $($_.Exception.Message)" "ERROR"; throw }
     }
 
-    # --- Delegate to Archive Management Modes Handler ---
-    $archiveMgmtParams = @{
-        PinBackupPath             = $PinBackupPath
-        PinReason                 = $PinReason
-        UnpinBackupPath           = $UnpinBackupPath
-        ListArchiveContentsPath   = $ListArchiveContentsPath
-        ExtractFromArchivePath    = $ExtractFromArchivePath
-        ExtractToDirectoryPath    = $ExtractToDirectoryPath
-        ItemsToExtract            = $ItemsToExtract
-        ForceExtract              = $ForceExtract
-        ArchivePasswordSecretName = $ArchivePasswordSecretName
-        Configuration             = $Configuration
-        Logger                    = $Logger
-        PSCmdletInstance          = $PSCmdletInstance
+    if ($isListingMode) {
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "ScriptModes\Listing.psm1") -Force -ErrorAction Stop
+            $listingParams = @{ ListBackupLocationsSwitch = $ListBackupLocationsSwitch; ListBackupSetsSwitch = $ListBackupSetsSwitch; VersionSwitch = $VersionSwitch; Configuration = $Configuration; ActualConfigFile = $ActualConfigFile; ConfigLoadResult = $ConfigLoadResult; Logger = $Logger; PSCmdletInstance = $PSCmdletInstance }
+            if (Invoke-PoShBackupListingMode @listingParams) { return $true }
+        } catch { & $Logger "[FATAL] ScriptModeHandler: Failed to load Listing sub-module. Error: $($_.Exception.Message)" "ERROR"; throw }
     }
 
-    if (Invoke-PoShBackupArchiveManagementMode @archiveMgmtParams) {
-        return $true
+    if ($isMaintVerifyMode) {
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "ScriptModes\MaintenanceAndVerification.psm1") -Force -ErrorAction Stop
+            $maintAndVerifyParams = @{ RunVerificationJobsSwitch = $RunVerificationJobsSwitch; VerificationJobName = $VerificationJobName; Configuration = $Configuration; Logger = $Logger; PSCmdletInstance = $PSCmdletInstance }
+            if ($PSBoundParameters.ContainsKey('MaintenanceSwitchValue')) { $maintAndVerifyParams.MaintenanceSwitchValue = $MaintenanceSwitchValue }
+            if (Invoke-PoShBackupMaintenanceAndVerificationMode @maintAndVerifyParams) { return $true }
+        } catch { & $Logger "[FATAL] ScriptModeHandler: Failed to load MaintenanceAndVerification sub-module. Error: $($_.Exception.Message)" "ERROR"; throw }
     }
 
-    # --- Delegate to Listing Modes Handler ---
-    $listingParams = @{
-        ListBackupLocationsSwitch = $ListBackupLocationsSwitch
-        ListBackupSetsSwitch      = $ListBackupSetsSwitch
-        VersionSwitch             = $VersionSwitch
-        Configuration             = $Configuration
-        ActualConfigFile          = $ActualConfigFile
-        ConfigLoadResult          = $ConfigLoadResult
-        Logger                    = $Logger
-    }
-
-    if (Invoke-PoShBackupListingMode @listingParams) {
-        return $true
-    }
-
-    # --- Delegate to Maintenance and Verification Modes Handler ---
-    $maintAndVerifyParams = @{
-        RunVerificationJobsSwitch = $RunVerificationJobsSwitch
-        VerificationJobName       = $VerificationJobName
-        Configuration             = $Configuration
-        Logger                    = $Logger
-        PSCmdletInstance          = $PSCmdletInstance
-    }
-
-    if ($PSBoundParameters.ContainsKey('MaintenanceSwitchValue')) {
-        $maintAndVerifyParams.MaintenanceSwitchValue = $MaintenanceSwitchValue
-    }
-
-    if (Invoke-PoShBackupMaintenanceAndVerificationMode @maintAndVerifyParams) {
-        return $true
-    }
-
-    # If no utility mode was handled by any sub-module, return false to let the main script continue.
     return $false
 }
 #endregion

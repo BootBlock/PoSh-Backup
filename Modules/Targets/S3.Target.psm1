@@ -5,8 +5,8 @@
     as a facade, orchestrating calls to specialised sub-modules.
 .DESCRIPTION
     This module implements the PoSh-Backup target provider interface for S3-compatible
-    destinations. It orchestrates the entire transfer and retention process by calling
-    its sub-modules:
+    destinations. It orchestrates the entire transfer and retention process by lazy-loading and
+    calling its sub-modules:
     - S3.CredentialHandler.psm1: Manages the secure retrieval of S3 credentials.
     - S3.TransferAgent.psm1: Handles the actual file upload using Write-S3Object.
     - S3.RetentionApplicator.psm1: Applies the remote retention policy.
@@ -14,9 +14,9 @@
     - S3.SettingsValidator.psm1: Contains the configuration validation logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.1 # BUGFIX: Correctly implement facade pattern to fix recursion error.
+    Version:        2.1.1 # FIX: Facade now lazy-loads its own validation function.
     DateCreated:    17-Jun-2025
-    LastModified:   28-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        S3-Compatible Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+, AWS.Tools.S3 module.
 #>
@@ -25,11 +25,6 @@
 # $PSScriptRoot here is Modules\Targets
 $s3SubModulePath = Join-Path -Path $PSScriptRoot -ChildPath "S3"
 try {
-    Import-Module -Name (Join-Path $s3SubModulePath "S3.CredentialHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $s3SubModulePath "S3.TransferAgent.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $s3SubModulePath "S3.RetentionApplicator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $s3SubModulePath "S3.ConnectionTester.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $s3SubModulePath "S3.SettingsValidator.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
 }
 catch {
@@ -38,7 +33,36 @@ catch {
 }
 #endregion
 
-#region --- S3 Target Transfer Function (Orchestrator) ---
+#region --- Facade Functions ---
+
+function Invoke-PoShBackupS3TargetSettingsValidation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [hashtable]$TargetInstanceConfiguration,
+        [Parameter(Mandatory = $true)] [string]$TargetInstanceName,
+        [Parameter(Mandatory = $true)] [ref]$ValidationMessagesListRef,
+        [Parameter(Mandatory = $false)] [scriptblock]$Logger
+    )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "S3\S3.SettingsValidator.psm1") -Force -ErrorAction Stop
+        Invoke-PoShBackupS3TargetSettingsValidation @PSBoundParameters
+    } catch { throw "Could not load the S3.SettingsValidator sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Test-PoShBackupTargetConnectivity {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)] [hashtable]$TargetSpecificSettings,
+        [Parameter(Mandatory = $true)] [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet
+    )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "S3\S3.ConnectionTester.psm1") -Force -ErrorAction Stop
+        return Test-PoShBackupTargetConnectivity @PSBoundParameters
+    } catch { throw "Could not load the S3.ConnectionTester sub-module. Error: $($_.Exception.Message)" }
+}
+
 function Invoke-PoShBackupTargetTransfer {
     [CmdletBinding()]
     param(
@@ -78,11 +102,14 @@ function Invoke-PoShBackupTargetTransfer {
             $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
             $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed; return $result
         }
-        
+
         # 1. Get Credentials
-        $credResult = Get-S3Credentials -TargetSpecificSettings $s3Settings -Logger $Logger
+        $credResult = try {
+            Import-Module -Name (Join-Path $s3SubModulePath "S3.CredentialHandler.psm1") -Force -ErrorAction Stop
+            Get-S3Credentials -TargetSpecificSettings $s3Settings -Logger $Logger
+        } catch { throw "Could not load or execute the S3.CredentialHandler module. Error: $($_.Exception.Message)" }
         if (-not $credResult.Success) { throw $credResult.ErrorMessage }
-        
+
         $s3CommonParams = @{
             AccessKey = $credResult.AccessKey; SecretKey = $credResult.SecretKey
             Region = $s3Settings.Region; EndpointUrl = $s3Settings.ServiceUrl
@@ -90,24 +117,32 @@ function Invoke-PoShBackupTargetTransfer {
         }
 
         # 2. Upload File
-        $uploadResult = Write-S3BackupObject -LocalSourcePath $LocalArchivePath -BucketName $s3Settings.BucketName `
-            -ObjectKey $remoteObjectKey -S3CommonParameters $s3CommonParams -Logger $Logger -PSCmdletInstance $PSCmdlet
-        if (-not $uploadResult.Success) { throw $uploadResult.ErrorMessage }
-        
+        try {
+            Import-Module -Name (Join-Path $s3SubModulePath "S3.TransferAgent.psm1") -Force -ErrorAction Stop
+            $uploadResult = Write-S3BackupObject -LocalSourcePath $LocalArchivePath -BucketName $s3Settings.BucketName `
+                -ObjectKey $remoteObjectKey -S3CommonParameters $s3CommonParams -Logger $Logger -PSCmdletInstance $PSCmdlet
+            if (-not $uploadResult.Success) { throw $uploadResult.ErrorMessage }
+        } catch { throw "Could not load or execute the S3.TransferAgent module. Error: $($_.Exception.Message)" }
+
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
-        
+
         # 3. Apply Remote Retention
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings')) {
-            Invoke-S3RetentionPolicy -RetentionSettings $TargetInstanceConfiguration.RemoteRetentionSettings `
-                -BucketName $s3Settings.BucketName -RemoteKeyPrefix $remoteKeyPrefix `
-                -S3CommonParameters $s3CommonParams -ArchiveBaseName $ArchiveBaseName -ArchiveExtension $ArchiveExtension `
-                -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
-                -Logger $Logger -PSCmdletInstance $PSCmdlet
+            try {
+                Import-Module -Name (Join-Path $s3SubModulePath "S3.RetentionApplicator.psm1") -Force -ErrorAction Stop
+                Invoke-S3RetentionPolicy -RetentionSettings $TargetInstanceConfiguration.RemoteRetentionSettings `
+                    -BucketName $s3Settings.BucketName -RemoteKeyPrefix $remoteKeyPrefix `
+                    -S3CommonParameters $s3CommonParams -ArchiveBaseName $ArchiveBaseName -ArchiveExtension $ArchiveExtension `
+                    -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
+                    -Logger $Logger -PSCmdletInstance $PSCmdlet
+            } catch { & $LocalWriteLog -Message "[WARNING] S3.Target (Facade): Could not load or execute the S3.RetentionApplicator. Remote retention skipped. Error: $($_.Exception.Message)" -Level "WARNING" }
         }
     }
     catch {
         $result.ErrorMessage = "S3 Target '$targetNameForLog': Operation failed. Error: $($_.Exception.Message)"
         & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"; $result.Success = $false
+        $advice = "ADVICE: Ensure the S3 endpoint is correct, the bucket exists, and the provided credentials have s3:GetObject, s3:PutObject, and s3:DeleteObject permissions."
+        & $LocalWriteLog -Message $advice -Level "ADVICE"
     }
     finally {
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed
@@ -119,5 +154,4 @@ function Invoke-PoShBackupTargetTransfer {
 }
 #endregion
 
-# Export the main orchestrator function from this facade, AND the validation/testing functions from the sub-modules.
 Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupS3TargetSettingsValidation, Test-PoShBackupTargetConnectivity

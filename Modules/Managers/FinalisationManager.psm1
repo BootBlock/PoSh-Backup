@@ -14,9 +14,9 @@
     - ExitHandler.psm1: Manages the pause-on-exit behaviour and terminates the script.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.0 # Refactored into a facade with sub-modules.
+    Version:        2.1.1 # FIX: Corrected parameter name for PostRunActionOrchestrator call.
     DateCreated:    01-Jun-2025
-    LastModified:   27-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To centralise script finalisation, summary, and exit logic.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -109,7 +109,7 @@ function Invoke-PoShBackupFinalisation {
         -PSCmdletInstance $PSCmdletInstance `
         -CurrentSetNameForLog $CurrentSetNameForLog `
         -JobNameForLog $jobNameForLog
-    
+
     # --- 4. Display Final Summary to Console ---
     Show-PoShBackupFinalSummary -EffectiveOverallStatus $effectiveOverallStatus `
         -ScriptStartTime $ScriptStartTime `

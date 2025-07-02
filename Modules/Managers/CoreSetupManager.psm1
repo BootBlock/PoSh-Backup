@@ -2,8 +2,8 @@
 <#
 .SYNOPSIS
     Acts as a facade to manage the core setup phase of PoSh-Backup. It orchestrates
-    module imports, configuration loading, job resolution, dependency ordering, and
-    maintenance mode checks by delegating to specialised sub-modules.
+    module imports required for setup, configuration loading, job resolution, dependency
+    ordering, and maintenance mode checks by delegating to specialised sub-modules.
 .DESCRIPTION
     This module provides a function to handle the main setup tasks after initial
     global variable setup and CLI override processing. It calls sub-modules located in
@@ -15,12 +15,13 @@
       based on the resolved job list.
 
     This facade now directly invokes the advanced configuration validation after resolving
-    the job list, allowing for context-aware validation of backup targets.
+    the job list, allowing for context-aware validation of backup targets. It no longer
+    eagerly loads all operational modules; they are now lazy-loaded by their respective callers.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.4.0 # Refactored to perform context-aware validation.
+    Version:        2.5.1 # FIX: Corrected parameter name for Sync-PoShBackupSchedule call.
     DateCreated:    01-Jun-2025
-    LastModified:   28-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To orchestrate core script setup and configuration/job resolution.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -38,7 +39,7 @@ try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Error "CoreSetupManager.psm1 (Facade) FATAL: Could not import one or more required sub-modules. Error: $($_.Exception.Message)"
+    Write-Error "CoreSetupManager.psm1 (Facade) FATAL: Could not import a required sub-module. Error: $($_.Exception.Message)"
     throw
 }
 #endregion
@@ -93,24 +94,15 @@ function Invoke-PoShBackupCoreSetup {
     )
 
     try {
-        # --- 1. Import Core and Manager Modules ---
-        & $LoggerScriptBlock -Message "[DEBUG] CoreSetupManager: Loading core and manager modules..." -Level "DEBUG"
+        # --- 1. Import Modules REQUIRED for Setup & Utility Modes ---
+        & $LoggerScriptBlock -Message "[DEBUG] CoreSetupManager: Loading modules required for setup phase..." -Level "DEBUG"
 
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\ConfigManager.psm1") -Force -ErrorAction Stop
-        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\Operations.psm1") -Force -ErrorAction Stop
-        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\JobOrchestrator.psm1") -Force -ErrorAction Stop
-        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\PostRunActionOrchestrator.psm1") -Force -ErrorAction Stop
-        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Reporting.psm1") -Force -ErrorAction Stop
-        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
-        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\VssManager.psm1") -Force -ErrorAction Stop
-        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\RetentionManager.psm1") -Force -ErrorAction Stop
-        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\HookManager.psm1") -Force -ErrorAction Stop
-        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\SystemStateManager.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\ScriptModeHandler.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\JobDependencyManager.psm1") -Force -ErrorAction Stop
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\PoShBackupValidator.psm1") -Force -ErrorAction Stop -WarningAction SilentlyContinue
 
-        & $LoggerScriptBlock -Message "[SUCCESS] CoreSetupManager: Core modules loaded successfully." -Level "DEBUG"
+        & $LoggerScriptBlock -Message "[SUCCESS] CoreSetupManager: Setup-phase modules loaded successfully." -Level "DEBUG"
 
         # --- 2. Integrated Vault Unlock ---
         if ($CliOverrideSettings.ContainsKey('VaultCredentialPath') -and -not [string]::IsNullOrWhiteSpace($CliOverrideSettings.VaultCredentialPath)) {
@@ -140,8 +132,6 @@ function Invoke-PoShBackupCoreSetup {
         $Configuration['_PoShBackup_PSScriptRoot'] = $PSScriptRoot
 
         # --- 4. Handle Script Utility Modes (which may exit before full validation) ---
-        # The utility modes now get a config that has only passed basic validation. This is acceptable.
-        # Modes like -TestConfig will perform their own full validation.
         $scriptModeParams = @{
             ListBackupLocationsSwitch = $ListBackupLocations.IsPresent; ListBackupSetsSwitch = $ListBackupSets.IsPresent
             TestConfigSwitch = $TestConfig.IsPresent; PreFlightCheckSwitch = $PreFlightCheck.IsPresent
@@ -158,7 +148,7 @@ function Invoke-PoShBackupCoreSetup {
             BackupLocationNameForScope = $BackupLocationName; RunSetForScope = $RunSet
         }
         if ($PSBoundParameters.ContainsKey('Maintenance') -and $null -ne $Maintenance) { $scriptModeParams.MaintenanceSwitchValue = $Maintenance }
-        if ($SyncSchedules.IsPresent) { Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\ScheduleManager.psm1") -Force -ErrorAction Stop; Sync-PoShBackupSchedule -Configuration $Configuration -PSScriptRoot $PSScriptRoot -Logger $LoggerScriptBlock -PSCmdlet $PSCmdletInstance; exit 0 }
+        if ($SyncSchedules.IsPresent) { Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\ScheduleManager.psm1") -Force -ErrorAction Stop; Sync-PoShBackupSchedule -Configuration $Configuration -MainScriptRoot $PSScriptRoot -Logger $LoggerScriptBlock -PSCmdlet $PSCmdletInstance; exit 0 }
         if (Invoke-PoShBackupScriptMode @scriptModeParams) { exit 0 }
 
         # --- 5. Check for Maintenance Mode ---

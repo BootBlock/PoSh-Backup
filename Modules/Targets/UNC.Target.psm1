@@ -5,7 +5,7 @@
 .DESCRIPTION
     This module implements the PoSh-Backup target provider interface for UNC path destinations.
     It acts as a facade, orchestrating calls to specialised sub-modules for each step of the
-    transfer process:
+    transfer process, loading them on demand:
     - UNCPathHandler.psm1: Ensures the remote directory structure exists.
     - UNCTransferAgent.psm1: Handles the actual file copy using Copy-Item or Robocopy.
     - UNCRetentionApplicator.psm1: Manages the remote retention policy.
@@ -14,9 +14,9 @@
     and Invoke-PoShBackupUNCTargetSettingsValidation.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.1 # Corrected CmdletBinding and PSSA suppression on facade function.
+    Version:        2.1.0 # Refactored to lazy-load sub-modules.
     DateCreated:    19-May-2025
-    LastModified:   27-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        UNC Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -25,9 +25,7 @@
 # $PSScriptRoot here is Modules\Targets
 $uncSubModulePath = Join-Path -Path $PSScriptRoot -ChildPath "UNC"
 try {
-    Import-Module -Name (Join-Path $uncSubModulePath "UNCPathHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $uncSubModulePath "UNCTransferAgent.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $uncSubModulePath "UNCRetentionApplicator.psm1") -Force -ErrorAction Stop
+    # Import main Utils needed for facade-level functions
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
 }
 catch {
@@ -48,9 +46,9 @@ function Test-PoShBackupTargetConnectivity {
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
     & $Logger -Message "UNC.Target/Test-PoShBackupTargetConnectivity: Logger active." -Level "DEBUG" -ErrorAction SilentlyContinue
-    
+
     $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
-    
+
     $uncPath = $TargetSpecificSettings.UNCRemotePath
     & $LocalWriteLog -Message "  - UNC Target: Testing connectivity to path '$uncPath'..." -Level "INFO"
 
@@ -129,29 +127,43 @@ function Invoke-PoShBackupTargetTransfer {
         $result.RemotePath = $fullRemoteArchivePath
 
         # 1. Ensure Path Exists
-        $ensurePathResult = Set-UNCTargetPath -Path $remoteFinalDirectory -Logger $Logger -IsSimulateMode:$IsSimulateMode -PSCmdletInstance $PSCmdlet
-        if (-not $ensurePathResult.Success) { throw ("Failed to ensure remote directory '$remoteFinalDirectory' exists. Error: " + $ensurePathResult.ErrorMessage) }
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "UNC\UNCPathHandler.psm1") -Force -ErrorAction Stop
+            $ensurePathResult = Set-UNCTargetPath -Path $remoteFinalDirectory -Logger $Logger -IsSimulateMode:$IsSimulateMode -PSCmdletInstance $PSCmdlet
+            if (-not $ensurePathResult.Success) { throw ("Failed to ensure remote directory '$remoteFinalDirectory' exists. Error: " + $ensurePathResult.ErrorMessage) }
+        }
+        catch { throw "Could not load or execute the UNCPathHandler module. Error: $($_.Exception.Message)" }
 
         # 2. Transfer the file
-        $copyResult = Start-PoShBackupUNCCopy -LocalSourcePath $LocalArchivePath -FullRemoteDestinationPath $fullRemoteArchivePath `
-            -UseRobocopy $uncSettings.UseRobocopy -RobocopySettings $uncSettings.RobocopySettings `
-            -Logger $Logger -PSCmdletInstance $PSCmdlet
-        if (-not $copyResult.Success) { throw $copyResult.ErrorMessage }
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "UNC\UNCTransferAgent.psm1") -Force -ErrorAction Stop
+            $copyResult = Start-PoShBackupUNCCopy -LocalSourcePath $LocalArchivePath -FullRemoteDestinationPath $fullRemoteArchivePath `
+                -UseRobocopy $uncSettings.UseRobocopy -RobocopySettings $uncSettings.RobocopySettings `
+                -Logger $Logger -PSCmdletInstance $PSCmdlet
+            if (-not $copyResult.Success) { throw $copyResult.ErrorMessage }
+        }
+        catch { throw "Could not load or execute the UNCTransferAgent module. Error: $($_.Exception.Message)" }
 
         $result.Success = $true
         $result.TransferSize = $LocalArchiveSizeBytes
-        
+
         # 3. Apply Remote Retention
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings')) {
-            Invoke-UNCRetentionPolicy -RetentionSettings $TargetInstanceConfiguration.RemoteRetentionSettings `
-                -RemoteDirectory $remoteFinalDirectory `
-                -ArchiveBaseName $ArchiveBaseName -ArchiveExtension $ArchiveExtension -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
-                -Logger $Logger -PSCmdletInstance $PSCmdlet
+            try {
+                Import-Module -Name (Join-Path $PSScriptRoot "UNC\UNCRetentionApplicator.psm1") -Force -ErrorAction Stop
+                Invoke-UNCRetentionPolicy -RetentionSettings $TargetInstanceConfiguration.RemoteRetentionSettings `
+                    -RemoteDirectory $remoteFinalDirectory `
+                    -ArchiveBaseName $ArchiveBaseName -ArchiveExtension $ArchiveExtension -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
+                    -Logger $Logger -PSCmdletInstance $PSCmdlet
+            }
+            catch { & $LocalWriteLog -Message "[WARNING] UNC.Target (Facade): Could not load or execute the UNCRetentionApplicator. Remote retention skipped. Error: $($_.Exception.Message)" -Level "WARNING" }
         }
     }
     catch {
         $result.ErrorMessage = "UNC Target '$targetNameForLog': Operation failed. Error: $($_.Exception.Message)"
         & $LocalWriteLog -Message "[ERROR] $($result.ErrorMessage)" -Level "ERROR"; $result.Success = $false
+        $advice = "ADVICE: Ensure the path '$($result.RemotePath)' is accessible and that the user running the script has 'Modify' permissions on the share and underlying folder."
+        & $LocalWriteLog -Message $advice -Level "ADVICE"
     }
     finally {
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed

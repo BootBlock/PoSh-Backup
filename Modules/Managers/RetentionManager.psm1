@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Manages backup archive retention policies for PoSh-Backup. This module now acts as a facade,
-    delegating scanning and deletion tasks to sub-modules.
+    delegating scanning and deletion tasks to sub-modules which are loaded on demand.
 .DESCRIPTION
     The RetentionManager module centralises the logic for applying retention policies.
     It uses sub-modules for specific tasks:
@@ -11,14 +11,14 @@
 
     The main function, Invoke-BackupRetentionPolicy, orchestrates these steps, ensuring that
     any backups marked as 'pinned' are excluded from the retention policy and are not deleted.
+    Sub-modules are now lazy-loaded to improve performance.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.4.0 # Added EffectiveJobConfig parameter for TestBeforeDelete feature.
+    Version:        1.5.0 # Refactored to lazy-load sub-modules.
     DateCreated:    17-May-2025
-    LastModified:   15-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        Facade for centralised backup retention policy management.
     Prerequisites:  PowerShell 5.1+.
-                    Sub-modules (Scanner.psm1, Deleter.psm1) must exist in '.\Modules\Managers\RetentionManager\'.
 #>
 
 # Explicitly import Utils.psm1 from the main Modules directory.
@@ -30,19 +30,6 @@ catch {
     Write-Error "RetentionManager.psm1 (Facade) FATAL: Could not import main Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
-
-#region --- Sub-Module Imports ---
-$subModulesPath = Join-Path -Path $PSScriptRoot -ChildPath "RetentionManager"
-
-try {
-    Import-Module -Name (Join-Path -Path $subModulesPath -ChildPath "Scanner.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $subModulesPath -ChildPath "Deleter.psm1") -Force -ErrorAction Stop
-}
-catch {
-    Write-Error "RetentionManager.psm1 (Facade) FATAL: Could not import one or more required sub-modules from '$subModulesPath'. Error: $($_.Exception.Message)"
-    throw
-}
-#endregion
 
 #region --- Exported Backup Retention Policy Function ---
 function Invoke-BackupRetentionPolicy {
@@ -102,13 +89,20 @@ function Invoke-BackupRetentionPolicy {
         $ErrorActionPreference = 'Stop' # Force errors within this try block to be terminating
         & $LocalWriteLog -Message "RetentionManager (Facade): Temporarily set ErrorActionPreference to 'Stop'." -Level "DEBUG"
 
-        & $LocalWriteLog -Message "RetentionManager (Facade): Calling Find-BackupArchiveInstance..." -Level "DEBUG"
-        $backupInstances = Find-BackupArchiveInstance -DestinationDirectory $DestinationDirectory `
-                                                      -ArchiveBaseFileName $ArchiveBaseFileName `
-                                                      -ArchiveExtension $ArchiveExtension `
-                                                      -ArchiveDateFormat $ArchiveDateFormat `
-                                                      -Logger $Logger
-                                                      # ErrorAction Stop is now inherited
+        $backupInstances = try {
+            Import-Module -Name (Join-Path $PSScriptRoot "RetentionManager\Scanner.psm1") -Force -ErrorAction Stop
+            & $LocalWriteLog -Message "RetentionManager (Facade): Calling Find-BackupArchiveInstance..." -Level "DEBUG"
+            Find-BackupArchiveInstance -DestinationDirectory $DestinationDirectory `
+                                       -ArchiveBaseFileName $ArchiveBaseFileName `
+                                       -ArchiveExtension $ArchiveExtension `
+                                       -ArchiveDateFormat $ArchiveDateFormat `
+                                       -Logger $Logger
+        } catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\RetentionManager\Scanner.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[FATAL] RetentionManager: Could not load or execute the Scanner module. Retention cannot proceed. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
+            throw
+        }
 
         & $LocalWriteLog -Message "RetentionManager (Facade): Find-BackupArchiveInstance returned $($backupInstances.Count) instance(s)." -Level "DEBUG"
 
@@ -160,15 +154,25 @@ function Invoke-BackupRetentionPolicy {
             & $LocalWriteLog -Message "[INFO] RetentionManager (Facade): Found $($sortedInstances.Count) existing unpinned backup instance(s). Will attempt to delete $($instancesToDelete.Count) older instance(s) to meet retention ($RetentionCountToKeep total target)." -Level "INFO"
             & $LocalWriteLog -Message "RetentionManager (Facade): Calling Remove-OldBackupArchiveInstance..." -Level "DEBUG"
 
-            Remove-OldBackupArchiveInstance -InstancesToDelete $instancesToDelete `
-                -EffectiveSendToRecycleBin $effectiveSendToRecycleBin `
-                -RetentionConfirmDeleteFromConfig $RetentionConfirmDeleteFromConfig `
-                -EffectiveJobConfig $EffectiveJobConfig `
-                -IsSimulateMode:$IsSimulateMode `
-                -Logger $Logger `
-                -PSCmdlet $PSCmdlet
+            try {
+                Import-Module -Name (Join-Path $PSScriptRoot "RetentionManager\Deleter.psm1") -Force -ErrorAction Stop
+                Remove-OldBackupArchiveInstance -InstancesToDelete $instancesToDelete `
+                    -EffectiveSendToRecycleBin $effectiveSendToRecycleBin `
+                    -RetentionConfirmDeleteFromConfig $RetentionConfirmDeleteFromConfig `
+                    -EffectiveJobConfig $EffectiveJobConfig `
+                    -IsSimulateMode:$IsSimulateMode `
+                    -Logger $Logger `
+                    -PSCmdlet $PSCmdlet
+            }
+            catch {
+                $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\RetentionManager\Deleter.psm1' exists and is not corrupted."
+                & $LocalWriteLog -Message "[FATAL] RetentionManager: Could not load or execute the Deleter module. Retention cannot proceed. Error: $($_.Exception.Message)" -Level "ERROR"
+                & $LocalWriteLog -Message $advice -Level "ADVICE"
+                throw
+            }
+
         } else {
-            & $LocalWriteLog -Message "   - RetentionManager (Facade): Number of existing unpinned backup instances ($($sortedInstances.Count)) is at or below target old instances to preserve ($numberOfOldInstancesToPreserve). No older instances to delete." -Level "INFO"
+            & $LocalWriteLog -Message "   - RetentionManager (Facade): Number of existing unpinned backup instances ($($sortedInstances.Count)) is at or below target old instances to preserve ($($RetentionCountToKeep)). No older instances to delete." -Level "INFO"
         }
     } catch {
         & $LocalWriteLog -Message "[ERROR] RetentionManager (Facade): Error during retention policy for '$ArchiveBaseFileName'. Some old backups might not have been deleted. Error: $($_.Exception.Message). Stack: $($_.ScriptStackTrace)" -Level "ERROR"

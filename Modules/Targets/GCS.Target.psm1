@@ -14,7 +14,7 @@
     - GCS.ConnectionTester.psm1: Tests connectivity to the GCS bucket.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.2 # Added ADVICE logging to catch block.
+    Version:        2.1.1 # FIX: Facade now lazy-loads its own validation function.
     DateCreated:    23-Jun-2025
     LastModified:   02-Jul-2025
     Purpose:        Google Cloud Storage Target Provider for PoSh-Backup.
@@ -26,12 +26,6 @@
 $gcsSubModulePath = Join-Path -Path $PSScriptRoot -ChildPath "GCS"
 try {
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $gcsSubModulePath "GCS.DependencyChecker.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $gcsSubModulePath "GCS.Authenticator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $gcsSubModulePath "GCS.TransferAgent.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $gcsSubModulePath "GCS.RetentionApplicator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $gcsSubModulePath "GCS.SettingsValidator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $gcsSubModulePath "GCS.ConnectionTester.psm1") -Force -ErrorAction Stop
 }
 catch {
     Write-Error "GCS.Target.psm1 (Facade) FATAL: Could not import a required sub-module. Error: $($_.Exception.Message)"
@@ -39,41 +33,37 @@ catch {
 }
 #endregion
 
-#region --- GCS Target Transfer Function (Facade Orchestrator) ---
+#region --- Facade Functions ---
+
+function Invoke-PoShBackupGCSTargetSettingsValidation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [hashtable]$TargetInstanceConfiguration,
+        [Parameter(Mandatory = $true)] [string]$TargetInstanceName,
+        [Parameter(Mandatory = $true)] [ref]$ValidationMessagesListRef,
+        [Parameter(Mandatory = $false)] [scriptblock]$Logger
+    )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "GCS\GCS.SettingsValidator.psm1") -Force -ErrorAction Stop
+        Invoke-PoShBackupGCSTargetSettingsValidation @PSBoundParameters
+    } catch { throw "Could not load the GCS.SettingsValidator sub-module. Error: $($_.Exception.Message)" }
+}
+
+function Test-PoShBackupTargetConnectivity {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)] [hashtable]$TargetSpecificSettings,
+        [Parameter(Mandatory = $true)] [scriptblock]$Logger,
+        [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet
+    )
+    try {
+        Import-Module -Name (Join-Path $PSScriptRoot "GCS\GCS.ConnectionTester.psm1") -Force -ErrorAction Stop
+        return Test-PoShBackupTargetConnectivity @PSBoundParameters
+    } catch { throw "Could not load the GCS.ConnectionTester sub-module. Error: $($_.Exception.Message)" }
+}
+
 function Invoke-PoShBackupTargetTransfer {
-<#
-.SYNOPSIS
-    Orchestrates the transfer of a backup archive to a Google Cloud Storage bucket.
-.DESCRIPTION
-    This function acts as a facade, coordinating a sequence of operations to securely
-    and reliably transfer a backup file to GCS. It handles dependency checking,
-    authentication, file upload, and remote retention policy application by calling
-    specialised sub-modules for each task.
-.PARAMETER LocalArchivePath
-    The full path to the local backup archive file to be transferred.
-.PARAMETER TargetInstanceConfiguration
-    The complete configuration hashtable for the specific GCS target instance being used.
-.PARAMETER JobName
-    The name of the parent backup job, used for creating subdirectories if configured.
-.PARAMETER ArchiveFileName
-    The filename of the archive being transferred (e.g., 'MyJob [Date].7z').
-.PARAMETER ArchiveBaseName
-    The base name of the archive, without the date stamp or extension (e.g., 'MyJob').
-.PARAMETER ArchiveExtension
-    The primary extension of the archive (e.g., '.7z'), used for retention policy discovery.
-.PARAMETER IsSimulateMode
-    A switch indicating if the operation should be simulated without making actual changes.
-.PARAMETER Logger
-    A mandatory scriptblock reference to the main 'Write-LogMessage' function.
-.PARAMETER EffectiveJobConfig
-    The fully resolved configuration for the current job, used to retrieve settings like the date format.
-.PARAMETER LocalArchiveSizeBytes
-    The size of the local archive file in bytes, used for reporting.
-.PARAMETER PSCmdlet
-    A mandatory reference to the calling cmdlet's $PSCmdlet automatic variable.
-.OUTPUTS
-    A hashtable containing the final status and details of the transfer operation.
-#>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)] [string]$LocalArchivePath,
@@ -98,8 +88,11 @@ function Invoke-PoShBackupTargetTransfer {
     $authResult = @{ ShouldDeactivate = $false }
 
     try {
-        $dependencyCheck = Test-GcsCliDependency -Logger $Logger
-        if (-not $dependencyCheck.Success) { throw $dependencyCheck.ErrorMessage }
+        try {
+            Import-Module -Name (Join-Path $gcsSubModulePath "GCS.DependencyChecker.psm1") -Force -ErrorAction Stop
+            $dependencyCheck = Test-GcsCliDependency -Logger $Logger
+            if (-not $dependencyCheck.Success) { throw $dependencyCheck.ErrorMessage }
+        } catch { throw "Could not load or execute the GCS.DependencyChecker module. Error: $($_.Exception.Message)" }
 
         $gcsSettings = $TargetInstanceConfiguration.TargetSpecificSettings
         $createJobSubDir = if ($gcsSettings.ContainsKey('CreateJobNameSubdirectory')) { $gcsSettings.CreateJobNameSubdirectory } else { $false }
@@ -115,22 +108,31 @@ function Invoke-PoShBackupTargetTransfer {
         }
 
         # 1. Authenticate
-        $authResult = Invoke-GcsAuthentication -TargetSpecificSettings $gcsSettings -Logger $Logger
-        if (-not $authResult.Success) { throw $authResult.ErrorMessage }
+        try {
+            Import-Module -Name (Join-Path $gcsSubModulePath "GCS.Authenticator.psm1") -Force -ErrorAction Stop
+            $authResult = Invoke-GcsAuthentication -TargetSpecificSettings $gcsSettings -Logger $Logger
+            if (-not $authResult.Success) { throw $authResult.ErrorMessage }
+        } catch { throw "Could not load or execute the GCS.Authenticator module. Error: $($_.Exception.Message)" }
 
         # 2. Upload
-        $uploadResult = Start-PoShBackupGcsUpload -LocalSourcePath $LocalArchivePath -FullRemoteDestinationPath $fullRemotePath -Logger $Logger -PSCmdletInstance $PSCmdlet
-        if (-not $uploadResult.Success) { throw $uploadResult.ErrorMessage }
+        try {
+            Import-Module -Name (Join-Path $gcsSubModulePath "GCS.TransferAgent.psm1") -Force -ErrorAction Stop
+            $uploadResult = Start-PoShBackupGcsUpload -LocalSourcePath $LocalArchivePath -FullRemoteDestinationPath $fullRemotePath -Logger $Logger -PSCmdletInstance $PSCmdlet
+            if (-not $uploadResult.Success) { throw $uploadResult.ErrorMessage }
+        } catch { throw "Could not load or execute the GCS.TransferAgent module. Error: $($_.Exception.Message)" }
 
         $result.Success = $true; $result.TransferSize = $LocalArchiveSizeBytes
 
         # 3. Apply Remote Retention
         if ($TargetInstanceConfiguration.ContainsKey('RemoteRetentionSettings') -and $TargetInstanceConfiguration.RemoteRetentionSettings.KeepCount -gt 0) {
-            Invoke-GCSRetentionPolicy -RetentionSettings $TargetInstanceConfiguration.RemoteRetentionSettings `
-                -BucketName $gcsSettings.BucketName `
-                -RemoteKeyPrefix $remoteKeyPrefix `
-                -ArchiveBaseName $ArchiveBaseName -ArchiveExtension $ArchiveExtension -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
-                -Logger $Logger -PSCmdletInstance $PSCmdlet
+            try {
+                Import-Module -Name (Join-Path $gcsSubModulePath "GCS.RetentionApplicator.psm1") -Force -ErrorAction Stop
+                Invoke-GCSRetentionPolicy -RetentionSettings $TargetInstanceConfiguration.RemoteRetentionSettings `
+                    -BucketName $gcsSettings.BucketName `
+                    -RemoteKeyPrefix $remoteKeyPrefix `
+                    -ArchiveBaseName $ArchiveBaseName -ArchiveExtension $ArchiveExtension -ArchiveDateFormat $EffectiveJobConfig.JobArchiveDateFormat `
+                    -Logger $Logger -PSCmdletInstance $PSCmdlet
+            } catch { & $LocalWriteLog -Message "[WARNING] GCS.Target (Facade): Could not load or execute the GCS.RetentionApplicator. Remote retention skipped. Error: $($_.Exception.Message)" -Level "WARNING" }
         }
     }
     catch {
@@ -140,9 +142,11 @@ function Invoke-PoShBackupTargetTransfer {
         & $Logger -Message $adviceMessage -Level "ADVICE"
     }
     finally {
-        # 4. Clean up authentication if needed
         if ($authResult.ShouldDeactivate) {
-            Revoke-GcsAuthentication -Logger $Logger
+            try {
+                Import-Module -Name (Join-Path $gcsSubModulePath "GCS.Authenticator.psm1") -Force -ErrorAction Stop
+                Revoke-GcsAuthentication -Logger $Logger
+            } catch { & $LocalWriteLog -Message "[WARNING] GCS.Target (Facade): Could not load GCS.Authenticator for cleanup. Manual cleanup of credentials may be required." -Level "WARNING" }
         }
         $stopwatch.Stop(); $result.TransferDuration = $stopwatch.Elapsed
         $result.TransferSizeFormatted = Format-FileSize -Bytes $result.TransferSize
@@ -153,5 +157,4 @@ function Invoke-PoShBackupTargetTransfer {
 }
 #endregion
 
-# Export the main transfer function from this facade, and the validation/testing functions from the sub-modules.
 Export-ModuleMember -Function Invoke-PoShBackupTargetTransfer, Invoke-PoShBackupGCSTargetSettingsValidation, Test-PoShBackupTargetConnectivity

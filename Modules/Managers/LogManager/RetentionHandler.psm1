@@ -3,19 +3,19 @@
 .SYNOPSIS
     A sub-module for LogManager.psm1. Handles the retention policy for log files.
 .DESCRIPTION
-    This module provides the 'Invoke-PoShBackupLogRetention' function. It is responsible
+    This module provides the 'Invoke-LogFileRetentionPolicyInternal' function. It is responsible
     for finding and deleting or compressing old log files based on a specified retention
     count and job name pattern. This helps prevent the log directory from growing indefinitely.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Renamed function to avoid recursion.
     DateCreated:    27-Jun-2025
-    LastModified:   27-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To isolate the log file retention logic.
     Prerequisites:  PowerShell 5.1+.
 #>
 
-function Invoke-PoShBackupLogRetention {
+function Invoke-LogFileRetentionPolicyInternal {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory = $true)]
@@ -36,7 +36,7 @@ function Invoke-PoShBackupLogRetention {
         [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
 
-    & $Logger -Message "LogManager/RetentionHandler: Logger parameter active for JobPattern '$JobNamePattern'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    & $Logger -Message "LogManager/RetentionHandler: Logger active for JobPattern '$JobNamePattern'." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
 
@@ -48,7 +48,7 @@ function Invoke-PoShBackupLogRetention {
             $existingLogFileCount = (Get-ChildItem -Path $LogDirectory -Filter $fileFilter -File -ErrorAction SilentlyContinue).Count
         }
         $logsToProcessCount = [math]::Max(0, $existingLogFileCount - $RetentionCount)
-        
+
         if ($logsToProcessCount -gt 0) {
             $actionWord = if ($CompressOldLogs) { "compress" } else { "permanently delete" }
             & $LocalWriteLog -Message "SIMULATE: Would $actionWord $logsToProcessCount old log file(s) for job '$JobNamePattern' to meet retention count of $RetentionCount." -Level "SIMULATE"
@@ -104,4 +104,4 @@ function Invoke-PoShBackupLogRetention {
     } catch { & $LocalWriteLog -Message "[WARNING] LogRetentionHandler: Error during log retention policy. Error: $($_.Exception.Message)" -Level "WARNING" }
 }
 
-Export-ModuleMember -Function Invoke-PoShBackupLogRetention
+Export-ModuleMember -Function Invoke-LogFileRetentionPolicyInternal

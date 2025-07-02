@@ -16,9 +16,9 @@
     5.  Manages set-level policies like 'DelayBetweenJobsSeconds' and 'StopSetOnErrorPolicy'.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.0 # Refactored to a facade with PreExecutionChecker and PostJobProcessor sub-modules.
+    Version:        2.1.0 # Added explicit imports for lazy loading.
     DateCreated:    25-May-2025
-    LastModified:   27-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To centralise the main job/set processing loop from PoSh-Backup.ps1.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -85,7 +85,7 @@ function Invoke-PoShBackupRun {
 
     $totalJobsInRun = $JobsToProcess.Count
     $jobCounter = 0
-    
+
     $delayBetweenJobs = 0
     if (-not [string]::IsNullOrWhiteSpace($CurrentSetName)) {
         $setConf = $Configuration.BackupSets[$CurrentSetName]
@@ -100,9 +100,9 @@ function Invoke-PoShBackupRun {
         if ($CurrentSetName) {
             Write-Progress -Activity "Processing Backup Set: '$CurrentSetName'" -Status "Job $jobCounter of ${$totalJobsInRun}: '$currentJobName'" -PercentComplete (($jobCounter / $totalJobsInRun) * 100)
         }
-        
+
         $currentJobReportData = [ordered]@{ JobName = $currentJobName; ScriptStartTime = Get-Date }
-        
+
         $jobConfigFromMainConfig = $Configuration.BackupLocations[$currentJobName]
 
         # --- 1. Pre-Execution Checks ---
@@ -110,7 +110,7 @@ function Invoke-PoShBackupRun {
             -JobConfig $jobConfigFromMainConfig `
             -JobEffectiveSuccessState $jobEffectiveSuccessState `
             -Logger $Logger
-        
+
         if ($preCheckResult.Status -eq 'Skip') {
             $currentJobReportData.OverallStatus = "SKIPPED"
             $currentJobReportData.ErrorMessage = $preCheckResult.Reason
@@ -119,7 +119,7 @@ function Invoke-PoShBackupRun {
         else {
             # --- 2. Get Effective Config & Execute Job ---
             Write-ConsoleBanner -NameText "Processing Job:" -ValueText $currentJobName -CenterText -PrependNewLine
-            
+
             $setConfForEffConfig = if (-not [string]::IsNullOrWhiteSpace($CurrentSetName)) { Get-ConfigValue -ConfigObject $Configuration.BackupSets -Key $CurrentSetName -DefaultValue @{} } else { $null }
             $setSevenZipIncludeListFileForEffConfig = if ($null -ne $setConfForEffConfig) { Get-ConfigValue -ConfigObject $setConfForEffConfig -Key 'SevenZipIncludeListFile' -DefaultValue $null } else { $null }
             $setSevenZipExcludeListFileForEffConfig = if ($null -ne $setConfForEffConfig) { Get-ConfigValue -ConfigObject $setConfForEffConfig -Key 'SevenZipExcludeListFile' -DefaultValue $null } else { $null }
@@ -170,7 +170,7 @@ function Invoke-PoShBackupRun {
         $currentJobReportData.ScriptEndTime = Get-Date
         $currentJobReportData.TotalDuration = $currentJobReportData.ScriptEndTime - $currentJobReportData.ScriptStartTime
         $currentJobReportData.TotalDurationSeconds = $currentJobReportData.TotalDuration.TotalSeconds
-        
+
         $postJobParams = @{
             JobName            = $currentJobName
             EffectiveJobConfig = $effectiveJobConfigForThisJob # Can be null if skipped
@@ -182,7 +182,7 @@ function Invoke-PoShBackupRun {
             CurrentSetName     = $CurrentSetName
         }
         Invoke-PoShBackupPostJobProcessing @postJobParams
-        
+
         # --- 4. Update Set Status and Handle Set-Level Logic ---
         if ($currentJobReportData.OverallStatus -eq "FAILURE") {
             $overallSetStatus = "FAILURE"
@@ -190,7 +190,7 @@ function Invoke-PoShBackupRun {
         elseif ($currentJobReportData.OverallStatus -in "WARNINGS", "SKIPPED" -and $overallSetStatus -ne "FAILURE") {
             $overallSetStatus = "WARNINGS"
         }
-        
+
         if ($null -ne $CurrentSetName) {
             $jobResultForSet = @{
                 JobName              = $currentJobName
@@ -208,7 +208,7 @@ function Invoke-PoShBackupRun {
             & $LocalWriteLog -Message "[ERROR] Job '$currentJobName' in set '$CurrentSetName' did not complete successfully. Stopping set as 'OnErrorInJob' policy is 'StopSet'." -Level "ERROR"
             break
         }
-        
+
         # Pause between jobs if configured
         if (($jobCounter -lt $totalJobsInRun) -and ($delayBetweenJobs -gt 0)) {
             & $LocalWriteLog -Message "`n[INFO] Pausing for $delayBetweenJobs second(s) before starting the next job..." -Level "INFO"

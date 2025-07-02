@@ -276,7 +276,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.39.0 # Added extensive actionable advice for common errors.
+    Version:        1.40.0 # Implemented lazy loading for core operational modules.
     Date:           02-Jul-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories
@@ -490,19 +490,16 @@ param (
 #endregion
 
 #region --- Initial Script Setup & Module Import ---
-# CORRECTED: Set Quiet Mode flag immediately after parameters are bound.
-# This ensures all subsequent functions and modules can respect it.
+# Set Quiet Mode flag immediately after parameters are bound.
 $Global:IsQuietMode = if ($PSBoundParameters.ContainsKey('Quiet')) { $PSBoundParameters['Quiet'].IsPresent } else { $false }
 
 # Import InitialisationManager first to set up globals and display banner
 try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\InitialisationManager.psm1") -Force -ErrorAction Stop
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utilities\ArgumentCompleters.psm1") -Force -ErrorAction Stop
-    # Pass the already-determined quiet mode status to the initialiser
     Invoke-PoShBackupInitialSetup -MainScriptPath $PSCommandPath
 }
 catch {
-    # Don't use the logger here as it might not be available. Write directly to host.
     Write-Host "[FATAL] Failed to import or run CRITICAL InitialisationManager.psm1 module." -ForegroundColor Red
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
     exit 11
@@ -552,7 +549,6 @@ if ($CheckForUpdate.IsPresent) {
                 & $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: Non-critical error during ReadKey for final pause: $($_.Exception.Message)" -Level "DEBUG"
             }
         }
-
         exit $Global:PoShBackup_ExitCodes.UpdateCheckFailure
     }
 }
@@ -575,6 +571,7 @@ try {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CliManager.psm1") -Force -ErrorAction Stop
     $cliOverrideSettings = Get-PoShBackupCliOverride -BoundParameters $PSBoundParameters
 
+    # Only CoreSetupManager is needed here. It will handle its own dependencies.
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\CoreSetupManager.psm1") -Force -ErrorAction Stop
     $coreSetupResult = Invoke-PoShBackupCoreSetup -LoggerScriptBlock $LoggerScriptBlock `
         -PSScriptRoot $PSScriptRoot `
@@ -605,10 +602,6 @@ try {
     $currentSetName = $coreSetupResult.CurrentSetName
     $stopSetOnError = $coreSetupResult.StopSetOnErrorPolicy
     $setSpecificPostRunAction = $coreSetupResult.SetSpecificPostRunAction
-
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\JobOrchestrator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\FinalisationManager.psm1") -Force -ErrorAction Stop
-
 }
 catch {
     if ($null -ne $LoggerScriptBlock) {
@@ -620,13 +613,9 @@ catch {
     if ($Host.Name -eq "ConsoleHost") {
         Write-Host "`nPress any key to exit..." -ForegroundColor $Global:ColourWarning
         try { $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null } catch {
-            # Log non-critical error during final pause attempt
-            if ($null -ne $LoggerScriptBlock) {
-                & $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: Non-critical error during ReadKey for final pause: $($_.Exception.Message)" -Level "DEBUG"
-            }
+            if ($null -ne $LoggerScriptBlock) { & $LoggerScriptBlock -Message "[DEBUG] PoSh-Backup.ps1: Non-critical error during ReadKey for final pause: $($_.Exception.Message)" -Level "DEBUG" }
         }
     }
-
     exit $Global:PoShBackup_ExitCodes.ConfigurationError
 }
 #endregion
@@ -634,30 +623,38 @@ catch {
 #region --- Main Processing (Delegated to JobOrchestrator.psm1) ---
 $overallSetStatus = "SUCCESS"
 $jobSpecificPostRunActionForNonSetRun = $null
+$allJobResultsForSetReport = $null
 
 if ($jobsToProcess.Count -gt 0) {
-    $runParams = @{
-        JobsToProcess            = $jobsToProcess
-        CurrentSetName           = $currentSetName
-        StopSetOnErrorPolicy     = $stopSetOnError
-        SetSpecificPostRunAction = $setSpecificPostRunAction
-        Configuration            = $Configuration
-        PSScriptRootForPaths     = $PSScriptRoot
-        ActualConfigFile         = $ActualConfigFile
-        IsSimulateMode           = $IsSimulateMode
-        Logger                   = $LoggerScriptBlock
-        PSCmdlet                 = $PSCmdlet
-        CliOverrideSettings      = $cliOverrideSettings
-    }
-    $orchestratorResult = Invoke-PoShBackupRun @runParams
     try {
+        # LAZY LOADING: Import the JobOrchestrator only when it's needed to run jobs.
+        Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Core\JobOrchestrator.psm1") -Force -ErrorAction Stop
+
+        $runParams = @{
+            JobsToProcess            = $jobsToProcess
+            CurrentSetName           = $currentSetName
+            StopSetOnErrorPolicy     = $stopSetOnError
+            SetSpecificPostRunAction = $setSpecificPostRunAction
+            Configuration            = $Configuration
+            PSScriptRootForPaths     = $PSScriptRoot
+            ActualConfigFile         = $ActualConfigFile
+            IsSimulateMode           = $IsSimulateMode
+            Logger                   = $LoggerScriptBlock
+            PSCmdlet                 = $PSCmdlet
+            CliOverrideSettings      = $cliOverrideSettings
+        }
+        $orchestratorResult = Invoke-PoShBackupRun @runParams
+
+        # Re-import Utils.psm1 locally in case the module scope was lost after returning from JobOrchestrator.
         Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Utils.psm1") -Force -ErrorAction Stop
+
+        $overallSetStatus = $orchestratorResult.OverallSetStatus
+        $jobSpecificPostRunActionForNonSetRun = $orchestratorResult.JobSpecificPostRunActionForNonSet
+        $allJobResultsForSetReport = $orchestratorResult.AllJobResultsForSetReport
+    } catch {
+        & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: A critical error occurred during the main job orchestration. Error: $($_.Exception.ToString())" -Level "ERROR"
+        $overallSetStatus = "FAILURE"
     }
-    catch {
-        & $LoggerScriptBlock -Message "[FATAL PoSh-Backup.ps1] Failed to re-import Utils.psm1 locally. Error: $($_.Exception.Message)" -Level "ERROR"
-    }
-    $overallSetStatus = $orchestratorResult.OverallSetStatus
-    $jobSpecificPostRunActionForNonSetRun = $orchestratorResult.JobSpecificPostRunActionForNonSet
 }
 else {
     & $LoggerScriptBlock -Message "[INFO] No jobs were processed (either none specified or dependency analysis resulted in an empty list)." -Level "INFO"
@@ -665,18 +662,26 @@ else {
 #endregion
 
 #region --- Final Script Summary & Exit (Delegated to FinalisationManager.psm1) ---
-Invoke-PoShBackupFinalisation -OverallSetStatus $overallSetStatus `
-    -ScriptStartTime $ScriptStartTime `
-    -IsSimulateMode:$IsSimulateMode `
-    -TestConfigIsPresent:$TestConfig.IsPresent `
-    -CliOverrideSettings $cliOverrideSettings `
-    -SetSpecificPostRunAction $setSpecificPostRunAction `
-    -JobSpecificPostRunActionForNonSetRun $jobSpecificPostRunActionForNonSetRun `
-    -Configuration $Configuration `
-    -LoggerScriptBlock $LoggerScriptBlock `
-    -PSCmdletInstance $PSCmdlet `
-    -CurrentSetNameForLog $currentSetName `
-    -JobsToProcess $jobsToProcess
+try {
+    # LAZY LOADING: Import the FinalisationManager only when it's needed at the end of the run.
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Modules\Managers\FinalisationManager.psm1") -Force -ErrorAction Stop
 
-# The Invoke-PoShBackupFinalisation function will call exit internally.
+    Invoke-PoShBackupFinalisation -OverallSetStatus $overallSetStatus `
+        -ScriptStartTime $ScriptStartTime `
+        -IsSimulateMode:$IsSimulateMode `
+        -TestConfigIsPresent:$TestConfig.IsPresent `
+        -CliOverrideSettings $cliOverrideSettings `
+        -SetSpecificPostRunAction $setSpecificPostRunAction `
+        -JobSpecificPostRunActionForNonSetRun $jobSpecificPostRunActionForNonSetRun `
+        -Configuration $Configuration `
+        -LoggerScriptBlock $LoggerScriptBlock `
+        -PSCmdletInstance $PSCmdlet `
+        -CurrentSetNameForLog $currentSetName `
+        -JobsToProcess $jobsToProcess `
+        -AllJobResultsForSetReport $allJobResultsForSetReport
+} catch {
+    & $LoggerScriptBlock -Message "[FATAL] PoSh-Backup.ps1: A critical error occurred during the finalisation phase. Error: $($_.Exception.ToString())" -Level "ERROR"
+    # Fallback exit in case FinalisationManager fails to load/run
+    exit $Global:PoShBackup_ExitCodes.CriticalError
+}
 #endregion

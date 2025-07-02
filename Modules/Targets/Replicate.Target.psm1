@@ -2,14 +2,14 @@
 <#
 .SYNOPSIS
     Acts as a facade for the PoSh-Backup Target Provider for replicating a backup
-    archive to multiple destinations.
+    archive to multiple destinations, lazy-loading its sub-modules.
 .DESCRIPTION
     This module implements the PoSh-Backup target provider interface for replicating
     a backup set (which can be a single file, or multiple volume parts plus a manifest)
     to several specified locations.
 
     It now acts as a facade, orchestrating calls to specialised sub-modules located
-    in '.\Replicate\' for each step of the process:
+    in '.\Replicate\' for each step of the process, loading them on demand:
     - Replicate.PathHandler.psm1: Ensures the remote directory structure exists.
     - Replicate.TransferAgent.psm1: Handles the actual file copy.
     - Replicate.RetentionApplicator.psm1: Manages the remote retention policy for each destination.
@@ -18,21 +18,16 @@
     and Invoke-PoShBackupReplicateTargetSettingsValidation.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        3.0.0 # CRITICAL FIX: Major refactoring to use correct sub-modules.
+    Version:        3.1.0 # Refactored to lazy-load sub-modules.
     DateCreated:    19-May-2025
-    LastModified:   28-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        Replicate Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
 
 #region --- Module Dependencies ---
 # $PSScriptRoot here is Modules\Targets
-$replicateSubModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Replicate"
 try {
-    # Import the new, correct sub-modules
-    Import-Module -Name (Join-Path $replicateSubModulePath "Replicate.PathHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $replicateSubModulePath "Replicate.TransferAgent.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $replicateSubModulePath "Replicate.RetentionApplicator.psm1") -Force -ErrorAction Stop
     # Import main Utils needed for facade-level functions
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
 }
@@ -57,7 +52,7 @@ function Test-PoShBackupTargetConnectivity {
     & $Logger -Message "Replicate.Target/Test-PoShBackupTargetConnectivity: Logger active." -Level "DEBUG" -ErrorAction SilentlyContinue
 
     $LocalWriteLog = { param([string]$MessageParam, [string]$LevelParam = "INFO") & $Logger -Message $MessageParam -Level $LevelParam }
-    
+
     & $LocalWriteLog -Message "  - Replicate Target: Testing connectivity for all configured destination paths..." -Level "INFO"
 
     if (-not ($TargetSpecificSettings -is [array]) -or $TargetSpecificSettings.Count -eq 0) {
@@ -72,7 +67,7 @@ function Test-PoShBackupTargetConnectivity {
         $destinationIndex++
         $destPath = $destination.Path
         $messagePrefix = "    - Destination $destinationIndex ('$destPath'): "
-        
+
         if (-not $PSCmdlet.ShouldProcess($destPath, "Test Path Accessibility")) {
             $messages.Add("$messagePrefix Test skipped by user.")
             $allPathsSuccessful = $false
@@ -115,7 +110,9 @@ function Invoke-PoShBackupReplicateTargetSettingsValidation {
         [Parameter(Mandatory = $false)]
         [scriptblock]$Logger
     )
-    & $Logger -Message "Replicate.Target/Invoke-PoShBackupReplicateTargetSettingsValidation: Logger active for target '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
+        & $Logger -Message "Replicate.Target/Invoke-PoShBackupReplicateTargetSettingsValidation: Logger active for target '$TargetInstanceName'." -Level "DEBUG" -ErrorAction SilentlyContinue
+    }
 
     if ($TargetInstanceConfiguration.ContainsKey('ContinueOnError') -and -not ($TargetInstanceConfiguration.ContinueOnError -is [boolean])) {
         $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': 'ContinueOnError' must be a boolean (`$true` or `$false`) if defined.")
@@ -124,7 +121,7 @@ function Invoke-PoShBackupReplicateTargetSettingsValidation {
     $TargetSpecificSettings = $TargetInstanceConfiguration.TargetSpecificSettings
     if (-not ($TargetSpecificSettings -is [array])) {
         $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': 'TargetSpecificSettings' must be an Array.")
-        return 
+        return
     }
     if ($TargetSpecificSettings.Count -eq 0) { $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': 'TargetSpecificSettings' array is empty.") }
 
@@ -132,7 +129,7 @@ function Invoke-PoShBackupReplicateTargetSettingsValidation {
         $destConfig = $TargetSpecificSettings[$i]
         if (-not ($destConfig -is [hashtable])) {
             $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': Item at index $i is not a Hashtable.")
-            continue 
+            continue
         }
         if (-not $destConfig.ContainsKey('Path') -or -not ($destConfig.Path -is [string]) -or [string]::IsNullOrWhiteSpace($destConfig.Path)) {
             $ValidationMessagesListRef.Value.Add("Replicate Target '$TargetInstanceName': Destination at index $i is missing 'Path'.")
@@ -180,14 +177,19 @@ function Invoke-PoShBackupTargetTransfer {
 
     $destinationConfigs = $TargetInstanceConfiguration.TargetSpecificSettings
     $continueOnError = if ($TargetInstanceConfiguration.ContainsKey('ContinueOnError')) { [bool]$TargetInstanceConfiguration.ContinueOnError } else { $false }
-    
+
     $destinationIndex = 0
     foreach ($destConfig in $destinationConfigs) {
         $destinationIndex++
         $singleDestStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         $currentDestResult = @{ Success = $false; Path = 'N/A'; Error = 'Unknown Error'; Size = 0 }
-        
+
         try {
+            # Import all required sub-modules for this loop iteration
+            Import-Module -Name (Join-Path $PSScriptRoot "Replicate\Replicate.PathHandler.psm1") -Force -ErrorAction Stop
+            Import-Module -Name (Join-Path $PSScriptRoot "Replicate\Replicate.TransferAgent.psm1") -Force -ErrorAction Stop
+            Import-Module -Name (Join-Path $PSScriptRoot "Replicate\Replicate.RetentionApplicator.psm1") -Force -ErrorAction Stop
+
             $destPathBase = $destConfig.Path.TrimEnd("\/")
             $destCreateJobSubDir = if ($destConfig.ContainsKey('CreateJobNameSubdirectory')) { $destConfig.CreateJobNameSubdirectory } else { $false }
             $destFinalDir = if ($destCreateJobSubDir) { Join-Path -Path $destPathBase -ChildPath $JobName } else { $destPathBase }
@@ -214,6 +216,8 @@ function Invoke-PoShBackupTargetTransfer {
         catch {
             $currentDestResult.Success = $false
             $currentDestResult.Error = $_.Exception.Message
+            $advice = "ADVICE: This could be due to a permissions issue on '$($destConfig.Path)', a network interruption, or a problem loading a sub-module."
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
         }
 
         $singleDestStopwatch.Stop(); $currentDestResult.Duration = $singleDestStopwatch.Elapsed

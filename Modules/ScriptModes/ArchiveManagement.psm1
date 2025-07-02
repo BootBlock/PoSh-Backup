@@ -5,32 +5,19 @@
     extracting files, and pinning/unpinning archives.
 .DESCRIPTION
     This module is a sub-component of ScriptModeHandler.psm1. It encapsulates the logic
-    for the following command-line switches:
+    for the following command-line switches by lazy-loading the required manager modules:
     - -ListArchiveContents
     - -ExtractFromArchive
     - -PinBackup
     - -UnpinBackup
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Refactored to lazy-load manager dependencies.
     DateCreated:    15-Jun-2025
-    LastModified:   15-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To handle archive management script execution modes for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
-
-#region --- Module Dependencies ---
-# $PSScriptRoot here is Modules\ScriptModes\
-try {
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Modules\Utils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Managers\PinManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Managers\PasswordManager.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $PSScriptRoot "..\..\Modules\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
-}
-catch {
-    Write-Warning "ScriptModes\ArchiveManagement.psm1: Could not import a manager module. Specific modes may be unavailable. Error: $($_.Exception.Message)"
-}
-#endregion
 
 function Invoke-PoShBackupArchiveManagementMode {
     [CmdletBinding()]
@@ -72,102 +59,88 @@ function Invoke-PoShBackupArchiveManagementMode {
 
     if (-not [string]::IsNullOrWhiteSpace($ExtractFromArchivePath)) {
         & $LocalWriteLog -Message "`n--- Extract Archive Contents Mode ---" -Level "HEADING"
-        if (-not (Get-Command Invoke-7ZipExtraction -ErrorAction SilentlyContinue)) {
-            & $LocalWriteLog -Message "FATAL: Could not find the Invoke-7ZipExtraction command. Ensure 'Modules\Managers\7ZipManager\Extractor.psm1' is present and loaded correctly." -Level "ERROR"
-            return $true # Handled
-        }
-        if ([string]::IsNullOrWhiteSpace($ExtractToDirectoryPath)) {
-            & $LocalWriteLog -Message "FATAL: The -ExtractToDirectory parameter is required when using -ExtractFromArchive." -Level "ERROR"
-            return $true # Handled
-        }
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "..\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
+            Import-Module -Name (Join-Path $PSScriptRoot "..\Managers\PasswordManager.psm1") -Force -ErrorAction Stop
 
-        $plainTextPasswordForExtract = $null
-        if (-not [string]::IsNullOrWhiteSpace($ArchivePasswordSecretName)) {
-            if (-not (Get-Command Get-PoShBackupArchivePassword -ErrorAction SilentlyContinue)) {
-                & $LocalWriteLog -Message "FATAL: Could not find Get-PoShBackupArchivePassword command. Cannot retrieve password for encrypted archive." -Level "ERROR"
-                return $true # Handled
+            if ([string]::IsNullOrWhiteSpace($ExtractToDirectoryPath)) { throw "The -ExtractToDirectory parameter is required when using -ExtractFromArchive." }
+
+            $plainTextPasswordForExtract = $null
+            if (-not [string]::IsNullOrWhiteSpace($ArchivePasswordSecretName)) {
+                $passwordConfig = @{ ArchivePasswordMethod = 'SecretManagement'; ArchivePasswordSecretName = $ArchivePasswordSecretName }
+                $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $passwordConfig -JobName "Archive Extraction" -Logger $Logger -GlobalConfig @{}
+                $plainTextPasswordForExtract = $passwordResult.PlainTextPassword
             }
-            $passwordConfig = @{ ArchivePasswordMethod = 'SecretManagement'; ArchivePasswordSecretName = $ArchivePasswordSecretName }
-            $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $passwordConfig -JobName "Archive Extraction" -Logger $Logger
-            $plainTextPasswordForExtract = $passwordResult.PlainTextPassword
-        }
 
-        $sevenZipPath = $Configuration.SevenZipPath
-        $extractParams = @{
-            SevenZipPathExe  = $sevenZipPath
-            ArchivePath      = $ExtractFromArchivePath
-            OutputDirectory  = $ExtractToDirectoryPath
-            PlainTextPassword = $plainTextPasswordForExtract
-            Force            = [bool]$ForceExtract
-            Logger           = $Logger
-            PSCmdlet         = $PSCmdletInstance
-        }
-        if ($null -ne $ItemsToExtract -and $ItemsToExtract.Count -gt 0) {
-            $extractParams.FilesToExtract = $ItemsToExtract
-        }
-
-        $success = Invoke-7ZipExtraction @extractParams
-
-        if ($success) {
-            & $LocalWriteLog -Message "Successfully extracted archive '$ExtractFromArchivePath' to '$ExtractToDirectoryPath'." -Level "SUCCESS"
-        } else {
-            & $LocalWriteLog -Message "Failed to extract archive '$ExtractFromArchivePath'. Check previous errors." -Level "ERROR"
-        }
-        return $true # Handled
+            $sevenZipPath = $Configuration.SevenZipPath
+            $extractParams = @{
+                SevenZipPathExe  = $sevenZipPath
+                ArchivePath      = $ExtractFromArchivePath
+                OutputDirectory  = $ExtractToDirectoryPath
+                PlainTextPassword = $plainTextPasswordForExtract
+                Force            = [bool]$ForceExtract
+                Logger           = $Logger
+                PSCmdlet         = $PSCmdletInstance
+            }
+            if ($null -ne $ItemsToExtract -and $ItemsToExtract.Count -gt 0) { $extractParams.FilesToExtract = $ItemsToExtract }
+            $success = Invoke-7ZipExtraction @extractParams
+            if ($success) { & $LocalWriteLog -Message "Successfully extracted archive '$ExtractFromArchivePath' to '$ExtractToDirectoryPath'." -Level "SUCCESS" }
+            else { & $LocalWriteLog -Message "Failed to extract archive '$ExtractFromArchivePath'. Check previous errors." -Level "ERROR" }
+        } catch { & $LocalWriteLog -Message "[FATAL] ArchiveManagement: A required module could not be loaded or an error occurred. Error: $($_.Exception.Message)" -Level "ERROR" }
+        return $true
     }
 
     if (-not [string]::IsNullOrWhiteSpace($ListArchiveContentsPath)) {
         & $LocalWriteLog -Message "`n--- List Archive Contents Mode ---" -Level "HEADING"
-        if (-not (Get-Command Get-7ZipArchiveListing -ErrorAction SilentlyContinue)) {
-            & $LocalWriteLog -Message "FATAL: Could not find the Get-7ZipArchiveListing command. Ensure 'Modules\Managers\7ZipManager\Lister.psm1' is present and loaded correctly." -Level "ERROR"
-            return $true # Handled
-        }
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "..\Managers\7ZipManager.psm1") -Force -ErrorAction Stop
+            Import-Module -Name (Join-Path $PSScriptRoot "..\Managers\PasswordManager.psm1") -Force -ErrorAction Stop
 
-        $plainTextPasswordForList = $null
-        if (-not [string]::IsNullOrWhiteSpace($ArchivePasswordSecretName)) {
-            if (-not (Get-Command Get-PoShBackupArchivePassword -ErrorAction SilentlyContinue)) {
-                & $LocalWriteLog -Message "FATAL: Could not find Get-PoShBackupArchivePassword command. Cannot retrieve password for encrypted archive." -Level "ERROR"
-                return $true # Handled
+            $plainTextPasswordForList = $null
+            if (-not [string]::IsNullOrWhiteSpace($ArchivePasswordSecretName)) {
+                $passwordConfig = @{ ArchivePasswordMethod = 'SecretManagement'; ArchivePasswordSecretName = $ArchivePasswordSecretName }
+                $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $passwordConfig -JobName "Archive Listing" -Logger $Logger -GlobalConfig @{}
+                $plainTextPasswordForList = $passwordResult.PlainTextPassword
             }
-            $passwordConfig = @{ ArchivePasswordMethod = 'SecretManagement'; ArchivePasswordSecretName = $ArchivePasswordSecretName }
-            $passwordResult = Get-PoShBackupArchivePassword -JobConfigForPassword $passwordConfig -JobName "Archive Listing" -Logger $Logger
-            $plainTextPasswordForList = $passwordResult.PlainTextPassword
-        }
 
-        $sevenZipPath = $Configuration.SevenZipPath
-        $listing = Get-7ZipArchiveListing -SevenZipPathExe $sevenZipPath -ArchivePath $ListArchiveContentsPath -PlainTextPassword $plainTextPasswordForList -Logger $Logger
-
-        if ($null -ne $listing) {
-            & $LocalWriteLog -Message "Contents of archive: $ListArchiveContentsPath" -Level "INFO"
-            $listing | Format-Table -AutoSize
-            & $LocalWriteLog -Message "Found $($listing.Count) files/folders." -Level "SUCCESS"
-        } else {
-            & $LocalWriteLog -Message "Failed to list contents for archive: $ListArchiveContentsPath. Check previous errors." -Level "ERROR"
-        }
-        return $true # Handled
+            $sevenZipPath = $Configuration.SevenZipPath
+            $listing = Get-7ZipArchiveListing -SevenZipPathExe $sevenZipPath -ArchivePath $ListArchiveContentsPath -PlainTextPassword $plainTextPasswordForList -Logger $Logger
+            if ($null -ne $listing) {
+                & $LocalWriteLog -Message "Contents of archive: $ListArchiveContentsPath" -Level "INFO"
+                $listing | Format-Table -AutoSize
+                & $LocalWriteLog -Message "Found $($listing.Count) files/folders." -Level "SUCCESS"
+            } else { & $LocalWriteLog -Message "Failed to list contents for archive: $ListArchiveContentsPath. Check previous errors." -Level "ERROR" }
+        } catch { & $LocalWriteLog -Message "[FATAL] ArchiveManagement: A required module could not be loaded or an error occurred. Error: $($_.Exception.Message)" -Level "ERROR" }
+        return $true
     }
 
     if (-not [string]::IsNullOrWhiteSpace($PinBackupPath)) {
         & $LocalWriteLog -Message "`n--- Pin Backup Archive Mode ---" -Level "HEADING"
-        if (Get-Command Add-PoShBackupPin -ErrorAction SilentlyContinue) {
+        try {
+            Import-Module -Name (Join-Path -Path $PSScriptRoot "..\Managers\PinManager.psm1") -Force -ErrorAction Stop
             Add-PoShBackupPin -Path $PinBackupPath -Reason $PinReason -Logger $Logger
-        } else {
-            & $LocalWriteLog -Message "FATAL: Could not find the Add-PoShBackupPin command. Ensure 'Modules\Managers\PinManager.psm1' is present and loaded correctly." -Level "ERROR"
+        } catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\PinManager.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[FATAL] ArchiveManagement: Could not load the PinManager module. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
         }
-        return $true # Handled
+        return $true
     }
 
     if (-not [string]::IsNullOrWhiteSpace($UnpinBackupPath)) {
         & $LocalWriteLog -Message "`n--- Unpin Backup Archive Mode ---" -Level "HEADING"
-        if (Get-Command Remove-PoShBackupPin -ErrorAction SilentlyContinue) {
+        try {
+            Import-Module -Name (Join-Path -Path $PSScriptRoot "..\Managers\PinManager.psm1") -Force -ErrorAction Stop
             Remove-PoShBackupPin -Path $UnpinBackupPath -Logger $Logger
-        } else {
-            & $LocalWriteLog -Message "FATAL: Could not find the Remove-PoShBackupPin command. Ensure 'Modules\Managers\PinManager.psm1' is present and loaded correctly." -Level "ERROR"
+        } catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\PinManager.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[FATAL] ArchiveManagement: Could not load the PinManager module. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
         }
-        return $true # Handled
+        return $true
     }
 
-    return $false # No archive management mode was handled
+    return $false
 }
 
 Export-ModuleMember -Function Invoke-PoShBackupArchiveManagementMode

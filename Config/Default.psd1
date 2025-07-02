@@ -756,7 +756,11 @@
             #     TriggerOnStatus = @("SUCCESS", "WARNINGS")
             #     ForceAction     = $false
             # }
-            Schedule = @{ Enabled = $false } # Placeholder for this job
+            Schedule = @{
+                Enabled = $false
+                Type = 'Daily'
+                Time = '02:00'
+            }
         }
 
         "AnExample_WithRemoteTarget" = @{

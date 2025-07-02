@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Acts as a facade to orchestrate the local backup archive creation process.
-    It calls specialized sub-modules to handle archive creation and post-creation processing.
+    It lazy-loads specialized sub-modules to handle archive creation and post-creation processing.
 .DESCRIPTION
     This module is a sub-component of the main Operations module for PoSh-Backup.
     It encapsulates the specific steps involved in creating a local archive by orchestrating
@@ -12,30 +12,27 @@
     1.  Checks destination free space for the local archive.
     2.  Generates the final archive filename and path.
     3.  Pre-emptively deletes any old split-volume files that might conflict with the new run.
-    4.  Calls 'Invoke-PoShBackupArchiveCreation' from 'ArchiveCreator.psm1' to execute 7-Zip.
-    5.  If archive creation is successful, it calls 'Invoke-PoShBackupPostArchiveProcessing'
+    4.  Lazy-loads and calls 'Invoke-PoShBackupArchiveCreation' from 'ArchiveCreator.psm1' to execute 7-Zip.
+    5.  If archive creation is successful, it lazy-loads and calls 'Invoke-PoShBackupPostArchiveProcessing'
         from 'PostArchiveProcessor.psm1' to handle checksums, testing, hooks, and pinning.
     6.  Updates the job report data with the final outcomes.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.1 # Corrected logging variable in catch block.
+    Version:        2.1.0 # Refactored to lazy-load sub-modules.
     DateCreated:    26-Jun-2025
-    LastModified:   26-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To orchestrate local archive processing logic.
     Prerequisites:  PowerShell 5.1+.
-                    Depends on sub-modules in '.\LocalArchiveProcessor\'.
 #>
 
 #region --- Module Dependencies ---
 # $PSScriptRoot here is Modules\Operations
 try {
+    # Utils is needed for Get-ArchiveSizeFormatted and Test-DestinationFreeSpace
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop
-    $subModulePath = Join-Path -Path $PSScriptRoot -ChildPath "LocalArchiveProcessor"
-    Import-Module -Name (Join-Path -Path $subModulePath -ChildPath "ArchiveCreator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path -Path $subModulePath -ChildPath "PostArchiveProcessor.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Error "LocalArchiveProcessor.psm1 (Facade) FATAL: Could not import required modules. Error: $($_.Exception.Message)"
+    Write-Error "LocalArchiveProcessor.psm1 (Facade) FATAL: Could not import Utils.psm1. Error: $($_.Exception.Message)"
     throw
 }
 #endregion
@@ -132,18 +129,27 @@ function Invoke-LocalArchiveOperation {
                 }
             }
         }
-        
+
         # --- 3. Delegate Archive Creation ---
-        $creatorParams = @{
-            EffectiveJobConfig             = $EffectiveJobConfig
-            CurrentJobSourcePathFor7Zip    = if ($CurrentJobSourcePathFor7Zip -is [array]) { @($CurrentJobSourcePathFor7Zip) } else { @($CurrentJobSourcePathFor7Zip) }
-            FinalArchivePathFor7ZipCommand = $finalArchivePathFor7ZipCommand
-            ArchivePasswordPlainText       = $ArchivePasswordPlainText
-            IsSimulateMode                 = $IsSimulateMode.IsPresent
-            Logger                         = $Logger
-            PSCmdlet                       = $PSCmdlet
+        $sevenZipResult = try {
+            Import-Module -Name (Join-Path $PSScriptRoot "LocalArchiveProcessor\ArchiveCreator.psm1") -Force -ErrorAction Stop
+            $creatorParams = @{
+                EffectiveJobConfig             = $EffectiveJobConfig
+                CurrentJobSourcePathFor7Zip    = if ($CurrentJobSourcePathFor7Zip -is [array]) { @($CurrentJobSourcePathFor7Zip) } else { @($CurrentJobSourcePathFor7Zip) }
+                FinalArchivePathFor7ZipCommand = $finalArchivePathFor7ZipCommand
+                ArchivePasswordPlainText       = $ArchivePasswordPlainText
+                IsSimulateMode                 = $IsSimulateMode.IsPresent
+                Logger                         = $Logger
+                PSCmdlet                       = $PSCmdlet
+            }
+            Invoke-PoShBackupArchiveCreation @creatorParams
         }
-        $sevenZipResult = Invoke-PoShBackupArchiveCreation @creatorParams
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Operations\LocalArchiveProcessor\ArchiveCreator.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[FATAL] LocalArchiveProcessor: Could not load or execute the ArchiveCreator module. Archive creation failed. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
+            @{ ExitCode = -999; ElapsedTime = New-TimeSpan; AttemptsMade = 1 } # Return a failure object
+        }
 
         # --- 4. Process Archive Creation Results ---
         $reportData.SevenZipExitCode = $sevenZipResult.ExitCode
@@ -167,21 +173,29 @@ function Invoke-LocalArchiveOperation {
         }
 
         # --- 5. Delegate Post-Archive Processing (Checksums, Test, Hooks, Pinning) ---
-        $postProcessorParams = @{
-            EffectiveJobConfig             = $EffectiveJobConfig
-            InitialStatus                  = $currentLocalArchiveStatus
-            FinalArchivePathForReturn      = $finalArchivePathForReturn
-            FinalArchivePathFor7ZipCommand = $finalArchivePathFor7ZipCommand
-            ArchiveFileNameOnly            = $archiveFileNameOnly
-            JobReportDataRef               = $JobReportDataRef
-            IsSimulateMode                 = $IsSimulateMode.IsPresent
-            Logger                         = $Logger
-            PSCmdlet                       = $PSCmdlet
-            ActualConfigFile               = $ActualConfigFile
-            ArchivePasswordPlainText       = $ArchivePasswordPlainText
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "LocalArchiveProcessor\PostArchiveProcessor.psm1") -Force -ErrorAction Stop
+            $postProcessorParams = @{
+                EffectiveJobConfig             = $EffectiveJobConfig
+                InitialStatus                  = $currentLocalArchiveStatus
+                FinalArchivePathForReturn      = $finalArchivePathForReturn
+                FinalArchivePathFor7ZipCommand = $finalArchivePathFor7ZipCommand
+                ArchiveFileNameOnly            = $archiveFileNameOnly
+                JobReportDataRef               = $JobReportDataRef
+                IsSimulateMode                 = $IsSimulateMode.IsPresent
+                Logger                         = $Logger
+                PSCmdlet                       = $PSCmdlet
+                ActualConfigFile               = $ActualConfigFile
+                ArchivePasswordPlainText       = $ArchivePasswordPlainText
+            }
+            $currentLocalArchiveStatus = Invoke-PoShBackupPostArchiveProcessing @postProcessorParams
         }
-        $currentLocalArchiveStatus = Invoke-PoShBackupPostArchiveProcessing @postProcessorParams
-
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Operations\LocalArchiveProcessor\PostArchiveProcessor.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[FATAL] LocalArchiveProcessor: Could not load or execute the PostArchiveProcessor module. Post-processing steps failed. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
+            if ($currentLocalArchiveStatus -ne "FAILURE") { $currentLocalArchiveStatus = "WARNINGS" } # Demote to warning if local archive was created ok
+        }
     }
     catch {
         & $LocalWriteLog -Message "[ERROR] Error during local archive operations for job '$($EffectiveJobConfig.BaseFileName)': $($_.Exception.ToString())" -Level ERROR

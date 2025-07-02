@@ -5,8 +5,8 @@
     before local archive creation begins.
 .DESCRIPTION
     This module encapsulates operations that must occur before the main archiving
-    process begins for a PoSh-Backup job. It acts as a facade, calling specialised
-    sub-modules in a specific sequence:
+    process begins for a PoSh-Backup job. It acts as a facade, lazy-loading and
+    calling specialised sub-modules in a specific sequence:
     1.  'Invoke-PoShBackupPathValidation' from 'PathValidator.psm1' to check source and
         destination paths.
     2.  'Invoke-PoShBackupCredentialAndHookHandling' from 'CredentialAndHookHandler.psm1'
@@ -19,27 +19,15 @@
         any retrieved passwords, and any session objects (VSS, Snapshot) that require cleanup.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.0.0 # Refactored into a facade.
+    Version:        2.1.0 # Refactored to lazy-load sub-modules.
     DateCreated:    27-May-2025
-    LastModified:   26-Jun-2025
+    LastModified:   02-Jul-2025
     Purpose:        To orchestrate pre-archive creation logic.
     Prerequisites:  PowerShell 5.1+.
                     Depends on sub-modules in '.\JobPreProcessor\'.
 #>
 
-#region --- Module Dependencies ---
-# $PSScriptRoot here is Modules\Operations
-$subModulePath = Join-Path -Path $PSScriptRoot -ChildPath "JobPreProcessor"
-try {
-    Import-Module -Name (Join-Path $subModulePath "PathValidator.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $subModulePath "CredentialAndHookHandler.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $subModulePath "SourceResolver.psm1") -Force -ErrorAction Stop
-}
-catch {
-    Write-Error "JobPreProcessor.psm1 (Facade) FATAL: Could not import a required sub-module. Error: $($_.Exception.Message)"
-    throw
-}
-#endregion
+# No eager module imports are needed here. They will be lazy-loaded.
 
 #region --- Exported Function ---
 function Invoke-PoShBackupJobPreProcessing {
@@ -70,11 +58,20 @@ function Invoke-PoShBackupJobPreProcessing {
 
     try {
         # --- Step 1: Validate Source and Destination Paths ---
-        $pathValidationResult = Invoke-PoShBackupPathValidation -JobName $JobName `
-            -EffectiveJobConfig $EffectiveJobConfig `
-            -IsSimulateMode:$IsSimulateMode `
-            -Logger $Logger `
-            -PSCmdletInstance $PSCmdlet
+        $pathValidationResult = try {
+            Import-Module -Name (Join-Path $PSScriptRoot "JobPreProcessor\PathValidator.psm1") -Force -ErrorAction Stop
+            Invoke-PoShBackupPathValidation -JobName $JobName `
+                -EffectiveJobConfig $EffectiveJobConfig `
+                -IsSimulateMode:$IsSimulateMode `
+                -Logger $Logger `
+                -PSCmdletInstance $PSCmdlet
+        }
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Operations\JobPreProcessor\PathValidator.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[FATAL] JobPreProcessor: Could not load or execute the PathValidator module. Job cannot proceed. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
+            throw # Re-throw as this is a critical failure
+        }
 
         if ($pathValidationResult.Status -ne 'Proceed') {
             return @{ Success = $true; Status = $pathValidationResult.Status; ErrorMessage = $pathValidationResult.ErrorMessage }
@@ -82,24 +79,42 @@ function Invoke-PoShBackupJobPreProcessing {
         $validatedSourcePaths = $pathValidationResult.ValidSourcePaths
 
         # --- Step 2: Handle Credentials and Pre-Backup Hooks ---
-        $credAndHookResult = Invoke-PoShBackupCredentialAndHookHandling -JobName $JobName `
-            -EffectiveJobConfig $EffectiveJobConfig `
-            -JobReportDataRef $JobReportDataRef `
-            -IsSimulateMode:$IsSimulateMode `
-            -Logger $Logger `
-            -ActualConfigFile $ActualConfigFile
-        
+        $credAndHookResult = try {
+            Import-Module -Name (Join-Path $PSScriptRoot "JobPreProcessor\CredentialAndHookHandler.psm1") -Force -ErrorAction Stop
+            Invoke-PoShBackupCredentialAndHookHandling -JobName $JobName `
+                -EffectiveJobConfig $EffectiveJobConfig `
+                -JobReportDataRef $JobReportDataRef `
+                -IsSimulateMode:$IsSimulateMode `
+                -Logger $Logger `
+                -ActualConfigFile $ActualConfigFile
+        }
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Operations\JobPreProcessor\CredentialAndHookHandler.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[FATAL] JobPreProcessor: Could not load or execute the CredentialAndHookHandler module. Job cannot proceed. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
+            throw
+        }
+
         $plainTextPasswordToClear = $credAndHookResult.PlainTextPasswordToClear
 
         # --- Step 3: Resolve Final Source Paths (VSS / Snapshots) ---
-        $sourceResolverResult = Resolve-PoShBackupSourcePath -JobName $JobName `
-            -EffectiveJobConfig $EffectiveJobConfig `
-            -InitialSourcePaths $validatedSourcePaths `
-            -JobReportDataRef $JobReportDataRef `
-            -IsSimulateMode:$IsSimulateMode `
-            -Logger $Logger `
-            -PSCmdletInstance $PSCmdlet
-        
+        $sourceResolverResult = try {
+            Import-Module -Name (Join-Path $PSScriptRoot "JobPreProcessor\SourceResolver.psm1") -Force -ErrorAction Stop
+            Resolve-PoShBackupSourcePath -JobName $JobName `
+                -EffectiveJobConfig $EffectiveJobConfig `
+                -InitialSourcePaths $validatedSourcePaths `
+                -JobReportDataRef $JobReportDataRef `
+                -IsSimulateMode:$IsSimulateMode `
+                -Logger $Logger `
+                -PSCmdletInstance $PSCmdlet
+        }
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Operations\JobPreProcessor\SourceResolver.psm1' exists and is not corrupted."
+            & $LocalWriteLog -Message "[FATAL] JobPreProcessor: Could not load or execute the SourceResolver module. Job cannot proceed. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $LocalWriteLog -Message $advice -Level "ADVICE"
+            throw
+        }
+
         # Aggregate cleanup data from the source resolver
         $vssPathsToCleanUp = $sourceResolverResult.VSSPathsToCleanUp
         $snapshotSession = $sourceResolverResult.SnapshotSessionToCleanUp
