@@ -5,8 +5,8 @@
 # It is fetched by the -CheckForUpdate feature.
 #
 @{
-    LatestVersion   = '1.14.6'
-    ReleaseDate     = '2025-05-31'
+    LatestVersion   = '1.39.0'
+    ReleaseDate     = '2025-06-02'
     ReleaseNotesUrl = 'https://github.com/BootBlock/PoSh-Backup/releases/tag/v1.14.6'
     DownloadUrl     = 'https://github.com/BootBlock/PoSh-Backup/archive/refs/tags/v1.14.6.zip'
     SHA256Checksum  = '1725B9757220A59F94E13A444DBF201751362B01E0525F1F36C4FB68A40AC330'

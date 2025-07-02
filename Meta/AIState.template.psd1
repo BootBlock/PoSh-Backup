@@ -40,6 +40,19 @@
     "The project is heavily modularised into `Core`, `Managers`, `Utilities`, `Operations`, `Reporting`, and `Targets`.",
     "Bundler script `Generate-ProjectBundleForAI.ps1` (v__BUNDLER_VERSION_PLACEHOLDER__) is used to maintain session context.",
     "",
+    "--- Refactor: Modularise GCS.Target.psm1 (Completed) ---",
+    "   - Goal: Decompose the GCS target provider into a facade and specialised sub-modules, aligning it with the other target providers.",
+    "   - New Directory: `Modules\\Targets\\GCS\\` was created.",
+    "   - New Sub-Modules Created:",
+    "     - `GCS.DependencyChecker.psm1`: Verifies the `gcloud` CLI is installed.",
+    "     - `GCS.Authenticator.psm1`: Manages service account activation and revocation.",
+    "     - `GCS.TransferAgent.psm1`: Handles the `gcloud storage cp` upload command.",
+    "     - `GCS.RetentionApplicator.psm1`: Contains the remote retention policy logic.",
+    "     - `GCS.SettingsValidator.psm1`: Validates the GCS-specific configuration.",
+    "     - `GCS.ConnectionTester.psm1`: Handles connectivity tests.",
+    "   - `GCS.Target.psm1` (v1.0.0 -> v2.0.2) refactored into a lightweight facade that orchestrates calls to the sub-modules.",
+    "   - Added comprehensive comment-based help and `ADVICE` logging to all new and refactored GCS modules.",
+    "",
     "--- Refactor: Modularise ReportingHtml.psm1 (Completed) ---",
     "   - Goal: Decompose the large `ReportingHtml.psm1` to improve maintainability and isolate logic, without changing its public interface.",
     "   - New Directory: `Modules\\Reporting\\ReportingHtml\\` created to house the sub-modules.",
@@ -252,7 +265,7 @@
     "   - **Interactive Job/Set Selection:** When no job or set is specified via CLI, PoSh-Backup now displays a user-friendly, two-column menu of available jobs and sets. This is accomplished via `Modules\ConfigManagement\JobResolver.psm1`."
   )
 
-  main_script_poSh_backup_version = "1.39.0 # Implemented parallel remote transfers & recursive path validation."
+  main_script_poSh_backup_version = "1.39.0 # Modularised GCS.Target provider."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."
