@@ -19,7 +19,7 @@
     7.  It respects -WhatIf/-Confirm and updates the result summary arrays.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.1.0 # Refactored to lazy-load builder sub-modules.
+    Version:        1.1.4 # FIX: Use Resolve-Path for robust module importing.
     DateCreated:    25-Jun-2025
     LastModified:   02-Jul-2025
     Purpose:        To orchestrate the building and registration of a single scheduled task.
@@ -30,7 +30,7 @@
 # $PSScriptRoot here is Modules\Managers\ScheduleManager
 try {
     # Import main Utils for Get-ConfigValue
-    Import-Module -Name (Join-Path $PSScriptRoot "..\..\Utils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Resolve-Path (Join-Path $PSScriptRoot "..\..\Utils.psm1")).Path -Force -ErrorAction Stop
 }
 catch {
     Write-Error "ScheduleManager\TaskOrchestrator.psm1 FATAL: Could not import a dependent module. Error: $($_.Exception.Message)"
@@ -67,7 +67,9 @@ function Invoke-ScheduledItemSync {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
+        [Parameter(Mandatory = $false)]
+        [switch]$IsWhatIfMode
     )
 
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
@@ -82,22 +84,13 @@ function Invoke-ScheduledItemSync {
         & $LocalWriteLog -Message "Orchestrator: Processing enabled schedule for item '$ItemName'." -Level "DEBUG"
 
         try {
-            # LAZY LOADING of builder modules
-            $taskAction = try {
-                Import-Module -Name (Join-Path $PSScriptRoot "ActionBuilder.psm1") -Force -ErrorAction Stop
-                Get-PoShBackupTaskAction -ItemType $ItemType -ItemName $ItemName -MainScriptPath $MainScriptPath -Logger $Logger
-            } catch { throw "Could not load or execute the ActionBuilder sub-module. Error: $($_.Exception.Message)" }
+            Import-Module -Name (Resolve-Path (Join-Path $PSScriptRoot "ActionBuilder.psm1")).Path -Force -ErrorAction Stop
+            Import-Module -Name (Resolve-Path (Join-Path $PSScriptRoot "TriggerBuilder.psm1")).Path -Force -ErrorAction Stop
+            Import-Module -Name (Resolve-Path (Join-Path $PSScriptRoot "PrincipalAndSettingsBuilder.psm1")).Path -Force -ErrorAction Stop
 
-            $taskTrigger = try {
-                Import-Module -Name (Join-Path $PSScriptRoot "TriggerBuilder.psm1") -Force -ErrorAction Stop
-                Get-PoShBackupTaskTrigger -ScheduleConfig $scheduleConfig -Logger $Logger
-            } catch { throw "Could not load or execute the TriggerBuilder sub-module. Error: $($_.Exception.Message)" }
-
-            $taskPrincipal = try {
-                Import-Module -Name (Join-Path $PSScriptRoot "PrincipalAndSettingsBuilder.psm1") -Force -ErrorAction Stop
-                Get-PoShBackupTaskPrincipal -ScheduleConfig $scheduleConfig -Logger $Logger
-            } catch { throw "Could not load or execute the PrincipalAndSettingsBuilder sub-module. Error: $($_.Exception.Message)" }
-
+            $taskAction = Get-PoShBackupTaskAction -ItemType $ItemType -ItemName $ItemName -MainScriptPath $MainScriptPath -Logger $Logger
+            $taskTrigger = Get-PoShBackupTaskTrigger -ScheduleConfig $scheduleConfig -Logger $Logger
+            $taskPrincipal = Get-PoShBackupTaskPrincipal -ScheduleConfig $scheduleConfig -Logger $Logger
             $taskSettings = Get-PoShBackupTaskSettingSet -ScheduleConfig $scheduleConfig -Logger $Logger
 
             if (-not ($taskAction -and $taskTrigger -and $taskPrincipal -and $taskSettings)) {
@@ -128,23 +121,31 @@ function Invoke-ScheduledItemSync {
         }
 
         $actionToTake = if ($taskExists) { "Update Existing Scheduled Task" } else { "Register New Scheduled Task" }
-        if ($PSCmdlet.ShouldProcess($TaskName, $actionToTake)) {
-            & $LocalWriteLog -Message "Orchestrator: $($actionToTake.Split(' ')[0].TrimEnd('e'))ing task for item '$ItemName'." -Level "DEBUG"
-            try {
-                Register-ScheduledTask -TaskName $TaskName -TaskPath $TaskFolder -Xml $taskXmlString -Force -ErrorAction Stop | Out-Null
-                if ($actionToTake -eq "Update Existing Scheduled Task") { $UpdatedTasks.Value.Add($TaskName) } else { $CreatedTasks.Value.Add($TaskName) }
-            }
-            catch {
-                & $LocalWriteLog -Message "Orchestrator: FAILED to register/update task '$TaskName'. Error: $($_.Exception.Message)" -Level "ERROR"
+        if ($PSCmdletInstance.ShouldProcess($TaskName, $actionToTake)) {
+            if (-not $IsWhatIfMode) {
+                & $LocalWriteLog -Message "Orchestrator: $($actionToTake.Split(' ')[0].TrimEnd('e'))ing task for item '$ItemName'." -Level "DEBUG"
+                try {
+                    Register-ScheduledTask -TaskName $TaskName -TaskPath $TaskFolder -Xml $taskXmlString -Force -ErrorAction Stop | Out-Null
+                    if ($actionToTake -eq "Update Existing Scheduled Task") { $UpdatedTasks.Value.Add($TaskName) } else { $CreatedTasks.Value.Add($TaskName) }
+                }
+                catch {
+                    & $LocalWriteLog -Message "Orchestrator: FAILED to register/update task '$TaskName'. Error: $($_.Exception.Message)" -Level "ERROR"
+                }
+            } else {
+                $SkippedTasks.Value.Add("$TaskName (WhatIf: Create/Update)")
             }
         }
         else { & $LocalWriteLog -Message "Orchestrator: Task creation/update for '$TaskName' skipped by user." -Level "WARNING"; $SkippedTasks.Value.Add("$TaskName (User Skipped)") }
     }
     elseif ($taskExists) {
-        if ($PSCmdlet.ShouldProcess($TaskName, "Unregister Scheduled Task (item or its schedule is disabled in config)")) {
-            & $LocalWriteLog -Message "Orchestrator: Schedule for item '$ItemName' is disabled or not defined. Removing existing task." -Level "INFO"
-            Unregister-ScheduledTask -InputObject $ExistingTask -Confirm:$false -ErrorAction Stop
-            $RemovedTasks.Value.Add($TaskName)
+        if ($PSCmdletInstance.ShouldProcess($TaskName, "Unregister Scheduled Task (item or its schedule is disabled in config)")) {
+            if (-not $IsWhatIfMode) {
+                & $LocalWriteLog -Message "Orchestrator: Schedule for item '$ItemName' is disabled or not defined. Removing existing task." -Level "INFO"
+                Unregister-ScheduledTask -InputObject $ExistingTask -Confirm:$false -ErrorAction Stop
+                $RemovedTasks.Value.Add($TaskName)
+            } else {
+                $SkippedTasks.Value.Add("$TaskName (WhatIf: Unregister)")
+            }
         }
         else { & $LocalWriteLog -Message "Orchestrator: Task removal for '$TaskName' skipped by user." -Level "WARNING"; $SkippedTasks.Value.Add("$TaskName (Removal Skipped by User)") }
     }

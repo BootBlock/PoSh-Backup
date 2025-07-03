@@ -18,7 +18,7 @@
     - Displaying a final summary of actions taken.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.1.1 # FIX: Corrected shadowed $PSScriptRoot parameter causing incorrect path resolution.
+    Version:        2.1.4 # FIX: Use Resolve-Path for robust module importing.
     DateCreated:    08-Jun-2025
     LastModified:   02-Jul-2025
     Purpose:        To manage Windows Scheduled Tasks based on PoSh-Backup configuration.
@@ -29,8 +29,8 @@
 #region --- Module Dependencies ---
 # $PSScriptRoot here is Modules\Managers
 try {
-    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
-    Import-Module -Name (Join-Path $PSScriptRoot "..\Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
+    Import-Module -Name (Resolve-Path (Join-Path $PSScriptRoot "..\Utilities\SystemUtils.psm1")).Path -Force -ErrorAction Stop
+    Import-Module -Name (Resolve-Path (Join-Path $PSScriptRoot "..\Utilities\ConsoleDisplayUtils.psm1")).Path -Force -ErrorAction Stop
 }
 catch {
     Write-Error "ScheduleManager.psm1 (Facade) FATAL: Could not import required dependent modules. Error: $($_.Exception.Message)"
@@ -42,21 +42,16 @@ catch {
 function Sync-PoShBackupSchedule {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
-        # The fully loaded and merged PoSh-Backup configuration hashtable.
         [Parameter(Mandatory = $true)]
         [hashtable]$Configuration,
-
-        # The root path of the main PoSh-Backup.ps1 script, used to build task actions.
         [Parameter(Mandatory = $true)]
         [string]$MainScriptRoot,
-
-        # A scriptblock reference to the main Write-LogMessage function.
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
-
-        # A reference to the calling cmdlet's $PSCmdlet automatic variable for ShouldProcess support.
         [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdlet
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
+        [Parameter(Mandatory = $false)]
+        [switch]$IsWhatIfMode
     )
 
     $LocalWriteLog = {
@@ -83,12 +78,11 @@ function Sync-PoShBackupSchedule {
     $taskFolder = "\PoSh-Backup"
     $mainScriptPath = Join-Path -Path $MainScriptRoot -ChildPath "PoSh-Backup.ps1"
 
-    # Ensure the task folder exists
     try {
         $scheduler = New-Object -ComObject "Schedule.Service"; $scheduler.Connect()
         $rootFolder = $scheduler.GetFolder("\")
         try { $null = $rootFolder.GetFolder($taskFolder) } catch {
-            if ($PSCmdlet.ShouldProcess("Task Scheduler Root", "Create Folder '$taskFolder'")) {
+            if ($PSCmdletInstance.ShouldProcess("Task Scheduler Root", "Create Folder '$taskFolder'")) {
                 & $LocalWriteLog -Message "ScheduleManager: Creating folder '$taskFolder' in Task Scheduler." -Level "INFO"
                 $rootFolder.CreateFolder($taskFolder, $null) | Out-Null; & $LocalWriteLog -Message "ScheduleManager: Task Scheduler folder '$taskFolder' created successfully." -Level "SUCCESS"
             }
@@ -98,7 +92,6 @@ function Sync-PoShBackupSchedule {
         & $LocalWriteLog -Message "ScheduleManager: Failed to connect to the Task Scheduler service. Error: $($_.Exception.Message)" -Level "ERROR"; return
     }
 
-    # Get all tasks once to avoid repeated calls
     $allTasksInPoshBackupFolder = @(Get-ScheduledTask -TaskPath ($taskFolder + "\*") -ErrorAction SilentlyContinue)
 
     $allDefinedJobNames = if ($Configuration.BackupLocations -is [hashtable]) { @($Configuration.BackupLocations.Keys) } else { @() }
@@ -106,21 +99,18 @@ function Sync-PoShBackupSchedule {
     $allManagedTaskNames = @($allDefinedJobNames | ForEach-Object { "PoSh-Backup - $_" }) + @($allDefinedVJobNames | ForEach-Object { "PoSh-Backup Verification - $_" })
 
     try {
-        # Use the automatic $PSScriptRoot variable, which correctly points to this module's directory.
-        Import-Module -Name (Join-Path $PSScriptRoot "ScheduleManager\TaskOrchestrator.psm1") -Force -ErrorAction Stop
+        Import-Module -Name (Resolve-Path (Join-Path $PSScriptRoot "ScheduleManager\TaskOrchestrator.psm1")).Path -Force -ErrorAction Stop
 
-        # --- Step 1: Process and synchronise backup jobs defined in the configuration ---
         foreach ($jobName in $allDefinedJobNames) {
             $jobConfig = $Configuration.BackupLocations[$jobName]
             $taskName = "PoSh-Backup - $($jobName -replace '[\\/:*?"<>|]', '_')"
-            Invoke-ScheduledItemSync -ItemName $jobName -ItemConfig $jobConfig -ItemType 'Job' -TaskName $taskName -MainScriptPath $mainScriptPath -ExistingTask ($allTasksInPoshBackupFolder | Where-Object { $_.TaskName -eq $taskName }) -TaskFolder $taskFolder -CreatedTasks ([ref]$createdTasks) -UpdatedTasks ([ref]$updatedTasks) -RemovedTasks ([ref]$removedTasks) -SkippedTasks ([ref]$skippedTasks) -Logger $Logger -PSCmdlet $PSCmdlet
+            Invoke-ScheduledItemSync -ItemName $jobName -ItemConfig $jobConfig -ItemType 'Job' -TaskName $taskName -MainScriptPath $mainScriptPath -ExistingTask ($allTasksInPoshBackupFolder | Where-Object { $_.TaskName -eq $taskName }) -TaskFolder $taskFolder -CreatedTasks ([ref]$createdTasks) -UpdatedTasks ([ref]$updatedTasks) -RemovedTasks ([ref]$removedTasks) -SkippedTasks ([ref]$skippedTasks) -Logger $Logger -PSCmdletInstance $PSCmdletInstance -IsWhatIfMode:$IsWhatIfMode
         }
 
-        # --- Step 2: Process and synchronise verification jobs defined in the configuration ---
         foreach ($vJobName in $allDefinedVJobNames) {
             $vJobConfig = $Configuration.VerificationJobs[$vJobName]
             $taskName = "PoSh-Backup Verification - $($vJobName -replace '[\\/:*?"<>|]', '_')"
-            Invoke-ScheduledItemSync -ItemName $vJobName -ItemConfig $vJobConfig -ItemType 'Verification' -TaskName $taskName -MainScriptPath $mainScriptPath -ExistingTask ($allTasksInPoshBackupFolder | Where-Object { $_.TaskName -eq $taskName }) -TaskFolder $taskFolder -CreatedTasks ([ref]$createdTasks) -UpdatedTasks ([ref]$updatedTasks) -RemovedTasks ([ref]$removedTasks) -SkippedTasks ([ref]$skippedTasks) -Logger $Logger -PSCmdlet $PSCmdlet
+            Invoke-ScheduledItemSync -ItemName $vJobName -ItemConfig $vJobConfig -ItemType 'Verification' -TaskName $taskName -MainScriptPath $mainScriptPath -ExistingTask ($allTasksInPoshBackupFolder | Where-Object { $_.TaskName -eq $taskName }) -TaskFolder $taskFolder -CreatedTasks ([ref]$createdTasks) -UpdatedTasks ([ref]$updatedTasks) -RemovedTasks ([ref]$removedTasks) -SkippedTasks ([ref]$skippedTasks) -Logger $Logger -PSCmdletInstance $PSCmdletInstance -IsWhatIfMode:$IsWhatIfMode
         }
     }
     catch {
@@ -130,11 +120,10 @@ function Sync-PoShBackupSchedule {
         return
     }
 
-    # --- Step 3: Clean up orphaned tasks ---
     if ($null -ne $allTasksInPoshBackupFolder) {
         foreach ($task in $allTasksInPoshBackupFolder) {
             if ($task.TaskName -notin $allManagedTaskNames) {
-                if ($PSCmdlet.ShouldProcess($task.TaskName, "Unregister Orphaned Scheduled Task (job no longer defined)")) {
+                if ($PSCmdletInstance.ShouldProcess($task.TaskName, "Unregister Orphaned Scheduled Task (job no longer defined)")) {
                     & $LocalWriteLog -Message "ScheduleManager: Removing orphaned scheduled task '$($task.TaskName)' as its job is no longer defined in the configuration." -Level "WARNING"
                     Unregister-ScheduledTask -InputObject $task -Confirm:$false -ErrorAction Stop
                     $removedTasks.Add($task.TaskName)
@@ -143,28 +132,15 @@ function Sync-PoShBackupSchedule {
         }
     }
 
-    # --- Step 4: Display Summary Report ---
     Write-ConsoleBanner -NameText "Schedule Synchronisation Complete" -CenterText -PrependNewLine
     if ($createdTasks.Count -eq 0 -and $updatedTasks.Count -eq 0 -and $removedTasks.Count -eq 0 -and $skippedTasks.Count -eq 0) {
         & $LocalWriteLog -Message "  No changes were made to scheduled tasks." -Level "INFO"
     }
     else {
-        if ($createdTasks.Count -gt 0) {
-            & $LocalWriteLog -Message "`n  Tasks Created: $($createdTasks.Count)" -Level "SUCCESS"
-            $createdTasks | ForEach-Object { & $LocalWriteLog "    - $_" -Level "SUCCESS" }
-        }
-        if ($updatedTasks.Count -gt 0) {
-            & $LocalWriteLog -Message "`n  Tasks Updated: $($updatedTasks.Count)" -Level "INFO"
-            $updatedTasks | ForEach-Object { & $LocalWriteLog "    - $_" -Level "INFO" }
-        }
-        if ($removedTasks.Count -gt 0) {
-            & $LocalWriteLog -Message "`n  Tasks Removed: $($removedTasks.Count)" -Level "WARNING"
-            $removedTasks | ForEach-Object { & $LocalWriteLog "    - $_" -Level "WARNING" }
-        }
-        if ($skippedTasks.Count -gt 0) {
-            & $LocalWriteLog -Message "`n  Tasks Skipped: $($skippedTasks.Count)" -Level "DEBUG"
-            $skippedTasks | ForEach-Object { & $LocalWriteLog "    - $_" -Level "DEBUG" }
-        }
+        if ($createdTasks.Count -gt 0) { & $LocalWriteLog "`n  Tasks Created: $($createdTasks.Count)" "SUCCESS"; $createdTasks | ForEach-Object { & $LocalWriteLog "    - $_" "SUCCESS" } }
+        if ($updatedTasks.Count -gt 0) { & $LocalWriteLog "`n  Tasks Updated: $($updatedTasks.Count)" "INFO"; $updatedTasks | ForEach-Object { & $LocalWriteLog "    - $_" "INFO" } }
+        if ($removedTasks.Count -gt 0) { & $LocalWriteLog "`n  Tasks Removed: $($removedTasks.Count)" "WARNING"; $removedTasks | ForEach-Object { & $LocalWriteLog "    - $_" "WARNING" } }
+        if ($skippedTasks.Count -gt 0) { & $LocalWriteLog "`n  Tasks Skipped: $($skippedTasks.Count)" "DEBUG"; $skippedTasks | ForEach-Object { & $LocalWriteLog "    - $_" "DEBUG" } }
     }
 }
 #endregion
