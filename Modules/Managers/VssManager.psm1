@@ -38,10 +38,10 @@ function New-VSSShadowCopy {
         [Parameter(Mandatory)] [int]$PollingIntervalSeconds,
         [Parameter(Mandatory)] [switch]$IsSimulateMode,
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
-        [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet
+        [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
 
-    if (-not $PSCmdlet.ShouldProcess("VSS Shadow Copy Creation (delegated)", "Create")) { return }
+    if (-not $PSCmdletInstance.ShouldProcess("VSS Shadow Copy Creation (delegated)", "Create")) { return }
 
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey)) {

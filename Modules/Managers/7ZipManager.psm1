@@ -80,7 +80,7 @@ function Invoke-7ZipOperation {
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
-    if (-not $PSCmdlet.ShouldProcess("7-Zip Operation (delegated to Executor)", "Execute")) { return }
+    if (-not $PSCmdlet.ShouldProcess("Target: $($SevenZipArguments | Where-Object {$_ -notlike '-*'} | Select-Object -Last 1)", "Execute 7-Zip ($($SevenZipArguments[0]))")) { return }
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Executor.psm1") -Force -ErrorAction Stop
         return Invoke-7ZipOperation @PSBoundParameters

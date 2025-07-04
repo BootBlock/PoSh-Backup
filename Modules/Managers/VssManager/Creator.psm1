@@ -9,9 +9,9 @@
     equivalents. It updates a shared state hashtable with the IDs of any shadows it creates.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.1 # Standardised PSCmdletInstance parameter name.
     DateCreated:    26-Jun-2025
-    LastModified:   26-Jun-2025
+    LastModified:   04-Jul-2025
     Purpose:        To isolate the VSS creation logic.
     Prerequisites:  PowerShell 5.1+. Administrator privileges.
 #>
@@ -38,7 +38,7 @@ function New-PoShBackupVssShadowCopy {
         [Parameter(Mandatory)] [int]$PollingIntervalSeconds,
         [Parameter(Mandatory)] [switch]$IsSimulateMode,
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
-        [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet,
+        [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
         [Parameter(Mandatory = $true)] [ref]$VssIdHashtableRef # Receives the reference to the state hashtable
     )
     & $Logger -Message "VssManager/Creator/New-PoShBackupVssShadowCopy: Logger active." -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -84,7 +84,7 @@ function New-PoShBackupVssShadowCopy {
     try { $diskshadowScriptContent | Set-Content -Path $tempDiskshadowScriptFile -Encoding UTF8 -ErrorAction Stop }
     catch { & $LocalWriteLog -Message "[ERROR] VssManager/Creator: Failed to write diskshadow script to '$tempDiskshadowScriptFile'. VSS creation aborted. Error: $($_.Exception.Message)" -Level ERROR; return $null }
 
-    if (-not $PSCmdlet.ShouldProcess("Volumes: $($volumesToShadow -join ', ')", "Create VSS Shadow Copies (diskshadow.exe)")) {
+    if (-not $PSCmdletInstance.ShouldProcess("Volumes: $($volumesToShadow -join ', ')", "Create VSS Shadow Copies (diskshadow.exe)")) {
         Remove-Item -LiteralPath $tempDiskshadowScriptFile -Force -ErrorAction SilentlyContinue
         return $null
     }
