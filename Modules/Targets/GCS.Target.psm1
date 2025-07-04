@@ -14,9 +14,9 @@
     - GCS.ConnectionTester.psm1: Tests connectivity to the GCS bucket.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.1.1 # FIX: Facade now lazy-loads its own validation function.
+    Version:        2.1.3 # FIX: Added ShouldProcess call to Test-PoShBackupTargetConnectivity.
     DateCreated:    23-Jun-2025
-    LastModified:   02-Jul-2025
+    LastModified:   04-Jul-2025
     Purpose:        Google Cloud Storage Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+, gcloud CLI.
 #>
@@ -57,6 +57,7 @@ function Test-PoShBackupTargetConnectivity {
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
+    if (-not $PSCmdlet.ShouldProcess("GCS Target Connectivity (delegated)", "Test")) { return }
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "GCS\GCS.ConnectionTester.psm1") -Force -ErrorAction Stop
         return Test-PoShBackupTargetConnectivity @PSBoundParameters

@@ -1,4 +1,4 @@
-# Modules\Targets\S3.Target.psm1
+# Modules\Targets\S3\S3.Target.psm1
 <#
 .SYNOPSIS
     PoSh-Backup Target Provider for S3-Compatible Object Storage. This module now acts
@@ -14,9 +14,9 @@
     - S3.SettingsValidator.psm1: Contains the configuration validation logic.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.1.1 # FIX: Facade now lazy-loads its own validation function.
+    Version:        2.1.3 # FIX: Added ShouldProcess call and corrected credential function name.
     DateCreated:    17-Jun-2025
-    LastModified:   02-Jul-2025
+    LastModified:   04-Jul-2025
     Purpose:        S3-Compatible Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+, AWS.Tools.S3 module.
 #>
@@ -57,6 +57,7 @@ function Test-PoShBackupTargetConnectivity {
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
+    if (-not $PSCmdlet.ShouldProcess("S3 Target Connectivity (delegated)", "Test")) { return }
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "S3\S3.ConnectionTester.psm1") -Force -ErrorAction Stop
         return Test-PoShBackupTargetConnectivity @PSBoundParameters
@@ -106,7 +107,7 @@ function Invoke-PoShBackupTargetTransfer {
         # 1. Get Credentials
         $credResult = try {
             Import-Module -Name (Join-Path $s3SubModulePath "S3.CredentialHandler.psm1") -Force -ErrorAction Stop
-            Get-S3Credentials -TargetSpecificSettings $s3Settings -Logger $Logger
+            Get-S3Credential -TargetSpecificSettings $s3Settings -Logger $Logger
         } catch { throw "Could not load or execute the S3.CredentialHandler module. Error: $($_.Exception.Message)" }
         if (-not $credResult.Success) { throw $credResult.ErrorMessage }
 

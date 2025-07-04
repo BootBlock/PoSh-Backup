@@ -9,9 +9,9 @@
     relies on Default.psd1 for all default values.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.3.2 # FIX: Added direct import of Utils.psm1 to resolve dependency.
+    Version:        1.3.4 # FIX: Removed redundant ValueFromPipeline attribute.
     DateCreated:    29-May-2025
-    LastModified:   02-Jul-2025
+    LastModified:   04-Jul-2025
     Purpose:        7-Zip argument construction logic for 7ZipManager.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -56,7 +56,7 @@ function Get-PoShBackup7ZipArgument {
     param(
         [Parameter(Mandatory)] [hashtable]$EffectiveConfig,
         [Parameter(Mandatory)] [string]$FinalArchivePath,
-        [Parameter(Mandatory, ValueFromPipeline = $false)]
+        [Parameter(Mandatory)]
         [string[]]$CurrentJobSourcePathFor7Zip,
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger

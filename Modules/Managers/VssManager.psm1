@@ -14,9 +14,9 @@
       which now wrap the calls to the sub-modules and pass the shared state to them.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.1.0 # Refactored to lazy-load sub-modules.
+    Version:        2.1.2 # FIX: Added ShouldProcess support to facade functions.
     DateCreated:    17-May-2025
-    LastModified:   02-Jul-2025
+    LastModified:   04-Jul-2025
     Purpose:        Facade for centralised VSS management for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+. Administrator privileges.
 #>
@@ -28,8 +28,8 @@ $Script:VssManager_ScriptRunVSSShadowIDs = @{}
 
 #region --- Exported Facade Functions ---
 
-<# PSScriptAnalyzer Suppress PSShouldProcess - Justification: This is a facade function that delegates the ShouldProcess call to the 'New-PoShBackupVssShadowCopy' function in the sub-module. #>
 function New-VSSShadowCopy {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory)] [string[]]$SourcePathsToShadow,
         [Parameter(Mandatory)] [string]$VSSContextOption,
@@ -40,6 +40,8 @@ function New-VSSShadowCopy {
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
+
+    if (-not $PSCmdlet.ShouldProcess("VSS Shadow Copy Creation (delegated)", "Create")) { return }
 
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey)) {
@@ -58,14 +60,16 @@ function New-VSSShadowCopy {
     }
 }
 
-<# PSScriptAnalyzer Suppress PSShouldProcess - Justification: This is a facade function that delegates the ShouldProcess call to the 'Remove-PoShBackupVssShadowCopy' function in the sub-module. #>
 function Remove-VSSShadowCopy {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory)] [switch]$IsSimulateMode,
         [Parameter(Mandatory = $true)] [scriptblock]$Logger,
         [Parameter(Mandatory = $true)] [System.Management.Automation.PSCmdlet]$PSCmdletInstance,
         [Parameter(Mandatory = $false)] [switch]$Force
     )
+
+    if (-not $PSCmdletInstance.ShouldProcess("VSS Shadow Copy Cleanup (delegated)", "Remove")) { return }
 
     $runKey = $PID
     if (-not $Script:VssManager_ScriptRunVSSShadowIDs.ContainsKey($runKey)) {

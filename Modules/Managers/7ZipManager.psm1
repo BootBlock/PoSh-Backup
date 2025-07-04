@@ -18,9 +18,9 @@
     organised into more focused sub-modules within the '7ZipManager' subdirectory.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.5.3 # FIX: Corrected argument builder call to remove pipeline.
+    Version:        1.5.5 # FIX: Added ShouldProcess checks to facade functions.
     DateCreated:    17-May-2025
-    LastModified:   02-Jul-2025
+    LastModified:   04-Jul-2025
     Purpose:        Facade for centralised 7-Zip interaction logic for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
                     7-Zip (7z.exe) must be installed.
@@ -47,7 +47,7 @@ function Get-PoShBackup7ZipArgument {
     param(
         [Parameter(Mandatory)] [hashtable]$EffectiveConfig,
         [Parameter(Mandatory)] [string]$FinalArchivePath,
-        [Parameter(Mandatory, ValueFromPipeline = $false)]
+        [Parameter(Mandatory)]
         [string[]]$CurrentJobSourcePathFor7Zip,
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
@@ -80,6 +80,7 @@ function Invoke-7ZipOperation {
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
+    if (-not $PSCmdlet.ShouldProcess("7-Zip Operation (delegated to Executor)", "Execute")) { return }
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Executor.psm1") -Force -ErrorAction Stop
         return Invoke-7ZipOperation @PSBoundParameters
@@ -108,6 +109,7 @@ function Test-7ZipArchive {
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
+    if (-not $PSCmdlet.ShouldProcess($ArchivePath, "Test 7-Zip Archive Integrity")) { return }
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Executor.psm1") -Force -ErrorAction Stop
         return Test-7ZipArchive @PSBoundParameters
@@ -154,6 +156,7 @@ function Invoke-7ZipExtraction {
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
+    if (-not $PSCmdlet.ShouldProcess($OutputDirectory, "Extract files from '$ArchivePath'")) { return }
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Extractor.psm1") -Force -ErrorAction Stop
         return Invoke-7ZipExtraction @PSBoundParameters

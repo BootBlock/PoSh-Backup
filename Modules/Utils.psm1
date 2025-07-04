@@ -11,9 +11,9 @@
     This improves startup performance by ensuring utility collections are only loaded when needed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.18.2 # FIX: Corrected Write-LogMessage import to prevent recursion.
+    Version:        1.18.4 # FIX: Added ShouldProcess checks to facade functions.
     DateCreated:    10-May-2025
-    LastModified:   02-Jul-2025
+    LastModified:   04-Jul-2025
     Purpose:        Facade for core utility functions for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -69,6 +69,7 @@ function Write-NameValue {
 function Start-CancellableCountdown {
     [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')]
     param( [int]$DelaySeconds, [string]$ActionDisplayName, [scriptblock]$Logger, [System.Management.Automation.PSCmdlet]$PSCmdletInstance )
+    if (-not $PSCmdletInstance.ShouldProcess("Cancellable Countdown (delegated)", "Start")) { return }
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
         return Start-CancellableCountdown @PSBoundParameters
@@ -181,6 +182,7 @@ function Write-LogMessage {
 function Invoke-PoShBackupUpdateCheckAndApply {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     param( [scriptblock]$Logger, [string]$PSScriptRootForPaths, [System.Management.Automation.PSCmdlet]$PSCmdletInstance )
+    if (-not $PSCmdletInstance.ShouldProcess("PoSh-Backup Update Check (delegated)", "Invoke")) { return }
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "Utilities\Update.psm1") -Force -ErrorAction Stop
         Invoke-PoShBackupUpdateCheckAndApply @PSBoundParameters

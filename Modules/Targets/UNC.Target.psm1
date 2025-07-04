@@ -14,16 +14,15 @@
     and Invoke-PoShBackupUNCTargetSettingsValidation.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.1.0 # Refactored to lazy-load sub-modules.
+    Version:        2.1.2 # FIX: Removed unused variable warning.
     DateCreated:    19-May-2025
-    LastModified:   02-Jul-2025
+    LastModified:   04-Jul-2025
     Purpose:        UNC Target Provider for PoSh-Backup.
     Prerequisites:  PowerShell 5.1+.
 #>
 
 #region --- Module Dependencies ---
 # $PSScriptRoot here is Modules\Targets
-$uncSubModulePath = Join-Path -Path $PSScriptRoot -ChildPath "UNC"
 try {
     # Import main Utils needed for facade-level functions
     Import-Module -Name (Join-Path $PSScriptRoot "..\Utils.psm1") -Force -ErrorAction Stop

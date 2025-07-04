@@ -11,9 +11,9 @@
     to prevent circular dependencies.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.2.1 # FIX: Call renamed internal function to prevent recursion.
+    Version:        2.2.3 # FIX: Added ShouldProcess check to facade function.
     DateCreated:    27-May-2025
-    LastModified:   02-Jul-2025
+    LastModified:   04-Jul-2025
     Purpose:        Facade for log retention management.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -41,6 +41,12 @@ function Invoke-PoShBackupLogRetention {
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdletInstance
     )
+
+    if (-not $PSCmdletInstance.ShouldProcess("Log Retention for pattern '$JobNamePattern'", "Apply Policy")) {
+        & $Logger -Message "Log retention for pattern '$JobNamePattern' skipped by user (ShouldProcess)." -Level "WARNING"
+        return
+    }
+
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "LogManager\RetentionHandler.psm1") -Force -ErrorAction Stop
         # Call the renamed internal function to prevent recursion.

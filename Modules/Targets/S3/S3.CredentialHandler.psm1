@@ -3,13 +3,13 @@
 .SYNOPSIS
     A sub-module for S3.Target.psm1. Handles S3 credential retrieval.
 .DESCRIPTION
-    This module provides the 'Get-S3Credentials' function. It is responsible for
+    This module provides the 'Get-S3Credential' function. It is responsible for
     securely retrieving the S3 Access Key and Secret Key from PowerShell SecretManagement.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.0.2 # FIX: Renamed function to singular noun 'Get-S3Credential'.
     DateCreated:    28-Jun-2025
-    LastModified:   28-Jun-2025
+    LastModified:   04-Jul-2025
     Purpose:        To isolate S3 credential retrieval logic.
     Prerequisites:  PowerShell 5.1+.
 #>
@@ -25,7 +25,7 @@ catch {
 }
 #endregion
 
-function Get-S3Credentials {
+function Get-S3Credential {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
@@ -64,4 +64,4 @@ function Get-S3Credentials {
     }
 }
 
-Export-ModuleMember -Function Get-S3Credentials
+Export-ModuleMember -Function Get-S3Credential
