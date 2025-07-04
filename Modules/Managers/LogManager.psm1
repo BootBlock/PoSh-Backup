@@ -7,11 +7,11 @@
     It provides the 'Invoke-PoShBackupLogRetention' function by lazy-loading its
     'RetentionHandler.psm1' sub-module.
 
-    The core 'Write-LogMessage' function is now handled directly by the Utilities facade
-    to prevent circular dependencies.
+    The core 'Write-LogMessage' function has been moved to the core Utilities modules
+    to improve architectural separation of concerns.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        2.2.3 # FIX: Added ShouldProcess check to facade function.
+    Version:        2.3.0 # Removed Write-LogMessage facade; responsibility moved to Utils.psm1.
     DateCreated:    27-May-2025
     LastModified:   04-Jul-2025
     Purpose:        Facade for log retention management.

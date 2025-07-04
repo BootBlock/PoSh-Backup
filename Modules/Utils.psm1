@@ -11,7 +11,7 @@
     This improves startup performance by ensuring utility collections are only loaded when needed.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.18.4 # FIX: Added ShouldProcess checks to facade functions.
+    Version:        1.19.0 # Refactored to import Write-LogMessage from Utilities\Logging.psm1.
     DateCreated:    10-May-2025
     LastModified:   04-Jul-2025
     Purpose:        Facade for core utility functions for the PoSh-Backup solution.
@@ -173,10 +173,10 @@ function Write-LogMessage {
     [CmdletBinding()]
     param( [string]$Message, [string]$ForegroundColour, [switch]$NoNewLine, [string]$Level = "INFO", [switch]$NoTimestampToLogFile = $false )
     try {
-        # *** FIX: Import the actual logger, not the manager facade ***
-        Import-Module -Name (Join-Path $PSScriptRoot "Managers\LogManager\Logger.psm1") -Force -ErrorAction Stop
+        # *** Corrected Path ***
+        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\Logging.psm1") -Force -ErrorAction Stop
         Write-LogMessage @PSBoundParameters
-    } catch { Write-Error "Utils.psm1 Facade: Could not load the Logger sub-module. Error: $($_.Exception.Message)" }
+    } catch { Write-Error "Utils.psm1 Facade: Could not load the Logging sub-module. Error: $($_.Exception.Message)" }
 }
 
 function Invoke-PoShBackupUpdateCheckAndApply {

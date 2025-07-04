@@ -5,12 +5,13 @@
 .DESCRIPTION
     This module provides functions to establish and terminate SFTP sessions using Posh-SSH.
     It handles the retrieval of credentials from secrets and the logic for both password-based
-    and key-based authentication, including key passphrases.
+    and key-based authentication, including key passphrases. It has been updated to use
+    SecureString and PSCredential objects directly, avoiding plain text conversion.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.1
+    Version:        1.1.0 # Refactored to use SecureString/PSCredential directly, removing ConvertTo-SecureString.
     DateCreated:    28-Jun-2025
-    LastModified:   28-Jun-2025
+    LastModified:   04-Jul-2025
     Purpose:        To isolate SFTP session and authentication logic.
     Prerequisites:  PowerShell 5.1+, Posh-SSH module.
 #>
@@ -45,8 +46,7 @@ function New-PoShBackupSftpSession {
     $sftpUser = $TargetSpecificSettings.SFTPUserName
     $skipHostKeyCheck = if ($TargetSpecificSettings.ContainsKey('SkipHostKeyCheck')) { $TargetSpecificSettings.SkipHostKeyCheck } else { $false }
 
-    $securePassphrase = $null
-    $securePassword = $null
+    $credentialToUse = $null
 
     try {
         if (-not $PSCmdletInstance.ShouldProcess($sftpServer, "Establish SFTP Session")) {
@@ -56,33 +56,38 @@ function New-PoShBackupSftpSession {
         $sessionParams = @{
             ComputerName = $sftpServer
             Port         = $sftpPort
-            Username     = $sftpUser
             ErrorAction  = 'Stop'
         }
         if ($skipHostKeyCheck) { $sessionParams.AcceptKey = $true }
 
-        $sftpPassword = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPPasswordSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Password"
         $sftpKeyFilePath = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPKeyFileSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Key File Path"
-        $sftpKeyPassphrase = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPKeyFilePassphraseSecretName -Logger $Logger -AsPlainText -SecretPurposeForLog "SFTP Key Passphrase"
 
         if (-not [string]::IsNullOrWhiteSpace($sftpKeyFilePath)) {
+            # --- Key-Based Authentication ---
             if (-not (Test-Path -LiteralPath $sftpKeyFilePath -PathType Leaf)) { throw "SFTP Key File not found at path '$sftpKeyFilePath'." }
             $sessionParams.KeyFile = $sftpKeyFilePath
-            if (-not [string]::IsNullOrWhiteSpace($sftpKeyPassphrase)) {
-                $securePassphrase = ConvertTo-SecureString -String $sftpKeyPassphrase -AsPlainText -Force
-                $sessionParams.KeyPassphrase = $securePassphrase
+
+            # Key passphrase (the "password" part of the credential) is optional.
+            $securePassphrase = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPKeyFilePassphraseSecretName -Logger $Logger -SecretPurposeForLog "SFTP Key Passphrase"
+            if ($null -eq $securePassphrase) {
+                # If no passphrase secret is defined or found, create an empty SecureString.
+                $securePassphrase = (New-Object System.Security.SecureString)
             }
-            & $LocalWriteLog -Message ("  - SFTP.SessionManager: Attempting key-based authentication.") -Level "DEBUG"
-        }
-        elseif (-not [string]::IsNullOrWhiteSpace($sftpPassword)) {
-            $securePassword = ConvertTo-SecureString -String $sftpPassword -AsPlainText -Force
-            $sessionParams.Password = $securePassword
-            & $LocalWriteLog -Message ("  - SFTP.SessionManager: Attempting password-based authentication.") -Level "DEBUG"
+
+            $credentialToUse = New-Object System.Management.Automation.PSCredential($sftpUser, $securePassphrase)
+            & $LocalWriteLog -Message ("  - SFTP.SessionManager: Attempting key-based authentication for user '$sftpUser'.") -Level "DEBUG"
         }
         else {
-            throw "No password secret or key file path secret provided for authentication."
+            # --- Password-Based Authentication ---
+            $securePassword = Get-PoShBackupSecret -SecretName $TargetSpecificSettings.SFTPPasswordSecretName -Logger $Logger -SecretPurposeForLog "SFTP Password"
+            if ($null -eq $securePassword) {
+                throw "No key file was specified, and no password secret ('$($TargetSpecificSettings.SFTPPasswordSecretName)') was found or retrieved for authentication."
+            }
+            $credentialToUse = New-Object System.Management.Automation.PSCredential($sftpUser, $securePassword)
+            & $LocalWriteLog -Message ("  - SFTP.SessionManager: Attempting password-based authentication for user '$sftpUser'.") -Level "DEBUG"
         }
 
+        $sessionParams.Add("Credential", $credentialToUse)
         $sftpSession = New-SSHSession @sessionParams
         if (-not $sftpSession) { throw "Failed to establish SSH session (New-SSHSession returned null)." }
 
@@ -103,9 +108,9 @@ function New-PoShBackupSftpSession {
             return @{ Success = $false; Session = $null; ErrorMessage = "Failed to create SFTP session. Error: $errorMessage" }
         }
     } finally {
-        # SecureStrings must be disposed of after the cmdlet that uses them has finished.
-        if ($securePassword) { $securePassword.Dispose() }
-        if ($securePassphrase) { $securePassphrase.Dispose() }
+        # SecureStrings inside PSCredential objects are managed by PowerShell's garbage collector.
+        # Direct disposal is not required here as we are not handling the SecureString directly anymore.
+        if ($null -ne $credentialToUse) { $credentialToUse = $null }
     }
 }
 

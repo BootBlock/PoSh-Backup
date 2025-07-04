@@ -1,7 +1,7 @@
-# Modules\Managers\LogManager\Logger.psm1
+# Modules\Utilities\Logging.psm1
 <#
 .SYNOPSIS
-    A sub-module for LogManager.psm1. Provides the core real-time logging engine.
+    Provides the core real-time logging engine for PoSh-Backup.
 .DESCRIPTION
     This module contains the 'Write-LogMessage' function, which is responsible for
     standardised console and file logging with colour-coding and timestamping. It
@@ -11,9 +11,9 @@
 .NOTES
     Author:         Joe Cox/AI Assistant
     Version:        1.0.0
-    DateCreated:    27-Jun-2025
-    LastModified:   27-Jun-2025
-    Purpose:        Core message logging utility for the LogManager facade.
+    DateCreated:    04-Jul-2025
+    LastModified:   04-Jul-2025
+    Purpose:        Core message logging utility for the PoSh-Backup solution.
     Prerequisites:  PowerShell 5.1+.
 #>
 
@@ -21,9 +21,9 @@ function Write-LogMessage {
     [CmdletBinding()]
     param (
         [string]$Message,
-        [string]$ForegroundColour, # Default value removed to allow checking if it was explicitly passed
+        [string]$ForegroundColour,
         [switch]$NoNewLine,
-        [string]$Level = "INFO", # Default log level
+        [string]$Level = "INFO",
         [switch]$NoTimestampToLogFile = $false
     )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
