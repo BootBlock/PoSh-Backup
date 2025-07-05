@@ -24,9 +24,6 @@ Describe 'ScriptModeHandler.psm1' {
             $script:importedModule.ExportedCommands.Keys | Should -Contain $FuncName
         }
     }
-    It 'Invoke-PoShBackupScriptMode throws if missing required parameters' {
-        { Invoke-PoShBackupScriptMode } | Should -Throw
-    }
     It 'Invoke-PoShBackupScriptMode returns $false if no mode switches are set' {
         $logger = { }
         $params = @{

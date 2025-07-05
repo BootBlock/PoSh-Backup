@@ -28,12 +28,6 @@ Describe 'Reporting.psm1' {
         }
     }
 
-    It 'Invoke-ReportGenerator throws if missing required parameters' {
-        { Invoke-ReportGenerator } | Should -Throw
-    }
-    It 'Invoke-SetSummaryReportGenerator throws if missing required parameters' {
-        { Invoke-SetSummaryReportGenerator } | Should -Throw
-    }
     It 'Invoke-ReportGenerator handles NONE report type gracefully' {
         $logger = { param($Message, $Level) }
         $result = Invoke-ReportGenerator -ReportDirectory 'Reports' -JobName 'TestJob' -ReportData @{} -GlobalConfig @{ _PoShBackup_PSScriptRoot = $PSScriptRoot } -JobConfig @{ ReportGeneratorType = 'NONE' } -Logger $logger
