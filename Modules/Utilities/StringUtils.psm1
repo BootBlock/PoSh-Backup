@@ -17,6 +17,7 @@
 #region --- Get Script/File Version From Content ---
 function Get-ScriptVersionFromContent {
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [string]$ScriptContent,
         [string]$ScriptNameForWarning = "script"

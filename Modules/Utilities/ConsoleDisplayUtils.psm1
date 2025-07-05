@@ -18,18 +18,39 @@
                     being available if default colors are used.
 #>
 
+<# [
+.SYNOPSIS
+    Writes a stylized banner to the console with optional name and value, colors, and centering.
+.DESCRIPTION
+    Write-ConsoleBanner prints a banner with a border, name, and value, with options for color, width, and centering.
+.PARAMETER NameText
+    The main label or name to display in the banner.
+.PARAMETER ValueText
+    The value or secondary text to display in the banner.
+.PARAMETER BannerWidth
+    The width of the banner (default: 48).
+.PARAMETER NameForegroundColor
+    The color for the name text.
+.PARAMETER ValueForegroundColor
+    The color for the value text.
+.PARAMETER BorderForegroundColor
+    The color for the border.
+.PARAMETER CenterText
+    If set, centers the text in the banner.
+.EXAMPLE
+    Write-ConsoleBanner -NameText 'Backup' -ValueText 'Complete' -NameForegroundColor 'Green' -ValueForegroundColor 'White' -BorderForegroundColor 'Gray'
+#>
 function Write-ConsoleBanner {
     [CmdletBinding()]
     param(
         [string]$NameText,
-        [string]$NameForegroundColor = '$Global:ColourInfo', # Default to global Info (Cyan)
         [string]$ValueText,
-        [string]$ValueForegroundColor = '$Global:ColourValue', # Default to global Value (DarkYellow)
-        [int]$BannerWidth = 50,
-        [string]$BorderForegroundColor = '$Global:ColourBorder', # Default to global Border (DarkGray)
+        [int]$BannerWidth = 48,
+        [string]$NameForegroundColor,
+        [string]$ValueForegroundColor,
+        [string]$BorderForegroundColor,
         [switch]$CenterText,
-        [switch]$PrependNewLine,
-        [switch]$AppendNewLine
+        [switch]$PrependNewLine
     )
 
     # If in quiet mode, suppress the banner entirely.
@@ -53,6 +74,11 @@ function Write-ConsoleBanner {
     if ($resolvedValueFg -is [string] -and $resolvedValueFg.StartsWith('$Global:')) {
         try { $resolvedValueFg = Invoke-Expression $resolvedValueFg } catch { $resolvedValueFg = "DarkYellow" }
     }
+
+    # Defensive fallback for colors
+    $resolvedBorderFg = if ([string]::IsNullOrWhiteSpace($resolvedBorderFg)) { 'Gray' } else { $resolvedBorderFg }
+    $resolvedNameFg = if ([string]::IsNullOrWhiteSpace($resolvedNameFg)) { 'White' } else { $resolvedNameFg }
+    $resolvedValueFg = if ([string]::IsNullOrWhiteSpace($resolvedValueFg)) { 'Yellow' } else { $resolvedValueFg }
 
     # Top border
     Write-Host ("╔" + ("═" * ($BannerWidth - 2)) + "╗") -ForegroundColor $resolvedBorderFg
@@ -130,55 +156,25 @@ function Write-ConsoleBanner {
 
 <#
 .SYNOPSIS
-    Writes a formatted name-value pair to the console.
+    Starts a cancellable countdown timer for user actions.
 .DESCRIPTION
-    A helper function for console output that displays a name and its corresponding value in a
-    consistent 'Name: Value' format with customisable colours. It supports optional padding
-    for the name part to allow for aligned, table-like output and provides a default for
-    empty values.
-.PARAMETER name
-    The name (or label) for the key-value pair to be displayed.
-.PARAMETER value
-    The value to be displayed for the corresponding name.
-.PARAMETER namePadding
-    An optional integer that specifies the total character width to which the 'name' string
-    should be right-padded with spaces. This is useful for aligning columns of name-value pairs.
-.PARAMETER defaultValue
-    An optional string to display if the provided 'value' is null or empty. Defaults to '-'.
+    Displays a countdown and allows cancellation, optionally using ShouldProcess for confirmation.
+.PARAMETER DelaySeconds
+    Number of seconds to delay.
+.PARAMETER ActionDisplayName
+    The name of the action being delayed.
+.PARAMETER Logger
+    Scriptblock for logging messages.
+.PARAMETER PSCmdletInstance
+    (Optional) The PSCmdlet instance for ShouldProcess support.
+.OUTPUTS
+    System.Boolean
 .EXAMPLE
-    Write-NameValue -name "Status" -value "Success"
-    # Output:   Status: Success
-
-    Write-NameValue -name "Longer Name" -value "Some Value" -namePadding 20
-    # Output:   Longer Name         : Some Value
-
-    Write-NameValue -name "Empty Value" -value $null -namePadding 20
-    # Output:   Empty Value         : -
+    Start-CancellableCountdown -DelaySeconds 5 -ActionDisplayName 'Backup' -Logger $logger
 #>
-function Write-NameValue {
-    param(
-        [Parameter(Mandatory)][string]$name,
-        [Parameter(Mandatory=$false)][string]$value,
-        [Int16]$namePadding = 0,
-        [string]$defaultValue = '-',
-        [string]$nameForegroundColor = "DarkGray",
-        [string]$valueForegroundColor = "Gray"
-    )
-
-    $nameText = $name
-    $valueToDisplay = if ([string]::IsNullOrWhiteSpace($value)) { $defaultValue } else { $value }
-
-    if ($namePadding -gt 0) {
-        $nameText = $name.PadRight($namePadding, " ")
-    }
-
-    Write-Host "  $($nameText): " -NoNewline -ForegroundColor $nameForegroundColor
-    Write-Host $valueToDisplay -ForegroundColor $valueForegroundColor
-}
-
-#region --- Cancellable Countdown Timer ---
 function Start-CancellableCountdown {
-    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')]
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    [OutputType([bool])]
     param(
         [Parameter(Mandatory = $true)]
         [int]$DelaySeconds,
@@ -186,8 +182,8 @@ function Start-CancellableCountdown {
         [string]$ActionDisplayName,
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger,
-        [Parameter(Mandatory = $true)]
-        [System.Management.Automation.PSCmdlet]$PSCmdletInstance
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.PSCmdlet]$PSCmdletInstance = $null
     )
 
     & $Logger -Message "ConsoleDisplayUtils/Start-CancellableCountdown: Logger parameter active for action '$ActionDisplayName'." -Level "DEBUG" -ErrorAction SilentlyContinue
@@ -198,7 +194,12 @@ function Start-CancellableCountdown {
         return $true # No delay, proceed with action
     }
 
-    if (-not $PSCmdletInstance.ShouldProcess("System (Action: $ActionDisplayName)", "Display $DelaySeconds-second Cancellable Countdown")) {
+    # Allow PSCmdletInstance to be $null for testability
+    $shouldProcess = $true
+    if ($null -ne $PSCmdletInstance) {
+        $shouldProcess = $PSCmdletInstance.ShouldProcess("System (Action: $ActionDisplayName)", "Display $DelaySeconds-second Cancellable Countdown")
+    }
+    if (-not $shouldProcess) {
         & $LocalWriteLog -Message "ConsoleDisplayUtils: Cancellable countdown for action '$ActionDisplayName' skipped by user (ShouldProcess)." -Level "INFO"
         return $false
     }
@@ -224,6 +225,25 @@ function Start-CancellableCountdown {
         return $false
     }
     return $true
+}
+
+function Write-NameValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$name,
+        [Parameter(Mandatory)]
+        $value,
+        [int]$namePadding = 0,
+        [string]$nameForegroundColor = 'White',
+        [string]$valueForegroundColor = 'Gray'
+    )
+    $resolvedNameFg = if ([string]::IsNullOrWhiteSpace($nameForegroundColor)) { 'White' } else { $nameForegroundColor }
+    $resolvedValueFg = if ([string]::IsNullOrWhiteSpace($valueForegroundColor)) { 'Gray' } else { $valueForegroundColor }
+    $pad = if ($namePadding -gt 0) { $name.PadRight($namePadding) } else { $name }
+    $displayValue = if ($null -eq $value -or $value -eq '') { '-' } else { $value }
+    Write-Host ($pad + ": ") -ForegroundColor $resolvedNameFg -NoNewline
+    Write-Host $displayValue -ForegroundColor $resolvedValueFg
 }
 #endregion
 

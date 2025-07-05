@@ -31,14 +31,21 @@
     "SYNTAX (PSSA): Ensure all functions use approved PowerShell verbs (e.g., Invoke-, Get-, Set-).",
     "MODULE_SCOPE (IMPORTANT): Functions from modules imported by a 'manager' or 'orchestrator' module are not automatically available to other modules called by that manager/orchestrator, nor to the script that called the manager. The module needing the function must typically import the provider of that function directly, or the calling script must import modules whose functions it will call directly after the manager/orchestrator returns. Using `-Global` on imports is a workaround but generally less desirable.",
     "CRITICAL (MODULE_STATE): Module-scoped variables (e.g., `$Script:MyVar`) are NOT shared across different imports of the same module within a single script run. If state must be maintained (like tracking active snapshot sessions), use a global variable (`$Global:MyVar`) and ensure its name is unique to the module's purpose.",
-    "SYNTAX (CMDLET BEHAVIOR): Cmdlets that create or modify objects (e.g., Checkpoint-VM, New-ScheduledTaskTrigger) may not return the object by default. Always check if a -Passthru switch is needed to capture the result in a variable."
+    "SYNTAX (CMDLET BEHAVIOR): Cmdlets that create or modify objects (e.g., Checkpoint-VM, New-ScheduledTaskTrigger) may not return the object by default. Always check if a -Passthru switch is needed to capture the result in a variable.",
+    "AI STRATEGY (LOGGING): Always ensure debug/diagnostic output is filtered by log level and not shown to end users or CI by default. Remove or suppress internal [DEBUG] lines unless explicitly requested.",
+    "CRITICAL (VALIDATION): Always guard [ref] parameters for message lists in validators to prevent null reference errors. Only the validator should initialize the list, not the invoker.",
+    "AI STRATEGY (CLEANUP): After major refactors or bugfixes, remove redundant debug output and update version numbers and documentation to reflect the changes."
   )
 
   conversation_summary            = @(
     "--- Project Overview & Status ---",
-    "Development of a comprehensive, modular PowerShell backup solution (PoSh-Backup v1.40.0).",
+    "Development of a comprehensive, modular PowerShell backup solution (PoSh-Backup v1.40.2).",
     "The project is heavily modularised into `Core`, `Managers`, `Utilities`, `Operations`, `Reporting`, and `Targets`.",
     "Bundler script `Generate-ProjectBundleForAI.ps1` (v__BUNDLER_VERSION_PLACEHOLDER__) is used to maintain session context.",
+    "",
+    "--- July 2025: Advanced job-level documentation and config clarity update ---",
+    "   - Improved inline documentation for advanced job-level options in Default.psd1 (SFX, checksum, manifest, notification, scheduling).",
+    "   - Clarified SFX/extension logic and notification overrides for jobs.",
     "",
     "--- Refactor: Decouple Logging Utility (Completed) ---",
     "   - Goal: Improve project architecture by moving the core logging function to a more logical, lower-level location.",
@@ -116,7 +123,7 @@
     "   - **Reporting & Logging:** Multi-format reports (HTML, JSON, CSV, etc.) and robust log file management with automated retention/compression."
   )
 
-  main_script_poSh_backup_version = "1.40.0 # Implemented lazy loading for core operational modules."
+  main_script_poSh_backup_version = "1.40.2 # Robust automation, logging, and documentation clarity update."
 
   ai_bundler_update_instructions  = @{
     purpose                            = "Instructions for AI on how to regenerate the content of the AI state hashtable by providing the content for 'Meta\\AIState.template.psd1' when requested by the user."

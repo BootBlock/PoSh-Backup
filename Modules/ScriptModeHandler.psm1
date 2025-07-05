@@ -30,6 +30,7 @@
 #region --- Exported Function: Invoke-PoShBackupScriptMode ---
 function Invoke-PoShBackupScriptMode {
     [CmdletBinding()]
+    [OutputType([bool])]
     param(
         [Parameter(Mandatory = $true)]
         [bool]$ListBackupLocationsSwitch,

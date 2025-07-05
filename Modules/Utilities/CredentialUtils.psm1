@@ -25,7 +25,7 @@
 
 function Get-PoShBackupSecret {
     [CmdletBinding()]
-    [OutputType([object])]
+    [OutputType([object], [string])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$SecretName,

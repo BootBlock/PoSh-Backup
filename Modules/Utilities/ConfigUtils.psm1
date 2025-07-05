@@ -19,6 +19,23 @@
 #>
 
 #region --- Helper Function Get-ConfigValue ---
+<#
+.SYNOPSIS
+    Retrieves a value from a configuration object by key, returning a default value if the key is not found.
+.DESCRIPTION
+    This function safely accesses a value from a hashtable or PSObject using the specified key.
+    If the key does not exist or the configuration object is null or unsuitable, it returns the provided default value.
+.PARAMETER ConfigObject
+    The configuration object (hashtable or PSObject) to retrieve the value from.
+.PARAMETER Key
+    The key or property name to look up in the configuration object.
+.PARAMETER DefaultValue
+    The value to return if the key is not found or the configuration object is unsuitable.
+.EXAMPLE
+    $value = Get-ConfigValue -ConfigObject $config -Key 'Path' -DefaultValue 'C:\Default'
+.NOTES
+    Author: Joe Cox/AI Assistant
+#>
 function Get-ConfigValue {
     [CmdletBinding()]
     param (
@@ -60,12 +77,15 @@ function Get-RequiredConfigValue {
         [string]$GlobalKey
     )
 
-    $value = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue (Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null)
-
-    if ($null -eq $value) {
-        throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
+    $jobValue = Get-ConfigValue -ConfigObject $JobConfig -Key $JobKey -DefaultValue $null
+    if ($null -ne $jobValue) {
+        return $jobValue
     }
-    return $value
+    $globalValue = Get-ConfigValue -ConfigObject $GlobalConfig -Key $GlobalKey -DefaultValue $null
+    if ($null -ne $globalValue) {
+        return $globalValue
+    }
+    throw "Configuration Error: A required setting is missing. The key '$JobKey' was not found in the job's configuration, and the corresponding default key '$GlobalKey' was not found in Default.psd1 or User.psd1. The script cannot proceed without this setting."
 }
 #endregion
 

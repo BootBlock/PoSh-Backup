@@ -21,8 +21,29 @@
     Prerequisites:  PowerShell 5.1+.
 #>
 
+<#
+.SYNOPSIS
+    Groups backup archive files into logical instances based on filenames and timestamps.
+.DESCRIPTION
+    Takes a list of file-like objects and groups them into backup "instances" by parsing filenames for a common base name and date stamp.
+.PARAMETER FileObjectList
+    An array of objects, each with 'Name' and 'SortTime' properties, representing backup files.
+.PARAMETER ArchiveBaseName
+    The base name of the archive, e.g., "JobName".
+.PARAMETER ArchiveDateFormat
+    The date format used in the archive filenames, e.g., "yyyy-MM-dd_HH-mm-ss".
+.PARAMETER PrimaryArchiveExtension
+    The primary archive file extension, e.g., ".7z".
+.PARAMETER Logger
+    A scriptblock for logging messages.
+.EXAMPLE
+    Group-BackupInstancesByTimestamp -FileObjectList $files -ArchiveBaseName "JobName" -ArchiveDateFormat "yyyy-MM-dd_HH-mm-ss" -PrimaryArchiveExtension ".7z" -Logger $log
+.NOTES
+    Author: Joe Cox/AI Assistant
+#>
 function Group-BackupInstancesByTimestamp {
     [CmdletBinding()]
+    [OutputType([hashtable])]
     param(
         [Parameter(Mandatory = $true)]
         [array]$FileObjectList, # An array of objects, each must have 'Name' and 'SortTime' properties.

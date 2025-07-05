@@ -11,9 +11,9 @@
     Any validation messages are added to the provided list.
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.0.0
+    Version:        1.1.0 # Robust automation, logging, and validation refactor.
     DateCreated:    29-May-2025
-    LastModified:   29-May-2025
+    LastModified:   05-Jul-2025
     Purpose:        Advanced schema validation invocation logic for ConfigLoader.
     Prerequisites:  PowerShell 5.1+.
                     Relies on Utils.psm1 (for Get-ConfigValue).
@@ -32,6 +32,28 @@ catch {
 }
 
 #region --- Advanced Schema Validation Invoker Function ---
+<#
+.SYNOPSIS
+    Conditionally invokes advanced schema validation using PoShBackupValidator.psm1 if enabled in the configuration.
+.DESCRIPTION
+    Checks if advanced schema validation is enabled in the provided configuration.
+    If enabled, attempts to import PoShBackupValidator.psm1 and calls its Invoke-PoShBackupConfigValidation function,
+    passing along the configuration, a reference to the validation messages list, and the logger.
+.PARAMETER Configuration
+    The hashtable containing the configuration to validate.
+.PARAMETER ValidationMessagesListRef
+    [ref] to a list that will be populated with validation messages.
+.PARAMETER Logger
+    Scriptblock logger function for logging messages.
+.PARAMETER MainScriptPSScriptRoot
+    The root path to locate PoShBackupValidator.psm1.
+.PARAMETER IsTestConfigMode
+    Boolean indicating if running in test config mode (affects logging).
+.EXAMPLE
+    Invoke-AdvancedSchemaValidationIfEnabled -Configuration $config -ValidationMessagesListRef ([ref]$messages) -Logger $log -MainScriptPSScriptRoot $PSScriptRoot
+.NOTES
+    Requires PoShBackupValidator.psm1 and Utils.psm1 modules.
+#>
 function Invoke-AdvancedSchemaValidationIfEnabled {
     [CmdletBinding()]
     param(
@@ -46,6 +68,8 @@ function Invoke-AdvancedSchemaValidationIfEnabled {
         [Parameter(Mandatory = $false)]
         [bool]$IsTestConfigMode = $false # For context-specific logging
     )
+
+    # NOTE: Do NOT initialize ValidationMessagesListRef.Value here. The guard clause is now only in the validator itself for single-responsibility and clarity.
 
     & $Logger -Message "ConfigLoader/AdvancedSchemaValidatorInvoker/Invoke-AdvancedSchemaValidationIfEnabled: Logger active." -Level "DEBUG" -ErrorAction SilentlyContinue
 
@@ -71,20 +95,30 @@ function Invoke-AdvancedSchemaValidationIfEnabled {
         }
 
         try {
-            Import-Module -Name $validatorModulePath -Force -ErrorAction Stop
-            & $LocalWriteLog -Message "  - ConfigLoader/AdvancedSchemaValidatorInvoker: PoShBackupValidator module loaded. Performing schema validation..." -Level "DEBUG"
+            Import-Module -Name $validatorModulePath -Force -Global -ErrorAction Stop
+            & $LocalWriteLog -Message "  - ConfigLoader/AdvancedSchemaValidatorInvoker: PoShBackupValidator module loaded (global). Performing schema validation..." -Level "DEBUG"
 
             $validatorParams = @{
                 ConfigurationToValidate = $Configuration
                 ValidationMessagesListRef = $ValidationMessagesListRef # Pass the ref object directly
             }
-            # Check if the loaded Invoke-PoShBackupConfigValidation accepts -Logger
-            $validatorCmd = Get-Command Invoke-PoShBackupConfigValidation -Module (Get-Module -Name PoShBackupValidator) -ErrorAction SilentlyContinue
+            $validatorCmd = Get-Command Invoke-PoShBackupConfigValidation -Module PoShBackupValidator -ErrorAction SilentlyContinue
             if ($null -ne $validatorCmd -and $validatorCmd.Parameters.ContainsKey('Logger')) {
                 $validatorParams.Logger = $Logger
             }
 
-            Invoke-PoShBackupConfigValidation @validatorParams
+            if ($null -ne $validatorCmd -and $validatorCmd -is [System.Management.Automation.CommandInfo]) {
+                try {
+                    Invoke-PoShBackupConfigValidation @validatorParams
+                } catch {
+                    Write-Host "[ERROR] Exception during invocation of Invoke-PoShBackupConfigValidation. Error: $($_.Exception.Message)" -ForegroundColor Red
+                    $ValidationMessagesListRef.Value.Add("ConfigLoader/AdvancedSchemaValidatorInvoker: Exception during invocation of Invoke-PoShBackupConfigValidation. Error: $($_.Exception.Message)")
+                }
+            } else {
+                & $LocalWriteLog -Message "[WARNING] ConfigLoader/AdvancedSchemaValidatorInvoker: Could not find valid Invoke-PoShBackupConfigValidation command in PoShBackupValidator module. Advanced schema validation skipped." -Level "WARNING"
+                $ValidationMessagesListRef.Value.Add("ConfigLoader/AdvancedSchemaValidatorInvoker: Could not find valid Invoke-PoShBackupConfigValidation command in PoShBackupValidator module. Advanced schema validation skipped.")
+                return
+            }
 
             if ($IsTestConfigMode -and $ValidationMessagesListRef.Value.Count -eq 0) {
                 # This specific log might be redundant if Invoke-PoShBackupConfigValidation logs its own success.
@@ -93,7 +127,7 @@ function Invoke-AdvancedSchemaValidationIfEnabled {
             }
             elseif ($ValidationMessagesListRef.Value.Count -gt 0) {
                 # This message might also be redundant if the validator itself logs errors.
-                # The key is that $ValidationMessagesListRef is populated.
+                # The key is that $ValidationMessagesList is populated.
                 & $LocalWriteLog -Message "[WARNING] ConfigLoader/AdvancedSchemaValidatorInvoker: Advanced schema validation reported issues (see detailed messages)." -Level "WARNING"
             }
         }

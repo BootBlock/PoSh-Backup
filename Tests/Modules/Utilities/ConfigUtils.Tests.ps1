@@ -118,3 +118,91 @@ Describe "Get-ConfigValue Function (from IMPORTED Utils.psm1 module - Attempt 2)
         }
     }
 }
+
+Describe 'Get-RequiredConfigValue' {
+    It 'returns job value if present' {
+        $job = @{foo='bar'}
+        $global = @{foo='global'}
+        Get-RequiredConfigValue -JobConfig $job -GlobalConfig $global -JobKey 'foo' -GlobalKey 'foo' | Should -Be 'bar'
+    }
+    It 'returns global value if job missing' {
+        $job = @{}
+        $global = @{foo='global'}
+        Get-RequiredConfigValue -JobConfig $job -GlobalConfig $global -JobKey 'foo' -GlobalKey 'foo' | Should -Be 'global'
+    }
+    It 'throws if both missing' {
+        Import-Module -Name "$ProjectRoot\Modules\Utilities\ConfigUtils.psm1" -Force
+        $job = @{}
+        $global = @{}
+        $thrown = $false
+        try {
+            Get-RequiredConfigValue -JobConfig $job -GlobalConfig $global -JobKey 'foo' -GlobalKey 'foo'
+        } catch {
+            $thrown = $true
+            ($_.Exception.Message -like 'Configuration Error:*' -or $_.Exception.Message -like '*ParameterBindingException*') | Should -BeTrue
+        }
+        $thrown | Should -BeTrue
+    }
+    It 'returns job value even if global is missing' {
+        $job = @{foo='bar'}
+        $global = @{
+        }
+        Get-RequiredConfigValue -JobConfig $job -GlobalConfig $global -JobKey 'foo' -GlobalKey 'foo' | Should -Be 'bar'
+    }
+    It 'throws if job value is $null and global is missing' {
+        Import-Module -Name "$ProjectRoot\Modules\Utilities\ConfigUtils.psm1" -Force
+        $job = @{foo=$null}
+        $global = @{
+        }
+        $thrown = $false
+        try {
+            Get-RequiredConfigValue -JobConfig $job -GlobalConfig $global -JobKey 'foo' -GlobalKey 'foo'
+        } catch {
+            $thrown = $true
+            ($_.Exception.Message -like 'Configuration Error:*' -or $_.Exception.Message -like '*ParameterBindingException*') | Should -BeTrue
+        }
+        $thrown | Should -BeTrue
+    }
+    It 'returns global value if job value is $null but global is present' {
+        $job = @{foo=$null}
+        $global = @{foo='global'}
+        # Should return global value if job value is $null
+        Get-RequiredConfigValue -JobConfig $job -GlobalConfig $global -JobKey 'foo' -GlobalKey 'foo' | Should -Be 'global'
+    }
+}
+
+Describe 'Expand-EnvironmentVariablesInConfig' {
+    It 'expands environment variables in string values' {
+        $h = @{foo="$env:USERPROFILE\\test"}
+        $result = Expand-EnvironmentVariablesInConfig -ConfigObject $h -KeysToExpand @('foo') -Logger { param($Message,$Level) }
+        $result['foo'] | Should -Be ("$env:USERPROFILE\\test")
+    }
+    It 'expands environment variables in array values' {
+        $h = @{foo=@("$env:USERPROFILE\\a","$env:USERPROFILE\\b")}
+        $result = Expand-EnvironmentVariablesInConfig -ConfigObject $h -KeysToExpand @('foo') -Logger { param($Message,$Level) }
+        $result['foo'][0] | Should -Be ("$env:USERPROFILE\\a")
+        $result['foo'][1] | Should -Be ("$env:USERPROFILE\\b")
+    }
+    It 'leaves non-string array items unchanged' {
+        $h = @{foo=@(1,"$env:USERPROFILE\\a")}
+        $result = Expand-EnvironmentVariablesInConfig -ConfigObject $h -KeysToExpand @('foo') -Logger { param($Message,$Level) }
+        $result['foo'][0] | Should -Be 1
+        $result['foo'][1] | Should -Be ("$env:USERPROFILE\\a")
+    }
+    It 'does nothing if key not present' {
+        $h = @{bar='baz'}
+        $result = Expand-EnvironmentVariablesInConfig -ConfigObject $h -KeysToExpand @('foo') -Logger { param($Message,$Level) }
+        $result['bar'] | Should -Be 'baz'
+    }
+    It 'does not expand if value is not string or array' {
+        $h = @{foo=42}
+        $result = Expand-EnvironmentVariablesInConfig -ConfigObject $h -KeysToExpand @('foo') -Logger { param($Message,$Level) }
+        $result['foo'] | Should -Be 42
+    }
+    It 'expands multiple keys independently' {
+        $h = @{foo="$env:USERPROFILE\\a"; bar="$env:USERPROFILE\\b"}
+        $result = Expand-EnvironmentVariablesInConfig -ConfigObject $h -KeysToExpand @('foo','bar') -Logger { param($Message,$Level) }
+        $result['foo'] | Should -Be ("$env:USERPROFILE\\a")
+        $result['bar'] | Should -Be ("$env:USERPROFILE\\b")
+    }
+}

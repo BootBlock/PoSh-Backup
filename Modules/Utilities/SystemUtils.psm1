@@ -51,6 +51,7 @@ function Test-AdminPrivilege {
 #region --- Destination Free Space Check ---
 function Test-DestinationFreeSpace {
     [CmdletBinding()]
+    [OutputType([bool])]
     <#
     .SYNOPSIS
         Checks if the destination directory has enough free space for a backup operation.
@@ -153,6 +154,7 @@ function Test-DestinationFreeSpace {
 #region --- Test Hibernate Enabled ---
 function Test-HibernateEnabled {
     [CmdletBinding()]
+    [OutputType([bool])]
     param(
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger

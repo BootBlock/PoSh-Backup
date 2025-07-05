@@ -56,6 +56,7 @@ catch {
 #region --- Exported Configuration Loading and Validation Function ---
 function Import-AppConfiguration {
     [CmdletBinding()]
+    [OutputType([hashtable])]
     param (
         [string]$UserSpecifiedPath,
         [switch]$IsTestConfigMode,

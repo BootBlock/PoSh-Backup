@@ -17,6 +17,22 @@
 
 #region --- Exported Function: Merge-DeepHashtable ---
 function Merge-DeepHashtable {
+<#
+.SYNOPSIS
+    Recursively merges two hashtables, overlaying the override onto the base.
+.DESCRIPTION
+    Takes a base hashtable and an override hashtable, and returns a new hashtable
+    that is the result of a deep merge. Nested hashtables are merged recursively.
+.PARAMETER Base
+    The base hashtable to merge into.
+.PARAMETER Override
+    The hashtable whose values will override or extend the base.
+.EXAMPLE
+    $merged = Merge-DeepHashtable -Base $defaultConfig -Override $userConfig
+    Returns a merged hashtable with userConfig values overlaid on defaultConfig.
+.NOTES
+    Used for configuration merging in ConfigLoader.
+#>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]

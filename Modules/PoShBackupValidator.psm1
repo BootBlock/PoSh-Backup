@@ -18,9 +18,9 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.9.3 # FIX: Pass the required DependencyMap to Test-PoShBackupJobDependencyGraph.
+    Version:        1.0.1 # Robust automation, logging, and validation refactor.
     DateCreated:    14-May-2025
-    LastModified:   01-Jul-2025
+    LastModified:   05-Jul-2025
     Purpose:        Optional advanced configuration validation sub-module for PoSh-Backup.
 #>
 
@@ -57,36 +57,75 @@ catch {
 #endregion
 
 #region --- Exported Functions ---
-function Invoke-PoShBackupConfigValidation {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [hashtable]$ConfigurationToValidate,
-        [Parameter(Mandatory)]
-        [ref]$ValidationMessagesListRef,
-        [Parameter(Mandatory = $false)]
-        [string[]]$JobsToRun, # NEW: Optional list of jobs for context-aware validation
-        [Parameter(Mandatory = $false)]
-        [scriptblock]$Logger
-    )
-
-    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO")
-        if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
-            & $Logger -Message $Message -Level $Level
-        }
+function _PoShBackupValidator_ValidateParams {
+    <#
+    .SYNOPSIS
+        Validates required parameters for PoShBackupValidator functions.
+    .DESCRIPTION
+        Throws if the configuration or validation messages reference is missing. Used internally to ensure required arguments are present before validation logic proceeds.
+    .PARAMETER ConfigurationToValidate
+        The configuration hashtable to validate.
+    .PARAMETER ValidationMessagesListRef
+        [ref] to a list that will be populated with validation errors, warnings, and advice messages.
+    .NOTES
+        Throws if required parameters are missing.
+    #>
+    param($ConfigurationToValidate, $ValidationMessagesListRef)
+    if ($null -eq $ConfigurationToValidate) {
+        throw 'ConfigurationToValidate is required.'
     }
-    & $LocalWriteLog -Message "PoShBackupValidator/Invoke-PoShBackupConfigValidation: Initialising." -Level "DEBUG"
+    if ($null -eq $ValidationMessagesListRef) {
+        throw 'ValidationMessagesListRef is required.'
+    }
+}
 
-    if ($null -eq $Script:LoadedConfigSchema) {
+function _PoShBackupValidator_CheckSchema {
+    <#
+    .SYNOPSIS
+        Checks if the provided schema is valid for validation.
+    .DESCRIPTION
+        Returns $false and adds a critical error message if the schema is missing or invalid. Used internally before running schema-based validation.
+    .PARAMETER Schema
+        The schema hashtable to check.
+    .PARAMETER ValidationMessagesListRef
+        [ref] to a list that will be populated with validation errors, warnings, and advice messages.
+    .OUTPUTS
+        [bool] True if schema is valid, otherwise false.
+    #>
+    param($Schema, $ValidationMessagesListRef)
+    if ($null -eq $Schema -or $Schema -eq '__SCHEMA_MISSING__') {
         $ValidationMessagesListRef.Value.Add("CRITICAL: PoShBackupValidator cannot perform validation because the configuration schema (ConfigSchema.psd1) failed to load or was not found. Check previous errors from PoShBackupValidator.psm1 loading.")
-        return
+        return $false
     }
+    return $true
+}
+
+function _PoShBackupValidator_InternalValidation {
+    <#
+    .SYNOPSIS
+        Performs the core internal validation logic for PoShBackupValidator.
+    .DESCRIPTION
+        Runs schema validation, job dependency validation, and context-aware target validation. Used internally by Invoke-PoShBackupConfigValidation, but can be injected for testing.
+    .PARAMETER ConfigurationToValidate
+        The configuration hashtable to validate.
+    .PARAMETER ValidationMessagesListRef
+        [ref] to a list that will be populated with validation errors, warnings, and advice messages.
+    .PARAMETER JobsToRun
+        (Optional) Array of job names to restrict validation to only the targets used by these jobs.
+    .PARAMETER Logger
+        (Optional) Scriptblock logger to receive log messages.
+    .PARAMETER schemaToUse
+        The schema hashtable to use for validation.
+    .NOTES
+        Used internally; not intended for direct external use.
+    #>
+    param($ConfigurationToValidate, $ValidationMessagesListRef, $JobsToRun, $Logger, $schemaToUse)
 
     if (-not (Get-Command Test-SchemaRecursiveInternal -ErrorAction SilentlyContinue)) {
         $ValidationMessagesListRef.Value.Add("CRITICAL: PoShBackupValidator: Core schema validation function 'Test-SchemaRecursiveInternal' not found. Sub-module 'SchemaExecutionEngine.psm1' might have failed to load. Generic schema validation skipped.")
     }
     else {
-        Test-SchemaRecursiveInternal -ConfigObject $ConfigurationToValidate -Schema $Script:LoadedConfigSchema -ValidationMessages $ValidationMessagesListRef -CurrentPath "Configuration"
+        Test-SchemaRecursiveInternal -ConfigObject $ConfigurationToValidate -Schema $schemaToUse -ValidationMessages $ValidationMessagesListRef -CurrentPath "Configuration"
     }
 
 
@@ -154,14 +193,22 @@ function Invoke-PoShBackupConfigValidation {
 
             try {
                 Import-Module -Name $targetProviderModulePath -Force -ErrorAction Stop -WarningAction SilentlyContinue
-                $validatorCmd = Get-Command $validationFunctionName -Module (Get-Module -Name $targetProviderModuleName.Replace(".psm1", "")) -ErrorAction SilentlyContinue
+                $targetProviderModuleShortName = [System.IO.Path]::GetFileNameWithoutExtension($targetProviderModuleName)
+                $validatorCmd = Get-Command $validationFunctionName -Module $targetProviderModuleShortName -ErrorAction SilentlyContinue
 
-                if ($validatorCmd) {
-                    & $LocalWriteLog -Message "PoShBackupValidator: Invoking specific settings validation for target '$targetName' (Type: '$targetType')." -Level "DEBUG"
-                    & $validatorCmd -TargetInstanceConfiguration $targetInstance -TargetInstanceName $targetName -ValidationMessagesListRef $ValidationMessagesListRef -Logger $Logger
+                # Removed DEBUG output of validatorCmd type and value for cleaner logs
+                if ($validatorCmd -and $validatorCmd -is [System.Management.Automation.CommandInfo]) {
+                    try {
+                        & $LocalWriteLog -Message "PoShBackupValidator: Invoking specific settings validation for target '$targetName' (Type: '$targetType')." -Level "DEBUG"
+                        & $validatorCmd.Name -TargetInstanceConfiguration $targetInstance -TargetInstanceName $targetName -ValidationMessagesListRef $ValidationMessagesListRef -Logger $Logger
+                    } catch {
+                        Write-Host "[ERROR] Exception during invocation of '$validationFunctionName' for target '$targetName'. Error: $($_.Exception.Message)" -ForegroundColor Red
+                        $ValidationMessagesListRef.Value.Add("PoShBackupValidator: Exception during invocation of '$validationFunctionName' for target '$targetName'. Error: $($_.Exception.Message)")
+                        & $LocalWriteLog -Message "[ERROR] PoShBackupValidator: Exception during invocation of '$validationFunctionName' for target '$targetName'. Error: $($_.Exception.Message)" -Level "ERROR"
+                    }
                 }
                 else {
-                    $errorMessage = "Validation function '$validationFunctionName' not found in provider module '$targetProviderModuleName' for target '$targetName'."
+                    $errorMessage = "Validation function '$validationFunctionName' not found or not valid in provider module '$targetProviderModuleName' for target '$targetName'."
                     $adviceMessage = "ADVICE: For custom target providers, ensure you have implemented and exported a function named '$validationFunctionName' to perform target-specific settings validation."
                     $ValidationMessagesListRef.Value.Add($errorMessage)
                     & $LocalWriteLog -Message "[WARNING] PoShBackupValidator: $errorMessage" -Level "WARNING"
@@ -173,6 +220,68 @@ function Invoke-PoShBackupConfigValidation {
             }
         }
     }
+}
+
+<#
+.SYNOPSIS
+    Validates a PoSh-Backup configuration object against the schema and performs advanced checks.
+.DESCRIPTION
+    Performs advanced, schema-based validation of a PoSh-Backup configuration hashtable. Checks for required keys, types, allowed values, job dependency integrity, and invokes type-specific validation for each defined Backup Target. Optionally supports context-aware validation for a subset of jobs.
+.PARAMETER ConfigurationToValidate
+    The configuration hashtable to validate. Must be the merged, effective configuration object.
+.PARAMETER ValidationMessagesListRef
+    [ref] to a list (e.g., [ref](New-Object System.Collections.Generic.List[string])) that will be populated with validation errors, warnings, and advice messages.
+.PARAMETER JobsToRun
+    (Optional) Array of job names to restrict validation to only the targets used by these jobs. If omitted, all defined targets are validated.
+.PARAMETER Logger
+    (Optional) Scriptblock logger to receive log messages. Should accept -Message and -Level parameters.
+.PARAMETER Schema
+    (Optional) Schema hashtable to use for validation. If omitted, uses the module's loaded schema.
+.PARAMETER InternalValidation
+    (Optional) Scriptblock to override the internal validation logic (for testing/mocking).
+.EXAMPLE
+    $messages = New-Object System.Collections.Generic.List[string]
+    $messagesRef = [ref]$messages
+    Invoke-PoShBackupConfigValidation -ConfigurationToValidate $config -ValidationMessagesListRef $messagesRef
+.NOTES
+    Returns nothing. All results are communicated via the ValidationMessagesListRef and logger.
+#>
+function Invoke-PoShBackupConfigValidation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$ConfigurationToValidate,
+        [Parameter(Mandatory)]
+        [ref]$ValidationMessagesListRef,
+        [Parameter(Mandatory = $false)]
+        [string[]]$JobsToRun, # NEW: Optional list of jobs for context-aware validation
+        [Parameter(Mandatory = $false)]
+        [scriptblock]$Logger,
+        [Parameter(Mandatory = $false)]
+        $Schema,
+        [Parameter(Mandatory = $false)]
+        [scriptblock]$InternalValidation
+    )
+
+    # --- GUARD: Ensure ValidationMessagesListRef.Value is always a valid List[string] ---
+    if ($null -eq $ValidationMessagesListRef.Value) {
+        $ValidationMessagesListRef.Value = [System.Collections.Generic.List[string]]::new()
+    }
+
+    _PoShBackupValidator_ValidateParams $ConfigurationToValidate $ValidationMessagesListRef
+    $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO")
+        if ($PSBoundParameters.ContainsKey('Logger') -and $null -ne $Logger) {
+            & $Logger -Message $Message -Level $Level
+        }
+    }
+    & $LocalWriteLog -Message "PoShBackupValidator/Invoke-PoShBackupConfigValidation: Initialising." -Level "DEBUG"
+
+    $schemaToUse = if ($PSBoundParameters.ContainsKey('Schema')) { $Schema } else { $Script:LoadedConfigSchema }
+    if (-not (_PoShBackupValidator_CheckSchema $schemaToUse $ValidationMessagesListRef)) {
+        return
+    }
+    $internalValidation = if ($PSBoundParameters.ContainsKey('InternalValidation')) { $InternalValidation } else { ${function:_PoShBackupValidator_InternalValidation} }
+    & $internalValidation $ConfigurationToValidate $ValidationMessagesListRef $JobsToRun $Logger $schemaToUse
 }
 
 Export-ModuleMember -Function Invoke-PoShBackupConfigValidation

@@ -42,6 +42,7 @@ catch {
 
 function Invoke-PoShBackupRun {
     [CmdletBinding()]
+    [OutputType([hashtable])]
     param(
         [Parameter(Mandatory = $true)]
         [System.Collections.Generic.List[string]]$JobsToProcess, # This is the dependency-ordered list
