@@ -97,6 +97,9 @@ function Invoke-PoShBackupWebDAVTargetSettingsValidation {
     if (-not $TargetSpecificSettings.ContainsKey('WebDAVUrl') -or -not ($TargetSpecificSettings.WebDAVUrl -is [string]) -or [string]::IsNullOrWhiteSpace($TargetSpecificSettings.WebDAVUrl)) {
         $ValidationMessagesListRef.Value.Add("WebDAV Target '$TargetInstanceName': 'WebDAVUrl' is missing or empty.")
     }
+    elseif ($TargetSpecificSettings.WebDAVUrl -is [string] -and $TargetSpecificSettings.WebDAVUrl -match '^http://') {
+        $ValidationMessagesListRef.Value.Add("WARNING: WebDAV Target '$TargetInstanceName': 'WebDAVUrl' uses HTTP (not HTTPS). Credentials will be transmitted in cleartext. Use HTTPS for secure credential transport.")
+    }
     if (-not $TargetSpecificSettings.ContainsKey('CredentialsSecretName') -or -not ($TargetSpecificSettings.CredentialsSecretName -is [string]) -or [string]::IsNullOrWhiteSpace($TargetSpecificSettings.CredentialsSecretName)) {
         $ValidationMessagesListRef.Value.Add("WebDAV Target '$TargetInstanceName': 'CredentialsSecretName' is missing or empty.")
     }

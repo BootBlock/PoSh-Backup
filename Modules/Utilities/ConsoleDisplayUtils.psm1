@@ -18,7 +18,7 @@
                     being available if default colors are used.
 #>
 
-<# [
+<#
 .SYNOPSIS
     Writes a stylized banner to the console with optional name and value, colors, and centering.
 .DESCRIPTION
@@ -62,17 +62,17 @@ function Write-ConsoleBanner {
 
     $resolvedBorderFg = $BorderForegroundColor
     if ($resolvedBorderFg -is [string] -and $resolvedBorderFg.StartsWith('$Global:')) {
-        try { $resolvedBorderFg = Invoke-Expression $resolvedBorderFg } catch { $resolvedBorderFg = "White" }
+        try { $resolvedBorderFg = Get-Variable -Name ($resolvedBorderFg -replace '^\$Global:', '') -Scope Global -ValueOnly -ErrorAction Stop } catch { $resolvedBorderFg = "White" }
     }
 
     $resolvedNameFg = $NameForegroundColor
     if ($resolvedNameFg -is [string] -and $resolvedNameFg.StartsWith('$Global:')) {
-        try { $resolvedNameFg = Invoke-Expression $resolvedNameFg } catch { $resolvedNameFg = "Cyan" }
+        try { $resolvedNameFg = Get-Variable -Name ($resolvedNameFg -replace '^\$Global:', '') -Scope Global -ValueOnly -ErrorAction Stop } catch { $resolvedNameFg = "Cyan" }
     }
 
     $resolvedValueFg = $ValueForegroundColor
     if ($resolvedValueFg -is [string] -and $resolvedValueFg.StartsWith('$Global:')) {
-        try { $resolvedValueFg = Invoke-Expression $resolvedValueFg } catch { $resolvedValueFg = "DarkYellow" }
+        try { $resolvedValueFg = Get-Variable -Name ($resolvedValueFg -replace '^\$Global:', '') -Scope Global -ValueOnly -ErrorAction Stop } catch { $resolvedValueFg = "DarkYellow" }
     }
 
     # Defensive fallback for colors

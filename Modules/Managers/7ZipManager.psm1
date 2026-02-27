@@ -28,6 +28,9 @@
 
 # No eager module imports are needed here. They will be lazy-loaded.
 
+# Module-scoped cache to track which sub-modules have been imported.
+$script:_loaded = @{}
+
 #region --- Exported Functions ---
 
 function Find-SevenZipExecutable {
@@ -36,10 +39,11 @@ function Find-SevenZipExecutable {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Discovery.psm1") -Force -ErrorAction Stop
-        return Find-SevenZipExecutable @PSBoundParameters
-    } catch { throw "Could not load the 7ZipManager/Discovery sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['Discovery']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Discovery.psm1") -Force -ErrorAction Stop; $script:_loaded['Discovery'] = $true }
+        catch { throw "Could not load the 7ZipManager/Discovery sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Find-SevenZipExecutable @PSBoundParameters
 }
 
 function Get-PoShBackup7ZipArgument {
@@ -52,10 +56,11 @@ function Get-PoShBackup7ZipArgument {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\ArgumentBuilder.psm1") -Force -ErrorAction Stop
-        return Get-PoShBackup7ZipArgument @PSBoundParameters
-    } catch { throw "Could not load the 7ZipManager/ArgumentBuilder sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['ArgumentBuilder']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\ArgumentBuilder.psm1") -Force -ErrorAction Stop; $script:_loaded['ArgumentBuilder'] = $true }
+        catch { throw "Could not load the 7ZipManager/ArgumentBuilder sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Get-PoShBackup7ZipArgument @PSBoundParameters
 }
 
 function Invoke-7ZipOperation {
@@ -81,10 +86,11 @@ function Invoke-7ZipOperation {
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
     if (-not $PSCmdlet.ShouldProcess("Target: $($SevenZipArguments | Where-Object {$_ -notlike '-*'} | Select-Object -Last 1)", "Execute 7-Zip ($($SevenZipArguments[0]))")) { return }
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Executor.psm1") -Force -ErrorAction Stop
-        return Invoke-7ZipOperation @PSBoundParameters
-    } catch { throw "Could not load the 7ZipManager/Executor sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['Executor']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Executor.psm1") -Force -ErrorAction Stop; $script:_loaded['Executor'] = $true }
+        catch { throw "Could not load the 7ZipManager/Executor sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Invoke-7ZipOperation @PSBoundParameters
 }
 
 function Test-7ZipArchive {
@@ -110,10 +116,11 @@ function Test-7ZipArchive {
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
     if (-not $PSCmdlet.ShouldProcess($ArchivePath, "Test 7-Zip Archive Integrity")) { return }
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Executor.psm1") -Force -ErrorAction Stop
-        return Test-7ZipArchive @PSBoundParameters
-    } catch { throw "Could not load the 7ZipManager/Executor sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['Executor']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Executor.psm1") -Force -ErrorAction Stop; $script:_loaded['Executor'] = $true }
+        catch { throw "Could not load the 7ZipManager/Executor sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Test-7ZipArchive @PSBoundParameters
 }
 
 function Get-7ZipArchiveListing {
@@ -129,10 +136,11 @@ function Get-7ZipArchiveListing {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Logger
     )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Lister.psm1") -Force -ErrorAction Stop
-        return Get-7ZipArchiveListing @PSBoundParameters
-    } catch { throw "Could not load the 7ZipManager/Lister sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['Lister']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Lister.psm1") -Force -ErrorAction Stop; $script:_loaded['Lister'] = $true }
+        catch { throw "Could not load the 7ZipManager/Lister sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Get-7ZipArchiveListing @PSBoundParameters
 }
 
 function Invoke-7ZipExtraction {
@@ -157,10 +165,11 @@ function Invoke-7ZipExtraction {
         [System.Management.Automation.PSCmdlet]$PSCmdlet
     )
     if (-not $PSCmdlet.ShouldProcess($OutputDirectory, "Extract files from '$ArchivePath'")) { return }
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Extractor.psm1") -Force -ErrorAction Stop
-        return Invoke-7ZipExtraction @PSBoundParameters
-    } catch { throw "Could not load the 7ZipManager/Extractor sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['Extractor']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "7ZipManager\Extractor.psm1") -Force -ErrorAction Stop; $script:_loaded['Extractor'] = $true }
+        catch { throw "Could not load the 7ZipManager/Extractor sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Invoke-7ZipExtraction @PSBoundParameters
 }
 
 Export-ModuleMember -Function Find-SevenZipExecutable, Get-PoShBackup7ZipArgument, Invoke-7ZipOperation, Test-7ZipArchive, Get-7ZipArchiveListing, Invoke-7ZipExtraction

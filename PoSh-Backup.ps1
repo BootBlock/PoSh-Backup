@@ -276,7 +276,7 @@
 
 .NOTES
     Author:         Joe Cox/AI Assistant
-    Version:        1.40.0 # Implemented lazy loading for core operational modules.
+    Version:        1.40.2 # Implemented lazy loading for core operational modules.
     Date:           02-Jul-2025
     Requires:       PowerShell 5.1+, 7-Zip. Admin for VSS, some system actions, and scheduling.
     Modules:        Located in '.\Modules\': Utils.psm1 (facade), and sub-directories

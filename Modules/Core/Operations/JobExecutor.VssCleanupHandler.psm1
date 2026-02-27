@@ -54,8 +54,12 @@ function Invoke-PoShBackupVssCleanup {
 
     if ($null -ne $VSSPathsToCleanUp) { # Check if VSS was actually used and paths were tracked
         & $LocalWriteLog -Message "JobExecutor.VssCleanupHandler: Initiating VSS Cleanup via VssManager for job '$JobName'." -Level "DEBUG"
-        Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
-        # VssManager's Remove-VSSShadowCopy handles its own ShouldProcess logic if applicable
+        try {
+            Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
+        }
+        catch {
+            & $LocalWriteLog -Message "[ERROR] JobExecutor.VssCleanupHandler: An unexpected error occurred during VSS shadow copy cleanup for job '$JobName'. Manual cleanup may be required. Error: $($_.Exception.Message)" -Level "ERROR"
+        }
     }
     else {
         & $LocalWriteLog -Message "JobExecutor.VssCleanupHandler: No VSS paths were tracked for job '$JobName'. Skipping VSS cleanup." -Level "DEBUG"

@@ -96,7 +96,7 @@ function Invoke-7ZipOperation {
         $numberOfLogicalProcessors = [int]$env:NUMBER_OF_PROCESSORS
         if ($numberOfLogicalProcessors -gt 0) {
             if ($SevenZipCpuAffinityString -match '^0x([0-9a-fA-F]+)$') {
-                try { $cpuAffinityBitmask = ([Convert]::ToInt64($matches[0], 16)) -band ((1L -shl $numberOfLogicalProcessors) - 1L) }
+                try { $cpuAffinityBitmask = ([Convert]::ToInt64($matches[1], 16)) -band ((1L -shl $numberOfLogicalProcessors) - 1L) }
                 catch {
                     & $LocalWriteLog -Message "[DEBUG] 7ZipManager/Executor: Failed to parse hex affinity string '$_'. Silently ignoring." -Level "DEBUG"
                 }
@@ -136,7 +136,7 @@ function Invoke-7ZipOperation {
             $process.Start() | Out-Null
             try { $process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]$ProcessPriority }
             catch {
-                & $LocalWriteLog -Message "[DEBUG] 7ZipManager/Executor: Failed to set CPU affinity. Error: $($_.Exception.Message)" -Level "DEBUG"
+                & $LocalWriteLog -Message "[DEBUG] 7ZipManager/Executor: Failed to set process priority to '$ProcessPriority'. Error: $($_.Exception.Message)" -Level "DEBUG"
             }
             if ($null -ne $cpuAffinityBitmask -and $cpuAffinityBitmask -ne 0L) {
                 try { $process.ProcessorAffinity = [System.IntPtr]$cpuAffinityBitmask } catch {
@@ -154,7 +154,7 @@ function Invoke-7ZipOperation {
                 $stdError.Split([Environment]::NewLine) | ForEach-Object { & $LocalWriteLog -Message "    | $_" -Level $logLevelForStdErr -NoTimestampToLogFile }
             }
         }
-        catch { $operationExitCode = -999 }
+        catch { $operationExitCode = -999; & $LocalWriteLog -Message "[ERROR] 7ZipManager/Executor: Exception during 7-Zip process execution. Error: $($_.Exception.Message)" -Level "ERROR" }
         finally { $stopwatch.Stop(); $operationElapsedTime = $stopwatch.Elapsed; if ($null -ne $process) { $process.Dispose() } }
 
         if ($operationExitCode -eq 0) { break }

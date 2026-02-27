@@ -132,14 +132,12 @@ function Invoke-BackupRetentionPolicy {
         # --- END ---
 
         & $LocalWriteLog -Message "RetentionManager (Facade): Attempting to sort $($unpinnedInstances.Count) unpinned instance(s)..." -Level "DEBUG"
-        $sortedInstances = $null
-        if ($null -ne $unpinnedInstances.GetEnumerator()) {
+        if ($unpinnedInstances.Count -gt 0) {
             $sortedInstances = $unpinnedInstances.GetEnumerator() | Sort-Object {$_.Value.SortTime} -Descending
-            # ErrorAction Stop is inherited
             & $LocalWriteLog -Message "RetentionManager (Facade): Successfully sorted instances. Count: $($sortedInstances.Count)." -Level "DEBUG"
         } else {
-            & $LocalWriteLog -Message "[WARNING] RetentionManager (Facade): unpinnedInstances.GetEnumerator() was null. Cannot sort. Instance count: $($unpinnedInstances.Count)" -Level "WARNING"
             $sortedInstances = @()
+            & $LocalWriteLog -Message "RetentionManager (Facade): No unpinned instances to sort." -Level "DEBUG"
         }
 
         if ($RetentionCountToKeep -le 0) {

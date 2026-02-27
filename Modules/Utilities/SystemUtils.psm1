@@ -122,10 +122,19 @@ function Test-DestinationFreeSpace {
             & $LocalWriteLog -Message "[WARNING] SystemUtils: Destination directory '$DestDir' for free space check not found. Skipping." -Level WARNING
             return $true
         }
-        $driveLetter = (Get-Item -LiteralPath $DestDir).PSDrive.Name
-        $destDrive = Get-PSDrive -Name $driveLetter -ErrorAction Stop
-        $freeSpaceGB = [math]::Round($destDrive.Free / 1GB, 2)
-        & $LocalWriteLog -Message "   - SystemUtils: Available free space on drive $($destDrive.Name) (hosting '$DestDir'): $freeSpaceGB GB" -Level "INFO"
+
+        # Handle UNC paths by using .NET directly, as Get-PSDrive does not support UNC paths.
+        if ($DestDir -match '^\\\\') {
+            $driveInfo = [System.IO.DriveInfo]::new((Split-Path -Path $DestDir -Qualifier))
+            $freeSpaceGB = [math]::Round($driveInfo.AvailableFreeSpace / 1GB, 2)
+            & $LocalWriteLog -Message "   - SystemUtils: Available free space on UNC path '$DestDir': $freeSpaceGB GB" -Level "INFO"
+        }
+        else {
+            $driveLetter = (Get-Item -LiteralPath $DestDir).PSDrive.Name
+            $destDrive = Get-PSDrive -Name $driveLetter -ErrorAction Stop
+            $freeSpaceGB = [math]::Round($destDrive.Free / 1GB, 2)
+            & $LocalWriteLog -Message "   - SystemUtils: Available free space on drive $($destDrive.Name) (hosting '$DestDir'): $freeSpaceGB GB" -Level "INFO"
+        }
 
         if ($freeSpaceGB -lt $MinRequiredGB) {
             & $LocalWriteLog -Message "[WARNING] SystemUtils: Low disk space on destination. Available: $freeSpaceGB GB, Required: $MinRequiredGB GB." -Level "WARNING"
@@ -165,7 +174,8 @@ function Test-HibernateEnabled {
     $LocalWriteLog = { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
 
     try {
-        $powerCfgOutput = powercfg /a
+        $powerCfgPath = Join-Path -Path $env:SystemRoot -ChildPath 'System32\powercfg.exe'
+        $powerCfgOutput = & $powerCfgPath /a
         if ($powerCfgOutput -join ' ' -match "Hibernation has not been enabled|The hiberfile is not reserved") {
             & $LocalWriteLog -Message "  - Hibernate Check: Hibernation is NOT currently enabled on this system (per powercfg /a)." -Level "DEBUG"
             return $false

@@ -32,7 +32,7 @@ try {
     Import-Module -Name (Join-Path $finalisationSubModulePath "ExitHandler.psm1") -Force -ErrorAction Stop
 }
 catch {
-    Write-Warning "FinalisationManager.psm1 (Facade): Could not import one or more dependent modules. Some functionality might be affected. Error: $($_.Exception.Message)"
+    Write-Error "FinalisationManager.psm1 (Facade): Could not import one or more dependent modules. Some functionality might be affected. Error: $($_.Exception.Message)" -ErrorAction Continue
 }
 #endregion
 

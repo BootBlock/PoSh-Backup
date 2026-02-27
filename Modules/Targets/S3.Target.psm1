@@ -45,7 +45,8 @@ function Invoke-PoShBackupS3TargetSettingsValidation {
     )
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "S3\S3.SettingsValidator.psm1") -Force -ErrorAction Stop
-        Invoke-PoShBackupS3TargetSettingsValidation @PSBoundParameters
+        $subCommand = Get-Command -Name 'Invoke-PoShBackupS3TargetSettingsValidation' -Module (Get-Module 'S3.SettingsValidator') -ErrorAction Stop
+        & $subCommand @PSBoundParameters
     } catch { throw "Could not load the S3.SettingsValidator sub-module. Error: $($_.Exception.Message)" }
 }
 
@@ -60,7 +61,8 @@ function Test-PoShBackupTargetConnectivity {
     if (-not $PSCmdlet.ShouldProcess("S3 Target Connectivity (delegated)", "Test")) { return }
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "S3\S3.ConnectionTester.psm1") -Force -ErrorAction Stop
-        return Test-PoShBackupTargetConnectivity @PSBoundParameters
+        $subCommand = Get-Command -Name 'Test-PoShBackupTargetConnectivity' -Module (Get-Module 'S3.ConnectionTester') -ErrorAction Stop
+        return & $subCommand @PSBoundParameters
     } catch { throw "Could not load the S3.ConnectionTester sub-module. Error: $($_.Exception.Message)" }
 }
 

@@ -81,6 +81,7 @@ function Invoke-PoShBackupRun {
 
     $overallSetStatus = "SUCCESS"
     $jobSpecificPostRunActionForSingleJob = $null
+    $effectiveJobConfigForThisJob = $null
     $jobEffectiveSuccessState = @{} # Stores effective success ($true/$false) of each job for dependency checks
     $allJobResultsForSetReport = [System.Collections.Generic.List[hashtable]]::new()
 
@@ -99,7 +100,7 @@ function Invoke-PoShBackupRun {
     foreach ($currentJobName in $JobsToProcess) {
         $jobCounter++
         if ($CurrentSetName) {
-            Write-Progress -Activity "Processing Backup Set: '$CurrentSetName'" -Status "Job $jobCounter of ${$totalJobsInRun}: '$currentJobName'" -PercentComplete (($jobCounter / $totalJobsInRun) * 100)
+            Write-Progress -Activity "Processing Backup Set: '$CurrentSetName'" -Status "Job $jobCounter of ${totalJobsInRun}: '$currentJobName'" -PercentComplete (($jobCounter / $totalJobsInRun) * 100)
         }
 
         $currentJobReportData = [ordered]@{ JobName = $currentJobName; ScriptStartTime = Get-Date }
@@ -116,6 +117,7 @@ function Invoke-PoShBackupRun {
             $currentJobReportData.OverallStatus = "SKIPPED"
             $currentJobReportData.ErrorMessage = $preCheckResult.Reason
             $jobEffectiveSuccessState[$currentJobName] = $false
+            $effectiveJobConfigForThisJob = $null # Reset to prevent stale config from a previous job leaking through
         }
         else {
             # --- 2. Get Effective Config & Execute Job ---

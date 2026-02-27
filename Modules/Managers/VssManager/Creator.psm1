@@ -80,7 +80,7 @@ function New-PoShBackupVssShadowCopy {
     }
 
     $diskshadowScriptContent = "SET CONTEXT $VSSContextOption`nSET METADATA CACHE `"$MetadataCachePath`"`nSET VERBOSE ON`n$($volumesToShadow | ForEach-Object { "ADD VOLUME $_ ALIAS Vol_$($_ -replace ':','')" })`nCREATE`n"
-    $tempDiskshadowScriptFile = Join-Path -Path $env:TEMP -ChildPath "diskshadow_create_vss_$(Get-Random).txt"
+    $tempDiskshadowScriptFile = (New-TemporaryFile).FullName
     try { $diskshadowScriptContent | Set-Content -Path $tempDiskshadowScriptFile -Encoding UTF8 -ErrorAction Stop }
     catch { & $LocalWriteLog -Message "[ERROR] VssManager/Creator: Failed to write diskshadow script to '$tempDiskshadowScriptFile'. VSS creation aborted. Error: $($_.Exception.Message)" -Level ERROR; return $null }
 
@@ -89,8 +89,16 @@ function New-PoShBackupVssShadowCopy {
         return $null
     }
 
-    $process = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempDiskshadowScriptFile`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$null" -RedirectStandardError "$null"
-    Remove-Item -LiteralPath $tempDiskshadowScriptFile -Force -ErrorAction SilentlyContinue
+    $tempStdOut = (New-TemporaryFile).FullName
+    $tempStdErr = (New-TemporaryFile).FullName
+    try {
+        $process = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempDiskshadowScriptFile`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $tempStdOut -RedirectStandardError $tempStdErr
+    }
+    finally {
+        Remove-Item -LiteralPath $tempDiskshadowScriptFile -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $tempStdOut -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $tempStdErr -Force -ErrorAction SilentlyContinue
+    }
 
     if ($process.ExitCode -ne 0) { & $LocalWriteLog -Message "[ERROR] VssManager/Creator: diskshadow.exe failed to create shadow copies. Exit Code: $($process.ExitCode)." -Level ERROR; return $null }
 

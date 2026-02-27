@@ -45,6 +45,10 @@ function Invoke-PoShBackupNotification {
     }
 
     $triggerStatuses = @($EffectiveNotificationSettings.TriggerOnStatus | ForEach-Object { $_.ToUpperInvariant() })
+    if ($null -eq $JobReportData.OverallStatus) {
+        & $LocalWriteLog -Message "NotificationManager (Facade): Cannot evaluate trigger for job '$($JobReportData.JobName)'. OverallStatus is null. Skipping notification." -Level "WARNING"
+        return
+    }
     $finalStatus = $JobReportData.OverallStatus.ToUpperInvariant()
 
     if (-not ($triggerStatuses -contains "ANY" -or $finalStatus -in $triggerStatuses)) {

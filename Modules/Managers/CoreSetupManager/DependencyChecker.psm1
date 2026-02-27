@@ -195,7 +195,7 @@ function Invoke-PoShBackupDependencyCheck {
         }
     )
 
-    $missingModules = [System.Collections.Generic.List[string]]::new()
+    $missingModules = [System.Collections.Generic.List[hashtable]]::new()
 
     foreach ($moduleInfo in $requiredModules) {
         if (& $moduleInfo.Condition -Config $Configuration -ActiveJobs $JobsToRun) {

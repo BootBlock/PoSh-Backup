@@ -23,7 +23,7 @@ function ConvertFrom-PoShBackupSecureString {
     
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureString)
     try {
-        $plainText = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+        $plainText = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
         return $plainText
     }
     finally {

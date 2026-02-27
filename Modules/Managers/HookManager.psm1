@@ -149,13 +149,16 @@ function Invoke-PoShBackupHook {
             $tempStdErr = New-TemporaryFile
 
             & $LocalWriteLog -Message "    - HookManager: PowerShell arguments for hook script: $processArgs" -Level "DEBUG"
-            $proc = Start-Process powershell.exe -ArgumentList $processArgs -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $tempStdOut.FullName -RedirectStandardError $tempStdErr.FullName
+            try {
+                $proc = Start-Process powershell.exe -ArgumentList $processArgs -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $tempStdOut.FullName -RedirectStandardError $tempStdErr.FullName
 
-            $stdOutContent = Get-Content $tempStdOut.FullName -Raw -ErrorAction SilentlyContinue
-            $stdErrContent = Get-Content $tempStdErr.FullName -Raw -ErrorAction SilentlyContinue
-
-            Remove-Item $tempStdOut.FullName -Force -ErrorAction SilentlyContinue
-            Remove-Item $tempStdErr.FullName -Force -ErrorAction SilentlyContinue
+                $stdOutContent = Get-Content $tempStdOut.FullName -Raw -ErrorAction SilentlyContinue
+                $stdErrContent = Get-Content $tempStdErr.FullName -Raw -ErrorAction SilentlyContinue
+            }
+            finally {
+                Remove-Item $tempStdOut.FullName -Force -ErrorAction SilentlyContinue
+                Remove-Item $tempStdErr.FullName -Force -ErrorAction SilentlyContinue
+            }
 
             if (-not [string]::IsNullOrWhiteSpace($stdOutContent)) {
                 & $LocalWriteLog -Message "    $HookType Script STDOUT:" -Level "HOOK"

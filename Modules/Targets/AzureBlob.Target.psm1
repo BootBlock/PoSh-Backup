@@ -209,7 +209,7 @@ function Invoke-PoShBackupTargetTransfer {
 
         $container = Get-AzStorageContainer -Name $containerName -Context $storageContext -ErrorAction SilentlyContinue
         if ($null -eq $container) {
-            & $LocalWriteLog -Message "  - AzureBlob Target '{0}': Container '{1}' not found. Attempting to create." -f $targetNameForLog, $containerName -Level "INFO"
+            & $LocalWriteLog -Message ("  - AzureBlob Target '{0}': Container '{1}' not found. Attempting to create." -f $targetNameForLog, $containerName) -Level "INFO"
             New-AzStorageContainer -Name $containerName -Context $storageContext -ErrorAction Stop | Out-Null
         }
 
@@ -244,7 +244,7 @@ function Invoke-PoShBackupTargetTransfer {
                 & $LocalWriteLog -Message ("    - AzureBlob Target '{0}': Found {1} remote instances. Will delete files for {2} older instance(s)." -f $targetNameForLog, $remoteInstances.Count, $instancesToDelete.Count) -Level "INFO"
 
                 foreach ($instanceEntry in $instancesToDelete) {
-                    & $LocalWriteLog "      - AzureBlob Target '{0}': Preparing to delete instance files for '$($instanceEntry.Name)'." -Level "WARNING"
+                    & $LocalWriteLog -Message ("      - AzureBlob Target '{0}': Preparing to delete instance files for '$($instanceEntry.Name)'." -f $targetNameForLog) -Level "WARNING"
                     foreach ($blobContainer in $instanceEntry.Value.Files) {
                         $blobToDelete = $blobContainer.OriginalObject
                         if (-not $PSCmdlet.ShouldProcess($blobToDelete.Name, "Delete Remote Azure Blob (Retention)")) {

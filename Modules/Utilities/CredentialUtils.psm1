@@ -83,9 +83,15 @@ function Get-PoShBackupSecret {
             if ($AsPlainText) {
                 if ($secretValue -is [System.Security.SecureString]) {
                     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secretValue)
-                    $plainText = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-                    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-                    return $plainText
+                    try {
+                        $plainText = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+                        return $plainText
+                    }
+                    finally {
+                        if ($bstr -ne [System.IntPtr]::Zero) {
+                            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+                        }
+                    }
                 }
                 # If it's already a string, just return it.
                 return $secretValue.ToString()

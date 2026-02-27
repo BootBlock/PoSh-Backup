@@ -52,8 +52,8 @@ function Invoke-PoShBackupVaultUnlock {
             throw "The file '$VaultCredentialPath' did not contain a valid PSCredential object."
         }
         
-        $vaultPassword = $credential.GetNetworkCredential().Password
-        if ([string]::IsNullOrWhiteSpace($vaultPassword)) {
+        $vaultPassword = $credential.Password  # SecureString - avoids plaintext intermediate
+        if ($null -eq $vaultPassword -or $vaultPassword.Length -eq 0) {
             throw "The credential object from '$VaultCredentialPath' does not contain a password."
         }
 

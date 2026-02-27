@@ -108,6 +108,7 @@ function Invoke-PoShBackupPostRunActionHandler {
 
     $isActionConfiguredAndEnabled = ($null -ne $finalPostRunActionToConsider) -and `
                                     ($finalPostRunActionToConsider.Enabled -eq $true) -and `
+                                    (-not [string]::IsNullOrWhiteSpace($finalPostRunActionToConsider.Action)) -and `
                                     ($finalPostRunActionToConsider.Action.ToLowerInvariant() -ne "none")
 
     # --- Mode 1: Resolve Only (for -TestConfig) ---

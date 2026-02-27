@@ -6,7 +6,7 @@
 .DESCRIPTION
     This module provides the 'Get-PoShBackupSecureStringFilePassword' function. It is
     responsible for reading and decrypting a password from a .clixml file that was
-c   reated using Export-CliXml on a SecureString object.
+    created using Export-CliXml on a SecureString object.
 .NOTES
     Author:         Joe Cox/AI Assistant
     Version:        1.0.0

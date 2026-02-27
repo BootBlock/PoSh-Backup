@@ -55,7 +55,7 @@ function Invoke-PoShBackupSnapshotCleanup {
     if ($null -ne $SnapshotSession) {
         & $LocalWriteLog -Message "JobExecutor.SnapshotCleanupHandler: Initiating infrastructure snapshot cleanup via SnapshotManager for job '$JobName'." -Level "DEBUG"
         try {
-            Remove-PoShBackupSnapshot -SnapshotSession $SnapshotSession -PSCmdlet $PSCmdlet -IsSimulateMode:$IsSimulateMode.IsPresent
+            Remove-PoShBackupSnapshot -SnapshotSession $SnapshotSession -PSCmdlet $PSCmdlet -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger
         }
         catch {
             # This catch block is a safeguard. The underlying functions should handle their own errors.

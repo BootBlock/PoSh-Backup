@@ -20,173 +20,196 @@
 
 # No eager module imports are needed here. They will be lazy-loaded by the wrapper functions.
 
+# Module-scoped cache to track which sub-modules have been imported in this facade session.
+# This is automatically reset whenever Utils.psm1 itself is re-imported, ensuring correctness.
+$script:_loaded = @{}
+
 #region --- Facade Functions ---
 
 function Get-ConfigValue {
     [CmdletBinding()]
     param ( [object]$ConfigObject, [string]$Key, [object]$DefaultValue )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConfigUtils.psm1") -Force -ErrorAction Stop
-        return Get-ConfigValue @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the ConfigUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['ConfigUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConfigUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['ConfigUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the ConfigUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Get-ConfigValue @PSBoundParameters
 }
 
 function Get-RequiredConfigValue {
     [CmdletBinding()]
     param( [hashtable]$JobConfig, [hashtable]$GlobalConfig, [string]$JobKey, [string]$GlobalKey )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConfigUtils.psm1") -Force -ErrorAction Stop
-        return Get-RequiredConfigValue @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the ConfigUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['ConfigUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConfigUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['ConfigUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the ConfigUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Get-RequiredConfigValue @PSBoundParameters
 }
 
 function Expand-EnvironmentVariablesInConfig {
     [CmdletBinding()]
     param( [hashtable]$ConfigObject, [string[]]$KeysToExpand, [scriptblock]$Logger )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConfigUtils.psm1") -Force -ErrorAction Stop
-        return Expand-EnvironmentVariablesInConfig @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the ConfigUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['ConfigUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConfigUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['ConfigUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the ConfigUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Expand-EnvironmentVariablesInConfig @PSBoundParameters
 }
 
 function Write-ConsoleBanner {
     [CmdletBinding()]
     param( [string]$NameText, [string]$NameForegroundColor = '$Global:ColourInfo', [string]$ValueText, [string]$ValueForegroundColor = '$Global:ColourValue', [int]$BannerWidth = 50, [string]$BorderForegroundColor = '$Global:ColourBorder', [switch]$CenterText, [switch]$PrependNewLine, [switch]$AppendNewLine )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
-        Write-ConsoleBanner @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the ConsoleDisplayUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['ConsoleDisplayUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['ConsoleDisplayUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the ConsoleDisplayUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    Write-ConsoleBanner @PSBoundParameters
 }
 
 function Write-NameValue {
     param( [string]$name, [string]$value, [Int16]$namePadding = 0, [string]$defaultValue = '-', [string]$nameForegroundColor = "DarkGray", [string]$valueForegroundColor = "Gray" )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
-        Write-NameValue @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the ConsoleDisplayUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['ConsoleDisplayUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['ConsoleDisplayUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the ConsoleDisplayUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    Write-NameValue @PSBoundParameters
 }
 
 function Start-CancellableCountdown {
     [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')]
     param( [int]$DelaySeconds, [string]$ActionDisplayName, [scriptblock]$Logger, [System.Management.Automation.PSCmdlet]$PSCmdletInstance )
     if (-not $PSCmdletInstance.ShouldProcess("Cancellable Countdown (delegated)", "Start")) { return }
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop
-        return Start-CancellableCountdown @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the ConsoleDisplayUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['ConsoleDisplayUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\ConsoleDisplayUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['ConsoleDisplayUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the ConsoleDisplayUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Start-CancellableCountdown @PSBoundParameters
 }
 
 function Get-PoShBackupSecret {
     [CmdletBinding()]
     [OutputType([object])]
     param( [string]$SecretName, [string]$VaultName, [scriptblock]$Logger, [string]$SecretPurposeForLog = "Credential", [switch]$AsPlainText, [switch]$AsCredential )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\CredentialUtils.psm1") -Force -ErrorAction Stop
-        return Get-PoShBackupSecret @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the CredentialUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['CredentialUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\CredentialUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['CredentialUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the CredentialUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Get-PoShBackupSecret @PSBoundParameters
 }
 
 function Get-ArchiveSizeFormatted {
     [CmdletBinding()]
     param( [string]$PathToArchive, [scriptblock]$Logger )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\FileUtils.psm1") -Force -ErrorAction Stop
-        return Get-ArchiveSizeFormatted @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the FileUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['FileUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\FileUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['FileUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the FileUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Get-ArchiveSizeFormatted @PSBoundParameters
 }
 
 function Format-FileSize {
     [CmdletBinding()]
     [OutputType([string])]
     param( [long]$Bytes )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\FileUtils.psm1") -Force -ErrorAction Stop
-        return Format-FileSize @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the FileUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['FileUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\FileUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['FileUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the FileUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Format-FileSize @PSBoundParameters
 }
 
 function Get-PoshBackupFileHash {
     [CmdletBinding()]
     param( [string]$FilePath, [ValidateSet("SHA1", "SHA256", "SHA384", "SHA512", "MD5")] [string]$Algorithm, [scriptblock]$Logger )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\FileUtils.psm1") -Force -ErrorAction Stop
-        return Get-PoshBackupFileHash @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the FileUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['FileUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\FileUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['FileUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the FileUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Get-PoshBackupFileHash @PSBoundParameters
 }
 
 function Resolve-PoShBackupPath {
     [CmdletBinding()]
     [OutputType([string])]
     param( [string]$PathToResolve, [string]$ScriptRoot )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\PathResolver.psm1") -Force -ErrorAction Stop
-        return Resolve-PoShBackupPath @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the PathResolver sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['PathResolver']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\PathResolver.psm1") -Force -ErrorAction Stop; $script:_loaded['PathResolver'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the PathResolver sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Resolve-PoShBackupPath @PSBoundParameters
 }
 
 function Group-BackupInstancesByTimestamp {
     [CmdletBinding()]
     param( [array]$FileObjectList, [string]$ArchiveBaseName, [string]$ArchiveDateFormat, [string]$PrimaryArchiveExtension, [scriptblock]$Logger )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\RetentionUtils.psm1") -Force -ErrorAction Stop
-        return Group-BackupInstancesByTimestamp @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the RetentionUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['RetentionUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\RetentionUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['RetentionUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the RetentionUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Group-BackupInstancesByTimestamp @PSBoundParameters
 }
 
 function Get-ScriptVersionFromContent {
     [CmdletBinding()]
     param( [string]$ScriptContent, [string]$ScriptNameForWarning = "script" )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\StringUtils.psm1") -Force -ErrorAction Stop
-        return Get-ScriptVersionFromContent @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the StringUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['StringUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\StringUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['StringUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the StringUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Get-ScriptVersionFromContent @PSBoundParameters
 }
 
 function Test-AdminPrivilege {
     [CmdletBinding()]
     param( [scriptblock]$Logger )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
-        return Test-AdminPrivilege @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the SystemUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['SystemUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\SystemUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['SystemUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the SystemUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Test-AdminPrivilege @PSBoundParameters
 }
 
 function Test-DestinationFreeSpace {
     [CmdletBinding()]
     param( [string]$DestDir, [int]$MinRequiredGB, [bool]$ExitOnLow, [switch]$IsSimulateMode, [scriptblock]$Logger )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
-        return Test-DestinationFreeSpace @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the SystemUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['SystemUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\SystemUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['SystemUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the SystemUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Test-DestinationFreeSpace @PSBoundParameters
 }
 
 function Test-HibernateEnabled {
     [CmdletBinding()]
     param( [scriptblock]$Logger )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\SystemUtils.psm1") -Force -ErrorAction Stop
-        return Test-HibernateEnabled @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the SystemUtils sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['SystemUtils']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\SystemUtils.psm1") -Force -ErrorAction Stop; $script:_loaded['SystemUtils'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the SystemUtils sub-module. Error: $($_.Exception.Message)" }
+    }
+    return Test-HibernateEnabled @PSBoundParameters
 }
 
 function Write-LogMessage {
     [CmdletBinding()]
     param( [string]$Message, [string]$ForegroundColour, [switch]$NoNewLine, [string]$Level = "INFO", [switch]$NoTimestampToLogFile = $false )
-    try {
-        # *** Corrected Path ***
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\Logging.psm1") -Force -ErrorAction Stop
-        Write-LogMessage @PSBoundParameters
-    } catch { Write-Error "Utils.psm1 Facade: Could not load the Logging sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['Logging']) {
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "Utilities\Logging.psm1") -Force -ErrorAction Stop
+            $script:_loaded['Logging'] = $true
+        } catch { Write-Error "Utils.psm1 Facade: Could not load the Logging sub-module. Error: $($_.Exception.Message)"; return }
+    }
+    Write-LogMessage @PSBoundParameters
 }
 
 function Invoke-PoShBackupUpdateCheckAndApply {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     param( [scriptblock]$Logger, [string]$PSScriptRootForPaths, [System.Management.Automation.PSCmdlet]$PSCmdletInstance )
     if (-not $PSCmdletInstance.ShouldProcess("PoSh-Backup Update Check (delegated)", "Invoke")) { return }
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "Utilities\Update.psm1") -Force -ErrorAction Stop
-        Invoke-PoShBackupUpdateCheckAndApply @PSBoundParameters
-    } catch { throw "Utils.psm1 Facade: Could not load the Update sub-module. Error: $($_.Exception.Message)" }
+    if (-not $script:_loaded['Update']) {
+        try { Import-Module -Name (Join-Path $PSScriptRoot "Utilities\Update.psm1") -Force -ErrorAction Stop; $script:_loaded['Update'] = $true }
+        catch { throw "Utils.psm1 Facade: Could not load the Update sub-module. Error: $($_.Exception.Message)" }
+    }
+    Invoke-PoShBackupUpdateCheckAndApply @PSBoundParameters
 }
 
 #endregion

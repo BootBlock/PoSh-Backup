@@ -166,18 +166,31 @@ function Remove-PoShBackupSnapshot {
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCmdlet]$PSCmdlet,
         [Parameter(Mandatory = $false)]
-        [switch]$IsSimulateMode
+        [switch]$IsSimulateMode,
+        [Parameter(Mandatory = $false)]
+        [scriptblock]$Logger
     )
+
+    $LocalWriteLog = if ($null -ne $Logger) {
+        { param([string]$Message, [string]$Level = "INFO") & $Logger -Message $Message -Level $Level }
+    } else {
+        { param([string]$Message, [string]$Level = "INFO")
+            if ($Level -eq 'ERROR') { Write-Error $Message }
+            elseif ($Level -eq 'WARNING') { Write-Warning $Message }
+            else { Write-Verbose $Message }
+        }
+    }
+
     $sessionId = $SnapshotSession.SessionId
     if (-not $Global:PoShBackup_SnapshotManager_ActiveSessions.ContainsKey($sessionId)) {
-        Write-Warning "SnapshotManager: Cannot remove snapshot. No active session found for ID '$sessionId'. It may have already been cleaned up."
+        & $LocalWriteLog -Message "SnapshotManager: Cannot remove snapshot. No active session found for ID '$sessionId'. It may have already been cleaned up." -Level "WARNING"
         return
     }
 
     $sessionData = $Global:PoShBackup_SnapshotManager_ActiveSessions[$sessionId]
     $providerModulePath = $sessionData.ProviderModulePath
     if ([string]::IsNullOrWhiteSpace($providerModulePath) -or -not (Test-Path -LiteralPath $providerModulePath)) {
-        Write-Error "SnapshotManager: Could not find provider module path '$providerModulePath' stored in session '$sessionId'. Cannot perform cleanup."
+        & $LocalWriteLog -Message "SnapshotManager: Could not find provider module path '$providerModulePath' stored in session '$sessionId'. Cannot perform cleanup." -Level "ERROR"
         return
     }
 
@@ -185,7 +198,7 @@ function Remove-PoShBackupSnapshot {
     $providerType = $providerModule.Name
 
     if (-not $PSCmdlet.ShouldProcess($sessionId, "Remove Snapshot (via provider '$providerType')")) {
-        Write-Warning "SnapshotManager: Snapshot removal for session '$sessionId' skipped by user."
+        & $LocalWriteLog -Message "SnapshotManager: Snapshot removal for session '$sessionId' skipped by user." -Level "WARNING"
         return
     }
 
@@ -201,7 +214,7 @@ function Remove-PoShBackupSnapshot {
         & $providerFunctionCmd @removeParams
     }
     else {
-        Write-Error "SnapshotManager: Active provider module for session '$sessionId' is missing the required function '$invokeFunctionName'."
+        & $LocalWriteLog -Message "SnapshotManager: Active provider module for session '$sessionId' is missing the required function '$invokeFunctionName'." -Level "ERROR"
     }
 
     $Global:PoShBackup_SnapshotManager_ActiveSessions.Remove($sessionId)

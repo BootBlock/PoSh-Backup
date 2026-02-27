@@ -23,6 +23,7 @@ function Invoke-LogFileRetentionPolicyInternal {
         [Parameter(Mandatory = $true)]
         [string]$JobNamePattern,
         [Parameter(Mandatory = $true)]
+        [ValidateRange(0, [int]::MaxValue)]
         [int]$RetentionCount,
         [Parameter(Mandatory = $true)]
         [bool]$CompressOldLogs,
@@ -97,8 +98,8 @@ function Invoke-LogFileRetentionPolicyInternal {
             foreach ($logFile in $logFilesToDelete) {
                 if (-not $PSCmdletInstance.ShouldProcess($logFile.FullName, "Permanently Delete Log File")) { continue }
                 & $LocalWriteLog -Message "       - Deleting log file: '$($logFile.FullName)' (Created: $($logFile.CreationTime))" -Level "WARNING"
-                try { Remove-Item -LiteralPath $logFile.FullName -Force -ErrorAction Stop; & $LocalWriteLog "         - Status: DELETED PERMANENTLY" "SUCCESS" }
-                catch { & $LocalWriteLog "         - Status: FAILED to delete log file! Error: $($_.Exception.Message)" "ERROR" }
+                try { Remove-Item -LiteralPath $logFile.FullName -Force -ErrorAction Stop; & $LocalWriteLog -Message "         - Status: DELETED PERMANENTLY" -Level "SUCCESS" }
+                catch { & $LocalWriteLog -Message "         - Status: FAILED to delete log file! Error: $($_.Exception.Message)" -Level "ERROR" }
             }
         }
     } catch { & $LocalWriteLog -Message "[WARNING] LogRetentionHandler: Error during log retention policy. Error: $($_.Exception.Message)" -Level "WARNING" }

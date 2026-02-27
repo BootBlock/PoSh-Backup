@@ -205,10 +205,10 @@ function Invoke-PoShBackupJob {
     }
     finally {
         try { Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.SnapshotCleanupHandler.psm1") -Force -ErrorAction Stop; Invoke-PoShBackupSnapshotCleanup -SnapshotSession $snapshotSessionToCleanUp -JobName $JobName -Logger $Logger -PSCmdlet $PSCmdlet -IsSimulateMode:$IsSimulateMode.IsPresent } catch { & $LocalWriteLog "[ERROR] JobExecutor: Failed to load/run SnapshotCleanupHandler. Error: $($_.Exception.Message)" "ERROR" }
-        try { Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.VssCleanupHandler.psm1") -Force -ErrorAction Stop; Invoke-PoShBackupVssCleanup -VSSPathsToCleanUp $VSSPathsToCleanUp -JobName $JobName -IsSimulateMode:$IsSimulateMode -Logger $Logger } catch { & $LocalWriteLog "[ERROR] JobExecutor: Failed to load/run VssCleanupHandler. Error: $($_.Exception.Message)" "ERROR" }
+        try { Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "JobExecutor.VssCleanupHandler.psm1") -Force -ErrorAction Stop; Invoke-PoShBackupVssCleanup -VSSPathsToCleanUp $VSSPathsToCleanUp -JobName $JobName -IsSimulateMode:$IsSimulateMode.IsPresent -Logger $Logger } catch { & $LocalWriteLog "[ERROR] JobExecutor: Failed to load/run VssCleanupHandler. Error: $($_.Exception.Message)" "ERROR" }
 
         if (-not [string]::IsNullOrWhiteSpace($plainTextPasswordToClearAfterJob)) {
-            try { $plainTextPasswordToClearAfterJob = $null; Remove-Variable plainTextPasswordToClearAfterJob -Scope Script -ErrorAction SilentlyContinue; [System.GC]::Collect(); [System.GC]::WaitForPendingFinalizers(); & $LocalWriteLog -Message "   - Plain text password for job '$JobName' cleared from JobExecutor module memory." -Level DEBUG }
+            try { $plainTextPasswordToClearAfterJob = $null; Remove-Variable plainTextPasswordToClearAfterJob -Scope Local -ErrorAction SilentlyContinue; [System.GC]::Collect(); [System.GC]::WaitForPendingFinalizers(); & $LocalWriteLog -Message "   - Plain text password for job '$JobName' cleared from JobExecutor module memory." -Level DEBUG }
             catch { & $LocalWriteLog -Message "[WARNING] Exception while clearing plain text password from JobExecutor module memory for job '$JobName'. Error: $($_.Exception.Message)" -Level WARNING }
         }
 

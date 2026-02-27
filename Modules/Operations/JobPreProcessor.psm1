@@ -140,7 +140,7 @@ function Invoke-PoShBackupJobPreProcessing {
 
         # Attempt cleanup even on failure
         if ($null -ne $vssPathsToCleanUp) { Remove-VSSShadowCopy -IsSimulateMode:$IsSimulateMode -Logger $Logger -PSCmdletInstance $PSCmdlet -Force }
-        if ($null -ne $snapshotSession) { Remove-PoShBackupSnapshot -SnapshotSession $snapshotSession -PSCmdlet $PSCmdlet -Force }
+        if ($null -ne $snapshotSession) { Remove-PoShBackupSnapshot -SnapshotSession $snapshotSession -PSCmdlet $PSCmdlet -Logger $Logger -Force }
 
         return @{
             Success                     = $false

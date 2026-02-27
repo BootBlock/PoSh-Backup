@@ -22,6 +22,8 @@
 
 # No eager module imports are needed here. They will be lazy-loaded.
 
+$script:_loaded = @{}
+
 function Get-PoShBackupJobDependencyMap {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -29,16 +31,19 @@ function Get-PoShBackupJobDependencyMap {
         [Parameter(Mandatory = $true)]
         [hashtable]$AllBackupLocations
     )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "JobDependencyManager\GraphBuilder.psm1") -Force -ErrorAction Stop
-        return Get-PoShBackupJobDependencyMap @PSBoundParameters
+    if (-not $script:_loaded['GraphBuilder']) {
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "JobDependencyManager\GraphBuilder.psm1") -Force -ErrorAction Stop
+            $script:_loaded['GraphBuilder'] = $true
+        }
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\JobDependencyManager\GraphBuilder.psm1' exists and is not corrupted."
+            Write-Error "JobDependencyManager (Facade): Could not load the GraphBuilder sub-module. Error: $($_.Exception.Message)"
+            Write-Host $advice -ForegroundColor DarkCyan
+            throw
+        }
     }
-    catch {
-        $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\JobDependencyManager\GraphBuilder.psm1' exists and is not corrupted."
-        Write-Error "JobDependencyManager (Facade): Could not load the GraphBuilder sub-module. Error: $($_.Exception.Message)"
-        Write-Host $advice -ForegroundColor DarkCyan
-        throw
-    }
+    return Get-PoShBackupJobDependencyMap @PSBoundParameters
 }
 
 function Test-PoShBackupJobDependencyGraph {
@@ -53,16 +58,19 @@ function Test-PoShBackupJobDependencyGraph {
         [Parameter(Mandatory = $false)]
         [scriptblock]$Logger
     )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "JobDependencyManager\GraphValidator.psm1") -Force -ErrorAction Stop
-        Test-PoShBackupJobDependencyGraph @PSBoundParameters
+    if (-not $script:_loaded['GraphValidator']) {
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "JobDependencyManager\GraphValidator.psm1") -Force -ErrorAction Stop
+            $script:_loaded['GraphValidator'] = $true
+        }
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\JobDependencyManager\GraphValidator.psm1' exists and is not corrupted."
+            & $Logger -Message "[FATAL] JobDependencyManager (Facade): Could not load the GraphValidator sub-module. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $Logger -Message $advice -Level "ADVICE"
+            throw
+        }
     }
-    catch {
-        $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\JobDependencyManager\GraphValidator.psm1' exists and is not corrupted."
-        & $Logger -Message "[FATAL] JobDependencyManager (Facade): Could not load the GraphValidator sub-module. Error: $($_.Exception.Message)" -Level "ERROR"
-        & $Logger -Message $advice -Level "ADVICE"
-        throw
-    }
+    Test-PoShBackupJobDependencyGraph @PSBoundParameters
 }
 
 function Get-JobExecutionOrder {
@@ -76,16 +84,19 @@ function Get-JobExecutionOrder {
         [Parameter(Mandatory = $false)]
         [scriptblock]$Logger
     )
-    try {
-        Import-Module -Name (Join-Path $PSScriptRoot "JobDependencyManager\ExecutionPlanner.psm1") -Force -ErrorAction Stop
-        return Get-JobExecutionOrder @PSBoundParameters
+    if (-not $script:_loaded['ExecutionPlanner']) {
+        try {
+            Import-Module -Name (Join-Path $PSScriptRoot "JobDependencyManager\ExecutionPlanner.psm1") -Force -ErrorAction Stop
+            $script:_loaded['ExecutionPlanner'] = $true
+        }
+        catch {
+            $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\JobDependencyManager\ExecutionPlanner.psm1' exists and is not corrupted."
+            & $Logger -Message "[FATAL] JobDependencyManager (Facade): Could not load the ExecutionPlanner sub-module. Error: $($_.Exception.Message)" -Level "ERROR"
+            & $Logger -Message $advice -Level "ADVICE"
+            throw
+        }
     }
-    catch {
-        $advice = "ADVICE: This indicates a problem loading a core component. Ensure 'Modules\Managers\JobDependencyManager\ExecutionPlanner.psm1' exists and is not corrupted."
-        & $Logger -Message "[FATAL] JobDependencyManager (Facade): Could not load the ExecutionPlanner sub-module. Error: $($_.Exception.Message)" -Level "ERROR"
-        & $Logger -Message $advice -Level "ADVICE"
-        throw
-    }
+    return Get-JobExecutionOrder @PSBoundParameters
 }
 
 Export-ModuleMember -Function Get-PoShBackupJobDependencyMap, Test-PoShBackupJobDependencyGraph, Get-JobExecutionOrder

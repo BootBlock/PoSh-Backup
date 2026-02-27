@@ -63,16 +63,21 @@ function Get-PoShBackupSecretManagementPassword {
             throw "Secret '$SecretName'$vaultInfoString not found or could not be retrieved using Get-Secret (returned null)."
         }
         
-        if ($secretObject.Secret -is [System.Security.SecureString]) {
+        # Get-Secret returns the value directly (SecureString, string, PSCredential, etc.) - not a wrapper object.
+        if ($secretObject -is [System.Security.SecureString]) {
             & $LocalWriteLog -Message "  - Password (SecureString) successfully retrieved from SecretManagement for '$SecretName'$vaultInfoString." -Level "SUCCESS"
-            return ConvertFrom-PoShBackupSecureString -SecureString $secretObject.Secret
+            return ConvertFrom-PoShBackupSecureString -SecureString $secretObject
         }
-        elseif ($secretObject.Secret -is [string]) {
+        elseif ($secretObject -is [System.Management.Automation.PSCredential]) {
+            & $LocalWriteLog -Message "  - Password (PSCredential) successfully retrieved from SecretManagement for '$SecretName'$vaultInfoString." -Level "SUCCESS"
+            return ConvertFrom-PoShBackupSecureString -SecureString $secretObject.Password
+        }
+        elseif ($secretObject -is [string]) {
             & $LocalWriteLog -Message "  - Password (plain text string) successfully retrieved from SecretManagement for '$SecretName'$vaultInfoString." -Level "SUCCESS"
-            return $secretObject.Secret
+            return $secretObject
         }
         else {
-            throw "Secret '$SecretName'$vaultInfoString retrieved, but its content was not a SecureString or a plain String. Type found: $($secretObject.Secret.GetType().FullName)"
+            throw "Secret '$SecretName'$vaultInfoString retrieved, but its content was not a SecureString, PSCredential, or plain String. Type found: $($secretObject.GetType().FullName)"
         }
     }
     catch {

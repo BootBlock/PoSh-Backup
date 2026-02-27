@@ -38,7 +38,7 @@ function Write-LogMessage {
         $effectiveConsoleColour = $ForegroundColour
     }
     # Priority 2: A colour mapped to the Level.
-    elseif ($Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
+    elseif ($null -ne $Global:StatusToColourMap -and $Global:StatusToColourMap.ContainsKey($Level.ToUpperInvariant())) {
         $effectiveConsoleColour = $Global:StatusToColourMap[$Level.ToUpperInvariant()]
     }
 

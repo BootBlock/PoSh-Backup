@@ -168,6 +168,7 @@ function Get-PoShBackup7ZipArgument {
 
     if ([string]::IsNullOrWhiteSpace($FinalArchivePath)) {
         & $LocalWriteLog -Message "[CRITICAL] Final Archive Path is NULL or EMPTY in 7ZipManager/ArgumentBuilder/Get-PoShBackup7ZipArgument. 7-Zip command will likely fail or use an unexpected name." -Level ERROR
+        throw "7ZipManager/ArgumentBuilder: FinalArchivePath is null or empty. Cannot build a valid 7-Zip command."
     }
     $sevenZipArgs.Add($FinalArchivePath)
 

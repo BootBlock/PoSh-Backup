@@ -45,7 +45,8 @@ function Invoke-PoShBackupGCSTargetSettingsValidation {
     )
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "GCS\GCS.SettingsValidator.psm1") -Force -ErrorAction Stop
-        Invoke-PoShBackupGCSTargetSettingsValidation @PSBoundParameters
+        $subCommand = Get-Command -Name 'Invoke-PoShBackupGCSTargetSettingsValidation' -Module (Get-Module 'GCS.SettingsValidator') -ErrorAction Stop
+        & $subCommand @PSBoundParameters
     } catch { throw "Could not load the GCS.SettingsValidator sub-module. Error: $($_.Exception.Message)" }
 }
 
@@ -60,7 +61,8 @@ function Test-PoShBackupTargetConnectivity {
     if (-not $PSCmdlet.ShouldProcess("GCS Target Connectivity (delegated)", "Test")) { return }
     try {
         Import-Module -Name (Join-Path $PSScriptRoot "GCS\GCS.ConnectionTester.psm1") -Force -ErrorAction Stop
-        return Test-PoShBackupTargetConnectivity @PSBoundParameters
+        $subCommand = Get-Command -Name 'Test-PoShBackupTargetConnectivity' -Module (Get-Module 'GCS.ConnectionTester') -ErrorAction Stop
+        return & $subCommand @PSBoundParameters
     } catch { throw "Could not load the GCS.ConnectionTester sub-module. Error: $($_.Exception.Message)" }
 }
 

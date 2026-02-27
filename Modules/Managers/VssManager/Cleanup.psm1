@@ -59,21 +59,38 @@ function Remove-PoShBackupVssShadowCopy {
         return
     }
 
+    # Validate shadow IDs are GUIDs to prevent command injection via diskshadow script
+    $validatedShadowIds = $shadowIdsToRemove | Where-Object {
+        try { [guid]::Parse($_); $true } catch { & $LocalWriteLog -Message "[WARNING] VssManager/Cleanup: Skipping invalid shadow ID '$_' - not a valid GUID." -Level "WARNING"; $false }
+    }
+    if ($validatedShadowIds.Count -eq 0) {
+        & $LocalWriteLog -Message "  - VssManager/Cleanup: No valid shadow IDs to remove after validation." -Level "VSS"
+        $shadowIdMapForRun.Clear(); return
+    }
+
     $diskshadowScriptContentAll = "SET VERBOSE ON`n"
-    $shadowIdsToRemove | ForEach-Object { $diskshadowScriptContentAll += "DELETE SHADOWS ID $_`n" }
-    $tempScriptPathAll = Join-Path -Path $env:TEMP -ChildPath "diskshadow_delete_all_vss_$(Get-Random).txt"
+    $validatedShadowIds | ForEach-Object { $diskshadowScriptContentAll += "DELETE SHADOWS ID $_`n" }
+    $tempScriptPathAll = (New-TemporaryFile).FullName
     try { $diskshadowScriptContentAll | Set-Content -Path $tempScriptPathAll -Encoding UTF8 -ErrorAction Stop }
     catch { & $LocalWriteLog -Message "[ERROR] VssManager/Cleanup: Failed to write VSS deletion script to '$tempScriptPathAll'. Manual cleanup may be needed. Error: $($_.Exception.Message)" -Level "ERROR"; return }
 
     & $LocalWriteLog -Message "  - VssManager/Cleanup: Executing diskshadow.exe to delete VSS shadow copies..." -Level "VSS"
-    $processDeleteAll = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempScriptPathAll`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$null" -RedirectStandardError "$null"
-    if ($processDeleteAll.ExitCode -ne 0) {
-        & $LocalWriteLog -Message "[ERROR] VssManager/Cleanup: diskshadow.exe failed to delete one or more VSS shadows. Exit Code: $($processDeleteAll.ExitCode). Manual cleanup may be needed for ID(s): $($shadowIdsToRemove -join ', ')" -Level "ERROR"
+    $tempStdOut = (New-TemporaryFile).FullName
+    $tempStdErr = (New-TemporaryFile).FullName
+    try {
+        $processDeleteAll = Start-Process -FilePath "diskshadow.exe" -ArgumentList "/s `"$tempScriptPathAll`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $tempStdOut -RedirectStandardError $tempStdErr
+        if ($processDeleteAll.ExitCode -ne 0) {
+            & $LocalWriteLog -Message "[ERROR] VssManager/Cleanup: diskshadow.exe failed to delete one or more VSS shadows. Exit Code: $($processDeleteAll.ExitCode). Manual cleanup may be needed for ID(s): $($validatedShadowIds -join ', ')" -Level "ERROR"
+        }
+        else {
+            & $LocalWriteLog -Message "  - VssManager/Cleanup: VSS shadow deletion process completed successfully." -Level "VSS"
+        }
     }
-    else {
-        & $LocalWriteLog -Message "  - VssManager/Cleanup: VSS shadow deletion process completed successfully." -Level "VSS"
+    finally {
+        Remove-Item -LiteralPath $tempScriptPathAll -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $tempStdOut -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $tempStdErr -Force -ErrorAction SilentlyContinue
     }
-    Remove-Item -LiteralPath $tempScriptPathAll -Force -ErrorAction SilentlyContinue
     $shadowIdMapForRun.Clear()
 }
 #endregion
